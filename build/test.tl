@@ -219,6 +219,9 @@ end
 
 --- The variable a test deadline's default is read from, in seconds.
 local timeout_variable <const>: Env.Name = "COSMIC_TEST_TIMEOUT"
+--- The variable the run's deadline (`--deadline`) is read from, in
+--- seconds from the run's start.
+local deadline_variable <const>: Env.Name = "COSMIC_TEST_DEADLINE"
 --- A test's deadline when neither the command line nor the
 --- environment names one, in seconds: the slowest test in this tree
 --- takes about a second, so this leaves a loaded CI host ample room
@@ -1742,7 +1745,8 @@ end
 --- whose copy was running when its worker ended fails as one whose worker ended before it reported.
 ---
 --- With `bail`, a failure (any entry in `rec.failures`, one recorded
---- before the run included) stops the starting of jobs. Those already running finish with their
+--- before the run included) stops the starting of jobs, and so does
+--- `limits.deadline_ns` once the clock passes it. Those already running finish with their
 --- own verdicts, and the jobs never started are counted in
 --- `rec.not_run` and recorded as nothing. A forking worker is ended once the test it is running has its result.
 local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
@@ -1823,8 +1827,19 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
   -- A failure recorded before any job starts (an unmet requirement, say)
   -- stops a bailing run as one a job makes does: baseline 0.
   local failures_before = 0
+  local stop_at = limits.deadline_ns
   local function bailing(): boolean
-    return bail == true and #rec.failures > failures_before
+    -- Once stopped, the run stays stopped for what stopped it first.
+    if rec.stopped_by ~= nil then return true end
+    if bail == true and #rec.failures > failures_before then
+      rec.stopped_by = "the first failure"
+      return true
+    end
+    if stop_at ~= nil and Clock.monotonic_ns() >= stop_at then
+      rec.stopped_by = "the deadline"
+      return true
+    end
+    return false
   end
   -- Starts `unit`: its worker joins `running` or `batches`, or its failure to start is recorded.
   local function start(unit: Unit)
@@ -2242,6 +2257,13 @@ local function limits_of(values: {string:string}): State.Limits?, string
     if seconds == nil then return nil, trouble end
     limits.timeout_ns = Clock.seconds(seconds)
   end
+  local deadline_given = values["--deadline"]
+  local deadline_flag = deadline_given or Env.read(deadline_variable)
+  if deadline_flag ~= nil and (deadline_flag ~= "" or deadline_given ~= nil) then
+    local seconds, trouble = seconds_of(deadline_flag, if deadline_given ~= nil then "--deadline" else deadline_variable end)
+    if seconds == nil then return nil, trouble end
+    limits.deadline_s = seconds
+  end
   local jobs_flag = values["--jobs"]
   if jobs_flag ~= nil then
     local jobs, trouble = positive(jobs_flag, "--jobs")
@@ -2581,7 +2603,10 @@ local function hold_checkout(ctx: Run): integer?
     log:complain("test: " .. lock_trouble)
     return 1
   end
-  ctx.started = Clock.monotonic_ns()
+  local began = Clock.monotonic_ns()
+  ctx.started = began
+  local deadline_s = assert(ctx.limits).deadline_s
+  if deadline_s ~= nil then assert(ctx.limits).deadline_ns = began + Clock.seconds(deadline_s) end
   prune_trees(root)
   local standing, standing_trouble = tree.standing(root)
   if standing == nil then
@@ -3495,10 +3520,17 @@ local function settle(ctx: Run)
   local function_lines: mut {string} = {}
   ctx.function_lines = function_lines
   local functions = Coverage.native_functions()
+  if rec.not_run > 0 and rec.stopped_by == "the deadline" then
+    -- A run cut short by its deadline fails as a failing test does, whatever the tests it ran said; the line
+    -- counts as one failure in the summary's figures.
+    local late = string.format("the run passed its deadline of %s: %s not started",
+      plural.count(assert(assert(ctx.limits).deadline_s), "second"), plural.count(rec.not_run, "test"))
+    failures[#failures + 1] = late
+  end
   if ctx.own_tree == true and rec.not_run > 0 then
     -- The tests not started are the ones that would have entered some.
     function_lines[1] = string.format("test: C functions not checked: %s not run " ..
-        "after the first failure", plural.count(rec.not_run, "test"))
+        "after %s", plural.count(rec.not_run, "test"), rec.stopped_by or "the first failure")
   elseif ctx.own_tree == true and ctx.whole == true and #functions > 0 then
     -- A host whose name cannot be had is held to every function.
     local names, uname_trouble = sys.uname()
@@ -3547,9 +3579,10 @@ local function settle(ctx: Run)
       end
     end
     if rec.not_run > 0 then
-      -- A run that stopped early (`--bail`) reached only part of the lines.
+      -- A run that stopped early (`--bail`, `--deadline`) reached only part of the lines.
       ctx.shortfall = { lines = { "test: coverage floor not judged: the run did not finish (" ..
-          plural.count(rec.not_run, "test") .. " not started after the first failure)" }, clause = "" }
+          plural.count(rec.not_run, "test") .. " not started after " .. (rec.stopped_by or "the first failure") .. ")" },
+        clause = "" }
     else
       ctx.shortfall = test_report.floor(cov_hit, cov_total, files, floors, rec.stale)
     end
@@ -3671,7 +3704,7 @@ local function report(ctx: Run): integer
   log:say("test: " .. test_report.time(ctx.spent))
   local _, _ = log:say("test: " .. test_report.failed(#failures + #refused, total + #refused,
     #errors, clock.took(started) .. assert(ctx.sandbox_summary) .. assert(ctx.share_summary) ..
-      (if #errors == 0 then floor_clause(ctx) else "" end), rec.not_run))
+      (if #errors == 0 then floor_clause(ctx) else "" end), rec.not_run, rec.stopped_by))
   -- A refused module outranks a failing test: the tests ran on a tree that did not compile.
   return if #refused > 0 then exit_status.uncompiled else 1 end
 end

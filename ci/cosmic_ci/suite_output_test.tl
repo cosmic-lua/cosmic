@@ -86,6 +86,10 @@ local function test_a_failing_run()
   local bare_bailed = SuiteOutput.parse("test: 1 of 3 tests failed, 0 infrastructure errors, " ..
       "9 ms; 2 not run after the first failure\n")
   assert(bare_bailed.sandbox == "" and bare_bailed.not_run == 2)
+  -- And a run past its deadline (`--deadline`), which stopped the same way.
+  local late = SuiteOutput.parse("test: 1 of 3 tests failed, 0 infrastructure errors, " ..
+      "9 ms; sandboxed; 2 not run after the deadline\n")
+  assert(late.sandbox == "sandboxed" and late.not_run == 2, tostring(late.sandbox))
 end
 
 --- A run that stood on none of a cache's rows says its key parts in the

@@ -2237,3 +2237,13 @@ local function test_the_format_check_lays_out_only_the_paths_changed(tmp: string
     assert(assert(Fs.read(fake .. "/o/bin/cosmic.ci")) == "fix --check", assert(case["name"]) .. ": ci/ was not checked as its own project")
   end
 end
+
+--- A suite stops starting tests its margin before the driver would end
+--- it (COSMIC_TEST_DEADLINE), so a suite that runs out of time keeps the
+--- verdicts it reached; what else its environment holds stays.
+local function test_a_suite_stops_starting_tests_before_its_bound()
+  local Orchestration = require("cosmic_ci.orchestration")
+  local env = Orchestration.deadlined({ COSMIC_TEST_TIMEOUT = "10" }, Clock.seconds(720), Clock.seconds(210))
+  assert(env["COSMIC_TEST_DEADLINE"] == "510" and env["COSMIC_TEST_TIMEOUT"] == "10",
+    tostring(env["COSMIC_TEST_DEADLINE"]))
+end

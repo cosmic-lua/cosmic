@@ -74,6 +74,11 @@ local record test_state
     mut timeout_ns: integer
     --- How many workers run at once.
     mut jobs: integer
+    --- How long the run may start tests for, in seconds from its start
+    --- (`--deadline`, COSMIC_TEST_DEADLINE); nil for no end.
+    mut deadline_s?: integer
+    --- That end on the monotonic clock, once the run has started.
+    mut deadline_ns?: integer
   end
 
   --- One test the run has to run: no verdict stands for it.
@@ -265,10 +270,13 @@ local record test_state
     --- kept no record of included, and the seconds it ran.
     violators: mut {string:integer}
     violator_ns: mut {string:integer}
-    --- How many jobs `--bail` left unstarted after the first failure
-    --- (`run_jobs`). Such a test made no verdict, pass or fail, and is
-    --- in no figure of the tally.
+    --- How many jobs `--bail` left unstarted after the first failure, or
+    --- the deadline after it passed (`run_jobs`). Such a test made no
+    --- verdict, pass or fail, and is in no figure of the tally.
     mut not_run: integer
+    --- What stopped the run starting tests, as the summary says it:
+    --- "the first failure" or "the deadline"; nil where nothing did.
+    mut stopped_by?: string
     --- The verdicts every checkout shares, or nil, and what the run owes
     --- them when it ends.
     mut shared?: shared_verdicts.Cache
