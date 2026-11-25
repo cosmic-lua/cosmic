@@ -369,8 +369,8 @@ local function grants_of(value: any): {Test.Grant}?, string
     if not given is {any:any} then return nil, at .. " takes a table" end -- declared: key_type
     local grant: Test.Grant = {}
     for key, field in pairs(given) do -- checked: any_use
-      if not (key == "path" or key == "letters" or key == "from" or key == "calls") then
-        return nil, at .. " has no field " .. tostring(key) .. "; it has calls, from, letters, path"
+      if not (key == "path" or key == "letters" or key == "from" or key == "calls" or key == "connect") then
+        return nil, at .. " has no field " .. tostring(key) .. "; it has calls, connect, from, letters, path"
       end
       if not field is string then return nil, at .. "." .. tostring(key) .. " takes a string" end
       if key == "path" then
@@ -379,6 +379,8 @@ local function grants_of(value: any): {Test.Grant}?, string
         grant.letters = field
       elseif key == "calls" then
         grant.calls = field
+      elseif key == "connect" then
+        grant.connect = field
       else
         grant.from = field
       end
@@ -461,8 +463,6 @@ local function policy_of(given: any): Test.Policy?, string
       out.profiles, why = strings_of(key, value)
     elseif key == "isolate" then
       out.isolate, why = strings_of(key, value)
-    elseif key == "connect" then
-      out.connect, why = strings_of(key, value)
     elseif key == "loopback" then
       out.loopback, why = strings_of(key, value)
     elseif key == "requires" then
@@ -488,7 +488,7 @@ end
 --- `{ calls = "nest" }`). What it cannot say is refused, naming the field, rather than
 --- accepted as a declaration that moves no key: `isolate`, `set_env`,
 --- `limits`, `database`, a grant of more than "r" or from another path, `tmp = false`.
---- `connect`, `set_env_digests`, `user` and `group` are refused outright,
+--- A `connect` grant, `set_env_digests`, `user` and `group` are refused outright,
 --- since no test reaches a host but loopback, a digest holds no value to
 --- set, and the harness chooses a worker's user.
 --- The calls "fork", "jit" and "fattr" are accepted and change

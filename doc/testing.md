@@ -263,9 +263,8 @@ The rules:
 - The harness refuses a field it has no key for, and the build fails
   naming it. These fields are refused:
 
-  - a grant to write, run or connect to,
-  - `isolate`, `limits`, `set_env`, `set_env_digests`, `connect` and
-    `database`,
+  - a grant to write, run, or connect to (`{ connect = "host:port" }`),
+  - `isolate`, `limits`, `set_env`, `set_env_digests` and `database`,
   - `tmp = false`,
   - `user` and `group`.
 

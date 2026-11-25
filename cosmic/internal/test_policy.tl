@@ -18,6 +18,8 @@ local record test_policy
     --- System calls beyond the basics: "nest" is `nests`; "fork", "jit" and "fattr" are accepted and change nothing
     --- yet. A grant with `calls` has no other field.
     mut calls?: string
+    --- A host to reach. Refused: no test reaches a host but loopback.
+    mut connect?: string
     --- What the test may do there: letters of "rwxcu". Only "r" takes
     --- effect so far.
     mut letters?: string
@@ -54,9 +56,6 @@ local record test_policy
     mut grants?: {Grant}
     --- How far the worker is isolated. Not yet taken.
     mut isolate?: {string}
-    --- The hosts the tests reach. Refused: no test reaches a host but
-    --- loopback.
-    mut connect?: {string}
     --- The loopback addresses the tests reach: `network` of [`Test.Needs`].
     mut loopback?: {string}
     --- The variables passed through: `env` of [`Test.Needs`].
@@ -138,7 +137,7 @@ end
 --- seconds ("seconds") or a path ("string").
 local KINDS <const>: {string:string} = {
   profiles = "list", grants = "grants", isolate = "list",
-  connect = "list", loopback = "list", env = "list", set_env = "map",
+  loopback = "list", env = "list", set_env = "map",
   set_env_digests = "map", tmp = "flag", limits = "limits", user = "id", group = "id",
   database = "string", requires = "list", timeout = "seconds", cpu_features = "flag",
   store_text = "flag",
@@ -163,6 +162,10 @@ end
 function test_policy.no_field(name: string): string
   if name == "promises" then
     return "has no field promises: a promise is a grant now, `grants = { { calls = \"nest\" } }`"
+  end
+  if name == "connect" then
+    return "has no field connect: a host is a grant now, `{ connect = \"host:port\" }`, which a test is refused " ..
+      "(no test reaches a host but loopback)"
   end
   return "has no field " .. name .. "; it has " .. NAMES
 end
@@ -240,7 +243,7 @@ local PROMISES <const>: {string:boolean} = { nest = true, fork = true, jit = tru
 --- "proc", in `host`) and nesting (the grant `{ calls = "nest" }`). What it cannot say is
 --- refused rather than accepted as a declaration that moves no key:
 --- `isolate`, `set_env`, `limits`, a grant of more than "r" or from
---- another path, `tmp = false`. `connect`, `set_env_digests`, `database`,
+--- another path, `tmp = false`. A `connect` grant, `set_env_digests`, `database`,
 --- `user` and `group` are refused outright. `cache_fault`, where given,
 --- says why a cache's name is none (the build knows the names; a worker
 --- does not), or "".
@@ -268,6 +271,10 @@ function test_policy.declared(policy: test_policy.Policy,
   end
   for i, grant in ipairs(policy.grants or {}) do
     local at = "grants[" .. tostring(i) .. "]"
+    if grant.connect ~= nil then
+      return nil, at .. ".connect is refused: no test reaches a host but loopback, whose answer no " ..
+        "key holds; declare the addresses in loopback and start the service in the test"
+    end
     local calls = grant.calls
     if calls ~= nil then
       if grant.path ~= nil or grant.letters ~= nil or grant.from ~= nil then
@@ -326,10 +333,6 @@ function test_policy.declared(policy: test_policy.Policy,
   if next(policy.set_env_digests or {}) ~= nil then
     return nil, "set_env_digests is refused: a digest holds no value to set; " ..
       "a test names the value in set_env"
-  end
-  if #(policy.connect or {}) > 0 then
-    return nil, "connect is refused: no test reaches a host but loopback, whose answer no " ..
-      "key holds; declare the addresses in loopback and start the service in the test"
   end
   -- A module's own `database` is a limit decided for good: no test needs
   -- one, and the only coherent meaning is an overlay on the sealed database

@@ -16,7 +16,7 @@ local function test_the_relays_policy_differs_by_platform_only_in_what_holds_it(
     for _, grant in ipairs(Sandbox.paths(policy)) do
       assert(grant.letters == "r", grant.path .. " is granted " .. grant.letters)
     end
-    assert(#(policy.connect or {}) == 0 and #Sandbox.calls(policy) == 0)
+    assert(#Sandbox.connects(policy) == 0 and #Sandbox.calls(policy) == 0)
   end
   assert(table.concat(assert(linux.isolate), ",") == "proc" and linux.profiles == nil)
   assert(table.concat(assert(macos.profiles), ",") == "system" and macos.isolate == nil)

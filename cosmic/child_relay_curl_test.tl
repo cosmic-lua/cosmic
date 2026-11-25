@@ -43,7 +43,7 @@ end
 local function curl(target: string, url: string, loopback?: {string}): string, integer
   local out, code = "", -1
   local result, why = Child.run({ "curl", "-sS", "-p", "--max-time", "20", url }, {
-    policy = { profiles = { "system" }, connect = { target }, loopback = loopback },
+    policy = { profiles = { "system" }, grants = { { connect = target } }, loopback = loopback },
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
   if result == nil then
     if ChildPolicy.unsandboxable(tostring(why)) then Test.skip(tostring(why)) end
