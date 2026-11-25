@@ -54,6 +54,7 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Store = require("cosmic.store")
 local Compiled = require("cosmic.internal.compiled")
+local type Driver = require("build.driver")
 local Globals = require("cosmic.internal.globals")
 local exit_status = require("build.exit_status")
 local type importer = require("build.importer")
@@ -63,6 +64,11 @@ local sys = require("cosmic.sys")
 local record standalone
   --- A loaded chunk, or the entry point one returns.
   type Main = function(...: any): (any...)
+  --- The Lua of a module of the working directory's tree, and its file, for [`standalone.loaded_with`].
+  record Near
+    file: string
+    code: string
+  end
 end
 
 --- Where a clean compile of `source` by this binary is kept: nil when
@@ -142,8 +148,11 @@ local function sweep(dir: string)
 end
 
 --- The Lua of a `require` that returns each of `modules` by its name, and asks `load_module` for any other.
-local OWN_REQUIRE <const> = "local modules, load_module = ... " ..
-  "return function(name) local found = modules[name] if found ~= nil then return found end return load_module(name) end"
+local OWN_REQUIRE <const> = "local modules, load_module, nearby = ... local loaded = {} " ..
+  "return function(name) local found = modules[name] if found ~= nil then return found end " ..
+  "local near = nearby[name] if near == nil then return load_module(name) end " ..
+  "if loaded[name] == nil then loaded[name] = true local value = near(name) if value ~= nil then loaded[name] = value end end " ..
+  "return loaded[name] end"
 
 --- `code`, Lua the checker wrote of `file`, loaded as `file`'s chunk, its globals `env`.
 local function loaded_in(file: string, code: string, env: {string: any}): standalone.Main?, string
@@ -156,13 +165,23 @@ end
 
 --- `code`, Lua the checker wrote of `file`, loaded as `file`'s chunk, with a `require` that resolves each of
 --- `modules` by its name, as a module the binary does not hold: the module of an MCP server a snippet of cosmic agent
---- requires ([`build.agent_worker`]).
-function standalone.loaded_with<M>(file: string, code: string, modules: {string: M}): standalone.Main?, string
+--- requires ([`build.agent_worker`]). Each of `nearby`, the Lua of a module of the working directory's tree by its
+--- name, with its file ([`Pipeline.Alone.nearby`]), runs at its first `require`, in the same globals, as a tree runs it.
+function standalone.loaded_with<M>(file: string, code: string, modules: {string: M},
+                                   nearby?: {string: standalone.Near}): standalone.Main?, string
   local globals = Globals.table()
   local own: mut {string: any} = {}
   for k, v in pairs(globals) do own[k] = v end
+  local loaders: mut {string: standalone.Main} = {}
+  for name, near in pairs(nearby or {}) do
+    local chunk, trouble = loaded_in(near.file, near.code, own)
+    if chunk == nil then
+      return nil, trouble
+    end
+    loaders[name] = chunk
+  end
   local made = assert(load(OWN_REQUIRE, "=own_require", "t", {}))
-  own["require"] = made(modules, globals["require"])
+  own["require"] = made(modules, globals["require"], loaders)
   return loaded_in(file, code, own)
 end
 
@@ -271,6 +290,40 @@ function standalone.runs_alone(file: string, source: string): boolean
     end
   end
   return true
+end
+
+--- `source`, a chunk of `cosmic -e` named `file`, checked as a file at the root of the working directory's tree is, and compiled to a
+--- loaded chunk: it requires that tree's modules ([`build.nearby`]) as well as `cosmic.*` and the tool's own, and each it
+--- reaches is checked with it and runs at its first `require`. Not cached: the modules it reaches may change under it.
+--- `outcome` as [`standalone.code`] says.
+function standalone.compile_nearby(file: string, source: string, outcome?: importer.Outcome):
+    standalone.Main?, string
+  local Pipeline = require("build.pipeline")
+  local Nearby = require("build.nearby")
+  local options, trouble = Pipeline.alone()
+  if options == nil then
+    return nil, file .. ": " .. trouble
+  end
+  local found: mut {string: Pipeline.Nearby} = {}
+  local carried = Pipeline.carried_own()
+  local near = Nearby.provider({ "." }, found)
+  options = { globals = options.globals, types = options.types, project = options.project, nearby = found,
+    standard = function(module: string): Driver.Source?
+      return carried(module) or near(module)
+    end }
+  options.lax = true
+  local made = Pipeline.checked_alone(file, source, options, nil, false, false)
+  local code = made.code
+  if code == nil then
+    if outcome ~= nil then outcome.refused = true end
+    return nil, table.concat(made.lines, "\n")
+  end
+  local nearby: mut {string: standalone.Near} = {}
+  for name, lua in pairs(made.nearby or {}) do
+    nearby[name] = { file = assert(found[name]).file, code = lua }
+  end
+  local none: {string: boolean} = {}
+  return standalone.loaded_with(file, code, none, nearby)
 end
 
 --- `file`'s Teal, checked and compiled to a loaded chunk ([`standalone.code`],

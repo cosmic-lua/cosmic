@@ -16,6 +16,7 @@ local help_source = require("build.help_source")
 local logger = require("build.logger")
 local type verb_spec = require("build.verb_spec")
 local type flags = require("cosmic.flags")
+local type standalone_type = require("build.standalone")
 
 local log = logger.log
 
@@ -769,7 +770,14 @@ local function evaluate(argv: {string}, name?: string): integer
   end
   local type importer = require("build.importer")
   local outcome: importer.Outcome = { refused = false }
-  local loaded, trouble = require("build.standalone").compile(name or "-e", chunk, nil, true, outcome)
+  -- A chunk that requires a module of the working directory's tree is checked as a file at its root is.
+  local loaded: standalone_type.Main?
+  local trouble = ""
+  if require("build.nearby").required({ "." }, name or "-e", chunk) then
+    loaded, trouble = require("build.standalone").compile_nearby(name or "-e", chunk, outcome)
+  else
+    loaded, trouble = require("build.standalone").compile(name or "-e", chunk, nil, true, outcome)
+  end
   if loaded == nil then
     local Fs = require("cosmic.fs")
     local _, _ = Fs.put(Fs.stderr, trouble .. "\n")
