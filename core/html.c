@@ -589,6 +589,39 @@ static int html_raw_json (lua_State *L) {
   return 1;
 }
 
+/* `filled`: what a template's `{{if}}` and `{{with}}` hold of. nil,
+ * false, "", a safe value whose string is "" and a table with no key are
+ * not filled; anything else is, 0 among them. A table's metamethods are
+ * not asked. */
+static int html_filled (lua_State *L) {
+  static const char *const safe[] = { SAFE_HTML_TYPE, SAFE_ATTR_TYPE,
+    SAFE_URL_TYPE, SAFE_URL_PART_TYPE, SAFE_RESOURCE_URL_TYPE, SAFE_JSON_TYPE };
+  luaL_checkany(L, 1);
+  int type = lua_type(L, 1);
+  bool filled = true;
+  if (type == LUA_TNIL) {
+    filled = false;
+  } else if (type == LUA_TBOOLEAN) {
+    filled = lua_toboolean(L, 1);
+  } else if (type == LUA_TSTRING) {
+    filled = lua_rawlen(L, 1) > 0;
+  } else if (type == LUA_TTABLE) {
+    lua_pushnil(L);
+    filled = lua_next(L, 1) != 0;
+  } else if (type == LUA_TUSERDATA) {
+    /* A safe value of this module is empty when its string is. */
+    for (size_t i = 0; i < sizeof safe / sizeof *safe; i++) {
+      if (luaL_testudata(L, 1, safe[i]) != NULL) {
+        lua_getiuservalue(L, 1, 1);
+        filled = lua_rawlen(L, -1) > 0;
+        break;
+      }
+    }
+  }
+  lua_pushboolean(L, filled);
+  return 1;
+}
+
 static const luaL_Reg module[] = {
   {"escape", html_escape},
   {"escape_attr", html_escape_attr},
@@ -609,6 +642,7 @@ static const luaL_Reg module[] = {
   {"escape_css_attr", html_escape_css_attr},
   {"trust_json", html_trust_json},
   {"raw_json", html_raw_json},
+  {"filled", html_filled},
   {NULL, NULL},
 };
 

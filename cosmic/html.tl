@@ -157,6 +157,21 @@ function Html.trust_url(s: string): Html.SafeUrl
   return raw.trust_url(s)
 end
 
+--- Whether a template's `{{if}}` or `{{with}}` holds of `v`: it does not
+--- of `nil`, `false`, `""`, a safe value of this module that holds `""`
+--- (`Html.trust("")`) or a table with no key (an empty list or map, or a
+--- record with no field set), and does of anything else, `0` among them.
+--- [`cosmic.template`]'s generated code calls it; a program has `#t > 0`
+--- and `s ~= ""`.
+---
+---     Html.filled({}) -- false
+---     Html.filled({ "a" }) -- true
+---     Html.filled(0) -- true
+---     Html.filled(Html.escape("")) -- false
+function Html.filled(v: any): boolean
+  return raw.filled(v)
+end
+
 --- The string a [`Html.SafeUrl`] holds.
 function Html.raw_url(x: Html.SafeUrl): string
   return raw.raw_url(x)
