@@ -74,6 +74,7 @@
 --- given form, checks it in what the reader reads.
 --- @public
 
+local Failure = require("cosmic.failure")
 local String = require("cosmic.string")
 local wire = require("cosmic.http.wire")
 
@@ -845,10 +846,11 @@ local record Line
 end
 
 --- The message of `first` line, `fields` then `headers`, and `body` as
---- bytes, or nil and why it cannot be written. `bodiless` is a response
---- whose status takes no body, `chunkable` a message of HTTP/1.1.
+--- bytes, or nil and a [`Failure`] that says why it cannot be written.
+--- `bodiless` is a response whose status takes no body, `chunkable` a
+--- message of HTTP/1.1.
 local function written(first: string, fields: {Message.Field}, headers: {string: string | {string}},
-                       body: string?, bodiless: boolean, chunkable: boolean): string?, string
+                       body: string?, bodiless: boolean, chunkable: boolean): (string) | (nil, Failure)
   local header_lines: mut {Line} = {}
   for _, field in ipairs(fields) do
     header_lines[#header_lines + 1] = { name = field.name, value = field.value }
@@ -863,33 +865,40 @@ local function written(first: string, fields: {Message.Field}, headers: {string:
   local coded = false
   for _, header in ipairs(header_lines) do
     local name, value = header.name, header.value
-    if not wire.token(name) then return nil, ("header %q: its name is no token"):format(name) end
+    if not wire.token(name) then
+      return nil, Failure.new(("header %q: its name is no token"):format(name))
+    end
     local lower = name:lower()
     if lower == "content-length" then
-      if given ~= nil then return nil, "Content-Length is given twice" end
+      if given ~= nil then return nil, Failure.new("Content-Length is given twice") end
       if value is string and value:find("^%d+$") ~= nil and #value <= 18 then
         given = value
       else
-        return nil, "Content-Length is not one value of at most 18 digits"
+        return nil, Failure.new("Content-Length is not one value of at most 18 digits")
       end
     elseif lower == "transfer-encoding" then
-      if coded then return nil, "Transfer-Encoding is given twice" end
+      if coded then return nil, Failure.new("Transfer-Encoding is given twice") end
       coded = true
       if body ~= nil then
-        return nil, "a body is written by its Content-Length: give no body with Transfer-Encoding"
+        return nil, Failure.new("a body is written by its Content-Length: give no body with Transfer-Encoding")
       end
-      if not chunkable then return nil, "Transfer-Encoding goes with HTTP/1.1 alone" end
+      if not chunkable then
+        return nil, Failure.new("Transfer-Encoding goes with HTTP/1.1 alone")
+      end
       if not (value is string and value:lower() == "chunked") then
-        return nil, "the Transfer-Encoding is not chunked alone"
+        return nil, Failure.new("the Transfer-Encoding is not chunked alone")
       end
     end
   end
   if coded and given ~= nil then
-    return nil, "Content-Length and Transfer-Encoding are both given"
+    return nil, Failure.new("Content-Length and Transfer-Encoding are both given")
   end
-  if bodiless and body ~= nil and body ~= "" then return nil, "no body goes with the status" end
+  if bodiless and body ~= nil and body ~= "" then
+    return nil, Failure.new("no body goes with the status")
+  end
   if given ~= nil and body ~= nil and not bodiless and math.tointeger(tonumber(given)) ~= #body then
-    return nil, ("the Content-Length is %s, but the body is %s"):format(given, String.counted(#body, "byte"))
+    local size = String.counted(#body, "byte")
+    return nil, Failure.new(("the Content-Length is %s, but the body is %s"):format(given, size))
   end
   local lines: mut {string} = { first }
   for _, header in ipairs(header_lines) do
@@ -897,7 +906,7 @@ local function written(first: string, fields: {Message.Field}, headers: {string:
     local list: {string} = if value is string then { value } else value end
     for _, entry in ipairs(list) do
       if wire.controls(entry) then
-        return nil, ("header %s: its value holds a control byte"):format(name)
+        return nil, Failure.new(("header %s: its value holds a control byte"):format(name))
       end
       lines[#lines + 1] = name .. ": " .. entry
     end
@@ -905,43 +914,47 @@ local function written(first: string, fields: {Message.Field}, headers: {string:
   if body ~= nil and given == nil and not bodiless then
     lines[#lines + 1] = "Content-Length: " .. tostring(#body)
   end
-  return table.concat(lines, "\r\n") .. "\r\n\r\n" .. (body or ""), ""
+  return table.concat(lines, "\r\n") .. "\r\n\r\n" .. (body or "")
 end
 
---- `parts` as the bytes of a request, or nil and why it cannot be
---- written: a method, target, protocol or header line that a reader
---- refuses, a `Content-Length` that is not the body's size or is past 18
---- digits, or a `Transfer-Encoding` that is not `chunked` alone, is
---- given a message that is not HTTP/1.1, or comes with a body or a
---- `Content-Length`. A reader's limits are its own: it may still refuse
+--- `parts` as the bytes of a request, or nil and a [`Failure`] that
+--- says why it cannot be written: a method, target, protocol or header
+--- line that a reader refuses, a `Content-Length` that is not the body's
+--- size or is past 18 digits, or a `Transfer-Encoding` that is not
+--- `chunked` alone, is given a message that is not HTTP/1.1, or comes
+--- with a body or a `Content-Length`. A reader's limits are its own: it may still refuse
 --- what is written here as too long.
-function Message.format_request(parts: Message.RequestParts): string?, string
+function Message.format_request(parts: Message.RequestParts): (string) | (nil, Failure)
   local protocol = parts.protocol or "HTTP/1.1"
   if not protocol:find(PROTOCOL) then
-    return nil, "the protocol is not a name and version, as HTTP/1.1 is"
+    return nil, Failure.new("the protocol is not a name and version, as HTTP/1.1 is")
   end
-  if not wire.token(parts.method) then return nil, "the method is no token" end
+  if not wire.token(parts.method) then return nil, Failure.new("the method is no token") end
   if not parts.target:find(TARGET) then
-    return nil, "the target holds a byte outside visible ASCII"
+    return nil, Failure.new("the target holds a byte outside visible ASCII")
   end
   return written(parts.method .. " " .. parts.target .. " " .. protocol, parts.fields or {}, parts.headers or {},
     parts.body, false, protocol == "HTTP/1.1")
 end
 
---- `parts` as the bytes of a response, or nil and why it cannot be
---- written: a status or reason that a reader refuses, a body with a
---- status that takes none, and what [`Message.format_request`] refuses
---- of a protocol, a header, a `Content-Length` and a
---- `Transfer-Encoding`.
-function Message.format_response(parts: Message.ResponseParts): string?, string
+--- `parts` as the bytes of a response, or nil and a [`Failure`] that
+--- says why it cannot be written: a status or reason that a reader
+--- refuses, a body with a status that takes none, and what
+--- [`Message.format_request`] refuses of a protocol, a header, a
+--- `Content-Length` and a `Transfer-Encoding`.
+function Message.format_response(parts: Message.ResponseParts): (string) | (nil, Failure)
   local protocol = parts.protocol or "HTTP/1.1"
   if not protocol:find(PROTOCOL) then
-    return nil, "the protocol is not a name and version, as HTTP/1.1 is"
+    return nil, Failure.new("the protocol is not a name and version, as HTTP/1.1 is")
   end
   local status = parts.status
-  if status < 100 or status > 999 then return nil, "the status is not from 100 to 999" end
+  if status < 100 or status > 999 then
+    return nil, Failure.new("the status is not from 100 to 999")
+  end
   local reason = parts.reason or wire.reason(status)
-  if wire.controls(reason) then return nil, "the reason phrase holds a control byte" end
+  if wire.controls(reason) then
+    return nil, Failure.new("the reason phrase holds a control byte")
+  end
   local bodiless = status < 200 or status == 204 or status == 304
   return written(("%s %d %s"):format(protocol, status, reason), parts.fields or {}, parts.headers or {},
     parts.body, bodiless, protocol == "HTTP/1.1")
