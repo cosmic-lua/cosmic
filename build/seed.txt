@@ -13,6 +13,7 @@ cosmic/failure.tl
 cosmic/fs.tl
 cosmic/hash.tl
 cosmic/internal/waits.tl
+cosmic/sqlite.tl
 cosmic/string.tl
 lang/ast.tl
 lang/boundaries.tl

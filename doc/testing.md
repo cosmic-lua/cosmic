@@ -1302,7 +1302,9 @@ Other rules:
   are functions of the tool's own rows ([`build.stamps`]).
   `COSMIC_STAMPS=0` has a run work them out instead, and reach the same
   keys ([`build.sandboxed_verdicts_test`] holds it to that). It is never
-  needed to run a suite.
+  needed to run a suite. A sealed worker reads the runner's stamps of the
+  code it carries whatever it says ([`test_key.sealed_stamps`]), as a
+  worker does not see the runner's environment.
 - Harness modules reach the host through raw bindings and the
   standard-library modules `library` in [`build.harness_epoch`] names,
   each with its reason. [`build.harness_epoch_test`] holds them to it.
@@ -1401,3 +1403,4 @@ Other rules:
 [`Test.passed_unchecked`]: ../cosmic/test.tl
 [`Test.policy`]: ../cosmic/test.tl
 [`Test.skip`]: ../cosmic/test.tl
+[`test_key.sealed_stamps`]: ../build/test_key.tl

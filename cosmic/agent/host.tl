@@ -453,7 +453,11 @@ function Host.modules(index?: {Doc.Summary}): string
   if index == nil then
     local Docs = require("cosmic.doc")
     local Store = require("cosmic.store")
-    local view, why = Docs.view(Store.databases())
+    -- The binary's own database alone, the last searched: a project's own would make the list differ by the project.
+    local databases = Store.databases()
+    local own = databases[#databases]
+    if own == nil then return "host: modules: this binary holds no database" end
+    local view, why = Docs.view({ own })
     if view == nil then return "host: modules: " .. tostring(why) end
     local read, index_why = Docs.index(view)
     if read == nil then return "host: modules: " .. tostring(index_why) end
@@ -569,6 +573,26 @@ end
 --- A sorted copy of `list`, by `by`'s key where given ([`Shell.sort`]).
 function Host.sort(list: {string}, by?: function(string): string): mut {string}
   return Shell.sort(list, by)
+end
+
+--- A sorted copy of `list`, any kind of item, by the key `by` gives each (`Host.sort_by(items, function(i: Item):
+--- string return i.id end)`), as `LC_ALL=C sort` orders bytes; items of one key keep their order.
+function Host.sort_by<T>(list: {T}, by: function(T): string): mut {T}
+  local keys: mut {string} = {}
+  local order: mut {integer} = {}
+  for i, v in ipairs(list) do
+    local key = by(v)
+    keys[#keys + 1] = key
+    order[#order + 1] = i
+  end
+  table.sort(order, function(a: integer, b: integer): boolean
+    local ka, kb = keys[a]!, keys[b]!
+    if ka ~= kb then return ka < kb end
+    return a < b
+  end)
+  local out: mut {T} = {}
+  for _, i in ipairs(order) do out[#out + 1] = list[i]! end
+  return out
 end
 
 --- The rows of `statement` on the SQLite file `path` ([`Shell.sqlite`]); raises where it

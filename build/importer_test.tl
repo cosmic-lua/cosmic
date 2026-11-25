@@ -434,10 +434,7 @@ end
 
 --- What a build of the tree `files` as cosmic's own tree (not a project) says of it: the trouble of its derive, "" for none.
 local function tree_trouble(dir: string, files: {string: string}): string
-  local db = assert(Sqlite.memory())
-  for _, statement in ipairs(work.schema) do
-    assert(db:exec(statement))
-  end
+  local db = assert(Sqlite.memory({ schema = work.Database }))
   for path, text in pairs(files) do
     assert(db:run(
       "INSERT INTO files (path, size, mtime_ns, ino, dev, sha256, data) " ..
