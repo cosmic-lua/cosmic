@@ -210,6 +210,19 @@ end
 
 --- What one `check` holds.
 local record Ctx
+  --- The walk's own functions, which lang/check/init.tl defines, for the modules of lang/check/ it requires to call:
+  --- an expression's type and its lists of values, the edges out of a condition, and the walk of statements.
+  record Walk
+    expr: function(ctx: Ctx, e: Ast.Exp, expected: Type?): Type
+    lists_of: function(ctx: Ctx, e: Ast.Exp, expected: Type?): {Alt}
+    leaf: function(ctx: Ctx, e: Ast.Exp, expected: Type?): Type
+    evaluate: function(ctx: Ctx, e: Ast.Exp, expected: Type?, wants_lists: boolean): Type, {Alt}?
+    edges: function(ctx: Ctx, f: Flow.State, e: Ast.Node): Flow.State, Flow.State
+    block: function(ctx: Ctx, b: Ast.Block)
+    stats: function(ctx: Ctx, b: Ast.Block)
+    stat: function(ctx: Ctx, s: Ast.Stat)
+  end
+  walk: Walk
   program: Declarations.Program
   store: Store
   judge: Relation.Judge
