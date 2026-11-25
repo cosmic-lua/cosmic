@@ -1,4 +1,4 @@
---- The top-level helpers of a file as the check for a copied test helper ([`build.tree_checks`]'s `test_clones`)
+--- The top-level helpers of a file as the check for a copied test helper ([`build.tree_checks.tests`]'s `test_clones`)
 --- compares them: each `local function` that is no test, as its name, its line, its size in tokens and its tokens as
 --- one string.
 ---

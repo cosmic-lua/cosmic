@@ -1348,7 +1348,7 @@ Other rules:
 [`build.test_sandbox`]: ../build/test_sandbox.tl
 [`build.test_worker`]: ../build/test_worker.tl
 [`build.this_program`]: ../build/this_program.tl
-[`build.tree_checks`]: ../build/tree_checks.tl
+[`build.tree_checks`]: ../build/tree_checks/init.tl
 [`build/declared_key.tl`]: ../build/declared_key.tl
 [`build/dispatch_sites.tl`]: ../build/dispatch_sites.tl
 [`build/dispatched_features_test.tl`]: ../build/dispatched_features_test.tl

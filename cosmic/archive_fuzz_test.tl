@@ -100,26 +100,28 @@ local function build(fields: {string}, outside: string): string?
       -- [`gen_extraction`] makes three fields per entry after the first three.
       local path = place(Array.at(fields, i + 1))
       if fields[i] == "dir" then
-        zw:add_dir(path)
+        local _, _ = zw:add_dir(path)
       else
-        zw:add_file(path, Array.at(fields, i + 2))
+        local _, _ = zw:add_file(path, Array.at(fields, i + 2))
       end
     end
-    if not zw:close() then return nil end
+    local wrote, _ = zw:close()
+    if not wrote then return nil end
     return out:result()
   end
   local tw = Tar.writer(out, { deterministic = true })
   for i = 4, #fields, 3 do
     local kind, path = fields[i], place(Array.at(fields, i + 1))
     if kind == "file" then
-      tw:add_file(path, Array.at(fields, i + 2))
+      local _, _ = tw:add_file(path, Array.at(fields, i + 2))
     elseif kind == "dir" then
-      tw:add_dir(path)
+      local _, _ = tw:add_dir(path)
     else
-      tw:add_symlink(path, place(Array.at(fields, i + 2)))
+      local _, _ = tw:add_symlink(path, place(Array.at(fields, i + 2)))
     end
   end
-  if not tw:close() then return nil end
+  local wrote, _ = tw:close()
+  if not wrote then return nil end
   local archive = out:result()
   if format == "tar.gz" then
     local enc, _ = Compress.encoder("gzip")
@@ -272,8 +274,8 @@ local function test_opening_any_bytes_is_total(tmp: string)
         -- A real tar's header, so the tar path is reached too.
         local out = Stream.collect()
         local tw = Tar.writer(out, { deterministic = true })
-        tw:add_file("a", Fuzz.bytes(src, 40))
-        tw:close()
+        local _, _ = tw:add_file("a", Fuzz.bytes(src, 40))
+        local _, _ = tw:close()
         body = Fuzz.mutate(src, out:result(), 4)
         magic = ""
       end
@@ -289,16 +291,16 @@ local function test_opening_any_bytes_is_total(tmp: string)
       local reader, _ = Archive.open(file)
       if reader ~= nil then
         for _ = 1, 10000 do
-          local e = reader:next()
-          if e == nil then break end
+          local e, _ = reader:next()
+          if e == nil or e == false then break end
           local entry: Archive.Entry = e
-          local body = entry:open()
+          local body, _ = entry:open()
           if body ~= nil then
             local read, _ = Stream.read_all(body)
             if read ~= nil then Fuzz.label("body read") end
           end
         end
-        reader:close()
+        local _, _ = reader:close()
       end
       return true, ""
     end,
@@ -314,18 +316,17 @@ local function walk_summary(reader: Archive.Reader): string
   local lines: mut {string} = {}
   local ended = "ok"
   for _ = 1, 10000 do
-    local e, why = reader:next()
+    local e, _ = reader:next()
     if e == nil then
-      if why ~= "" then
-        ended = "trouble"
-        lines = {}
-      end
+      ended = "trouble"
+      lines = {}
       break
     end
+    if e == false then break end
     local entry: Archive.Entry = e
     table.insert(lines, entry.kind .. " " .. entry.path .. " " .. tostring(entry.size))
   end
-  reader:close()
+  local _, _ = reader:close()
   lines[#lines + 1] = ended
   return table.concat(lines, "\n")
 end
@@ -366,9 +367,9 @@ local function test_open_of_a_stream_answers_as_open_does_for_the_same_bytes(tmp
       if src:int(0, 2) > 0 then
         local out = Stream.collect()
         local tw = Tar.writer(out, { deterministic = true })
-        tw:add_file("a", Fuzz.bytes(src, 40))
-        tw:add_file("b/c", Fuzz.bytes(src, 700))
-        tw:close()
+        local _, _ = tw:add_file("a", Fuzz.bytes(src, 40))
+        local _, _ = tw:add_file("b/c", Fuzz.bytes(src, 700))
+        local _, _ = tw:close()
         local sample = out:result()
         if src:int(0, 1) == 1 then
           local enc, _ = Compress.encoder("gzip")
@@ -539,9 +540,11 @@ local function build_capped(fields: {string}): string?, {integer}
     local unit = if fields[i + 1] == "z" then "\0" else "pq1" end
     local body = unit:rep(size // #unit + 1):sub(1, size)
     sizes[#sizes + 1] = size
-    if not w:add_file("f" .. tostring(#sizes), body) then return nil, sizes end
+    local wrote, _ = w:add_file("f" .. tostring(#sizes), body)
+    if not wrote then return nil, sizes end
   end
-  if not w:close() then return nil, sizes end
+  local wrote, _ = w:close()
+  if not wrote then return nil, sizes end
   local archive = out:result()
   if fields[1] == "tar.gz" then
     local enc, _ = Compress.encoder("gzip")
@@ -559,18 +562,21 @@ end
 --- alone would pass any body.
 local function understating(reader: Archive.Reader): Archive.Reader
   local r: Archive.Reader = { -- checked: literal_shape
-    next = function(_self: Archive.Reader): Archive.Entry?, string
+    next = function(_self: Archive.Reader): (Archive.Entry | false) | (nil, Failure)
       local entry, why = reader:next()
       if entry == nil then return nil, why end
+      if entry == false then return false end
       local real: Archive.Entry = entry
       local lie: Archive.Entry = { -- checked: literal_shape
         path = real.path, kind = real.kind, mode = real.mode, size = 0, mtime = real.mtime,
         linkpath = real.linkpath,
-        open = function(_self: Archive.Entry): Stream.Reader?, string return real:open() end,
+        open = function(_self: Archive.Entry): (Stream.Reader) | (nil, Failure)
+          return real:open()
+        end,
       }
-      return lie, ""
+      return lie
     end,
-    close = function(_self: Archive.Reader): boolean, string return reader:close() end,
+    close = function(_self: Archive.Reader): (true) | (false, Failure) return reader:close() end,
   }
   return r
 end

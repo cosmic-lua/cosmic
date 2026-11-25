@@ -1,5 +1,5 @@
 --- Where the Teal sources of the tree put a literal plural noun after a number (`#rows .. " tests"`, `"%d files"`): the
---- sites [`build.tree_checks`]'s `plurals` refuses, read off the tree of the new checker ([`lang.ast`]) as the file is
+--- sites [`build.tree_checks.docs`]'s `plurals` refuses, read off the tree of the new checker ([`lang.ast`]) as the file is
 --- written.
 local Ast = require("lang.ast")
 local Lexer = require("lang.lexer")
