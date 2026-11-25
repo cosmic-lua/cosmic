@@ -281,7 +281,7 @@ end
 --- the native suite's verdict rather than run the test twice, where the
 --- two give their workers the same environment ([`suite_env`]). A test
 --- module that reads the launcher or artifact without being
---- unsealed fails `cosmic fix --check .` (build/tree_checks.tl's
+--- unsealed fails `cosmic fix --check .` (build/tree_checks/build.tl's
 --- `sealed_launch`).
 ---
 --- Nor is the checked suite's file either's (`checked`): the local

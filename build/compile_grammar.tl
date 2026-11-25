@@ -1,7 +1,7 @@
 --- The new checker's grammar for `cosmic compile` ([`build/compile.tl`]): files written
 --- in it, lexed ([`lang.lexer`]), parsed ([`lang.parser`]), scoped ([`lang.scopes`]), lowered
 --- ([`lang.declarations`]), checked ([`lang.check`]) and written as Lua ([`lang.codegen`]), the way
---- [`build/tree_checks.tl`] and [`lang.check_programs`] drive them, but for the files a command line
+--- [`build.tree_checks`] and [`lang.check_programs`] drive them, but for the files a command line
 --- names and nothing else. The program is a [`build.driver`] build over those files, and the generator's inputs
 --- are put together by [`emit`], which the build's own pipeline ([`build.pipeline`]) calls too.
 ---

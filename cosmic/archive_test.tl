@@ -102,10 +102,8 @@ local function walked(reader: Archive.Reader): {string:Archive.Entry}
   local by: mut {string:Archive.Entry} = {}
   while true do
     local e, why = reader:next()
-    if e == nil then
-      assert(why == "", why)
-      break
-    end
+    assert(e ~= nil, why)
+    if e == false then break end
     by[e.path] = e
   end
   assert(reader:close())
@@ -161,11 +159,12 @@ local function test_open_of_a_stream_fails_on_a_truncated_gzip_stream()
   local r = assert(Archive.open(Stream.from_string(bytes:sub(1, #bytes - 30))))
   local failed = false
   while true do
-    local e, why = r:next()
+    local e, _ = r:next()
     if e == nil then
-      failed = why ~= ""
+      failed = true
       break
     end
+    if e == false then break end
   end
   assert(failed, "a truncated stream passed as complete")
 end
@@ -183,8 +182,8 @@ local function test_a_gzip_block_with_no_codes_fails_next_rather_than_spinning(t
   }
   for i, r in ipairs(readers) do
     local e, why = r:next()
-    assert(e == nil and why:find("corrupt compressed data", 1, true) ~= nil, tostring(i) .. ": " .. why)
-    r:close()
+    assert(e == nil and tostring(why):find("corrupt compressed data", 1, true) ~= nil, tostring(i) .. ": " .. tostring(why))
+    local _, _ = r:close()
   end
 end
 
@@ -779,7 +778,7 @@ local function reader_of_one_file(path: string, size: integer,
                                   answer: function(integer): string?, string): Archive.Reader
   local entry: Archive.Entry = { -- checked: literal_shape
     path = path, kind = "file", mode = 0x1a4, size = size, mtime = 0, linkpath = "",
-    open = function(_self: Archive.Entry): Stream.Reader?, string
+    open = function(_self: Archive.Entry): (Stream.Reader) | (nil, Failure)
       local r: Stream.Reader = { -- checked: literal_shape
         read = function(_self: Stream.Reader, max_bytes?: integer): (string | false) | (nil, Failure)
           local chunk, why = answer(max_bytes or 65536)
@@ -791,17 +790,17 @@ local function reader_of_one_file(path: string, size: integer,
         end,
         close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
       }
-      return r, ""
+      return r
     end,
   }
   local given: boolean = false
   return { -- checked: literal_shape
-    next = function(_self: Archive.Reader): Archive.Entry?, string
-      if given then return nil, "" end
+    next = function(_self: Archive.Reader): (Archive.Entry | false) | (nil, Failure)
+      if given then return false end
       given = true
-      return entry, ""
+      return entry
     end,
-    close = function(_self: Archive.Reader): boolean, string return true, "" end,
+    close = function(_self: Archive.Reader): (true) | (false, Failure) return true end,
   }
 end
 
@@ -1013,8 +1012,8 @@ local function test_listed_entries_refuse_to_open_rather_than_read_a_closed_file
     if name == "a.tar" then make_tar(path) else make_zip(path) end
     local entries = assert(Archive.list(path))
     for _, e in ipairs(entries) do
-      local body, trouble = e:open()
-      assert(body == nil and trouble ~= "", name .. ": " .. e.path)
+      local body, _ = e:open()
+      assert(body == nil, name .. ": " .. e.path)
     end
   end
 end
@@ -1078,8 +1077,10 @@ local function test_extract_of_a_reader_closes_the_reader_when_it_refuses(tmp: s
   local inner = assert(Archive.open(Stream.from_string(sink:result())))
   local closes: integer = 0
   local counting: Archive.Reader = { -- checked: literal_shape
-    next = function(_self: Archive.Reader): Archive.Entry?, string return inner:next() end,
-    close = function(_self: Archive.Reader): boolean, string
+    next = function(_self: Archive.Reader): (Archive.Entry | false) | (nil, Failure)
+      return inner:next()
+    end,
+    close = function(_self: Archive.Reader): (true) | (false, Failure)
       closes = closes + 1
       return inner:close()
     end,
@@ -1202,8 +1203,10 @@ local function test_list_of_a_reader_lists_a_reader_to_its_end_and_closes_it()
   assert(tw:close())
   local function counting(inner: Archive.Reader, closes: CloseCount): Archive.Reader
     return { -- checked: literal_shape
-      next = function(_self: Archive.Reader): Archive.Entry?, string return inner:next() end,
-      close = function(_self: Archive.Reader): boolean, string
+      next = function(_self: Archive.Reader): (Archive.Entry | false) | (nil, Failure)
+        return inner:next()
+      end,
+      close = function(_self: Archive.Reader): (true) | (false, Failure)
         closes.count = closes.count + 1
         return inner:close()
       end,
@@ -1215,7 +1218,7 @@ local function test_list_of_a_reader_lists_a_reader_to_its_end_and_closes_it()
   assert(#entries == 2 and entries[1].path == "a" and entries[2].path == "b")
   assert(closes.count == 1, "closed " .. tostring(closes.count) .. " times")
   local body, why = entries[1]:open()
-  assert(body == nil and why:find("cannot be opened", 1, true) ~= nil, why)
+  assert(body == nil and tostring(why):find("cannot be opened", 1, true) ~= nil, tostring(why))
   -- A failure partway closes it too, and is the result.
   closes = { count = 0 }
   local cut = sink:result():sub(1, 700)
@@ -1254,10 +1257,8 @@ local function test_create_writes_the_format_its_name_asks_for_and_open_reads_it
     local seen: mut {string} = {}
     while true do
       local e, why = r:next()
-      if e == nil then
-        assert(why == "", name .. ": " .. why)
-        break
-      end
+      assert(e ~= nil, name .. ": " .. tostring(why))
+      if e == false then break end
       seen[#seen + 1] = e.path .. ":" .. e.kind
       if e.path == "d/b.txt" then
         assert(assert(Stream.read_all((assert(e:open())))) == "bravo", name)

@@ -345,10 +345,9 @@ local TABLES <const> = META .. ";\n" ..
 local schema Build = TABLES .. ";\n" .. DOCS_INDEXES .. ";\n" .. DOCS_FTS .. ";\n" .. CATALOG_FTS .. ";\n" .. EXAMPLES_FTS
 
 local record schema
-  --- The type of a handle on a database of [`schema.build`]'s tables.
+  --- The tables, indexes and FTS5 indexes of a cosmic database: a [`cosmic.sqlite`] schema, and the type of a
+  --- handle on a database that holds them.
   type Build = Build
-  --- The tables, indexes and FTS5 indexes of a cosmic database, as a [`cosmic.sqlite`] schema.
-  build: Sqlite.Schema
 end
 
 --- The statements that create an empty database, in order, every table,
@@ -447,7 +446,5 @@ function schema.tables_digest(qualifier: string, web?: boolean): string
     "' ' || lower(hex(value)), char(10) ORDER BY kind, name, value) FROM " .. qualifier ..
     "ca_revoked), '')" .. assets .. ")))"
 end
-
-schema.build = Build
 
 return schema

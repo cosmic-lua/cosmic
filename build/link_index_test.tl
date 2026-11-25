@@ -788,6 +788,7 @@ local function test_a_projects_links_through_required_modules_are_rows(tmp: stri
   assert(Fs.write(root .. "/greet.tl", source(
     "--- Greets each [`greet.Entry.path`]; see [`cosmic.archive.Entry.path`].",
     "local S = require(\"cosmic.stream\")",
+    "local type Failure = require(\"cosmic.failure\")",
     "",
     "local record greet",
     "  --- An entry it greets.",
@@ -798,7 +799,7 @@ local function test_a_projects_links_through_required_modules_are_rows(tmp: stri
     "    size: integer",
     "    mtime: integer",
     "    linkpath: string",
-    "    open: function(Entry): S.Reader?, string",
+    "    open: function(Entry): (S.Reader) | (nil, Failure)",
     "  end",
     "end",
     "",

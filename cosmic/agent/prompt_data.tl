@@ -1,4 +1,5 @@
---- What [`Prompt.build`] (cosmic/agent/prompt.tl) gives its template, `prompt_text.tmpl`:
+--- What [`Prompt.build`] and [`Prompt.where`] (cosmic/agent/prompt.tl) give their templates, `prompt_text.tmpl` and
+--- `where_text.tmpl`:
 --- the record it renders, apart so that the template's import of it is no
 --- cycle.
 
@@ -43,7 +44,14 @@ local record PromptData
     run: boolean
     --- The project's instructions.
     instructions?: {Instructions}
-    --- The MCP servers a snippet may call.
+  end
+
+  --- What `where_text.tmpl` renders: what follows the system prompt, past its cache mark, which differs from one
+  --- session to the next.
+  record Where
+    --- The working directory.
+    cwd: string
+    --- The MCP servers a snippet may call; nil where there are none, so their section is left out.
     servers?: {Server}
   end
 end

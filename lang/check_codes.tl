@@ -534,7 +534,8 @@ Codes.catalog = {
   },
   {
     code = "compare_disjoint", rule = "the relation",
-    why = "`==` of two types that share no value is never true, which finds the dead test",
+    why = "`==` of two types that share no value, or of a literal `s:sub(i, j)` range shorter than the string it is " ..
+      "tested against, is never true, which finds the dead test",
     fix = "compare values of one type, or remove the test",
   },
   {

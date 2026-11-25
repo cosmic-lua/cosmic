@@ -841,7 +841,7 @@ function test_sandbox.refusal(trouble: string): string
       "profile, or kernel.apparmor_restrict_unprivileged_userns)"
     if trouble:find("Operation not permitted", 1, true) then
       why = why .. ", or this process is held by a Landlock ruleset: declare " ..
-        "the promise \"nest\" in the starting test's Test.policy"
+        "the grant { calls = \"nest\" } in the starting test's Test.policy"
     end
   end
   if why == nil then return trouble end

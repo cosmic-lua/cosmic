@@ -104,7 +104,7 @@ end
 
 local function test_a_stream_without_an_eocd_is_refused()
   local r, trouble = Zip.open_string("not a zip file at all")
-  assert(r == nil and trouble:find("end of central directory", 1, true) ~= nil, trouble)
+  assert(r == nil and tostring(trouble):find("end of central directory", 1, true) ~= nil, tostring(trouble))
 end
 
 local function test_open_reads_a_zip_from_a_path(tmp: string)
@@ -253,20 +253,20 @@ local function test_a_central_directory_outside_the_file_is_refused()
   local raw, eocd = three_entry_zip()
   local moved = patch(raw, eocd + 16, le32(100000000))
   local r, trouble = Zip.open_string(moved)
-  assert(r == nil and trouble:find("outside", 1, true) ~= nil, trouble)
+  assert(r == nil and tostring(trouble):find("outside", 1, true) ~= nil, tostring(trouble))
 end
 
 local function test_a_shortened_central_directory_is_refused()
   local raw, eocd = three_entry_zip()
   local size = rd32(raw, eocd + 12)
-  local r, trouble = Zip.open_string(patch(raw, eocd + 12, le32(size - 10)))
-  assert(r == nil and trouble ~= "", "a short central directory was accepted")
+  local r, _ = Zip.open_string(patch(raw, eocd + 12, le32(size - 10)))
+  assert(r == nil, "a short central directory was accepted")
 end
 
 local function test_an_entry_count_disagreeing_with_the_central_directory_is_refused()
   local raw, eocd = three_entry_zip()
   local r, trouble = Zip.open_string(patch(raw, eocd + 8, le16(2) .. le16(2)))
-  assert(r == nil and trouble:find("holds 3 entries", 1, true) ~= nil, trouble)
+  assert(r == nil and tostring(trouble):find("holds 3 entries", 1, true) ~= nil, tostring(trouble))
 end
 
 local function test_a_huge_zip64_central_directory_size_is_refused()
@@ -281,7 +281,7 @@ local function test_a_huge_zip64_central_directory_size_is_refused()
     "PK\5\6" .. le16(0) .. le16(0) .. le16(0xFFFF) .. le16(0xFFFF) ..
     le32(0xFFFFFFFF) .. le32(0xFFFFFFFF) .. le16(0)
   local r, trouble = Zip.open_string(forged)
-  assert(r == nil and trouble:find("outside", 1, true) ~= nil, trouble)
+  assert(r == nil and tostring(trouble):find("outside", 1, true) ~= nil, tostring(trouble))
 end
 
 local function test_a_zip64_size_past_2_63_is_refused_at_open()
@@ -303,7 +303,7 @@ local function test_a_zip64_size_past_2_63_is_refused_at_open()
     local eocd = "PK\5\6" .. le16(0) .. le16(0) .. le16(1) .. le16(1) .. le32(#cdfh) ..
       le32(#lfh) .. le16(0)
     local r, trouble = Zip.open_string(lfh .. cdfh .. eocd)
-    assert(r == nil and trouble:find("zip64", 1, true) ~= nil, which .. ": " .. tostring(trouble))
+    assert(r == nil and tostring(trouble):find("zip64", 1, true) ~= nil, which .. ": " .. tostring(trouble))
   end
 end
 
@@ -338,13 +338,13 @@ local function test_an_entry_past_the_end_of_the_archive_is_refused_at_open(tmp:
       le32(#lfh) .. le16(0)
     local raw = lfh .. cdfh .. eocd
     local r, trouble = Zip.open_string(raw)
-    assert(r == nil and trouble:find("runs past", 1, true) ~= nil,
+    assert(r == nil and tostring(trouble):find("runs past", 1, true) ~= nil,
       which .. ": " .. tostring(trouble))
     local path = tmp .. "/past" .. tostring(i) .. ".zip"
     assert(Fs.write(path, raw))
-    r, trouble = Zip.open(path)
-    assert(r == nil and trouble:find("runs past", 1, true) ~= nil,
-      which .. " (path): " .. tostring(trouble))
+    local pr, ptrouble = Zip.open(path)
+    assert(pr == nil and tostring(ptrouble):find("runs past", 1, true) ~= nil,
+      which .. " (path): " .. tostring(ptrouble))
   end
 end
 
@@ -364,9 +364,9 @@ local function test_a_nul_byte_in_an_entry_name_is_refused()
   assert(w:close())
   local raw = c:result():gsub("aXb", "a\0b")
   local r, trouble = Zip.open_string(raw)
-  assert(r == nil and trouble:find("NUL", 1, true) ~= nil, trouble)
+  assert(r == nil and tostring(trouble):find("NUL", 1, true) ~= nil, tostring(trouble))
   local ok, wtrouble = Zip.writer(Stream.collect()):add_file("a\0b", "x")
-  assert(not ok and wtrouble:find("NUL", 1, true) ~= nil, wtrouble)
+  assert(not ok and tostring(wtrouble):find("NUL", 1, true) ~= nil, tostring(wtrouble))
 end
 
 -- Found by zip_fuzz_test.tl: a trailing `/` marks a directory, so a
@@ -374,7 +374,7 @@ end
 local function test_a_file_path_ending_in_a_slash_is_refused()
   local w = Zip.writer(Stream.collect())
   local ok, trouble = w:add_file("a/", "x")
-  assert(not ok and trouble:find("ends in /", 1, true) ~= nil, trouble)
+  assert(not ok and tostring(trouble):find("ends in /", 1, true) ~= nil, tostring(trouble))
   assert(w:add_file("a", "x"))
   assert(w:close())
 end
@@ -404,7 +404,7 @@ local function test_entries_of_a_closed_reader_cannot_be_opened(tmp: string)
   local entries = assert(r:entries())
   assert(r:close())
   local body, trouble = Array.at(entries, 1):open()
-  assert(body == nil and trouble:find("closed", 1, true) ~= nil, trouble)
+  assert(body == nil and tostring(trouble):find("closed", 1, true) ~= nil, tostring(trouble))
 end
 
 local function test_a_unix_symlink_entry_is_reported_as_a_symlink()
@@ -429,7 +429,7 @@ local function test_a_failed_write_aborts_the_zip_and_a_closed_writer_refuses_mo
   assert(w:close())
   assert(w:close())
   local ok, trouble = w:add_file("late", "x")
-  assert(not ok and trouble:find("closed", 1, true) ~= nil, trouble)
+  assert(not ok and tostring(trouble):find("closed", 1, true) ~= nil, tostring(trouble))
   local path = tmp .. "/out.zip"
   local zw = Zip.writer((assert(Stream.create(path))))
   assert(zw:add_file("f", "x"))
@@ -454,10 +454,8 @@ local function test_next_walks_a_central_directory_many_windows_long()
   local count = 0
   while true do
     local e, trouble = r:next()
-    if e == nil then
-      assert(trouble == "", trouble)
-      break
-    end
+    assert(e ~= nil, trouble)
+    if e == false then break end
     count = count + 1
     assert(e.path == prefix .. tostring(count), e.path)
     assert(e.path == Array.at(listed, count).path)
@@ -490,7 +488,9 @@ local function test_bodies_read_back_whatever_the_local_extra_field_and_size()
     for _, size in ipairs({ 0, 1, 100, 70000 }) do
       local body = string.rep("z", size)
       local r = assert(Zip.open_string(zip_with_local_extra("f", body, extra_len)))
-      local got = assert(r:next())
+      local got, why = r:next()
+      assert(got ~= nil, why)
+      assert(got ~= false, "the archive ended")
       local data, trouble = Stream.read_all((assert(got:open())))
       assert(data == body, tostring(extra_len) .. "/" .. tostring(size) .. ": " .. (if trouble ~= nil then tostring(trouble) else "" end))
     end
@@ -501,8 +501,9 @@ local function test_next_reports_a_symlink_target()
   local r = assert(Zip.open_string((assert(Codec.unbase64(ZIP_B64)))))
   local found = false
   while true do
-    local e = r:next()
-    if e == nil then break end
+    local e, trouble = r:next()
+    assert(e ~= nil, trouble)
+    if e == false then break end
     if e.path == "src/adir/alink" then
       assert(e.kind == "symlink" and e.linkpath == "short.txt", e.linkpath)
       found = true
@@ -602,7 +603,7 @@ local function test_a_streamed_size_of_2_gib_or_more_announces_zip64_up_front()
   -- only after the local header has gone out.
   local ok, trouble = w:add_file("big", Stream.from_string("short"),
     { method = "store", size = 1 << 32 })
-  assert(not ok and trouble:find("not 4294967296", 1, true) ~= nil, trouble)
+  assert(not ok and tostring(trouble):find("not 4294967296", 1, true) ~= nil, tostring(trouble))
   local header = pieces[1]
   assert(header ~= nil, "the local header went out")
   assert(header:sub(1, 4) == "PK\3\4")
@@ -610,7 +611,10 @@ local function test_a_streamed_size_of_2_gib_or_more_announces_zip64_up_front()
   assert(header:sub(-20, -17) == le16(1) .. le16(16), "a zip64 extra field of two sizes")
   -- With the field there, the header's own sizes are the sentinel.
   assert(rd32(header, 19) == 0xFFFFFFFF and rd32(header, 23) == 0xFFFFFFFF)
-  assert(not w:close())
+  do
+    local done, _ = w:close()
+    assert(not done)
+  end
 end
 
 local function test_a_zstd_entry_announcing_zip64_up_front_asks_for_version_6_3()
@@ -618,21 +622,30 @@ local function test_a_zstd_entry_announcing_zip64_up_front_asks_for_version_6_3(
   local w = Zip.writer(sink)
   local ok, trouble = w:add_file("big", Stream.from_string("short"),
     { method = "zstd", size = 1 << 32 })
-  assert(not ok and trouble:find("not 4294967296", 1, true) ~= nil, trouble)
+  assert(not ok and tostring(trouble):find("not 4294967296", 1, true) ~= nil, tostring(trouble))
   local header = assert(pieces[1])
   assert(header:sub(1, 4) == "PK\3\4")
   assert(header:sub(-20, -17) == le16(1) .. le16(16), "a zip64 extra field of two sizes")
   assert(rd32(header, 5) & 0xFFFF == 63, "version needed")
-  assert(not w:close())
+  do
+    local done, _ = w:close()
+    assert(not done)
+  end
 end
 
 local function test_a_streamed_size_that_is_wrong_fails_the_write()
   for _, size in ipairs({ 4, 6 }) do
     local w = Zip.writer(Stream.collect())
     local ok, trouble = w:add_file("f", Stream.from_string("12345"), { size = size })
-    assert(not ok and trouble:find("body is 5 bytes", 1, true) ~= nil, trouble)
-    assert(not w:add_file("g", "x"))
-    assert(not w:close())
+    assert(not ok and tostring(trouble):find("body is 5 bytes", 1, true) ~= nil, tostring(trouble))
+    do
+      local done, _ = w:add_file("g", "x")
+      assert(not done)
+    end
+    do
+      local done, _ = w:close()
+      assert(not done)
+    end
   end
 end
 
@@ -668,9 +681,9 @@ local function test_a_failing_body_fails_and_aborts_the_writer()
     close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
   }
   local ok, trouble = w:add_file("f", bad)
-  assert(not ok and trouble == "zip: add_file: disk on fire", trouble)
+  assert(not ok and tostring(trouble) == "zip: add_file: disk on fire", tostring(trouble))
   ok, trouble = w:add_file("g", "x")
-  assert(not ok and trouble == "zip: add_file: disk on fire", trouble)
+  assert(not ok and tostring(trouble) == "zip: add_file: disk on fire", tostring(trouble))
 end
 
 local function test_a_streamed_body_takes_bounded_memory()
@@ -735,8 +748,9 @@ local function test_a_symlink_round_trips_with_its_target_mode_and_time()
   -- `next` says the same of each entry.
   local seen: mut {string:string} = {}
   while true do
-    local entry = r:next()
-    if entry == nil then break end
+    local entry, trouble = r:next()
+    assert(entry ~= nil, trouble)
+    if entry == false then break end
     seen[entry.path] = entry.kind .. ":" .. entry.linkpath
   end
   assert(seen.link == "symlink:a.txt" and seen["a.txt"] == "file:") -- checked: map_field
@@ -745,11 +759,11 @@ end
 local function test_a_symlink_a_reader_would_refuse_is_refused_when_added()
   local w = Zip.writer(Stream.collect())
   local ok, trouble = w:add_symlink("l", string.rep("t", 4097))
-  assert(not ok and trouble:find("4097-byte target", 1, true) ~= nil, trouble)
+  assert(not ok and tostring(trouble):find("4097-byte target", 1, true) ~= nil, tostring(trouble))
   ok, trouble = w:add_symlink("l", "a\0b")
-  assert(not ok and trouble:find("NUL", 1, true) ~= nil, trouble)
+  assert(not ok and tostring(trouble):find("NUL", 1, true) ~= nil, tostring(trouble))
   ok, trouble = w:add_symlink("dir/", "x")
-  assert(not ok and trouble:find("ends in /", 1, true) ~= nil, trouble)
+  assert(not ok and tostring(trouble):find("ends in /", 1, true) ~= nil, tostring(trouble))
   -- Each refusal is of an argument, not a failed write: the longest
   -- target a reader takes is still written, and the archive opens.
   assert(w:add_symlink("l", string.rep("t", 4096)))
@@ -819,11 +833,11 @@ local function test_entries_of_a_reader_closed_first_fail_as_next_does()
   local r = assert(Zip.open_string(c:result()))
   assert(r:close())
   local entries, trouble = r:entries()
-  assert(entries == nil and trouble:find("closed", 1, true) ~= nil, trouble)
+  assert(entries == nil and tostring(trouble):find("closed", 1, true) ~= nil, tostring(trouble))
   local entry, next_trouble = r:next()
-  assert(entry == nil and next_trouble:find("closed", 1, true) ~= nil, next_trouble)
+  assert(entry == nil and tostring(next_trouble):find("closed", 1, true) ~= nil, tostring(next_trouble))
   local again, again_trouble = r:entries()
-  assert(again == nil and again_trouble == trouble, "a failed listing is not kept")
+  assert(again == nil and tostring(again_trouble) == tostring(trouble), "a failed listing is not kept")
 end
 
 --- A failing Writer's own words are returned by the writer as they
@@ -838,9 +852,14 @@ local function test_a_failing_underlying_writer_is_answered_as_it_said_it()
   }
   local w = Zip.writer(full)
   local ok, trouble = w:add_file("f", Stream.from_string(string.rep("x", 100000)), { size = 100000 })
-  assert(not ok and trouble == "disk full", trouble)
-  ok, trouble = w:close()
-  assert(not ok and trouble == "disk full", trouble)
+  assert(not ok and tostring(trouble) == "disk full", tostring(trouble))
+  -- The failure is kept as it is: every later call returns that one.
+  local dir, dir_trouble = w:add_dir("d")
+  assert(not dir and dir_trouble == trouble, tostring(dir_trouble))
+  local body, body_trouble = w:file_writer("g")
+  assert(body == nil and body_trouble == trouble, tostring(body_trouble))
+  local shut, shut_trouble = w:close()
+  assert(not shut and shut_trouble == trouble, tostring(shut_trouble))
 end
 
 --- The CRC-32 a zip records for `body` written whole as a string, or,
@@ -1045,7 +1064,7 @@ local function test_entry_finds_an_entry_by_path()
   local a = assert(r:entry("a.txt"))
   assert(assert(Stream.read_all((assert(a:open())))) == "one")
   local none, why = r:entry("c.txt")
-  assert(none == nil and why == 'zip: no entry "c.txt"', why)
+  assert(none == nil and tostring(why) == 'zip: no entry "c.txt"', tostring(why))
   assert(r:close())
 end
 
@@ -1062,10 +1081,10 @@ local function test_entry_ignores_case_when_asked()
   local found = assert(r:entry("xl/workbook.xml", { ignore_case = true }))
   assert(found.path == "XL/Workbook.xml", found.path)
   local none, why = r:entry("xl/workbook.xml")
-  assert(none == nil and why == 'zip: no entry "xl/workbook.xml"', why)
+  assert(none == nil and tostring(why) == 'zip: no entry "xl/workbook.xml"', tostring(why))
   assert(assert(r:entry("xl/workbook.XML")).path == "xl/workbook.XML")
   local missing, any_case = r:entry("xl/other.xml", { ignore_case = true })
-  assert(missing == nil and any_case == 'zip: no entry "xl/other.xml" in any case', any_case)
+  assert(missing == nil and tostring(any_case) == 'zip: no entry "xl/other.xml" in any case', tostring(any_case))
   assert(r:close())
   -- Only ASCII letters fold: É and é are other letters, as part names hold them.
   local accented = Stream.collect()
@@ -1073,8 +1092,10 @@ local function test_entry_ignores_case_when_asked()
   assert(aw:add_file("\u{C9}t\u{E9}.txt", "summer"))
   assert(aw:close())
   local ar = assert(Zip.open_string(accented:result()))
-  assert(ar:entry("\u{C9}T\u{E9}.TXT", { ignore_case = true }) ~= nil)
-  assert(ar:entry("\u{E9}t\u{E9}.txt", { ignore_case = true }) == nil)
+  local folded, folded_why = ar:entry("\u{C9}T\u{E9}.TXT", { ignore_case = true })
+  assert(folded ~= nil, folded_why)
+  local other, _ = ar:entry("\u{E9}t\u{E9}.txt", { ignore_case = true })
+  assert(other == nil)
   assert(ar:close())
 end
 
@@ -1115,11 +1136,11 @@ local function test_file_writer_holds_the_archive_while_open()
   local w = Zip.writer(Stream.collect())
   local body = assert(w:file_writer("a.txt"))
   local added, why = w:add_file("b.txt", "x")
-  assert(not added and why == "zip: b.txt: a.txt is still open", why)
+  assert(not added and tostring(why) == "zip: b.txt: a.txt is still open", tostring(why))
   local second, swhy = w:file_writer("c.txt")
-  assert(second == nil and swhy == "zip: c.txt: a.txt is still open", swhy)
+  assert(second == nil and tostring(swhy) == "zip: c.txt: a.txt is still open", tostring(swhy))
   local closed, cwhy = w:close()
-  assert(not closed and cwhy == "zip: a.txt is still open", cwhy)
+  assert(not closed and tostring(cwhy) == "zip: a.txt is still open", tostring(cwhy))
   assert(body:write("abc"))
   assert(body:close())
   local late, lwhy = body:write("more")
@@ -1134,7 +1155,7 @@ local function test_file_writer_holds_the_archive_while_open()
   local again, awhy = promised:close()
   assert(not again and tostring(awhy) == tostring(ewhy), awhy)
   local shut, shwhy = short:close()
-  assert(not shut and shwhy == tostring(ewhy), shwhy)
+  assert(not shut and tostring(shwhy) == tostring(ewhy), tostring(shwhy))
 
   local kept = Stream.collect()
   local abandoned = Zip.writer(kept)
@@ -1143,7 +1164,7 @@ local function test_file_writer_holds_the_archive_while_open()
   assert(part:abort())
   assert(kept:result() == "", "the archive was not aborted")
   local committed, cmwhy = abandoned:close()
-  assert(not committed and cmwhy == "zip: x.txt: the entry was abandoned", cmwhy)
+  assert(not committed and tostring(cmwhy) == "zip: x.txt: the entry was abandoned", tostring(cmwhy))
 
   local gone = Zip.writer(Stream.collect())
   local orphan = assert(gone:file_writer("o.txt"))

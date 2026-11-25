@@ -1,5 +1,6 @@
 --- The system prompt: its tools, rules, project context and directory.
 
+local Agent = require("cosmic.agent")
 local agent_fixture = require("build.agent_fixture")
 local AgentMcp = require("cosmic.agent.mcp")
 local Fs = require("cosmic.fs")
@@ -70,10 +71,7 @@ local function test_the_prompt_is_exactly_its_sections()
   local servers: {AgentMcp.Server} = { { name = "gh", description = "GitHub\n  tools" }, { name = "plain" } }
   local guidelines: mut {string} = {}
   for _, g in ipairs(read.guidelines) do guidelines[#guidelines + 1] = "\n- " .. g end
-  local p = Prompt.build("/w/a", contexts, { tools = { read }, servers = servers })
-  local intro = "MCP servers a snippet of run may call: "
-  local at = assert(p:find(intro, 1, true))
-  local stop = assert(p:find("until cursor == nil\n", at, true))
+  local p = Prompt.build("/w/a", contexts, { tools = { read } })
   local want = "You are a coding assistant running inside cosmic agent, the coding agent of cosmic. " ..
     "Help users inspect files, run commands, and modify code.\n\n" ..
     "<tools>\n- read: " .. read.snippet .. "\n</tools>\n\n" ..
@@ -84,10 +82,19 @@ local function test_the_prompt_is_exactly_its_sections()
     "\n- Be concise in your responses\n- Show file paths clearly when working with files\n</rules>\n\n" ..
     "<project_context>\nProject-specific instructions and guidelines:\n\n" ..
     "<project_instructions path=\"../AGENTS.md\">\ntop\n</project_instructions>\n\n" ..
-    "<project_instructions path=\"CLAUDE.md\">\nsub\n</project_instructions>\n</project_context>\n\n" ..
-    "<mcp_servers>\n" .. p:sub(at, stop + #"until cursor == nil") ..
-    "- gh: GitHub tools\n- plain\n</mcp_servers>"
+    "<project_instructions path=\"CLAUDE.md\">\nsub\n</project_instructions>\n</project_context>"
   assert(p == want, p)
+  -- The servers follow the working directory, past the cache mark, so the system prompt is the same for any servers.
+  local where = Prompt.where("/w/a", servers)
+  local intro = "MCP servers a snippet of run may call: "
+  local at = assert(where:find(intro, 1, true))
+  local stop = assert(where:find("until cursor == nil\n", at, true))
+  assert(where == "<cwd>\n/w/a\n</cwd>\n\n<mcp_servers>\n" .. where:sub(at, stop + #"until cursor == nil") ..
+      "- gh: GitHub tools\n- plain\n</mcp_servers>", where)
+  assert(Prompt.where("/w/a", {}) == "<cwd>\n/w/a\n</cwd>")
+  -- An agent given a set of servers names them there by default.
+  local s = Agent.new({ sign = agent_fixture.keyed("k"), cwd = "/w/a", mcp = AgentMcp.new(servers, "/w/a") })
+  assert(s.where == where and s.system:find("mcp_servers", 1, true) == nil, s.where)
   -- No tools: no tools section, and the rules a tool brings are gone.
   local bare = Prompt.build("/w/a", {}, { tools = {} })
   assert(bare == "You are a coding assistant running inside cosmic agent, the coding agent of cosmic. " ..

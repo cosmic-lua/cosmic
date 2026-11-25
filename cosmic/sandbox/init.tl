@@ -71,7 +71,8 @@ local record Sandbox
   --- ([`rules.Promise`]): `fork`, `jit`, `fattr`, `nest`.
   type Promise = rules.Promise
 
-  --- One thing a program may do: reach a path or make system calls beyond its basics ([`rules.Grant`]).
+  --- One thing a program may do: reach a path, make system calls beyond its basics, or reach a host
+  --- ([`rules.Grant`]).
   type Grant = rules.Grant
 
   --- A grant of one path, and how it is reached ([`rules.Path`]).
@@ -79,6 +80,10 @@ local record Sandbox
 
   --- A grant of system calls beyond a program's basics ([`rules.Calls`]): `{ calls = "fork" }`.
   type Calls = rules.Calls
+
+  --- A grant of a host the program may reach through the sandbox's relay ([`rules.Connect`]):
+  --- `{ connect = "github.com:443" }`.
+  type Connect = rules.Connect
 
   --- Resource limits on every process the program starts
   --- ([`rules.Limits`]).
@@ -146,6 +151,14 @@ end
 ---     print(table.concat(Sandbox.calls(p), ",")) -- fork
 function Sandbox.calls(p: Sandbox.Policy): {Sandbox.Promise}
   return rules.calls(p)
+end
+
+--- The hosts the grants of `p` reach, "host:port", in its order.
+---
+---     local p: Sandbox.Policy = { grants = { { path = "data", letters = "r" }, { connect = "github.com:443" } } }
+---     print(table.concat(Sandbox.connects(p), ",")) -- github.com:443
+function Sandbox.connects(p: Sandbox.Policy): {string}
+  return rules.connects(p)
 end
 
 --- What the profile `name` holds on this host, as a policy: "system"
@@ -243,10 +256,11 @@ end
 --- result is to be exact. A `connect` target of "*" meets names alone,
 --- since the relay opens no address or tailnet node by it.
 ---
----     local a = { grants = { { path = "/srv", letters = "rwx" } }, connect = { "*:443" } }
----     local b = { grants = { { path = "/srv/data", letters = "r" } }, connect = { "api.github.com:*" } }
+---     local a = { grants = { { path = "/srv", letters = "rwx" }, { connect = "*:443" } } }
+---     local b = { grants = { { path = "/srv/data", letters = "r" }, { connect = "api.github.com:*" } } }
 ---     local both = assert(Sandbox.intersect(a, b))
----     print(both.grants[1].path, both.grants[1].letters, both.connect[1]) -- /srv/data  r  api.github.com:443
+---     local path = Sandbox.paths(both)[1]
+---     print(path.path, path.letters, Sandbox.connects(both)[1]) -- /srv/data  r  api.github.com:443
 function Sandbox.intersect(...: Sandbox.Policy): Sandbox.Policy?, string
   return rules.intersect(...)
 end
@@ -632,7 +646,7 @@ local function not_in_process(merged: Sandbox.Policy): string
       "running process cannot change: start a child with Child.start and a policy instead"
   end
   -- A merged policy holds every list, empty where it names none.
-  local isolate, connect, loopback = merged.isolate or {}, merged.connect or {}, merged.loopback or {}
+  local isolate, connect, loopback = merged.isolate or {}, rules.connects(merged), merged.loopback or {}
   local env = merged.env or {}
   if #isolate > 0 then
     return "isolate \"" .. isolate[1] .. "\" needs a namespace of its own: start " ..

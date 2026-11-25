@@ -136,7 +136,8 @@ function sql.source(root: string, parsed: Flags.Parsed): sql.Source?, string
       return nil, "--db needs a path, not an empty one"
     end
     if chosen == "-" then
-      return nil, "--db opens a SQLite database by its path, not - (standard input); --from - loads data from it"
+      -- Kept in a file by [`sql.run`] before it opens it, since SQLite opens a database by its path.
+      return { name = "standard input", path = "-" }, ""
     end
     return { name = chosen, path = chosen }, ""
   end
@@ -848,6 +849,22 @@ local function is_database(path: string): boolean
   return head == SQLITE_HEADER
 end
 
+--- The database `--db -` reads from standard input, kept in a file of its own, since SQLite opens a
+--- database by its path. Nil and "" when `source` is no "-"; nil and why when the bytes are not a SQLite
+--- database or cannot be kept.
+local function spool_of(source: sql.Source, stdin: function(): string?, string): Flags.Spool?, string
+  if source.path ~= "-" then return nil, "" end
+  local bytes, why = stdin()
+  if bytes == nil then return nil, why end
+  if bytes:sub(1, #SQLITE_HEADER) ~= SQLITE_HEADER then
+    return nil, "standard input is no SQLite database (it does not begin with \"SQLite format 3\"); " ..
+      "--from - loads data from it"
+  end
+  local spool, trouble = Flags.spool(bytes, "stdin.db")
+  if spool == nil then return nil, trouble end
+  return spool, ""
+end
+
 --- The database a line's `--from` names, when it names one: a SQLite file
 --- is read as itself, as `--db` reads it, rather than loaded as data. Nil
 --- and "" when no `--from` names a database, or the line names another
@@ -1035,7 +1052,7 @@ end
 ---   directory when nil
 --- @param output where rows, complaints and the summary go; stdout and
 ---   stderr when nil
---- @param stdin the whole of standard input for `--from -`, or nil and
+--- @param stdin the whole of standard input for `--from -` or `--db -`, or nil and
 ---   why; the process's own when nil
 function sql.run(argv: {string}, root?: string, output?: sql.Output,
                  stdin?: function(): string?, string): integer
@@ -1112,6 +1129,12 @@ function sql.run(argv: {string}, root?: string, output?: sql.Output,
     end
     source = chosen
   end
+  local spool <close>, spool_trouble = spool_of(source, stdin or read_stdin)
+  if spool_trouble ~= "" then
+    complain(spool_trouble)
+    return 1
+  end
+  if spool ~= nil then source = { name = source.name, path = spool.path } end
   local opened, open_trouble = sql.open(source)
   if opened == nil then
     complain(source.name .. ": " .. open_trouble)

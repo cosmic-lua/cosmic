@@ -15,6 +15,14 @@ local symbols = require("cosmic.internal.symbols")
 local Test = require("cosmic.test")
 local Tree = require("build.tree")
 local tree_checks = require("build.tree_checks")
+local tree_build = require("build.tree_checks.build")
+local tree_checked = require("build.tree_checks.checked")
+local tree_ci = require("build.tree_checks.ci")
+local tree_common = require("build.tree_checks.common")
+local tree_declares = require("build.tree_checks.declares")
+local tree_docs = require("build.tree_checks.docs")
+local tree_readers = require("build.tree_checks.readers")
+local tree_tests = require("build.tree_checks.tests")
 local writer = require("build.writer")
 local support = require("build.test_support_fixture")
 
@@ -71,14 +79,14 @@ local function test_a_type_the_api_names_but_does_not_export_is_refused(dir: str
         "return Thing"),
     })
   end
-  local found = tree_checks.unnamed_types(tree(false))
+  local found = tree_docs.unnamed_types(tree(false))
   local text = table.concat(found, "\n")
   assert(#found == 3, text)
   assert(found[1]:find("^cosmic/thing%.tl:8: cosmic%.thing: Gone is named .* add `type Gone = Gone` " ..
       "to Thing, so a caller can write Thing%.Gone") ~= nil, text)
   assert(support.nth(found, 2):find("^cosmic/thing%.tl:5: cosmic%.thing: Made is named") ~= nil, text)
   assert(support.nth(found, 3):find("^cosmic/thing%.tl:1: cosmic%.thing: Where is named") ~= nil, text)
-  found = tree_checks.unnamed_types(tree(true))
+  found = tree_docs.unnamed_types(tree(true))
   assert(#found == 0, table.concat(found, "\n"))
 end
 
@@ -129,16 +137,16 @@ local function test_anchors_sharing_a_name_are_refused(dir: string)
     ["cosmic/verbs.tl"] = anchor("Verbs", "test"),
     ["cosmic/shapes.tl"] = anchor("Shapes", "test"),
   })
-  local found = tree_checks.anchors(shared, expected)
+  local found = tree_docs.anchors(shared, expected)
   assert(#found == 1 and found[1]:find("`cosmic docs test` answers both", 1, true) ~= nil,
     table.concat(found, "\n"))
   local apart = fixture.database(dir, {
     ["cosmic/verbs.tl"] = anchor("Verbs", "test"),
     ["cosmic/shapes.tl"] = anchor("Shapes", "tests"),
   })
-  found = tree_checks.anchors(apart, expected)
+  found = tree_docs.anchors(apart, expected)
   assert(#found == 0, table.concat(found, "\n"))
-  found = tree_checks.anchors(apart, { "cosmic.verbs Verbs", "cosmic.gone Gone" })
+  found = tree_docs.anchors(apart, { "cosmic.verbs Verbs", "cosmic.gone Gone" })
   assert(#found == 1 and found[1] == "cosmic.gone Gone is no longer taken for a doc anchor",
     table.concat(found, "\n"))
 end
@@ -153,10 +161,10 @@ local function test_an_unnamed_reader_of_the_compiler_is_refused(dir: string)
       "local tool = Store.meta" .. "(\"compiler\")",
       "return { tool = tool }"),
   })
-  local found = tree_checks.meta_readers(db, "compiler", {})
+  local found = tree_readers.meta_readers(db, "compiler", {})
   assert(#found == 1 and found[1]:find("^build%.reader reads the meta row compiler/compiled_by") ~= nil,
     table.concat(found, "\n"))
-  found = tree_checks.meta_readers(db, "compiler", { "build.reader" })
+  found = tree_readers.meta_readers(db, "compiler", { "build.reader" })
   assert(#found == 0, table.concat(found, "\n"))
 end
 
@@ -180,12 +188,12 @@ local function test_a_build_directory_spelled_by_hand_is_refused(dir: string)
       "local out = \"/r\" " .. join .. "\"",
       "assert(out)"),
   })
-  local found = tree_checks.build_directory(db, {})
+  local found = tree_readers.build_directory(db, {})
   assert(#found == 2, table.concat(found, "\n"))
   assert(support.nth(found, 1):find("^build/spells%.tl:2: spells the build directory") ~= nil, found[1])
   assert(support.nth(found, 2):find("^build/spells%.tl:3: ") ~= nil, found[2])
-  assert(#tree_checks.build_directory(db, { ["build/spells.tl"] = "kept" }) == 0)
-  found = tree_checks.build_directory(db, { ["build/spells.tl"] = "kept", ["build/says.tl"] = "gone" })
+  assert(#tree_readers.build_directory(db, { ["build/spells.tl"] = "kept" }) == 0)
+  found = tree_readers.build_directory(db, { ["build/spells.tl"] = "kept", ["build/says.tl"] = "gone" })
   assert(#found == 1 and found[1]:find("^build/says%.tl: excused") ~= nil, table.concat(found, "\n"))
 end
 
@@ -209,12 +217,12 @@ local function test_a_stand_in_that_stops_naming_its_command_is_refused(dir: str
   local named = fixture.database(dir, {
     ["cosmic/proc.tl"] = proc("Where a program would run from, as `which` finds it."),
   })
-  local found = tree_checks.stand_ins(named, cases)
+  local found = tree_readers.stand_ins(named, cases)
   assert(#found == 0, table.concat(found, "\n"))
   local unnamed = fixture.database(dir, {
     ["cosmic/proc.tl"] = proc("Where a program would run from."),
   })
-  found = tree_checks.stand_ins(unnamed, cases)
+  found = tree_readers.stand_ins(unnamed, cases)
   assert(#found == 1 and found[1]:find("^`cosmic docs which` answers nothing first, not Proc.find") ~=
       nil, table.concat(found, "\n"))
 end
@@ -237,9 +245,9 @@ local function test_a_query_no_example_answers_is_refused(dir: string)
       "end",
       "return Example"),
   })
-  local found = tree_checks.queries(db, { "records_and_their_fields" })
+  local found = tree_docs.queries(db, { "records_and_their_fields" })
   assert(#found == 0, table.concat(found, "\n"))
-  found = tree_checks.queries(db, { "records_and_their_fields", "unions_and_their_members" })
+  found = tree_docs.queries(db, { "records_and_their_fields", "unions_and_their_members" })
   assert(#found == 1 and found[1]:find("^`cosmic docs unions_and_their_members` answers nothing") ~=
       nil, table.concat(found, "\n"))
 end
@@ -257,9 +265,9 @@ local function test_a_quieted_method_no_record_declares_is_refused(dir: string)
       "end",
       "return Log"),
   })
-  local found = tree_checks.quieted(db, { "cosmic.log Logger", "cosmic.log Logger.say" })
+  local found = tree_declares.quieted(db, { "cosmic.log Logger", "cosmic.log Logger.say" })
   assert(#found == 0, table.concat(found, "\n"))
-  found = tree_checks.quieted(db, { "cosmic.log Logger.shout", "cosmic.gone Gone" })
+  found = tree_declares.quieted(db, { "cosmic.log Logger.shout", "cosmic.gone Gone" })
   assert(#found == 2, table.concat(found, "\n"))
   assert(support.nth(found, 1):find("^cosmic%.log Logger%.shout is quieted") ~= nil, found[1])
   assert(support.nth(found, 2):find("^cosmic%.gone Gone is quieted") ~= nil, found[2])
@@ -288,12 +296,12 @@ local function test_a_restricted_member_used_outside_its_files_is_refused(dir: s
       "end"),
   })
   local rules = { ["build.probe has"] = { files = { "build/asker.tl" }, why = "ask the host" } }
-  local found = tree_checks.restricted(db, rules)
+  local found = tree_declares.restricted(db, rules)
   assert(#found == 1, table.concat(found, "\n"))
   assert(support.nth(found, 1):find("^build/other_test%.tl:%d+: build%.probe has is used outside build/asker%.tl: ask the host") ~=
       nil, found[1])
   rules = { ["build.probe has"] = { files = { "build/asker.tl", "build/other_test.tl" }, why = "ask the host" } }
-  found = tree_checks.restricted(db, rules)
+  found = tree_declares.restricted(db, rules)
   assert(#found == 0, table.concat(found, "\n"))
 end
 
@@ -333,7 +341,7 @@ local function test_a_module_requiring_the_loader_outside_the_entry_and_the_work
       "function probing.run(): boolean return found end",
       "return probing"),
   })
-  local found = tree_checks.requirers(db)
+  local found = tree_declares.requirers(db)
   assert(#found == 3, table.concat(found, "\n"))
   local line = assert(found[1])
   assert(line:find("^build%.aliased: requires build%.load_module, which only build%.dispatch, build%.test_worker, " ..
@@ -387,7 +395,7 @@ local function test_a_module_reading_store_text_without_declaring_it_is_refused(
     if path ~= nil and text ~= nil then files[path] = text end
   end
   local db = fixture.database(dir, files)
-  local found = tree_checks.text_readers(db)
+  local found = tree_readers.text_readers(db)
   local joined = table.concat(found, "\n")
   for _, name in ipairs({ "build.undeclared", "build.typed", "build.withheld", "build.queries", "build.schema_named",
       "build.full_text", "build.listed", "build.pieces", "build.dashed" }) do
@@ -417,7 +425,7 @@ local function test_a_module_reading_package_outside_the_list_is_refused(dir: st
   put("build/fine.tl", "local t = { package = 1 }\n-- package.searchers\nlocal s = \"package.loaded\"\nreturn t.package, s\n")
   put("build/record.tl", "local record R\n  package: string\nend\nreturn R\n")
   put("build/probe_test.tl", "local s = package.searchers\nreturn s\n")
-  local found = tree_checks.package_readers(dir, { ["build/allowed.tl"] = "needs it" })
+  local found = tree_readers.package_readers(dir, { ["build/allowed.tl"] = "needs it" })
   local files: mut {string} = {}
   for _, line in ipairs(found) do
     files[#files + 1] = line:match("^([^:]+):%d+: reads `package`") or line
@@ -447,7 +455,7 @@ local function test_a_module_building_a_chunk_from_text_outside_the_list_is_refu
       "local record R\n  load: function(): integer\nend\nfunction R.load(): integer return 1 end\n" ..
       "return t.load, s, R.load()\n")
   put("build/probe_test.tl", "local f = load(\"return 1\")\nreturn f\n")
-  local found = tree_checks.text_loaders(dir, { ["build/allowed.tl"] = "builds a chunk" })
+  local found = tree_readers.text_loaders(dir, { ["build/allowed.tl"] = "builds a chunk" })
   local files: mut {string} = {}
   for _, line in ipairs(found) do
     files[#files + 1] = line:match("^([^:]+):%d+: uses ") or line
@@ -471,7 +479,7 @@ local function test_a_test_returning_early_is_refused(dir: string)
       "  if nothing() then\n    Test.skip(\"no\")\n    return\n  end\n  assert(true)\nend\n")
   put("build/arm_test.tl", "local function test_arm()\n  if nothing() then\n    assert(true)\n    return\n  end\n  assert(false)\nend\n")
   put("build/helper.tl", "local function test_not_a_test_file()\n  if nothing() then return end\nend\n")
-  local found = tree_checks.test_returns(dir)
+  local found = tree_tests.test_returns(dir)
   assert(#found == 2, table.concat(found, "\n"))
   assert(found[1]:find("^build/bare_test.tl:3: test_bare returns early %(`return`%)"), found[1])
   assert(found[2]:find("^build/guard_test.tl:3: test_guarded returns early %(`if ... then return end`%)"), found[2])
@@ -484,19 +492,19 @@ local function test_early_returns_read_the_parse_fix_made_of_the_same_text(dir: 
   local early = "local function test_early()\n  assert(true)\n  return\nend\n"
   assert(Fs.write(dir .. "/build/early_test.tl", early))
   local chunk = assert(SyntaxNode.parse(early, "build/early_test.tl"))
-  tree_checks.knows_parse(early, "build/early_test.tl", chunk)
-  local found = tree_checks.test_returns(dir)
+  tree_common.knows_parse(early, "build/early_test.tl", chunk)
+  local found = tree_tests.test_returns(dir)
   assert(#found == 1, table.concat(found, "\n"))
   assert(found[1]:find("^build/early_test.tl:3: test_early returns early"), found[1])
   -- The file changes after the parse: the check reads the new text.
   local fine = "local function test_early()\n  assert(true)\nend\n"
   assert(Fs.write(dir .. "/build/early_test.tl", fine))
-  found = tree_checks.test_returns(dir)
+  found = tree_tests.test_returns(dir)
   assert(#found == 0, table.concat(found, "\n"))
   -- A parse of the fine text that saw no early return is read for it: the same findings, from the same text.
   local fine_chunk = assert(SyntaxNode.parse(fine, "build/early_test.tl"))
-  tree_checks.knows_parse(fine, "build/early_test.tl", fine_chunk)
-  found = tree_checks.test_returns(dir)
+  tree_common.knows_parse(fine, "build/early_test.tl", fine_chunk)
+  found = tree_tests.test_returns(dir)
   assert(#found == 0, table.concat(found, "\n"))
 end
 
@@ -538,12 +546,12 @@ local function test_a_helper_copied_between_test_files_is_refused(dir: string)
   put("build/twice_test.tl", twice .. "\n" .. swap(twice, "twice", "again"))
   put("build/tests_test.tl", helper("test_join", ","))
   put("build/tests_other_test.tl", helper("test_join", ","))
-  local found = tree_checks.test_clones(dir, 20)
+  local found = tree_tests.test_clones(dir, 20)
   assert(#found == 1, table.concat(found, "\n"))
   assert(found[1]:find("^build/a_test.tl:3: join is copied token for token in build/b_fixture.tl:2 %(join%): " ..
       "move it into a shared fixture"), found[1])
   assert(found[1]:find("build/test_support_fixture.tl", 1, true) ~= nil, found[1])
-  found = tree_checks.test_clones(dir, 80)
+  found = tree_tests.test_clones(dir, 80)
   assert(#found == 0, table.concat(found, "\n"))
 end
 
@@ -559,7 +567,7 @@ local function test_a_copy_between_fixtures_is_refused(dir: string)
   assert(Fs.mkdirs(dir .. "/build"))
   assert(Fs.write(dir .. "/build/one_fixture.tl", body))
   assert(Fs.write(dir .. "/build/two_fixture.tl", body))
-  local found = tree_checks.test_clones(dir, 20)
+  local found = tree_tests.test_clones(dir, 20)
   assert(#found == 1, table.concat(found, "\n"))
   assert(found[1]:find("^build/one_fixture.tl:1: join is copied token for token in build/two_fixture.tl:1"), found[1])
 end
@@ -588,7 +596,7 @@ local function test_a_snippet_in_a_string_is_no_helper(dir: string)
   assert(Fs.mkdirs(dir .. "/build"))
   put("build/first_test.tl", (text:gsub("writes", "first")))
   put("build/second_test.tl", (text:gsub("\"x\"", "\"y\"")))
-  local found = tree_checks.test_clones(dir, 5)
+  local found = tree_tests.test_clones(dir, 5)
   assert(#found == 0, table.concat(found, "\n"))
 end
 
@@ -611,7 +619,7 @@ local function test_a_helper_holding_a_string_of_source_or_on_one_line_is_found(
   assert(Fs.mkdirs(dir .. "/build"))
   put("build/a_test.tl", body)
   put("build/b_test.tl", body)
-  local found = tree_checks.test_clones(dir, 5)
+  local found = tree_tests.test_clones(dir, 5)
   assert(#found == 2, table.concat(found, "\n"))
   assert(found[1]:find("^build/a_test.tl:1: writes is copied token for token in build/b_test.tl:1 %(writes%)"), found[1])
   assert(found[2]:find("^build/a_test.tl:9: one is copied token for token in build/b_test.tl:9 %(one%)"), found[2])
@@ -622,7 +630,7 @@ local function test_a_declaration_that_requires_a_module_is_refused(dir: string)
   local db = fixture.database(dir, {
     ["build/base.d.tl"] = source("--- @kind binding", "local record base", "  x: integer", "end", "return base"),
   })
-  local found = tree_checks.declarations(db)
+  local found = tree_declares.declarations(db)
   assert(#found == 0, table.concat(found, "\n"))
   db = fixture.database(dir, {
     ["build/thing.tl"] = source("local record thing", "  x: integer", "end", "return thing"),
@@ -634,7 +642,7 @@ local function test_a_declaration_that_requires_a_module_is_refused(dir: string)
       "end",
       "return raw"),
   })
-  found = tree_checks.declarations(db)
+  found = tree_declares.declarations(db)
   assert(#found == 1 and found[1]:find("^build%.raw requires build%.thing, which is no " ..
       "declaration") ~= nil, table.concat(found, "\n"))
 end
@@ -642,11 +650,11 @@ end
 --- The files held to earn no note are the public standard library's:
 --- `cosmic/` outside `cosmic/internal/`.
 local function test_the_standard_library_is_the_public_cosmic_tree()
-  assert(tree_checks.standard("cosmic/fs.tl"))
-  assert(tree_checks.standard("./cosmic/child/group.tl"))
-  assert(not tree_checks.standard("cosmic/internal/buffer.tl"))
-  assert(not tree_checks.standard("build/fix/init.tl"))
-  assert(not tree_checks.standard("ci/cosmic/thing.tl"))
+  assert(tree_build.standard("cosmic/fs.tl"))
+  assert(tree_build.standard("./cosmic/child/group.tl"))
+  assert(not tree_build.standard("cosmic/internal/buffer.tl"))
+  assert(not tree_build.standard("build/fix/init.tl"))
+  assert(not tree_build.standard("ci/cosmic/thing.tl"))
 end
 
 --- A module assigning a spec of a verb `name` whose guide and tests are as
@@ -669,7 +677,7 @@ local function test_a_verb_is_held_to_its_registration(dir: string)
       ["build/thing_test.tl"] = source("return {}"),
     }
     for path, text in pairs(extra or {}) do files[path] = text end
-    return tree_checks.verbs(fixture.database(dir, files), quickstart)
+    return tree_docs.verbs(fixture.database(dir, files), quickstart)
   end
   local ok = "\"build.thing_test\""
   local found = found_with(verb("thing", "a thing", ok))
@@ -716,7 +724,7 @@ local function test_a_spec_is_read_in_any_layout_of_literals(dir: string)
       ["build/thing_test.tl"] = source("return {}"),
     }
     for path, text in pairs(extra or {}) do files[path] = text end
-    return tree_checks.verbs(fixture.database(dir, files), quickstart)
+    return tree_docs.verbs(fixture.database(dir, files), quickstart)
   end
   local function spec(...: string): string
     return source("local m = {}", "m.spec = {", table.concat({ ... }, "\n"), "}", "return m")
@@ -771,7 +779,7 @@ local function test_a_spec_is_read_in_any_layout_of_literals(dir: string)
       "  tests = { \"build.thing_test\" },"),
     ["build/thing_test.tl"] = source("return {}"),
   }
-  found = tree_checks.verbs(fixture.database(dir, files), nil)
+  found = tree_docs.verbs(fixture.database(dir, files), nil)
   assert(#found == 0, table.concat(found, "\n"))
 end
 
@@ -789,13 +797,13 @@ local function test_a_requirement_no_leg_promises_is_refused()
     ["a_test"] = { "nest", "landlock:2" },
     ["b_test"] = { "proc", "root" },
   }
-  local found = tree_checks.promises(declared, legs)
+  local found = tree_build.promises(declared, legs)
   assert(#found == 2, table.concat(found, "\n"))
   assert(support.nth(found, 1):find("b_test requires proc, which no CI leg promises", 1, true), found[1])
   assert(support.nth(found, 2):find("b_test requires root, which no CI leg promises", 1, true), found[2])
-  assert(#tree_checks.promises({ ["a_test"] = { "nest" } }, legs) == 0)
-  assert(#tree_checks.promises({}, legs) == 0)
-  local refused = tree_checks.promises({}, { linux = { "nope" } })
+  assert(#tree_build.promises({ ["a_test"] = { "nest" } }, legs) == 0)
+  assert(#tree_build.promises({}, legs) == 0)
+  local refused = tree_build.promises({}, { linux = { "nope" } })
   assert(#refused == 1 and refused[1]:find("leg linux promises \"nope\", which is refused", 1, true) ~= nil, refused[1])
 end
 
@@ -805,11 +813,11 @@ local function test_the_legs_are_read_from_the_capabilities_file(dir: string)
   assert(Fs.mkdirs(dir .. "/ci/cosmic_ci"))
   local path = dir .. "/ci/cosmic_ci/capabilities.json"
   assert(Fs.write(path, '{"legs": {"x": ["sandbox", "nest"], "y": []}}'))
-  local legs = assert(tree_checks.legs(dir))
+  local legs = assert(tree_build.legs(dir))
   assert(#legs.x == 2 and legs.x[2] == "nest" and #legs.y == 0) -- checked: map_field*3
   for _, bad in ipairs({ "{}", '{"legs": {"x": 1}}', "not json", "{" }) do
     assert(Fs.write(path, bad))
-    local found, why = tree_checks.legs(dir)
+    local found, why = tree_build.legs(dir)
     assert(found == nil and why:find("capabilities.json", 1, true) ~= nil, bad .. ": " .. tostring(why))
   end
 end
@@ -824,7 +832,7 @@ local function test_the_declared_requirements_are_read_by_module()
   assert(db:exec("INSERT INTO inputs VALUES ('m.a_test', 'h1'), ('m.b_test', 'h2')"))
   assert(db:exec("INSERT INTO test_inputs VALUES ('h1', 1, 'line', '3'), ('h1', 2, 'requires', 'nest'), " ..
       "('h1', 3, 'requires', 'proc'), ('h2', 1, 'host', '/proc')"))
-  local found = assert(tree_checks.requirements(db))
+  local found = assert(tree_build.requirements(db))
   local needs = found["m.a_test"]
   assert(needs, "m.a_test has requirements")
   assert(#needs == 2 and needs[1] == "nest" and needs[2] == "proc")
@@ -841,7 +849,7 @@ local function test_a_module_granted_the_zig_cache_requires_pinned_zig()
   assert(db:exec("INSERT INTO inputs VALUES ('m.a_test', 'h1'), ('m.b_test', 'h2'), ('m.c_test', 'h3')"))
   assert(db:exec("INSERT INTO test_inputs VALUES ('h1', 1, 'caches', 'zig'), ('h2', 1, 'caches', 'zig'), " ..
       "('h2', 2, 'requires', 'pinned_zig'), ('h3', 1, 'caches', 'bootstrap')"))
-  local found = assert(tree_checks.unguarded_zig(db))
+  local found = assert(tree_build.unguarded_zig(db))
   assert(#found == 1, table.concat(found, "\n"))
   assert(support.nth(found, 1):find("m.a_test is granted the zig cache and does not require pinned_zig", 1, true),
     found[1])
@@ -858,7 +866,7 @@ local function test_the_unsealed_modules_are_those_declaring_a_launcher_reader()
       "('m.c_test', 'h3'), ('m.d_test', 'h4'), ('m.e_test', 'h5')"))
   assert(db:exec("INSERT INTO test_inputs VALUES ('h1', 1, 'tool', 'true'), ('h2', 1, 'store', 'true'), " ..
       "('h3', 1, 'requires', 'portable'), ('h4', 1, 'requires', 'proc'), ('h5', 1, 'nests', 'true')"))
-  local found = assert(tree_checks.unsealed(db))
+  local found = assert(tree_build.unsealed(db))
   assert(found["m.a_test"] == true and found["m.b_test"] == true and found["m.c_test"] == true)
   assert(found["m.d_test"] ~= true and found["m.e_test"] ~= true)
   local _, _ = db:close()
@@ -876,11 +884,11 @@ local function test_a_sealed_test_naming_the_launcher_is_refused(dir: string)
     ["build/quiet_test.tl"] = source("-- COSMIC_PORTABLE_CORE_FD, said in a comment",
       "local launched = Proc.relaunch()"),
   })
-  local found = tree_checks.sealed_launch(db, { ["build.declared_test"] = true }, {})
+  local found = tree_build.sealed_launch(db, { ["build.declared_test"] = true }, {})
   assert(#found == 2, table.concat(found, "\n"))
   assert(support.nth(found, 1):find("^build%.argv_test names the portable launcher's contract") ~= nil, found[1])
   assert(support.nth(found, 2):find("^build%.reads_test names the portable launcher's contract") ~= nil, found[2])
-  found = tree_checks.sealed_launch(db, { ["build.declared_test"] = true },
+  found = tree_build.sealed_launch(db, { ["build.declared_test"] = true },
     { ["build.argv_test"] = "a made-up start", ["build.reads_test"] = "text only",
       ["build.quiet_test"] = "wrongly excused" })
   assert(#found == 1 and found[1]:find("^build%.quiet_test is excused") ~= nil, table.concat(found, "\n"))
@@ -971,7 +979,7 @@ local function test_a_public_doc_naming_internals_is_refused(dir: string)
     ["build/thing.tl"] = source("local record thing", "end", "return thing"),
     ["build/zig.tl"] = source("local record zig", "end", "return zig"),
   })
-  local found = tree_checks.public_docs(db, {})
+  local found = tree_docs.public_docs(db, {})
   local text = table.concat(found, "\n")
   assert(#found == 6, text)
   assert(found[1]:find("^cosmic/thing%.tl:5: cosmic%.thing a: .*`build/thing%.tl`.*%(path rule%) %-%- say what a caller needs") ~=
@@ -988,14 +996,14 @@ local function test_a_public_doc_naming_internals_is_refused(dir: string)
     ["cosmic.thing d path"] = "d",
     ["cosmic.thing e path"] = "unneeded",
   }
-  found = tree_checks.public_docs(db, excused)
+  found = tree_docs.public_docs(db, excused)
   assert(#found == 1 and found[1]:find("^cosmic.thing e path: exempt, but") ~= nil,
     table.concat(found, "\n"))
   -- Held to some files, the docs of the rest say nothing, nor does an exemption nothing named matches.
-  found = tree_checks.public_docs(db, { ["cosmic.thing a path"] = "a", ["cosmic.thing x path"] = "unneeded" },
+  found = tree_docs.public_docs(db, { ["cosmic.thing a path"] = "a", ["cosmic.thing x path"] = "unneeded" },
     { ["cosmic/thing.tl"] = true })
   assert(#found == 5 and found[1]:find("^cosmic/thing%.tl:7: .*%(todo rule%)") ~= nil, table.concat(found, "\n"))
-  found = tree_checks.public_docs(db, {}, { ["cosmic/other.tl"] = true })
+  found = tree_docs.public_docs(db, {}, { ["cosmic/other.tl"] = true })
   assert(#found == 0, table.concat(found, "\n"))
   local clean = fixture.database(dir, {
     ["cosmic/thing.tl"] = source(
@@ -1015,7 +1023,7 @@ local function test_a_public_doc_naming_internals_is_refused(dir: string)
       "end",
       "return internal"),
   })
-  found = tree_checks.public_docs(clean, {})
+  found = tree_docs.public_docs(clean, {})
   assert(#found == 0, table.concat(found, "\n"))
 end
 
@@ -1062,7 +1070,7 @@ local function test_a_literal_plural_after_a_number_is_refused(dir: string)
       "  local _ = #rows .. \" tests\"",
       "end"),
   })
-  local found = tree_checks.plurals(db, {}, {})
+  local found = tree_docs.plurals(db, {}, {})
   local text = table.concat(found, "\n")
   assert(#found == 5, text)
   assert(found[1]:find("^build/count%.tl:4: .*`tests`.*plural%.count") ~= nil, text)
@@ -1070,7 +1078,7 @@ local function test_a_literal_plural_after_a_number_is_refused(dir: string)
   assert(support.nth(found, 3):find("^build/count%.tl:11: .*`tests`.*plural%.noun") ~= nil, text)
   assert(support.nth(found, 4):find("^build/count%.tl:14: .*`rows`") ~= nil, text)
   assert(support.nth(found, 5):find("^build/count%.tl:17: .*`stores`") ~= nil, text)
-  found = tree_checks.plurals(db, { { "ci/x.tl", "return #arg .. \" arguments\"\n" } }, {
+  found = tree_docs.plurals(db, { { "ci/x.tl", "return #arg .. \" arguments\"\n" } }, {
     ["build/count.tl:tests"] = "always many", ["build/count.tl:files"] = "always many",
     ["build/count.tl:rows"] = "always many", ["build/count.tl:stores"] = "always many",
     ["build/fine.tl:tests"] = "unneeded" })
@@ -1079,7 +1087,7 @@ local function test_a_literal_plural_after_a_number_is_refused(dir: string)
   -- A source with an optional type is read as written.
   local newer = { { "ci/cosmic_ci/x.tl", "local function f(rows: {string}, x: string?): string\n" ..
       "  return #rows .. \" tests\"\nend\nreturn f\n" } }
-  local second = tree_checks.plurals(db, newer, {})
+  local second = tree_docs.plurals(db, newer, {})
   local last = assert(second[#second])
   assert(last:find("^ci/cosmic_ci/x%.tl:2: .*`tests`") ~= nil, table.concat(second, "\n"))
 end
@@ -1093,26 +1101,26 @@ local function test_plurals_found_before_stand_for_the_same_text(dir: string)
     ["build/count.tl"] = text,
     ["build/moved.tl"] = source("local n = 2", "return n .. \" rows\""),
   })
-  assert(tree_checks.plurals_in("build/count_test.tl", text) == nil)
-  assert(tree_checks.plurals_in("examples/count.tl", text) == nil)
-  assert(tree_checks.plurals_in("build/count.tl", "if x then\n") == nil)
-  local counted = assert(tree_checks.plurals_in("build/count.tl", text))
+  assert(tree_docs.plurals_in("build/count_test.tl", text) == nil)
+  assert(tree_docs.plurals_in("examples/count.tl", text) == nil)
+  assert(tree_docs.plurals_in("build/count.tl", "if x then\n") == nil)
+  local counted = assert(tree_docs.plurals_in("build/count.tl", text))
   assert(counted.source == text and #counted.sites == 1)
   local site = assert(counted.sites[1])
   assert(site[1] == "2" and site[2] == "tests", table.concat(site, "|"))
   local edited: mut {string} = {}
   for at, part in ipairs(site) do edited[#edited + 1] = if at == 2 then "kept" else part end end
-  local kept: tree_checks.Plurals = { source = counted.source, sites = { edited } }
-  local read: {string: tree_checks.Plurals} = {
+  local kept: tree_docs.Plurals = { source = counted.source, sites = { edited } }
+  local read: {string: tree_docs.Plurals} = {
     ["build/count.tl"] = kept,
     ["build/moved.tl"] = { source = "return 1\n", sites = {} },
   }
-  local found = tree_checks.plurals(db, {}, {}, read)
+  local found = tree_docs.plurals(db, {}, {}, read)
   local all = table.concat(found, "\n")
   assert(#found == 2, all)
   assert(assert(found[1]):find("^build/count%.tl:2: .*`kept`") ~= nil, all)
   assert(assert(found[2]):find("^build/moved%.tl:2: .*`rows`") ~= nil, all)
-  local unread = tree_checks.plurals(db, { { "ci/cosmic_ci/bad.tl", "if x then\n" } }, {})
+  local unread = tree_docs.plurals(db, { { "ci/cosmic_ci/bad.tl", "if x then\n" } }, {})
   assert(assert(unread[#unread]):find("^ci/cosmic_ci/bad%.tl: cannot read it to check its plurals: ") ~= nil,
     table.concat(unread, "\n"))
 end
@@ -1122,7 +1130,7 @@ end
 --- named matches is no line, since the files not named may match it.
 local function test_the_plurals_of_some_files_are_the_whole_checks_lines_for_them()
   local counting = source("local n = 2", "return n .. \" tests\"")
-  local found = tree_checks.plurals_of({
+  local found = tree_docs.plurals_of({
     { "cosmic/count.tl", counting },
     { "ci/cosmic_ci/rows.tl", source("local n = 2", "return n .. \" rows\"") },
     { "build/kept.tl", source("local n = 2", "return n .. \" files\"") },
@@ -1145,14 +1153,14 @@ local function test_ci_sources_are_the_non_test_modules_of_cosmic_ci(dir: string
   assert(Fs.write(base .. "/a_test.tl", "return 3\n"))
   assert(Fs.write(base .. "/sub/c.tl", "return 4\n"))
   assert(Fs.write(base .. "/notes.md", "no\n"))
-  local found = tree_checks.ci_sources(dir .. "/tree")
+  local found = tree_ci.ci_sources(dir .. "/tree")
   local names: mut {string} = {}
   for _, row in ipairs(found) do
     names[#names + 1] = support.nth(row, 1) .. "=" .. support.nth(row, 2):gsub("\n", "")
   end
   assert(table.concat(names, ",") == "ci/cosmic_ci/a.tl=return 1,ci/cosmic_ci/b.tl=return 2,ci/cosmic_ci/sub/c.tl=return 4",
     table.concat(names, ","))
-  assert(#tree_checks.ci_sources(dir .. "/nowhere") == 0)
+  assert(#tree_ci.ci_sources(dir .. "/nowhere") == 0)
 end
 
 --- A file under `ci/testdata` that does not type-check is named with its
@@ -1164,13 +1172,13 @@ local function test_ci_testdata_type_errors_are_named(dir: string)
   assert(Fs.write(base .. "/bad.tl", "local x: integer = \"s\"\nreturn x\n"))
   assert(Fs.write(base .. "/loose.tl", "local function helper() end\nreturn 1\n"))
   assert(Fs.write(base .. "/foreign.tl", "local m = require(\"cosmic_ci.nowhere\")\nreturn m\n"))
-  local found = tree_checks.ci_testdata(dir .. "/tree")
+  local found = tree_ci.ci_testdata(dir .. "/tree")
   local all = table.concat(found, "\n")
   assert(found[1] ~= nil and support.nth(found, 1):find("^ci/testdata/sub/bad%.tl:1:") ~= nil, all)
   assert(all:find("ci/testdata/sub/foreign.tl", 1, true) ~= nil, all)
   assert(all:find("good_test", 1, true) == nil, all)
   assert(all:find("ci/testdata/sub/loose.tl:1:", 1, true) ~= nil, all)
-  assert(#tree_checks.ci_testdata(dir .. "/nowhere") == 0)
+  assert(#tree_ci.ci_testdata(dir .. "/nowhere") == 0)
 end
 
 --- An unused local is as unused as an unused import: a test module under
@@ -1180,7 +1188,7 @@ local function test_an_unused_local_in_ci_testdata_follows_the_unused_rule(dir: 
   assert(Fs.mkdirs(base))
   assert(Fs.write(base .. "/zz_test.tl", "local function test_x()\n  local lonely = 1\n  assert(true)\nend\n"))
   assert(Fs.write(base .. "/label.tl", "do\n  local lonely = 1\nend\nreturn 1\n"))
-  local found = tree_checks.ci_testdata(dir .. "/tree")
+  local found = tree_ci.ci_testdata(dir .. "/tree")
   local all = table.concat(found, "\n")
   assert(all:find("zz_test", 1, true) == nil, all)
   assert(all:find("ci/testdata/sub/label.tl:2:", 1, true) ~= nil, all)
@@ -1199,7 +1207,7 @@ local function test_a_name_the_scope_builder_cannot_resolve_is_refused_with_its_
   assert(Fs.write(root .. "/build/ok.tl", source("local x = 1", "print(x)", "return x")))
   assert(Fs.write(root .. "/build/bad.tl", source("local x = 1", "local x = 2", "print(y)", "return x")))
   assert(Fs.write(root .. "/vendor/v.tl", source("print(unknown_to_vendor)")))
-  local found = table.concat(tree_checks.scoped(root), "\n")
+  local found = table.concat(tree_checked.scoped(root), "\n")
   assert(found:find("build/bad.tl:2:7: variable `x` shadows the variable `x` declared at 1:7 (shadows): to change the existing", 1, true) and
       found:find("build/bad.tl:3:7: `y` is not declared (unknown_variable): declare it with `local y = ...`", 1, true) and
       found:find("build/bad.tl: 1 error of shadows in its scopes on line 2, marked 0; follow the fix above rather than add a marker",
@@ -1210,10 +1218,10 @@ local function test_a_name_the_scope_builder_cannot_resolve_is_refused_with_its_
   -- a marker on each line holds each finding, and the one of a line with none is still told
   assert(Fs.write(root .. "/build/bad.tl", source("local x = 1", "local x = 2 -- scoped: shadows", "print(y) -- scoped: unknown_variable",
     "return x")))
-  local marked = tree_checks.scoped(root)
+  local marked = tree_checked.scoped(root)
   assert(#marked == 0, table.concat(marked, "\n"))
   assert(Fs.write(root .. "/build/bad.tl", source("local x = 1", "local x = 2 -- scoped: shadows", "print(y)", "return x")))
-  local one = table.concat(tree_checks.scoped(root), "\n")
+  local one = table.concat(tree_checked.scoped(root), "\n")
   assert(one:find("build/bad.tl:3:7: `y` is not declared (unknown_variable)", 1, true) ~= nil and not one:find("(shadows)", 1, true), one)
 end
 
@@ -1228,7 +1236,7 @@ local function test_a_declaration_the_lowering_refuses_is_refused_with_its_fix_a
   assert(Fs.write(root .. "/build/ok.tl", source("local type Shape = require(\"lib.shape\")", "local x: Shape", "return x")))
   assert(Fs.write(root .. "/build/bad.tl", source("local type Shape = require(\"lib.shape\")",
     "local x: {Shape: string?}", "local y: {number: integer}", "local z: {string?}", "return x")))
-  local found = table.concat(tree_checks.declared(root), "\n")
+  local found = table.concat(tree_checked.declared(root), "\n")
   assert(found:find("build/bad.tl:3:11: a map is keyed by `integer`, not `number`", 1, true) and
       found:find("(float_key): key by `integer`", 1, true) and
       found:find("build/bad.tl: 1 error of float_key in its declarations on line 3, marked 0; follow the fix above rather than add a marker",
@@ -1239,14 +1247,14 @@ local function test_a_declaration_the_lowering_refuses_is_refused_with_its_fix_a
   local held = source("local type Shape = require(\"lib.shape\")", "local x: {Shape: string?} -- declared: array_of_optional",
     "local y: {number: integer} -- declared: float_key", "local z: {string?} -- declared: array_of_optional", "return x")
   assert(Fs.write(root .. "/build/bad.tl", held))
-  local only = tree_checks.declared(root)
+  local only = tree_checked.declared(root)
   assert(#only == 0, table.concat(only, "\n"))
   -- a marker whose finding is gone is stale, and one for the wrong code holds nothing
   assert(Fs.write(root .. "/build/bad.tl", (held:gsub("{string%?} %-%- declared: array_of_optional", "{string} -- declared: array_of_optional"))))
-  local stale = table.concat(tree_checks.declared(root), "\n")
+  local stale = table.concat(tree_checked.declared(root), "\n")
   assert(stale:find("build/bad.tl:4: its marker holds 1 finding of array_of_optional that the line no longer has", 1, true), stale)
   assert(Fs.write(root .. "/build/bad.tl", (held:gsub("declared: float_key", "declared: key_type"))))
-  local wrong = table.concat(tree_checks.declared(root), "\n")
+  local wrong = table.concat(tree_checked.declared(root), "\n")
   assert(wrong:find("(float_key)", 1, true) and wrong:find("its marker holds 1 finding of key_type", 1, true), wrong)
 end
 
@@ -1260,13 +1268,13 @@ local function test_the_trees_checks_read_no_file_of_ci_and_refuse_a_require_int
   assert(Fs.write(root .. "/ci/cosmic_ci/bad.tl", source("print(unknown_to_the_tree)", "local n: integer = \"s\"", "return n")))
   assert(Fs.write(root .. "/build/into.tl", source("local Shape = require(\"cosmic_ci.shape\")", "return Shape")))
   assert(Fs.write(root .. "/build/whole.tl", source("local Shape = require(\"ci.cosmic_ci.shape\")", "return Shape")))
-  local found = table.concat(tree_checks.checked(root), "\n")
+  local found = table.concat(tree_checked.checked(root), "\n")
   assert(found:find("build/into.tl:1:", 1, true) and found:find("the project has no module `cosmic_ci.shape`", 1, true) and
       found:find("(require_unknown)", 1, true), found)
   assert(found:find("build/whole.tl:1:", 1, true) and found:find("the project has no module `ci.cosmic_ci.shape`", 1, true), found)
   assert(found:find("ci/cosmic_ci/bad.tl", 1, true) == nil, found)
-  assert(table.concat(tree_checks.scoped(root), "\n"):find("ci/", 1, true) == nil)
-  assert(table.concat(tree_checks.declared(root), "\n"):find("ci/", 1, true) == nil)
+  assert(table.concat(tree_checked.scoped(root), "\n"):find("ci/", 1, true) == nil)
+  assert(table.concat(tree_checked.declared(root), "\n"):find("ci/", 1, true) == nil)
 end
 
 --- Files that require each other reach the same modules, and keep their own results.
@@ -1276,9 +1284,9 @@ local function test_files_that_require_each_other_keep_their_own_answers_in_the_
   assert(Fs.write(root .. "/build/a.tl", source("local b = require(\"build.b\")", "local x: {number: integer}", "return b")))
   assert(Fs.write(root .. "/build/b.tl", source("local a = require(\"build.a\")", "local y: {any: integer}", "return a")))
   local memo = assert(Sqlite.memory())
-  local plain = table.concat(tree_checks.declared(root, memo), "\n")
+  local plain = table.concat(tree_checked.declared(root, memo), "\n")
   assert(plain:find("build/a.tl:2:", 1, true) and plain:find("build/b.tl:2:", 1, true), plain)
-  assert(table.concat(tree_checks.declared(root, memo), "\n") == plain)
+  assert(table.concat(tree_checked.declared(root, memo), "\n") == plain)
   assert(memo:close())
 end
 
@@ -1293,7 +1301,7 @@ local function test_a_file_that_does_not_parse_and_a_testdata_file_count_no_erro
   assert(Fs.write(root .. "/build/user.tl", source("local type R = require(\"build.broken\")", "local y: R", "local z: {R: integer}", "return y")))
   assert(Fs.write(root .. "/eval/testdata/t.tl", source("local x: {number: integer}", "return x")))
   assert(Fs.write(root .. "/eval/testdata/u.tl", source("local type Gone = require(\"gone\")", "local g: Gone", "return g")))
-  assert(#tree_checks.declared(root) == 0, table.concat(tree_checks.declared(root), "\n"))
+  assert(#tree_checked.declared(root) == 0, table.concat(tree_checked.declared(root), "\n"))
 end
 
 --- The result for a file is kept under the sources of every module it requires: a change to a module it
@@ -1308,18 +1316,18 @@ local function test_a_memo_answers_the_declaration_check_until_a_module_a_file_r
   assert(Fs.write(root .. "/build/top.tl", source("local type Mid = require(\"build.mid\")", "local x: {number: Mid}", "return x")))
   assert(Fs.write(root .. "/build/alone.tl", source("local x: {number: integer}", "return x")))
   local memo = assert(Sqlite.memory())
-  local plain = table.concat(tree_checks.declared(root), "\n")
+  local plain = table.concat(tree_checked.declared(root), "\n")
   assert(plain:find("build/top.tl:2:", 1, true) and plain:find("build/alone.tl:1:", 1, true), plain)
-  assert(table.concat(tree_checks.declared(root, memo), "\n") == plain)
+  assert(table.concat(tree_checked.declared(root, memo), "\n") == plain)
   local count = assert(memo:rows("SELECT count(*) FROM check_memo WHERE kind = 'declared'"))
   assert(support.nth(count, 1):integer(1) == 5, "the four files and the code")
   -- Plant another result under every key: a run that finds it did not lower.
   assert(memo:run("UPDATE check_memo SET value = ?1 WHERE kind = 'declared'", { { text = "N\nE\tkey_type\t7\t9\tplanted\tdo it" } }))
-  local hit = table.concat(tree_checks.declared(root, memo), "\n")
+  local hit = table.concat(tree_checked.declared(root, memo), "\n")
   assert(hit:find("build/top.tl:7:9: planted (key_type): do it", 1, true) ~= nil and not hit:find("float_key", 1, true), hit)
   -- A module far below changed: the files that require it, through others, are lowered again; one that does not is not.
   assert(Fs.write(root .. "/build/base.tl", source("local record Base", "  m: integer", "end", "return Base")))
-  local again = table.concat(tree_checks.declared(root, memo), "\n")
+  local again = table.concat(tree_checked.declared(root, memo), "\n")
   assert(again:find("build/top.tl:2:", 1, true) ~= nil and again:find("build/mid.tl", 1, true) == nil, again)
   assert(again:find("build/alone.tl:7:9: planted", 1, true), again)
   assert(memo:close())
@@ -1334,17 +1342,17 @@ local function test_a_comment_in_a_module_misses_its_own_answer_and_no_other_fil
   assert(Fs.write(root .. "/build/mid.tl", source("local type Base = require(\"build.base\")", "local record Mid", "  b: Base", "end", "return Mid")))
   assert(Fs.write(root .. "/build/top.tl", source("local type Mid = require(\"build.mid\")", "local x: {number: Mid}", "return x")))
   local memo = assert(Sqlite.memory())
-  local plain = table.concat(tree_checks.declared(root, memo), "\n")
+  local plain = table.concat(tree_checked.declared(root, memo), "\n")
   assert(plain:find("build/top.tl:2:", 1, true), plain)
   assert(memo:run("UPDATE check_memo SET value = ?1 WHERE kind = 'declared'", { { text = "N\nE\tkey_type\t7\t9\tplanted\tdo it" } }))
   -- A comment, a doc comment and blank lines in the module far below: only its own file is lowered again.
   assert(Fs.write(root .. "/build/base.tl", source("-- a comment", "local record Base", "  --- the count", "  n: integer -- here", "end", "", "", "return Base")))
-  local commented = table.concat(tree_checks.declared(root, memo), "\n")
+  local commented = table.concat(tree_checked.declared(root, memo), "\n")
   assert(commented:find("build/top.tl:7:9: planted", 1, true) and commented:find("build/mid.tl:7:9: planted", 1, true), commented)
   assert(commented:find("build/base.tl", 1, true) == nil, "the module itself was answered from the memo: " .. commented)
   -- A token of it changed: the files that require it, through another, are lowered again.
   assert(Fs.write(root .. "/build/base.tl", source("local record Base", "  m: integer", "end", "return Base")))
-  local changed = table.concat(tree_checks.declared(root, memo), "\n")
+  local changed = table.concat(tree_checked.declared(root, memo), "\n")
   assert(changed:find("build/top.tl:2:", 1, true) ~= nil and not changed:find("planted", 1, true), changed)
   assert(memo:close())
 end
@@ -1355,22 +1363,23 @@ local function test_a_change_to_the_code_or_the_declarations_the_declaration_che
   local root = dir .. "/declaresalt"
   local salted: {string} = { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl", "lang/truthy.tl",
     "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/prelude.d.tl", "lang/stdlib.d.tl",
-    "build/check_memo.tl", "build/tree_checks.tl" }
+    "build/check_memo.tl", "build/tree_checks/checked.tl", "build/tree_checks/common.tl" }
   assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.mkdirs(root .. "/build/tree_checks"))
   assert(Fs.mkdirs(root .. "/lang"))
   for _, path in ipairs(salted) do
     assert(Fs.write(root .. "/" .. path, "-- one\n"))
   end
   assert(Fs.write(root .. "/build/bad.tl", source("local x: {number: integer}", "return x")))
   local memo = assert(Sqlite.memory())
-  local plain = table.concat(tree_checks.declared(root, memo), "\n")
+  local plain = table.concat(tree_checked.declared(root, memo), "\n")
   assert(plain:find("(float_key)", 1, true), plain)
   for _, path in ipairs(salted) do
     assert(memo:run("UPDATE check_memo SET value = ?1", { { text = "N\nE\tkey_type\t7\t9\tplanted\tdo it" } }))
-    local hit = table.concat(tree_checks.declared(root, memo), "\n")
+    local hit = table.concat(tree_checked.declared(root, memo), "\n")
     assert(hit:find("planted", 1, true), path .. " moved the key by itself: " .. hit)
     assert(Fs.write(root .. "/" .. path, "-- two " .. path .. "\n"))
-    local missed = table.concat(tree_checks.declared(root, memo), "\n")
+    local missed = table.concat(tree_checked.declared(root, memo), "\n")
     assert(missed:find("(float_key)", 1, true) ~= nil and not missed:find("planted", 1, true), path .. " is not in the salt: " .. missed)
   end
   assert(memo:close())
@@ -1390,7 +1399,7 @@ local function test_a_mistake_in_a_body_is_refused_with_its_fix_and_held_by_its_
   assert(Fs.write(root .. "/build/broken.tl", source("local t: {{string, integer}}", "local u: integer = 3.5", "return t")))
   assert(Fs.write(root .. "/build/types.d.tl", source("global record Gone", "  n: integer", "end")))
   assert(Fs.write(root .. "/eval/testdata/t.tl", source("local u: integer = 3.5", "return u")))
-  local found = table.concat(tree_checks.checked(root), "\n")
+  local found = table.concat(tree_checked.checked(root), "\n")
   assert(found:find("build/bad.tl:2:24: `1.5` is `number`, where `integer` is wanted as the field `n` of `Shape`", 1, true) and
       found:find("(not_assignable): convert with `math.tointeger(1.5)` or `math.floor(1.5)`", 1, true) and
       found:find("build/bad.tl:3:20:", 1, true) and
@@ -1401,12 +1410,12 @@ local function test_a_mistake_in_a_body_is_refused_with_its_fix_and_held_by_its_
       not found:find("testdata", 1, true), found)
   assert(Fs.write(root .. "/build/bad.tl", source("local Shape = require(\"build.shape\")",
     "local s: Shape = { n = 1.5 } -- checked: not_assignable", "local t: integer = 3.5 -- checked: not_assignable")))
-  local held = tree_checks.checked(root)
+  local held = tree_checked.checked(root)
   assert(#held == 0, table.concat(held, "\n"))
   -- the count of a marker is the findings it holds: one more is stale, one less leaves the line refused
   assert(Fs.write(root .. "/build/bad.tl", source("local Shape = require(\"build.shape\")",
     "local s: Shape = { n = 1.5 } -- checked: not_assignable*2", "local t: integer = 3.5")))
-  local both = table.concat(tree_checks.checked(root), "\n")
+  local both = table.concat(tree_checked.checked(root), "\n")
   assert(both:find("build/bad.tl:2: its marker holds 1 finding of not_assignable", 1, true) and
       both:find("1 error of not_assignable in its bodies on line 3, marked 0", 1, true), both)
 end
@@ -1418,10 +1427,10 @@ local function test_the_phases_of_a_check_are_timed_for_the_files_the_memo_lacke
   assert(Fs.write(root .. "/build/a.tl", source("local n: integer = 3.5")))
   local memo = assert(Sqlite.memory())
   local phases: {string: integer} = {}
-  local first = table.concat(tree_checks.checked(root, memo, phases), "\n")
+  local first = table.concat(tree_checked.checked(root, memo, phases), "\n")
   assert(phases.prepare > 0 and phases.lower > 0 and phases.check > 0, first) -- checked: map_field*3
   local again: {string: integer} = {}
-  assert(table.concat(tree_checks.checked(root, memo, again), "\n") == first)
+  assert(table.concat(tree_checked.checked(root, memo, again), "\n") == first)
   assert(again.check == nil) -- checked: map_field
   assert(memo:close())
 end
@@ -1436,15 +1445,15 @@ local function test_a_memo_answers_the_body_check_until_a_module_a_file_requires
   assert(Fs.write(root .. "/build/top.tl", source("local Base = require(\"build.base\")", "local b: Base = { n = 1.5 }")))
   assert(Fs.write(root .. "/build/alone.tl", source("local x: integer = 1.5")))
   local memo = assert(Sqlite.memory())
-  local plain = table.concat(tree_checks.checked(root, memo), "\n")
+  local plain = table.concat(tree_checked.checked(root, memo), "\n")
   assert(plain:find("build/top.tl:2:", 1, true) and plain:find("build/alone.tl:1:", 1, true), plain)
   local count = assert(memo:rows("SELECT count(*) FROM check_memo WHERE kind = 'checked'"))
   assert(support.nth(count, 1):integer(1) == 3, "the three files: " .. tostring(support.nth(count, 1):integer(1)))
   assert(memo:run("UPDATE check_memo SET value = ?1 WHERE kind = 'checked'", { { text = "N\nE\tnil_not_allowed\t7\t9\tplanted\tdo it" } }))
-  local hit = table.concat(tree_checks.checked(root, memo), "\n")
+  local hit = table.concat(tree_checked.checked(root, memo), "\n")
   assert(hit:find("build/top.tl:7:9: planted (nil_not_allowed): do it", 1, true) ~= nil and not hit:find("not_assignable", 1, true), hit)
   assert(Fs.write(root .. "/build/base.tl", source("local record Base", "  n: integer", "  m: integer", "end", "return Base")))
-  local again = table.concat(tree_checks.checked(root, memo), "\n")
+  local again = table.concat(tree_checked.checked(root, memo), "\n")
   assert(again:find("build/top.tl:2:", 1, true) and again:find("not_assignable", 1, true), again)
   assert(again:find("build/alone.tl:7:9: planted", 1, true), again)
   assert(memo:close())
@@ -1455,22 +1464,23 @@ local function test_a_change_to_the_code_or_the_declarations_the_body_check_read
   local root = dir .. "/checksalt"
   local salted: {string} = { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl", "lang/truthy.tl",
     "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/check.tl", "lang/check_codes.tl",
-    "lang/prelude.d.tl", "lang/stdlib.d.tl", "build/check_memo.tl", "build/tree_checks.tl" }
+    "lang/prelude.d.tl", "lang/stdlib.d.tl", "build/check_memo.tl", "build/tree_checks/checked.tl", "build/tree_checks/common.tl" }
   assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.mkdirs(root .. "/build/tree_checks"))
   assert(Fs.mkdirs(root .. "/lang"))
   for _, path in ipairs(salted) do
     assert(Fs.write(root .. "/" .. path, "-- one\n"))
   end
   assert(Fs.write(root .. "/build/bad.tl", source("local x: integer = 1.5")))
   local memo = assert(Sqlite.memory())
-  local plain = table.concat(tree_checks.checked(root, memo), "\n")
+  local plain = table.concat(tree_checked.checked(root, memo), "\n")
   assert(plain:find("(not_assignable)", 1, true), plain)
   for _, path in ipairs(salted) do
     assert(memo:run("UPDATE check_memo SET value = ?1", { { text = "N\nE\tnil_not_allowed\t7\t9\tplanted\tdo it" } }))
-    local hit = table.concat(tree_checks.checked(root, memo), "\n")
+    local hit = table.concat(tree_checked.checked(root, memo), "\n")
     assert(hit:find("planted", 1, true), path .. " moved the key by itself: " .. hit)
     assert(Fs.write(root .. "/" .. path, "-- two " .. path .. "\n"))
-    local missed = table.concat(tree_checks.checked(root, memo), "\n")
+    local missed = table.concat(tree_checked.checked(root, memo), "\n")
     assert(missed:find("(not_assignable)", 1, true) ~= nil and not missed:find("planted", 1, true), path .. " is not in the salt: " .. missed)
   end
   assert(memo:close())
@@ -1486,25 +1496,25 @@ local function test_a_memo_answers_the_scope_check_for_a_file_that_has_not_chang
   assert(Fs.write(root .. "/lang/stdlib.d.tl", source("global print: integer")))
   assert(Fs.write(root .. "/build/bad.tl", source("print(y)", "return 1")))
   local memo = assert(Sqlite.memory())
-  local plain = table.concat(tree_checks.scoped(root), "\n")
+  local plain = table.concat(tree_checked.scoped(root), "\n")
   assert(plain:find("(unknown_variable)", 1, true), plain)
-  assert(table.concat(tree_checks.scoped(root, memo), "\n") == plain)
+  assert(table.concat(tree_checked.scoped(root, memo), "\n") == plain)
   local count = assert(memo:rows("SELECT count(*) FROM check_memo WHERE kind = 'scoped'"))
   assert(support.nth(count, 1):integer(1) == 2, "the two files")
   -- Plant another result under the key: a run that finds it did not scope.
   local planted = "C\t\nE\tshadows\t7\t9\tplanted\tdo it"
   assert(memo:run("UPDATE check_memo SET value = ?1", { { text = planted } }))
-  local hit = table.concat(tree_checks.scoped(root, memo), "\n")
+  local hit = table.concat(tree_checked.scoped(root, memo), "\n")
   assert(hit:find("build/bad.tl:7:9: planted (shadows): do it", 1, true) ~= nil and not hit:find("unknown_variable", 1, true), hit)
   -- The code that scopes changed: the salt moves, the file is scoped again.
   assert(Fs.write(root .. "/lang/scopes.tl", "-- two\n"))
-  assert(table.concat(tree_checks.scoped(root, memo), "\n") == plain)
+  assert(table.concat(tree_checked.scoped(root, memo), "\n") == plain)
   assert(memo:close())
 end
 
 --- A file's refusal by the tree's checks of this root.
 local function refused_by_the_tree(root: string, file: string): boolean
-  for _, found in ipairs({ tree_checks.scoped(root), tree_checks.declared(root), tree_checks.checked(root) }) do
+  for _, found in ipairs({ tree_checked.scoped(root), tree_checked.declared(root), tree_checked.checked(root) }) do
     for _, line in ipairs(found) do
       if line:find(file, 1, true) == 1 then
         return true
@@ -1562,11 +1572,11 @@ local function test_an_edit_of_the_declaration_of_a_module_given_as_declaration_
   assert(Fs.write(root .. "/p/foo.tl", source("local record Box", "  n: integer", "end", "return Box")))
   assert(Fs.write(root .. "/q/use.tl", source("local Box = require(\"p.foo\")", "local b: Box = { s = \"x\" }", "return b")))
   local memo = assert(Sqlite.memory())
-  assert(#tree_checks.checked(root, memo) == 0, table.concat(tree_checks.checked(root), "\n"))
+  assert(#tree_checked.checked(root, memo) == 0, table.concat(tree_checked.checked(root), "\n"))
   assert(Fs.write(root .. "/p/foo.d.tl", source("local record Box", "  s: integer", "end", "return Box")))
-  local again = table.concat(tree_checks.checked(root, memo), "\n")
+  local again = table.concat(tree_checked.checked(root, memo), "\n")
   assert(again:find("q/use.tl:2:", 1, true), again)
-  assert(again == table.concat(tree_checks.checked(root), "\n"), "a warm memo and a cold run agree")
+  assert(again == table.concat(tree_checked.checked(root), "\n"), "a warm memo and a cold run agree")
   assert(memo:close())
 end
 
@@ -1597,15 +1607,15 @@ local function test_a_call_the_checker_could_type_no_function_for_is_held_by_its
   local root = dir .. "/typeduntyped"
   typed_tree(root)
   assert(Fs.write(root .. "/build/open.tl", source("local x = missing(2)", "local y = x.field(1)", "return y")))
-  local found = table.concat(tree_checks.untyped(root), "\n")
+  local found = table.concat(tree_checked.untyped(root), "\n")
   assert(found:find("build/open.tl: 1 error of call in its calls on line 1, marked 0; follow the fix above rather than add a marker",
     1, true) ~= nil and found:find("build/open.tl: 1 error of call in its calls on line 2, marked 0", 1, true) ~= nil, found)
   assert(Fs.write(root .. "/build/open.tl", source("local x = missing(2) -- untyped: call",
     "local y = x.field(1) -- untyped: call", "return y")))
-  assert(#tree_checks.untyped(root) == 0, table.concat(tree_checks.untyped(root), "\n"))
+  assert(#tree_checked.untyped(root) == 0, table.concat(tree_checked.untyped(root), "\n"))
   -- a marker above what the line has is stale, and a line with none is refused
   assert(Fs.write(root .. "/build/open.tl", source("local x = missing(2) -- untyped: call*2", "local y = x.field(1)", "return y")))
-  local stale = table.concat(tree_checks.untyped(root), "\n")
+  local stale = table.concat(tree_checked.untyped(root), "\n")
   assert(stale:find("build/open.tl:1: its marker holds 1 finding of call that the line no longer has", 1, true) and
       stale:find("on line 2, marked 0", 1, true), stale)
 end
@@ -1629,9 +1639,9 @@ local function test_the_checks_find_the_same_in_copies_of_the_process(dir: strin
     fanout.least = if copied then 1 else 1000000 end
     fanout.meminfo = "MemAvailable: 67108864 kB\n"
     local memo = assert(Sqlite.memory())
-    local found = table.concat(tree_checks.declared(root, memo), "\n") .. "\n--\n" ..
-      table.concat(tree_checks.checked(root, memo), "\n") .. "\n--\n" ..
-      table.concat(tree_checks.untyped(root, memo), "\n")
+    local found = table.concat(tree_checked.declared(root, memo), "\n") .. "\n--\n" ..
+      table.concat(tree_checked.checked(root, memo), "\n") .. "\n--\n" ..
+      table.concat(tree_checked.untyped(root, memo), "\n")
     local count = assert(memo:rows("SELECT count(*) FROM check_memo"))
     local rows = support.nth(count, 1):integer(1)
     assert(memo:close())
@@ -1655,13 +1665,13 @@ local function test_the_bindings_of_c_are_typed_where_the_tree_has_their_headers
   typed_tree(root)
   local user = source("local sys = require(\"cosmic.sys\")", "sys.unlink(\"x\") -- untyped: call", "return {}")
   assert(Fs.write(root .. "/build/uses_sys.tl", user))
-  assert(#tree_checks.untyped(root) == 0, "untyped: no header, no judgment")
+  assert(#tree_checked.untyped(root) == 0, "untyped: no header, no judgment")
   assert(Fs.mkdirs(root .. "/core"))
   for _, header in ipairs({ "core/syscalls.h", "core/process.h", "core/socket.h" }) do
     assert(Fs.write(root .. "/" .. header, (assert(Fs.read(header)))))
   end
   -- with the headers the call is typed, so its marker is stale
-  local found = table.concat(tree_checks.untyped(root), "\n")
+  local found = table.concat(tree_checked.untyped(root), "\n")
   assert(found:find("build/uses_sys.tl:2: its marker holds 1 finding of call that the line no longer has", 1, true) ~= nil, found)
 end
 
@@ -1678,7 +1688,7 @@ local function test_the_projection_of_the_tree_checks_is_written_by_the_code_tha
   assert(Fs.write(root .. "/lang/stdlib.d.tl", (assert(Fs.read("lang/stdlib.d.tl")))))
   assert(Fs.write(root .. "/lang/prelude.d.tl", (assert(Fs.read("lang/prelude.d.tl")))))
   assert(Fs.write(root .. "/things.tl", "--- Opens.\nlocal function open(): integer\n  return 1\nend\n\nreturn open\n"))
-  local db = assert(tree_checks.projection(root, (assert(Tree.standing(root, (assert(Tree.built_from(root))))))))
+  local db = assert(tree_build.projection(root, (assert(Tree.standing(root, (assert(Tree.built_from(root))))))))
   local own, trouble = writer.other_code(db, rebuild.compiled_by())
   assert(own == nil and trouble == "", tostring(own) .. trouble)
   assert(db:close())

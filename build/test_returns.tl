@@ -1,4 +1,4 @@
---- The places a test returns early, which [`build.tree_checks`]'s `test_returns` refuses: a test that cannot check its
+--- The places a test returns early, which [`build.tree_checks.tests`]'s `test_returns` refuses: a test that cannot check its
 --- subject on this host declares `requires` or calls `Test.skip(reason)` (doc/testing.md, "skipping"), because a bare
 --- `return` passes having checked nothing and keeps a verdict that stands on a host it never ran on.
 ---

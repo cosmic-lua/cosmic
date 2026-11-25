@@ -166,7 +166,7 @@ local function test_unmet_policy_fields_are_refused()
   end
   local cases: {Unmet} = {
     { policy = { isolate = { "file" } }, says = "isolate" },
-    { policy = { connect = { "example.com:443" } }, says = "connect needs the port of the network relay" },
+    { policy = { grants = { { connect = "example.com:443" } } }, says = "connect needs the port of the network relay" },
     { policy = { loopback = { "127.0.0.1" } }, says = "loopback" },
     { policy = { grants = { { calls = "nest" } } }, says = "nest" },
     { policy = { grants = { { path = "a", from = "b", letters = "r" } } }, says = "from" },
@@ -189,10 +189,10 @@ end
 --- profile lets the program connect to the relay's port on the loopback over
 --- TCP, and to nothing else, nor bind or listen anywhere.
 local function test_connect_reaches_the_relay_port_alone()
-  local out = assert(Seatbelt.compile({ connect = { "example.com:443" } }, { paths = {}, relay_port = 49152 }))
+  local out = assert(Seatbelt.compile({ grants = { { connect = "example.com:443" } } }, { paths = {}, relay_port = 49152 }))
   assert(out.text == BASE .. '(allow network-outbound (remote tcp "localhost:49152"))\n', out.text)
   for _, port in ipairs({ 0, 65536, -1 }) do
-    local refused, why = Seatbelt.compile({ connect = { "example.com:443" } }, { paths = {}, relay_port = port })
+    local refused, why = Seatbelt.compile({ grants = { { connect = "example.com:443" } } }, { paths = {}, relay_port = port })
     assert(refused == nil and why:find("connect needs the port", 1, true) ~= nil, tostring(why))
   end
   local stray, why = Seatbelt.compile({}, { paths = {}, relay_port = 49152 })

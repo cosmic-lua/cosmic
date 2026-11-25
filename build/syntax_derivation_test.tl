@@ -128,8 +128,8 @@ local MODULE <const> = table.concat({
 local TEST <const> = table.concat({
   'local Test = require("cosmic.test")',
   "",
-  'Test.policy{ grants = { { path = "testdata", letters = "r" }, { path = "/cache/zig", letters = "rwxc" } },',
-  '  loopback = { "127.0.0.1" }, env = { "HOME" }, promises = { "nest" } }',
+  'Test.policy{ grants = { { path = "testdata", letters = "r" }, { path = "/cache/zig", letters = "rwxc" }, { calls = "nest" } },',
+  '  loopback = { "127.0.0.1" }, env = { "HOME" }, }',
   "",
   "local function test_it_works()",
   "  assert(true)",
