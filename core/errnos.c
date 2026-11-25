@@ -1,8 +1,8 @@
 /*
  * The errno table core/errnos.h describes. Its entries and their order
  * are musl's (src/errno/__strerror.h, as the pinned zig carries it;
- * musl is MIT, and in the bill of materials), so a Linux core answers
- * exactly what musl's strerror does, and a macOS core the same words
+ * musl is MIT, and in the bill of materials), so a Linux core gives
+ * exactly the words musl's strerror does, and a macOS core the same words
  * rather than libSystem's. An entry this OS's <errno.h> does not name
  * is left out. EOPNOTSUPP is added ahead of ENOTSUP, which musl lists
  * alone since Linux gives both one number; macOS gives them two. The

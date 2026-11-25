@@ -1,6 +1,6 @@
 --- [`build/zig.tl`]'s tests that start this program: bin/zig itself, to
 --- see the status a zig that cannot run exits with, and a build that
---- answers or passes on a signal the stand-in zig ([`cosmic.stand_in`])
+--- settles or passes on a signal the stand-in zig ([`cosmic.stand_in`])
 --- sends. Apart from build/zig_test.tl's so those stand while the tree
 --- moves.
 
@@ -89,7 +89,7 @@ end
 
 --- A root of its own under `tmp` for [`build/zig.tl`] to build from: the
 --- script and the patch applier it runs first, and no vendored tree to
---- patch. Answers the script's path there.
+--- patch. Returns the script's path there.
 local function bare_root(tmp: string): string
   assert(Fs.mkdirs(tmp .. "/root/build"))
   assert(Fs.mkdirs(tmp .. "/root/vendor"))
@@ -100,7 +100,7 @@ local function bare_root(tmp: string): string
 end
 
 --- Runs [`build/zig.tl`] from `script` as bin/zig, building with the
---- stand-in `tmp/zig-for-test`, and answers how it ended. Once it has
+--- stand-in `tmp/zig-for-test`, and returns how it ended. Once it has
 --- started, `tmp/zig-pid` holds its pid -- negated, naming its process
 --- group, which it leads, when `group` -- for the stand-in to wait for
 --- and signal, as a shell's `$PPID` or `0` would name it.
@@ -122,8 +122,8 @@ local function build_with_stand_in(tmp: string, script: string, group: boolean):
 end
 
 --- A Ctrl-C that reached zig and [`bin/zig`] both, which zig caught and
---- exited cleanly from before [`bin/zig`] passed it on, is answered by
---- zig's status, as bash answers it: [`bin/zig`] exits 0 rather than
+--- exited cleanly from before [`bin/zig`] passed it on, is settled by
+--- zig's status, as bash settles it: [`bin/zig`] exits 0 rather than
 --- dying of the SIGINT. The stub signals its whole group, as a terminal
 --- does, and exits at once, well inside the pass-on window.
 local function test_run_answers_a_caught_ctrl_c_by_the_childs_status(tmp: string)

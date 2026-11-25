@@ -13,7 +13,7 @@ local Test = require("cosmic.test")
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } },
   requires = { "landlock" } }
 
---- Under a promises filter, which answers openat2 ENOSYS
+--- Under a promises filter, which fails openat2 with ENOSYS
 --- (core/promises.c): the check holds without it, judging the walk it
 --- makes part by part (`walk_without_descriptor_links`) rather than a
 --- name resolved again after the call. "fattr" lets the chmod through.

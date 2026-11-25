@@ -6,7 +6,7 @@
 
 local test_key = require("build.test_key")
 
---- What a process with `rows` as its `meta` answers.
+--- Returns a reader of `meta` for a process whose `meta` rows are `rows`.
 local function reader(rows: {string:string}): function(key: string): string?
   return function(key: string): string? return rows[key] end
 end

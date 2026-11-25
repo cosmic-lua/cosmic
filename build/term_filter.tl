@@ -1,9 +1,9 @@
 --- The filter `cosmic sandbox` puts between a sandboxed program's
 --- terminal and the caller's own: a stateful reader of the bytes the
---- program wrote to its pty, answering the bytes safe to write on to the
+--- program wrote to its pty, returning the bytes safe to write on to the
 --- caller's terminal. What the program writes is untrusted: a terminal
 --- obeys control sequences that set its title, write the user's
---- clipboard (OSC 52), ask it questions whose answers arrive as input,
+--- clipboard (OSC 52), ask it questions whose replies arrive as input,
 --- or reset it, so nothing passes but text and the few sequences a
 --- program draws a screen with.
 ---
@@ -26,17 +26,18 @@
 --- sequence that is cut short by ESC, CAN, SUB or any other control byte
 --- is dropped and the byte that cut it is read afresh.
 ---
---- QUERIES are answered here and never passed: `CSI 6n` (cursor
+--- QUERIES are replied to here and never passed: `CSI 6n` (cursor
 --- position) and `CSI c` or `CSI 0 c` (primary device attributes) give
 --- the second result of [`TermFilter.Filter.feed`], which the relay writes
---- back to the program as its terminal's input. The position answered is
---- a fixed `1;1`, not the cursor's: the filter does not track it (it
---- would have to know every width, wrap and scroll the terminal does),
---- and a position the program cannot trust is safer than one that is
---- wrong in a way it acts on. The attributes answered are those of a
---- VT100 with the advanced video option, `CSI ? 1 ; 2 c`, which claims
---- no feature the filter does not pass. Every other query (`CSI 5n`, `CSI
---- > c`, a mode report, a window report) is dropped without an answer.
+--- back to the program as its terminal's input. The position in the
+--- reply is a fixed `1;1`, not the cursor's: the filter does not track
+--- it (it would have to know every width, wrap and scroll the terminal
+--- does), and a position the program cannot trust is safer than one
+--- that is wrong in a way it acts on. The attributes in the reply are
+--- those of a VT100 with the advanced video option, `CSI ? 1 ; 2 c`,
+--- which claims no feature the filter does not pass. Every other query
+--- (`CSI 5n`, `CSI > c`, a mode report, a window report) is dropped
+--- without a reply.
 ---
 --- WHAT A PROGRAM CAN STILL DO with what passes: cursor addressing and
 --- erasing (CUP, ED, EL) let it overwrite text already on the screen
@@ -81,7 +82,7 @@ local MODE_DEFAULTS <const>: {integer:boolean} = {
   [2004] = false,
 }
 
---- The answers to the queries the filter takes.
+--- The replies to the queries the filter takes.
 local CURSOR_REPORT <const> = "\27[1;1R"
 local DEVICE_ATTRIBUTES <const> = "\27[?1;2c"
 
@@ -98,8 +99,8 @@ local MOST_MODES <const> = 8
 
 --- What the filter's terminal state was left as, for `restore`.
 local record Filter
-  --- Reads `chunk`, the next bytes the program wrote, and answers what
-  --- may be written to the caller's terminal, and what to answer the
+  --- Reads `chunk`, the next bytes the program wrote, and returns what
+  --- may be written to the caller's terminal, and what to reply to the
   --- program's queries with (written to the pty's master). Either may be
   --- empty. Total over any bytes: it never raises for its input.
   feed: function(Filter, chunk: string): string, string
@@ -176,7 +177,7 @@ function TermFilter.new(): Filter
   end
 
   --- The sequence read, `prefix`, `parameters` and `final`, is passed or
-  --- dropped, or answered.
+  --- dropped, or replied to.
   local function dispatch(final: integer)
     local f = char(final)
     local p = st.parameters

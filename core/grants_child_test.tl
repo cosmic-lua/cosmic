@@ -2,8 +2,8 @@
 --- verdict on the Landlock ruleset `grants_ruleset` (core/sandbox_rules.c)
 --- builds from each grant's descriptor. The child is a stand-in
 --- ([`cosmic.stand_in`]), which does what its script says, so a path the
---- ruleset refuses shows as a command that fails, with the errno Landlock
---- answers. Where the platform has no Landlock they are not applicable, and
+--- ruleset refuses shows as a command that fails, with Landlock's
+--- errno. Where the platform has no Landlock they are not applicable, and
 --- where this host's kernel gives none they are skipped (`requires`). What
 --- a start refuses of a grant before any ruleset is made is
 --- core/grants_refused_test.tl's, which needs none.
@@ -143,7 +143,7 @@ end
 --- does not handle truncation (below ABI 3) the child's filter refuses
 --- it, and truncate: the promises filter, or, without `promises`, one that holds
 --- truncation alone. Where the grants' ruleset handles it (ABI 3),
---- Landlock's verdict is the answer.
+--- Landlock's verdict decides.
 local function test_a_truncation_that_writes_nothing_is_held_on_every_abi(tmp: string)
   local abi = abi_or_skip()
   local probe = assert(StandIn.build(tmp .. "/stand-in"))
@@ -212,7 +212,7 @@ local function test_a_rename_between_grants_needs_c_on_both(tmp: string)
   local refused = under(tmp, probe, read_only, "rename " .. tmp .. "/a/g " .. tmp .. "/c/g")
   assert(refused.code == 1 and refused.said:find(DENIED, 1, true) ~= nil, "refused: " .. refused.said)
   -- A file may not move to where it would gain rights it has not where it is
-  -- (no read in a, one in b): Landlock answers EXDEV.
+  -- (no read in a, one in b): Landlock refuses it with EXDEV.
   local more: {raw_process.Grant} = { { path = tmp .. "/a", access = "c" }, { path = tmp .. "/b", access = "rc" } }
   local gained = under(tmp, probe, more, "rename " .. tmp .. "/a/g " .. tmp .. "/b/g")
   assert(gained.code == 1 and gained.said:find("Cross-device link", 1, true) ~= nil, "EXDEV: " .. gained.said)
@@ -384,7 +384,7 @@ local function test_a_signal_outside_the_domain_is_refused_though_the_filter_let
   assert(assert(process.waitpid(sleeper, false)).signal == sys.SIGKILL)
   if not started then error(result, 0) end
   local refused = assert(sent, "pcall ran `forking` to its end")
-  -- Above ABI 6 the filter takes any pid and Landlock's EPERM is the answer;
+  -- Above ABI 6 the filter takes any pid and Landlock's EPERM is what fails it;
   -- below, the filter's own is.
   assert(refused.code == 1 and refused.said:find("not permitted", 1, true) ~= nil,
     "refused: " .. refused.said)

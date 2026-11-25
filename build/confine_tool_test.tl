@@ -49,7 +49,7 @@ local function sees(probe: string, own: string, hidden: string): boolean
   return code.value == 3
 end
 
---- `call` answers what its call returned, the very table, and puts back
+--- `call` returns what its call returned, the very table, and puts back
 --- the stand-in it made, whether the call returned or raised.
 local function test_a_run_answers_what_its_call_made_and_puts_the_spawn_back(tmp: string)
   local process = require("cosmic.internal.process")
@@ -185,7 +185,7 @@ end
 
 --- Calls `fn` with the process table's `spawn` refusing, as a kernel
 --- with no user namespaces for this user does, every spawn given a
---- sandbox, and answers how many it refused.
+--- sandbox, and returns how many it refused.
 local function refusing_sandboxes(fn: function()): integer
   local process = require("cosmic.internal.process")
   local spawn = process.spawn
@@ -243,7 +243,7 @@ end
 
 --- Under `must_confine`, a program exec could not run at all -- a
 --- directory, say, which exec refuses with EACCES, an errno a refused
---- sandbox answers too -- fails as its own: the test hears the spawn's
+--- sandbox gives too -- fails as its own: the test hears the spawn's
 --- failure as it was, and nothing is refused.
 local function test_a_must_confined_program_exec_cannot_run_fails_as_its_own(tmp: string)
   local own = tmp .. "/own"
@@ -323,7 +323,7 @@ end)
 
 --- A spawn `must_confine` refuses -- the sandbox refused by the kernel, a sandbox of its own that does not unveil and take
 --- the network, a spawn taken during a stand-in that has since ended -- does not start, and fails the test that made it,
---- naming the program, the part of the sandbox, why, and the errno's name, whatever the test made of the spawn's answer;
+--- naming the program, the part of the sandbox, why, and the errno's name, whatever the test made of the spawn's result;
 --- and one that raised besides is told with its own failure after.
 local function test_a_refused_spawn_fails_the_test_whatever_it_made_of_it(tmp: string)
   local probe = fixture.probe(tmp)

@@ -14,7 +14,7 @@ Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx
 local CHUNK <const> = "local function spin(n: integer): integer local s = 0 for i = 1, n do s = s + i end return s end " ..
   "for _ = 1, 200 do spin(10000) end"
 
---- Runs the chunk with COSMIC_PROFILE as `profile` (unset where nil), in a directory of its own, and answers the names
+--- Runs the chunk with COSMIC_PROFILE as `profile` (unset where nil), in a directory of its own, and returns the names
 --- of the files the directory holds after.
 local function files_after(profile: string?, chunk?: string): {string}, string
   local dir = assert(Fs.mkdtemp("profile"))

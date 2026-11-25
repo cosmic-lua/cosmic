@@ -1,6 +1,6 @@
 --- `cosmic docs` and `cosmic uses` in a project: they build it first, as
---- `cosmic test` does, so what they answer is the tree as it stands, and
---- every module they list answers its own name. Run in this process
+--- `cosmic test` does, so what they print is the tree as it stands, and
+--- every module they list is found by its own name. Run in this process
 --- ([`build.invoke`]), which reads every module's rows; kept apart so the
 --- tests of the verbs' contract (build/verbs_store_test.tl) stand while
 --- the build's cache is out of their keys.
@@ -32,7 +32,7 @@ local function docs_in(dir: string, ...: string): string
   return result.stdout
 end
 
---- `docs` answers from the project as it stands: an edit to a doc
+--- `docs` reads the project as it stands: an edit to a doc
 --- comment shows with no build between, and a directory of no project
 --- is left as it was.
 local function test_docs_answers_from_the_tree_as_it_stands(tmp: string)
@@ -73,7 +73,7 @@ local function test_a_lookup_builds_nothing_in_an_unbuilt_directory(tmp: string)
 end
 
 --- `docs` in a directory that can have no build directory, the build
---- home being beneath it, answers from the binary's own databases: it
+--- home being beneath it, reads from the binary's own databases: it
 --- names no build directory to ask whether it is one a check left
 --- unchecked ([`reboot.unchecked`]).
 local function test_a_lookup_answers_where_the_build_home_is_beneath_the_directory(tmp: string)
@@ -85,9 +85,9 @@ local function test_a_lookup_answers_where_the_build_home_is_beneath_the_directo
   assert(result.stdout:find("Fs.read", 1, true), result.stdout)
 end
 
---- Every module `cosmic docs` lists answers `cosmic docs <module>`, one
---- that returns a function (a command's `main`) with no record to hold
---- its comment among them.
+--- Every module `cosmic docs` lists is found by `cosmic docs <module>`,
+--- one that returns a function (a command's `main`) with no record to
+--- hold its comment among them.
 local function test_a_listed_function_module_answers_its_name(tmp: string)
   local project = tmp .. "/project"
   assert(Fs.mkdirs(project .. "/cmd/greet"))
@@ -133,7 +133,7 @@ end
 
 --- While another run holds the project's working database, as a `cosmic
 --- test` does through its build, `docs` and `uses` wait for it no more
---- than to find it held: they answer from what it last committed, and
+--- than to find it held: they read from what it last committed, and
 --- say so once.
 local function test_a_lookup_waits_for_no_run_holding_the_database(tmp: string)
   local project = tmp .. "/project"

@@ -5,7 +5,7 @@ local Http = require("cosmic.http")
 local Poll = require("cosmic.poll")
 local Review = require("cosmic_ci.review")
 
---- What a fake host saw, and what it answers.
+--- What a fake host saw, and what its calls return.
 local record Seen
   gets: mut {string}
   runs: mut {string}
@@ -16,7 +16,7 @@ local record Seen
   mut waited: integer
   said: mut {string}
   warned: mut {string}
-  --- The tokens the GET answers, one each, in turn; "" answers a refusal.
+  --- The tokens `get` returns, one a call, in turn; "" makes it refuse.
   tokens: mut {string}
   --- How many waits time out before the agent exits, and its status then.
   timeouts: integer

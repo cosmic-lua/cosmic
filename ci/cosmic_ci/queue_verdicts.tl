@@ -243,7 +243,8 @@ end
 --- Merges each `.db` file in `from` into the file of the same name in
 --- `into` (`merged`), and puts a copy where `into` has none. A file that
 --- cannot be merged is left as it was and said: the suites run what it
---- would have answered. 2 where a directory is not absolute, else 0.
+--- would have held verdicts for. 2 where a directory is not absolute,
+--- else 0.
 function QueueVerdicts.merge(from: string, into: string): QueueVerdicts.Said
   if from:sub(1, 1) ~= "/" or into:sub(1, 1) ~= "/" or from:find("\0", 1, true) ~= nil or
       into:find("\0", 1, true) ~= nil then

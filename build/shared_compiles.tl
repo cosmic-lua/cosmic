@@ -347,7 +347,7 @@ local function text_at(row: Sqlite.Row, index: integer): string?
 end
 
 --- The compile kept under the shared `key`, or nil, and why when the
---- cache could not answer. A row that does not decode to what its digest
+--- cache could not be read. A row that does not decode to what its digest
 --- says -- damaged, or written by something else -- is a miss, and is
 --- deleted, so a compile made here takes its place.
 function shared_compiles.look(cache: shared_compiles.Cache,
@@ -389,7 +389,7 @@ function shared_compiles.look(cache: shared_compiles.Cache,
 end
 
 --- Whether a compile is kept under the shared `key`, its row not read:
---- false where there is none or the cache cannot answer, so a build that
+--- false where there is none or the cache cannot be read, so a build that
 --- asks before it compiles compiles.
 local function known(cache: shared_compiles.Cache, key: string): boolean
   local rows, _ = cache.db:rows("SELECT 1 FROM " .. compiled .. " WHERE key = ?1", { text(key) })
@@ -437,7 +437,7 @@ function shared_compiles.requires(cache: shared_compiles.Cache, analyzer: string
 end
 
 --- The parse kept under `key`, or nil, and why when the cache could not
---- answer. A row that does not decode to what its digest says is a miss,
+--- be read. A row that does not decode to what its digest says is a miss,
 --- and is deleted, as `look` deletes a compile's.
 function shared_compiles.look_parse(cache: shared_compiles.Cache,
                                     key: shared_compiles.ParseKey): importer.Shared.Parse?, string
@@ -605,7 +605,7 @@ local function said_late(late: integer, doing: string)
 end
 
 --- Compiles `due` in copies of this process ([`build.compile_fanout`]), `make` the compile of one module, `own_tree`
---- as a shared compile is keyed by: what [`importer.Shared`]'s `fan` answers. A compile of a module is a function of
+--- as a shared compile is keyed by: what [`importer.Shared`]'s `fan` returns. A compile of a module is a function of
 --- the tree a build has read and of that module alone, and a build makes them one after another in one process: 1200
 --- of them take 53 s of a cold boot on a four-core host. Each copy holds the tree as the process read it, compiles
 --- every n-th module, keeps what it made in a file of its own in this module's form, and ends. `look` reads a
@@ -678,9 +678,9 @@ end
 local copy_analyzer <const> = "a copy of the build"
 
 --- Parses `count` sources in copies of this process, as `fan` compiles modules in them: what [`importer.Shared`]'s
---- [`fan_parses`] answers. Each copy keeps the parses `make` answers it in a file of its own, as a shared parse is kept, and
---- `look` reads a source's from whichever copy made it. Nil where no copy is made. A copy that parses holds less than
---- one that compiles, and is counted against the host's memory as that one is.
+--- [`fan_parses`] returns. Each copy keeps the parses its call of `make` returns in a file of its own, as a shared
+--- parse is kept, and `look` reads a source's from whichever copy made it. Nil where no copy is made. A copy that
+--- parses holds less than one that compiles, and is counted against the host's memory as that one is.
 local function fan_parses(count: integer,
                           make: function(copy: integer, copies: integer): {importer.Shared.ParseMade}):
     importer.Shared.ParsesFanned?

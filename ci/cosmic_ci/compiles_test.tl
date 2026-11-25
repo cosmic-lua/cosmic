@@ -16,7 +16,7 @@ local function cache(path: string, used: {integer})
   assert(db:close())
 end
 
---- [`Compiles.command`], its answer as three values.
+--- [`Compiles.command`], what it returns as three values.
 local function trimmed(argv: {string}, env: {string:string}): integer, string, string
   local command = Compiles.command(argv, env)
   return command.code, command.out, command.err

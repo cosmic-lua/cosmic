@@ -60,7 +60,7 @@ local function tree_with_zig(tmp: string, status: integer): string
   return root
 end
 
---- What `run` answers, as text, and what the logger is given to
+--- What `run` returns, as text, and what the logger is given to
 --- complain of while it runs, a line each.
 local function complaints(run: function(): string): string, string
   local said: {string} = {}
@@ -197,7 +197,7 @@ local function test_every_core_into_boots_every_core_once(tmp: string)
   assert(ran == nil, "booted every core a second time")
 end
 
---- It boots nothing, and answers nil, where the tool is told not to boot
+--- It boots nothing, and returns nil, where the tool is told not to boot
 --- or is no checkout's own. Nor where another run holds the checkout's
 --- rebuild lock, which the boot would wait on.
 local function test_every_core_into_boots_only_where_the_tool_boots(tmp: string)
@@ -237,7 +237,7 @@ local function test_compiler_moved_compares_identities()
   assert(not reboot.compiler_moved(nil, nil))
 end
 
--- TODO: `into`'s second answer, its nil fallback for the tree's compiler
+-- TODO: `into`'s second result, its nil fallback for the tree's compiler
 -- identity and `guard`'s passing it to `rebuild_failed` are untested here
 -- (forcing `moved` to false would pass): add a ci/fixtures/self_rebuild_test.tl
 -- case that stages a tree whose compiler module changed and whose rebuild

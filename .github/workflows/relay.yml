@@ -28,8 +28,8 @@
   concurrency: {group: "relay", "cancel-in-progress": false},
 
   jobs: {
-    # One job a leg main's push runs (the queue's macOS suite has no push
-    # to relay to): each leg's verdicts and compiles
+    # One job a Linux leg main's push runs (macOS's push job saves its
+    # own, since no relay runs on a macOS runner): each leg's verdicts and compiles
     # are its own; the tree checks' memo is linux-x86_64's format job's.
     # Each runs on its leg's runner, so what it saves is what that leg's
     # restore asks for (a cache's version holds its path and compression).

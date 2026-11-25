@@ -7342,7 +7342,7 @@ end
 
 --- The result columns of `e` where it is `db:rows(sql)` or `db:one(sql)`, either in `assert`, on a handle
 --- of a `local schema`, with literal SQL that SQLite prepares against its schema: the columns, and whether the
---- call answers a list of rows (`rows`) or one row (`one`). An element of a list [`Ctx.row_lists`] holds (`rows[1]`) is
+--- call returns a list of rows (`rows`) or one row (`one`). An element of a list [`Ctx.row_lists`] holds (`rows[1]`) is
 --- one row of its columns. Nil otherwise.
 function Calls.result_columns(ctx: Ctx, e: Ast.Node): {Sql.Column}?, boolean
   local at = peel(e)
@@ -8498,7 +8498,7 @@ end
 --- The local `t` whose length the limit `to` of a numeric loop with the index `var` is at most, and the literal `b`
 --- it stops short of that length by: `#t`, `#t - b`, or a `math.min` of such a one and other values that run no code
 --- of the program ([`Writes.keeps_length`] of each), so that nothing they run can change `t` between its length and the
---- loop. `math.min` answers the least of its arguments, so the limit is at most `#t - b`. Nil for another form.
+--- loop. `math.min` returns the least of its arguments, so the limit is at most `#t - b`. Nil for another form.
 function Writes.length_limit(to: Ast.Exp, var: integer): (Ast.Exp, integer) | (nil, integer)
   local at = peel(to)
   local slack = 0

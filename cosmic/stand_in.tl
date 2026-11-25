@@ -196,12 +196,12 @@ local probe_module <const> = "cosmic.internal.stand_in_probe"
 --- core requires of any program it runs (see the requires above).
 local core_requires <const>: {string} = { "cosmic.errors" }
 
---- Builds a stand-in under `dir`, made if it is not there, and answers
+--- Builds a stand-in under `dir`, made if it is not there, and returns
 --- the path of the executable, `dir/probe`. It runs its first argument as
 --- its script, with the rest its arguments, or the script `place` wrote
 --- beside a copy of it. Nil and a Failure where `dir` cannot be made or
---- written, or where this process has no core of its own (one run from
---- source).
+--- written, or where this process has no artifact of its own to take
+--- its core from.
 function StandIn.build(dir: string): (string) | (nil, Failure)
   local made, trouble = Fs.mkdirs(dir)
   if not made then return nil, trouble end

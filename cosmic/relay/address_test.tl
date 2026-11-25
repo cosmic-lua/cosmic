@@ -395,7 +395,7 @@ local function test_selection_keeps_every_allowed_answer_in_order_and_only_those
   assert(allowed ~= nil and #allowed == 2 and allowed[1].address == "93.184.216.34" and
       allowed[2].address == "8.8.8.8", why)
   assert(why == "")
-  -- An earlier answer a grant opens is allowed, and first.
+  -- An earlier address a grant opens is allowed, and first.
   allowed = relay_address.permitted(answers, 443, { "10.0.0.1:443" }, NO_OWN)
   assert(allowed ~= nil and #allowed == 3 and allowed[1].address == "10.0.0.1")
   -- The host's own address is left out.

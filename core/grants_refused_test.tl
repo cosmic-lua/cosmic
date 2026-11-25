@@ -1,9 +1,9 @@
 --- What `spawn`'s `grants` (core/process.h) refuses before any ruleset is
---- made, and what the Landlock ABI query answers where there is none, as
+--- made, and what the Landlock ABI query returns where there is none, as
 --- core/grants_child_test.tl holds a live child to the ruleset the grants
---- build. A degenerate grant raises at the argument check, and a kernel
---- with no Landlock answers the query with a reason and an errno, on every
---- platform, so none of it needs a sandbox.
+--- build. A degenerate grant raises at the argument check, and on a
+--- kernel with no Landlock the query fails with a reason and an errno, on
+--- every platform, so none of it needs a sandbox.
 
 local Test = require("cosmic.test")
 local type raw_process = require("cosmic.internal.process")

@@ -38,8 +38,8 @@ end
 
 --- A client's side: a response whose head names no length runs to the
 --- end of the stream, which `finish` says, unless the reader is told
---- otherwise; the answer to a HEAD is its head alone, whatever length it
---- names. Each `Set-Cookie` is kept apart in `values`.
+--- otherwise; the response to a HEAD is its head alone, whatever length
+--- it names. Each `Set-Cookie` is kept apart in `values`.
 function Example.response_reader()
   local reader = Message.response_reader()
   assert(reader:feed("HTTP/1.1 200 OK\r\nSet-Cookie: a=1\r\nSet-Cookie: b=2\r\n\r\nto the").status == "more")

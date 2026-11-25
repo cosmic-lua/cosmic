@@ -1,6 +1,6 @@
 --- Tests of [`build.coverage.syntax_lines`]: the executable lines of a source in the new grammar, and the
 --- `executable` table ([`build.analysis_schema`]'s) that a parse fills, so a run where a module's source has not changed
---- answers from `build.db` instead of reparsing it.
+--- reads from `build.db` instead of reparsing it.
 local Array = require("cosmic.array")
 local Derivation = require("build.syntax_derivation")
 local Node = require("build.syntax_node")
@@ -14,7 +14,7 @@ Test.policy{}
 
 local function count(db: Sqlite.Handle, table_name: string): integer
   local rows = assert(db:text_rows("SELECT count(*) FROM " .. table_name))
-  -- `count(*)` answers exactly one row.
+  -- `count(*)` gives exactly one row.
   return assert(math.tointeger(tonumber(Array.at(rows, 1):text(1))))
 end
 
@@ -98,7 +98,7 @@ local function test_a_parse_s_row_is_read_without_parsing_again(tmp: string)
   local source = "local x = 1\nlocal y = 2\n"
   local chunk = assert(Node.parse(source, "m.tl"))
   assert(Derivation.insert(handle.db, "parsed-hash", "m.tl", source, chunk, false))
-  -- Text that does not parse: answered from the row, so it is never read.
+  -- Text that does not parse: taken from the row, so it is never read.
   local found, trouble = lines.executable_cached(handle.db, "parsed-hash", "local (", "m.tl")
   assert(found ~= nil, trouble)
   assert(found[1] == true and found[2] == true)

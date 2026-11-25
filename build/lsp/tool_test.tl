@@ -2,9 +2,9 @@
 --- editor over standard input and output, a listener that a signal
 --- stops while an editor holds a connection open, the socket paths it
 --- refuses, and a request that arrives over standard input or a
---- connection while dependents are checked, answered before the rest of
+--- connection while dependents are checked, handled before the rest of
 --- them. These start this program, so they need `tool`; a session's
---- answers are in session_test.tl.
+--- responses are in session_test.tl.
 
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
@@ -36,7 +36,7 @@ local record Initialized
   serverInfo: Info
 end
 
---- What the tests read of an answer to `initialize`.
+--- What the tests read of a response to `initialize`.
 local record InitializeSent
   id: integer
   result: Initialized
@@ -52,7 +52,7 @@ end
 local SHUTDOWN <const> = protocol.frame('{"jsonrpc":"2.0","id":2,"method":"shutdown"}')
 local EXIT <const> = protocol.frame('{"jsonrpc":"2.0","method":"exit"}')
 
---- Whether `body` answers `initialize` as this server does.
+--- Whether `body` responds to `initialize` as this server does.
 local function answers_initialize(body: string): boolean
   local sent = INITIALIZE_SENT:decode_into(body)
   return sent ~= nil and sent.id == 1 and sent.result.serverInfo.name == "cosmic"
@@ -88,8 +88,8 @@ local function test_one_editor_over_standard_input_and_output(tmp: string)
   assert(early.code == 1, "the stream ends before shutdown: " .. early.err)
 end
 
---- A definition asked of the program itself, in a project: it answers the module that declares the function, with the
---- place of its name.
+--- A definition asked of the program itself, in a project: it responds with the module that declares the function, with
+--- the place of its name.
 local function test_a_definition_is_answered_from_the_module_that_declares_it()
   local root = session_fixture.project()
   assert(Fs.write(root .. "/helper.tl",
@@ -282,14 +282,14 @@ end
 --- Opens the helper and its dependents through `write`, changes the
 --- helper's type, and sends a hover once the helper's own publication is
 --- read from `frames`: it arrives while the dependents are checked, read
---- by the program's poll of its stream, so it is answered before the last
+--- by the program's poll of its stream, so it is handled before the last
 --- of them is published. Then shuts the session down.
 local function asked_while_checking(root: string, opening: string, write: function(text: string),
                                     frames: protocol.Frames)
   local text = "local record helper\nend\n\nfunction helper.twice(n: integer): string\n  return tostring(n * 2)\nend\n\n" ..
     "return helper\n"
   write(opening)
-  -- The initialize's answer, the helper's publication and each dependent's.
+  -- The initialize's response, the helper's publication and each dependent's.
   for _ = 1, DEPENDENTS + 2 do assert(frames:next()) end
   write(protocol.frame(session_fixture.change(root, "helper.tl", text)))
   local own = assert(frames:next())

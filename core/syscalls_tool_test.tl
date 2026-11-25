@@ -4,8 +4,8 @@
 --- confine a child in a root of its own (unveiling), which only a worker
 --- that declares the promise "nest" can (see [`Test.policy`] below). They
 --- need a sandbox, which no platform but Linux has: where the platform lacks
---- one they are not applicable (`requires`), and what the platform answers
---- then, with the cases that need none, is
+--- one they are not applicable (`requires`), and how the platform then
+--- refuses a start, with the cases that need none, is
 --- core/syscalls_tool_unsandboxed_test.tl's. The executable's own path,
 --- which only a `tool` test can read, is core/artifact_fd_tool_test.tl's.
 
@@ -24,7 +24,7 @@ local Clock = require("cosmic.clock")
 --- they start only to run a chunk (`lua`); and `nests`, since the
 --- unveiling cases give a child a root of its own, which a worker held
 --- by a Landlock ruleset cannot (build.confine's `forbid_running`); and
---- loopback, which the offline child's own `lo` answers, as a worker under a
+--- loopback, which the offline child's own `lo` carries, as a worker under a
 --- policy makes no inet socket without it.
 Test.policy{
   profiles = { "cosmic", "proc" },
@@ -36,7 +36,7 @@ Test.policy{
 local process = require("cosmic.internal.process")
 
 --- Skips the test ([`Test.skip`]) as the kernel refuses the sandbox it is
---- about, which only the start can tell: `errno` is one a refusal answers.
+--- about, which only the start can tell: `errno` is one a refusal fails with.
 local function refused(what: string, trouble: string, errno: integer)
   assert(errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or
       errno == sys.EINVAL or errno == sys.ENOSPC, trouble)
@@ -466,7 +466,7 @@ end
 --- A path given with a name in `at` is bound there, and not at its own
 --- name: a tree given at /tree is read, and written where given to
 --- write, at /tree alone, so what a child sees of it names nothing of
---- where the host keeps it -- its working directory there answers
+--- where the host keeps it -- its working directory there is
 --- /tree -- and a directory bound at /tmp is its /tmp, which it has none
 --- of its own beside. A name that is not absolute and plain, is /, or
 --- is given for a path not unveiled, is refused.
@@ -616,7 +616,7 @@ local function test_an_unveiled_child_s_status_is_its_program_s(tmp: string)
   local probe = probe_in(tmp)
   local exited = run_confined(tmp, probe, "exit 7")
   assert(exited.code == 7 and exited.signal == -1)
-  -- Its init is gone with it once the wait answers: no child of this
+  -- Its init is gone with it once the wait returns: no child of this
   -- process is one any more, and none is left a zombie.
   assert(#process.sandbox_inits() == 0, "an init outlived the wait for its program")
   local children = sys.open("/proc/thread-self/children", sys.O_RDONLY)

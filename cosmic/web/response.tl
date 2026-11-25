@@ -11,11 +11,12 @@ local Types = require("cosmic.web.types")
 local Url = require("cosmic.url")
 
 local record Response
-  --- What [`Web.abort`] raises, for the exception layer to answer.
+  --- What [`Web.abort`] raises, for the exception layer to turn
+  --- into a response.
   record Abort
     --- Marks the table as an abort.
     web_abort: boolean
-    --- The status to answer.
+    --- The status to respond with.
     status: integer
     --- What to tell the client, or nil.
     detail?: string
@@ -223,7 +224,7 @@ end
 --- `value` encoded by [`Json.encode`], `application/json` with
 --- `X-Content-Type-Options: nosniff`. A value that cannot be encoded (a
 --- cycle, a function) is the program's fault: this raises, and the
---- exception layer answers 500. `value` is a [`Json.Value`], so a literal
+--- exception layer responds 500. `value` is a [`Json.Value`], so a literal
 --- like `{ id = 1, tags = { "a" } }` is checked as it is written; for a
 --- record of your own, write the body with [`Json.encode_any`] and
 --- [`Response.text`]'s headers by hand, or build the map.
@@ -358,7 +359,7 @@ function Response.problem(status: integer, detail?: string, extra?: {string: Jso
     ["X-Content-Type-Options"] = "nosniff" }, body = text }
 end
 
---- Ends the request with `status`: raises, and the exception layer answers
+--- Ends the request with `status`: raises, and the exception layer responds
 --- with the app's error page for it, negotiated by Accept, with `detail`
 --- (and `extra` in a problem body). It is declared to return a response so
 --- `return Web.abort(404)` type-checks.

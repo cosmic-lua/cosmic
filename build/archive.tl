@@ -47,8 +47,8 @@ end
 --- The subcommands, each with the options it takes, as [`cosmic.cli.archive`] describes them.
 local subcommands = Verb.subcommands or {}
 
---- What a run answers: an exit code and the complaint that goes with it
---- (none for 0).
+--- What a run ends with: an exit code and the complaint that goes
+--- with it (none for 0).
 local record Outcome
   code: integer
   why: string

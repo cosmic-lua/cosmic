@@ -95,7 +95,7 @@ local class Public
   bytes: string
 
   --- Whether `signature` is one of `message` under this key, as
-  --- [`Secret.sign`] makes it. Bytes that do not verify answer false and
+  --- [`Secret.sign`] makes it. False for bytes that do not verify, and
   --- nothing raises, a signature of the wrong size included; an X25519
   --- key verifies nothing.
   ---
@@ -182,7 +182,7 @@ local class Public
 end
 
 --- A secret key: what [`Key.generate`], [`Key.read`] and [`Key.secret`]
---- answer.
+--- return.
 local class Secret
   --- Its algorithm.
   alg: Alg
@@ -220,7 +220,7 @@ local class Secret
   ---
   --- The secret is not a key yet. Pass it through a key derivation
   --- ([`Hash.hkdf`]), together with both public keys, and use what that
-  --- answers as [`Cipher.seal`]'s key. Public keys are not authenticated
+  --- returns as [`Cipher.seal`]'s key. Public keys are not authenticated
   --- here: a party that must know who the peer is checks the peer's
   --- public key against one it already trusts.
   ---

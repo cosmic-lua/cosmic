@@ -9,7 +9,7 @@ local StandIn = require("cosmic.stand_in")
 
 Test.policy{ requires = { "proc" } }
 
---- `status-field` answers its own line of /proc/self/status, and fails on
+--- `status-field` prints its own line of /proc/self/status, and fails on
 --- a field the file lacks.
 local function test_status_field_reads_its_line_of_proc_self_status(tmp: string)
   local probe = assert(StandIn.build(tmp .. "/stand-in"))

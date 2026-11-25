@@ -4,7 +4,7 @@ local ZigPrune = require("cosmic_ci.zig_prune")
 local ZigRestat = require("cosmic_ci.zig_restat")
 local sys = require("cosmic.sys")
 
---- [`ZigRestat.command`], its answer as three values.
+--- [`ZigRestat.command`], what it returns as three values.
 local function restat_command(project: string, shared: string?, root: string,
                               lib?: string): integer, string, string
   local command = ZigRestat.command(project, shared, root, lib)

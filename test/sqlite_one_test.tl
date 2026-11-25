@@ -1,7 +1,7 @@
 local Sqlite = require("cosmic.sqlite")
 
 --- The first row, as rows reads it, and no more: a query that yields
---- none answers nil alone, and one that fails answers nil and why.
+--- none returns nil alone, and one that fails returns nil and why.
 local function test_one_answers_the_first_row_or_none()
   local db = assert(Sqlite.memory())
   assert(db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, body TEXT); INSERT INTO t VALUES (1, 'a'), (2, NULL)"))
@@ -31,7 +31,7 @@ local function test_one_stops_at_the_first_row()
   assert(db:close())
 end
 
---- A write with RETURNING makes every change and answers its first row;
+--- A write with RETURNING makes every change, and `one` returns its first row;
 --- for `one` and for `run`, a failure where it commits (a deferred foreign key) is why, and the
 --- write is undone. The same SQL runs again from the handle's cache.
 local function test_one_and_run_of_a_write_answer_its_commit()

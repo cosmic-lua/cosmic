@@ -608,7 +608,7 @@ local record Options
   tailscale?: Tailscale.Daemon
 end
 
---- What [`Handle.try_wait`] answers.
+--- What [`Handle.try_wait`] returns.
 local record TryWait
   --- Whether the child has exited.
   finished: boolean
@@ -701,19 +701,19 @@ local DEFAULT_CAPTURE_LIMIT <const> = 16 * 1024 * 1024
 
 local type Guard = Signal.Guard
 
---- What a failure of this module's own, no system call's, answers: nil
---- and `why` under the module's name. A system call's message is
---- passed on as it is, or after the step it failed in.
+--- What a function returns for a failure of this module's own, no system
+--- call's: nil and `why` under the module's name. A system call's
+--- message is passed on as it is, or after the step it failed in.
 local function refuse(why: string): nil, string
   return nil, "child: " .. why
 end
 
---- The message a wait or a run cancelled by `signal` answers.
+--- The message a wait or a run cancelled by `signal` returns.
 local function cancelled_by(signal: integer): string
   return "child: cancelled by signal " .. tostring(signal)
 end
 
---- The [`Failure`] a public function answers for the words its body
+--- The [`Failure`] a public function returns for the words its body
 --- gave: kind "timeout" for [`Poll.TIMEOUT`], "cancelled" for
 --- [`Poll.CANCELLED`] and for a signal a guard caught
 --- ([`cancelled_by`]), else "other".
@@ -1054,7 +1054,7 @@ local record Delayed
   mut cancelled?: string
 end
 
---- What a shielded [`Poll.ready`] answered, as [`Delayed`] does.
+--- What a shielded [`Poll.ready`] returned, as [`Delayed`] does.
 local record Readied
   mut answers?: {integer}
   mut why?: string
@@ -1069,7 +1069,7 @@ end
 ---
 --- In a task of [`Poll.run`], the wait goes through the run, the other
 --- tasks running meanwhile. Once the task is cancelled, a `cancellable`
---- pump answers false and [`Poll.CANCELLED`] at once; any other waits
+--- pump returns false and [`Poll.CANCELLED`] at once; any other waits
 --- shielded from the cancel ([`Poll.shielded`]), as the cleanup it
 --- serves -- ending a child, emptying its pipes -- must finish.
 local function pump(entries: mut {Entry}, timeout_ns: integer,
@@ -1215,7 +1215,7 @@ local function end_relay(self: Handle)
   end
 end
 
---- Ends what is left of the child and settles it, answering its Result.
+--- Ends what is left of the child, settles it and returns its Result.
 --- A child still running is sent SIGTERM -- its group's too -- and
 --- SIGKILL once TERM_GRACE_NS has passed, and its Result says
 --- `timed_out`; what its group has left after the leader is gone is
@@ -1238,7 +1238,7 @@ local function end_child(self: Handle): Result?, string
   if timed_out then
     local sent, why, errno = sys.kill(target(self), sys.SIGTERM)
     -- ESRCH for a child not yet reaped is one already exiting: Darwin
-    -- answers so from the start of a process's exit until it is a zombie,
+    -- returns it from the start of a process's exit until it is a zombie,
     -- which waitpid cannot reap before then, so the wait below reaps it.
     -- A child reaped past this module fails that wait instead (ECHILD).
     if not sent and errno ~= sys.ESRCH then
@@ -1395,7 +1395,7 @@ end
 -- Writer of a streamed pipe are each one table, whose methods live once
 -- on a class's own table, with the state in fields: no closure each. A
 -- Reader or a Writer is a class of its own ([`PipeReader`], [`FeedWriter`])
--- implementing the interface it answers. The note on how an object is
+-- implementing its interface. The note on how an object is
 -- made in cosmic/stream.tl says why Teal limits how that is written.
 
 local function waiting_read(self: PipeReader, max_bytes?: integer): string?, string
@@ -1449,7 +1449,7 @@ local class PipeReader is Stream.Reader
   pipe: Pipe
   mut closed: boolean
   --- Why a wait the child could not go on with ended, "" until one has:
-  --- every later read answers it.
+  --- every later read returns it.
   mut failed: string
   --- Holds the pipe while a read waits; one per Reader, so a read costs no
   --- allocation.
@@ -1568,10 +1568,10 @@ end
 
 --- [`end_child`], with a net under it: whatever raises in the ending (an
 --- allocation refused, a wait that fails) must still leave no process
---- behind, so a raise is answered by SIGKILL to the child, its group
+--- behind, so a raise is followed by SIGKILL to the child, its group
 --- included, and a reap that holds the thread and cannot wait through
 --- anything that raised. The Result is left for a later `close` or
---- collection to settle; the failure is answered as the reason.
+--- collection to settle; the failure is returned as the reason.
 local function end_or_kill(self: Handle): Result?, string
   local ok, r, why = pcall(end_child, self)
   if ok then
@@ -1770,18 +1770,18 @@ local class Handle
   --- macOS; nil for a child no profile holds.
   _seatbelt?: raw_process.Seatbelt
 
-  --- Waits for the child to exit and answers its Result. With
+  --- Waits for the child to exit and returns its Result. With
   --- `timeout_ns`, or once the child's own [`Options.timeout_ns`]
   --- passes, whichever is first, a child still running is ended --
   --- SIGTERM, a grace period, then SIGKILL, its group included -- and
   --- the Result says `timed_out`; [`Child.wait_any`]'s timeout instead
   --- leaves every child running. While a [`Signal.guard`] is open, a
   --- SIGINT or SIGTERM it catches ends the wait, timed or not, the same
-  --- way: a child that has not exited is ended and the wait answers nil
+  --- way: a child that has not exited is ended and the wait returns nil
   --- and a [`Failure`] of kind "cancelled" ("child: cancelled by signal
-  --- N"); the guard keeps the signal, and a later wait answers the ended
+  --- N"); the guard keeps the signal, and a later wait returns the ended
   --- child's Result. In a task of [`Poll.run`] that is cancelled, it
-  --- answers nil and a Failure of kind "cancelled", and leaves the child
+  --- returns nil and a Failure of kind "cancelled", and leaves the child
   --- running. A `timeout_ns`
   --- below 0 or past [`Poll.MOST_NS`] raises.
   function wait(self, timeout_ns?: integer): (Result) | (nil, Failure)
@@ -1852,7 +1852,7 @@ local class Handle
 
   --- Whether the child has exited, without waiting: `finished` is false
   --- while it runs, and true with its `result` once it has exited and its
-  --- group is cleared, as `wait` would answer. It services the child's
+  --- group is cleared, as `wait` would return it. It services the child's
   --- captured and streamed outputs and input meanwhile. Once the child's
   --- own [`Options.timeout_ns`] has passed, a child still running is
   --- ended as an expired `wait` ends it, which waits for it to go, and
@@ -1928,9 +1928,9 @@ local function make_handle(pid: integer, process_group: boolean, limit: integer,
   return h
 end
 
---- What [`Child.start_on_pty`] answers.
+--- What [`Child.start_on_pty`] returns.
 local record PtyStart
-  --- The child, as [`Child.start`] answers it.
+  --- The child, as [`Child.start`] returns it.
   child: Handle
   --- The pty's master, close-on-exec and blocking: the caller's to
   --- read, write and close. Closing it hangs the child's terminal up.
@@ -1990,9 +1990,9 @@ Child.FOREVER = -1
 --- The status a shell reports for a child that ended as `result` says:
 --- its exit status, or 128 plus the number of the signal that ended it.
 --- A result carrying neither, which [`Child.run`] and `h:wait` never
---- answer, is 1. Use it to exit as the child did; a child ended for
---- running past its timeout answers the signal that ended it, not the
---- 124 of `timeout(1)`.
+--- return, is 1. Use it to exit as the child did; a child ended for
+--- running past its timeout gets 128 plus the signal that ended it, not
+--- the 124 of `timeout(1)`.
 function Child.shell_status(result: Result): integer
   local signal = result.signal
   if signal ~= nil then return 128 + signal end
@@ -2649,7 +2649,7 @@ local sandbox_serial: integer = 0
 --- The user this process runs as, which a program of a policy is not to
 --- be where it is root. Where /proc/self/status is not there (macOS) it is
 --- the real user.
---- TODO: answer the effective user on macOS, once cosmic.sys carries
+--- TODO: return the effective user on macOS, once cosmic.sys carries
 --- geteuid: a setuid program's real and effective users differ there.
 local function effective_user(): integer
   local status, _ = Fs.read("/proc/self/status")
@@ -2911,7 +2911,7 @@ local shared_fds: mut {string:integer} = {}
 --- unpack a core into a cache the policy does not give it. `user` is the
 --- user a root caller's program runs as, which runs a copy of the core it
 --- may run ([`shared_core`]); nil for this process's own. With a
---- `database`, the answer is the split shape, the core on that file
+--- `database`, the result is the split shape, the core on that file
 --- (`core --database <real path>`), whatever this process runs on, with
 --- no descriptor to hand on; a core already run against a database
 --- relaunches so too, on its own. Nil and "" where this program has no
@@ -3073,7 +3073,7 @@ local function core_of(argv: {string}, opts: Options, merged: Rules.Policy, user
   return found, ""
 end
 
---- The kernel's release, as uname(2) answers it, or "" where it fails.
+--- The kernel's release, as uname(2) reports it, or "" where it fails.
 local function kernel_release(): string
   local names, _ = sys.uname()
   return if names ~= nil then names.release else "" end
@@ -4295,7 +4295,7 @@ end
 --- resolves itself; and whose standard input carries the config and, held
 --- open, keeps it alive. The relay's handle owns what it was handed from
 --- then on.
---- It answers once the relay says it has opened its database, which it
+--- It returns once the relay says it has opened its database, which it
 --- does before it waits for the listeners: the database is then no longer
 --- needed. Nil and why where it cannot start or ends first.
 begin_relay = function(prep: RelayPrep, channel: integer?): RelayLaunch?, string
@@ -4373,7 +4373,7 @@ local class PtyHolder
 end
 
 --- Starts a program as [`Child.start`] does, with a pty of its own as the
---- standard streams `pty.streams` names, and answers the child with the
+--- standard streams `pty.streams` names, and returns the child with the
 --- pty's master. This is the one start that gives a child under a
 --- `policy` a terminal, and the only terminal it gives is the one it opens
 --- here, whose master the caller holds: a descriptor the caller names
@@ -4443,7 +4443,7 @@ function Child.start_on_pty(argv: {string}, opts: Options, pty: PtyOptions): (Pt
 end
 
 --- Waits for the first of several handles to finish, servicing every
---- one's streams meanwhile, and returns it finished: its [`wait()`] answers
+--- one's streams meanwhile, and returns it finished: its [`wait()`] returns
 --- the Result, at once when the settle worked; when the settle failed,
 --- the wait tries again and says why. Nil and a
 --- [`Failure`] of kind "timeout" when `timeout_ns` passes first -- no
@@ -4452,8 +4452,8 @@ end
 --- own [`Options.timeout_ns`] passes first is ended, as an expired
 --- [`Handle.wait`] ends it -- which waits for it to go, so the call
 --- can outlast its own `timeout_ns` by the grace period -- and is
---- answered settled, its Result `timed_out`. In a task of
---- [`Poll.run`] that is cancelled, it answers nil and a Failure of kind
+--- returned settled, its Result `timed_out`. In a task of
+--- [`Poll.run`] that is cancelled, it returns nil and a Failure of kind
 --- "cancelled", the handles left running too. A `timeout_ns`
 --- below 0 or past [`Poll.MOST_NS`] raises.
 function Child.wait_any(handles: {Handle}, timeout_ns?: integer): (Handle) | (nil, Failure)
@@ -4525,7 +4525,7 @@ function Child.end_strays(spared?: {integer}): integer
     if found ~= nil and next(groups) ~= nil then
       local ending: mut {integer} = {}
       for _, pid in ipairs(found) do
-        -- Not answered: ended as before.
+        -- No group found: ended as before.
         local group, _ = sys.getpgid(pid)
         if group == nil or groups[group] ~= true then ending[#ending + 1] = pid end
       end
@@ -4600,7 +4600,7 @@ local function run_checked(argv: {string}, opts: Options): (Result) | (nil, Fail
   return nil, failure_of(start_trouble)
 end
 
---- Runs a program -- one executable path -- to completion and answers its
+--- Runs a program -- one executable path -- to completion and returns its
 --- [`Result`]. A child that exits nonzero, or is ended by a signal or its
 --- timeout, is still a [`Result`], with `ok` false. `argv[1]` is used exactly as given:
 --- there is no PATH search, and [`Proc.find`] finds a program by name. A nil
@@ -4620,15 +4620,15 @@ end
 --- While the child runs, SIGINT and SIGTERM are held in a [`Signal.guard`]:
 --- either one ends the child and its group, then the caller's
 --- dispositions are restored and the signal delivered again. The run
---- then answers nil and a [`Failure`] of kind "cancelled", with the message
+--- then returns nil and a [`Failure`] of kind "cancelled", with the message
 --- "child: cancelled by signal N". A run made while the
 --- caller holds a [`Signal.guard`] holds one inside it: a signal the
 --- caller's guard caught before the run began does not end it, and one
 --- that ends it is left to the caller's guard rather than delivered.
---- It also answers nil and a Failure when the child cannot be started,
+--- It also returns nil and a Failure when the child cannot be started,
 --- and one whose message is "child: signal guard: ..." when its guard
 --- cannot be opened. In a task of [`Poll.run`] that is cancelled, it ends
---- the child, as a timeout would, and answers nil and a Failure of kind
+--- the child, as a timeout would, and returns nil and a Failure of kind
 --- "cancelled" ([`Poll.CANCELLED`]).
 function Child.run(argv: {string}, opts: Options): (Result) | (nil, Failure)
   validate(argv, opts)

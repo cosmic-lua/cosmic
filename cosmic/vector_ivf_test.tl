@@ -223,7 +223,7 @@ local function test_kmeans_recovers_the_true_clusters()
   local points = dataset()
   local centroids = assert(Vector.kmeans(corpus_of(points), CLUSTERS))
   -- Twenty rows of the data themselves, spread through it, as centroids:
-  -- what k-means would answer if it did nothing.
+  -- what k-means would return if it did nothing.
   local rows: mut {string} = {}
   for i = 1, CLUSTERS do
     rows[#rows + 1] = assert(points[(i * 97) % #points + 1])

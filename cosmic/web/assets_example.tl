@@ -48,7 +48,7 @@ end
 
 --- One source from several: a program's own images under `images/` of a
 --- larger source, its favicon alone from another, and the shared files
---- under both. The first layer that holds a path answers it.
+--- under both. The first layer that holds a path gives it.
 function Example.layered()
   local carried = Assets.memory({ ["images/logo.png"] = "own", ["images/bg.png"] = "bg", ["app.js"] = "x" })
   local shared = Assets.memory({ ["logo.png"] = "shared", ["favicon.ico"] = "icon", ["robots.txt"] = "" })

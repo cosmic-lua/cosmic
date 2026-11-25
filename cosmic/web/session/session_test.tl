@@ -384,7 +384,7 @@ local function test_a_failing_store_is_a_500_and_a_cookie_over_the_limit_is_rais
   local client = browser(app)
   local ok, why = pcall(function() client:post("/set/a/b") end)
   assert(not ok and tostring(why):find("session: no space", 1, true) ~= nil, tostring(why))
-  -- A load runs in the handler, where the exception layer answers 500 and logs the fault.
+  -- A load runs in the handler, where the exception layer responds 500 and logs the fault.
   assert(client:get("/get/a", { cookies = { [NAME] = "anything" } }).status == 500)
   assert(table.concat(lines, "\n"):find("session: disk on fire", 1, true))
   local big = browser(make_app(options(SessionCookie.store{ keys = { KEY }, max_bytes = 200 }), spec))

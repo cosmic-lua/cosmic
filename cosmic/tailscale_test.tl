@@ -1,8 +1,8 @@
 --- [`cosmic.tailscale`] against a stand-in tailscaled: a [`Server.serve`]
---- that answers the LocalAPI paths with the JSON the daemon writes. Most
---- clients run in a child of this program, as cosmic/http_unix_test.tl's
---- do, since `watch` holds its thread while it waits; the last test asks
---- from the stand-in's own run.
+--- that responds at the LocalAPI paths with the JSON the daemon writes.
+--- Most clients run in a child of this program, as
+--- cosmic/http_unix_test.tl's do, since `watch` holds its thread while it
+--- waits; the last test asks from the stand-in's own run.
 
 local Array = require("cosmic.array")
 local Child = require("cosmic.child")
@@ -71,7 +71,7 @@ local record Seen
   mut lines: mut {string}
 end
 
---- The stand-in's answer to one LocalAPI request.
+--- The stand-in's response to one LocalAPI request.
 local function answer(req: Server.Request): Server.Reply
   local target = req.target
   if target == "/localapi/v0/whois?addr=100.64.0.2%3A443" then
@@ -285,7 +285,7 @@ local function test_cert_splits_the_key_from_the_chain_and_passes_on_a_refusal(t
   assert(#seen == 2, table.concat(seen, "\n"))
 end
 
---- A ping that came back answers its time in nanoseconds; one the
+--- A ping that came back returns its time in nanoseconds; one the
 --- daemon gave up on fails with the daemon's reason.
 local function test_ping_answers_the_round_trip_or_why_none_came(tmp: string)
   local said, seen = across(tmp, Net.unix(tmp .. "/ts.sock"), over_socket([[
@@ -382,7 +382,7 @@ end
 --- A call waits as a task of the run it is made in, so a server's own
 --- handler can ask the daemon while the run goes on: here the stand-in is
 --- served by the very run that asks it, which a call that held the thread
---- would never let answer.
+--- would never let respond.
 local function test_a_call_in_a_task_lets_the_run_answer_it(tmp: string)
   local said: mut {string} = {}
   assert(Server.serve{

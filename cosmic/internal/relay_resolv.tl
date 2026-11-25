@@ -64,7 +64,7 @@ end
 --- TCP port, 53 for every server resolv.conf names. With none configured,
 --- the resolver's default, 127.0.0.1 at 53. A link-local server written
 --- with its interface is left out, as an endpoint carries no interface;
---- where every server is, the answer is nil and why.
+--- where every server is, the result is nil and why.
 --- Nil and why where they cannot be listed: the system's words where the
 --- configuration cannot be read.
 --- @param resolv_conf string|nil A resolv.conf to read in place of the system's

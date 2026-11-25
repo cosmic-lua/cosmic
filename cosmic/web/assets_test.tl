@@ -202,7 +202,7 @@ local function test_directory_of_the_filesystem_root_serves_its_files(tmp: strin
   assert(asset ~= nil and asset.data == "inside", why)
 end
 
---- A path is answered by the first layer that holds it; `paths` lists
+--- A path is found in the first layer that holds it; `paths` lists
 --- each path once.
 local function test_layered_answers_each_path_from_the_first_source_that_holds_it()
   local over = Assets.memory({ ["a.css"] = "over", ["b.css"] = "b" })

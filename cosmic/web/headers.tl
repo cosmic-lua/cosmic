@@ -13,7 +13,7 @@
 --- A header is set only where the response has none (in any case of its
 --- name), so a handler, or a [`Headers.middleware`] nearer the handler (a
 --- route's own `middleware`), keeps what it set: an embeddable widget route
---- answers its own CSP and `frame_options = ""`. The response is copied
+--- sets its own CSP and `frame_options = ""`. The response is copied
 --- before a header is added, so one a handler shares between requests is
 --- not changed. Errors and 304s get the headers; a reply the server makes
 --- itself (a 400 for a request it could not read) does not.

@@ -11,7 +11,7 @@
 
 local types = require("cosmic.template.types")
 
---- A request or history URL. htmx fetches it and swaps the answer into the
+--- A request or history URL. htmx fetches it and swaps the response into the
 --- page, so a cross-origin URL is a stored-XSS channel of its own (the
 --- client's `selfRequestsOnly` is configuration an app may turn off): a
 --- plain string must be a same-origin reference, and a deliberate other URL

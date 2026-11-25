@@ -39,8 +39,8 @@ local record Compress
   --- One incremental transform, a chunk at a time: a
   --- [`Stream.Transform`], so [`Stream.transform`],
   --- [`Stream.transform_writer`] and [`Stream.run`] drive it. Every
-  --- method that can fail answers `value, ""` on success and
-  --- `nil, error` on failure; the constructors answer the stream, or
+  --- method that can fail returns `value, ""` on success and
+  --- `nil, error` on failure; the constructors return the stream, or
   --- nil and a [`Failure`].
   ---
   --- `update(chunk, max_bytes?)` feeds `chunk` and returns output,
@@ -72,7 +72,7 @@ local record Compress
   --- codec may have taken input it can no longer account for), or
   --- once closed, `update` and `finish` throw. A stream is closeable:
   --- `local s <close> = assert(Compress.decoder("gzip"))` frees its
-  --- codec at the end of the scope; `rest()` still answers after.
+  --- codec at the end of the scope; `rest()` still works after.
   ---
   --- `done()` turns true once a decoder has seen the end of the
   --- compressed data, and `rest()` returns the input bytes fed after
@@ -108,7 +108,7 @@ local record Compress
   --- the format does not read raises.
   record DecodeOptions
     --- [`Compress.decode`] alone: the most bytes of output; more is a
-    --- failure rather than an answer. Under 0 raises.
+    --- failure rather than a result. Under 0 raises.
     max_bytes?: integer
     --- "xz" alone: the most bytes of decoder memory a stream's headers
     --- may ask for (default 256 MiB; `xz -9` needs 65 MiB); more fails
@@ -221,9 +221,9 @@ end
 ---   decoder needs about the dictionary alone (65 MiB at 9). Lua's
 ---   accounting does not see that memory, so a caller that holds many
 ---   encoders, or uses levels 8 and 9 in a server, holds each
----   `<close>`. An allocation the machine refuses answers a
----   [`Failure`] "compress: out of memory", from here or from `update`
----   or `finish`, which then finishes the stream. It runs on one
+---   `<close>`. When the machine refuses an allocation, this call, or
+---   `update` or `finish`, returns nil and a [`Failure`] "compress: out
+---   of memory", and the stream is then finished. It runs on one
 ---   thread, and [`Compress.decoder`] reads what it writes at the
 ---   default `max_memory` at every level.
 --- - "bz2": one stream, byte for byte what `bzip2 -c -<level>` writes;

@@ -70,7 +70,7 @@ local function start(argv: {string}, options?: Child.Options): Seams.Started?, s
   local handle, why = Child.start(argv, options or { timeout_ns = Child.FOREVER })
   if handle == nil then return nil, tostring(why) end
   return new_started({
-    -- In words, as the pinned release's handle answers them too.
+    -- In words, as the pinned release's handle returns them too.
     stop = function(signal?: integer): boolean, string
       local stopped, stop_why = handle:stop(signal)
       if stopped then return true, "" end
@@ -94,7 +94,7 @@ end
 
 local current: Seams.Calls = {
   child_run = function(argv: {string}, options?: Child.Options): Child.Result?, string
-    -- In words, as the pinned release's Child.run answers them too.
+    -- In words, as the pinned release's Child.run returns them too.
     local result, why = Child.run(argv, options or { timeout_ns = Child.FOREVER })
     if result == nil then return nil, tostring(why) end
     return result, ""
@@ -128,7 +128,7 @@ local current: Seams.Calls = {
     if text == nil then return nil, tostring(why) end
     return text, ""
   end,
-  -- Words on both checkers: the pinned release answers a string, this checkout a Failure.
+  -- Words on both checkers: the pinned release returns a string, this checkout a Failure.
   proc_user = function(name: string): Proc.User?, string
     local account, why = Proc.user(name)
     if account == nil then return nil, tostring(why) end

@@ -3,7 +3,7 @@
 --- can only judge against an interpreter of its own. The child is a stand-in
 --- ([`cosmic.stand_in`]): this program's own static core, which starts under
 --- the basics and does what its script says, so a call the filter refuses
---- shows as a command that fails, with the errno the filter answers.
+--- shows as a command that fails, with the filter's errno.
 --- Where the platform has no sandbox they are not applicable and where
 --- this host has none they are skipped (`requires`); a container that
 --- already filters more than this allows skips each itself (Test.skip).
@@ -79,7 +79,7 @@ local function test_a_signal_to_itself_ends_it_and_to_another_is_refused(tmp: st
   local probe = assert(StandIn.build(tmp .. "/stand-in"))
   local own = under(tmp, {}, "signal TERM", probe)
   assert(own.signal == sys.SIGTERM, "its own pid is a signal it may send: " .. own.said)
-  -- Another process, one of this test's own: the filter answers EPERM, and it lives.
+  -- Another process, one of this test's own: the filter refuses it with EPERM, and it lives.
   local sleeper = assert(process.spawn(probe, { probe, "sleep-forever" }, nil, nil, nil, nil, nil,
     false))
   local other = under(tmp, {}, "signal KILL " .. tostring(sleeper), probe)

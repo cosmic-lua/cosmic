@@ -47,7 +47,7 @@ local record udp_fixture
 end
 
 --- Binds a UDP socket at `host` and `port` (0 for one the kernel chooses),
---- or answers nil and why not: a name is never looked up, which the
+--- or returns nil and why not: a name is never looked up, which the
 --- reason says ("not a numeric"), and a port in use is refused.
 function udp_fixture.bind(host: string, port: integer): udp_fixture.Bound?, string
   local socket, why, errno = raw.datagram({ kind = "udp", host = host, port = port })

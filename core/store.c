@@ -55,7 +55,7 @@
 static _Noreturn void die_unreadable (sqlite3 *db) {
   fprintf(stderr, "cosmic: the attached database is unreadable: %s\n",
           sqlite3_errmsg(db));
-  exit(2); /* exits: a database this broken has no well-formed answer to
+  exit(2); /* exits: a database this broken has no well-formed result to
               return, honest or otherwise */
 }
 
@@ -85,7 +85,7 @@ static bool out_of_memory (int rc) { return (rc & 0xff) == SQLITE_NOMEM; }
 /* Where the raw `cosmic.internal.*` values live, and who may take one.
  *
  * Most of them are plain modules: `require("cosmic.internal.process")`
- * answers the C table, which the module's declaration
+ * returns the C table, which the module's declaration
  * (cosmic/internal/process.d.tl) types, and `require` caches it like any
  * other. What keeps a project from requiring one is the build, not the
  * store: a project's program is checked (build/project_refusals.tl) and
@@ -112,7 +112,7 @@ static bool out_of_memory (int rc) { return (rc & 0xff) == SQLITE_NOMEM; }
 /* Every raw value, in the order it is opened. `open` builds it; it is NULL
  * where other code registers it -- [`cosmic_store_install`] the store,
  * core/surface.c the collector (its raw name, [`cosmic.internal.debug`],
- * holds no debug library). `plain` says `require` answers it by its name. */
+ * holds no debug library). `plain` says `require` returns it by its name. */
 static const struct raw_value {
   const char *raw;
   lua_CFunction open;
@@ -172,7 +172,7 @@ static const struct raw_module {
  * of a verdict and [`build.confine`] confines each child a test starts. */
 static const char *const reserved_build[] = {"build.confine", "build.digest"};
 
-/* Whether `name` is a raw value `require` answers by its name. */
+/* Whether `name` is a raw value `require` returns by its name. */
 static int names_plain_raw (const char *name) {
   for (size_t v = 0; v < RAW_VALUE_COUNT; v++) {
     if (raw_values[v].plain && strcmp(name, raw_values[v].raw) == 0) {
@@ -244,7 +244,7 @@ static int wrapper_raw (lua_State *L, const char *name) {
   return 0;
 }
 
-/* A loader that answers with its own upvalue, ignoring whatever it was
+/* A loader that returns its own upvalue, ignoring whatever it was
  * called with -- what a package.preload entry needs, since the preload
  * searcher calls it with a fixed "extra" of its own. */
 static int return_upvalue (lua_State *L) {
@@ -420,7 +420,7 @@ static int traced_loader (lua_State *L) {
  *
  * The raw `cosmic.internal.*` values are never rows in any database:
  * core C builds and registers them directly (see `raw_values`). A plain
- * one ([`names_plain_raw`]) is answered by its name ahead of every
+ * one ([`names_plain_raw`]) is returned by its name ahead of every
  * database, so none can shadow it. Loading one of `raw_modules`'
  * wrappers from a trusted position instead hands the matching raw value
  * straight to that one chunk, as the `extra` argument `require` always
@@ -544,8 +544,8 @@ static void release_statement (void *stmt) { sqlite3_finalize(stmt); }
 
 static void release_block (void *block) { cosmic_free(block); }
 
-/* Pushes the one column `sql` answers for `key` in `db` and returns 1,
- * or pushes nothing and returns 0 when no row answers. The statement is
+/* Pushes the one column `sql` yields for `key` in `db` and returns 1,
+ * or pushes nothing and returns 0 when it yields no row. The statement is
  * held by a guard while the value is copied out: the copy allocates,
  * and an allocation can raise past the finalize. */
 static int lookup (lua_State *L, sqlite3 *db, const char *sql,
@@ -642,7 +642,7 @@ static int store_bytecode (lua_State *L) {
 /* One module's Teal source, or a declaration's, from the database
  * attached to the running binary and no other: what a checker building
  * some other tree needs in order to type a `require` of this one's
- * modules. Only the binary's rows answer, so a project's own database
+ * modules. Only the binary's rows count, so a project's own database
  * can never stand in for the standard library's types. The build stores
  * both deflated ([`build.writer`]), so each is inflated here. */
 static int store_source (lua_State *L) {
@@ -1304,7 +1304,7 @@ void cosmic_store_install (lua_State *L, sqlite3 *binary,
   lua_newtable(L);
   if (binary != NULL) {
     cosmic_sqlite_hold_to_queries(binary, NULL);
-    /* Without them a query of the binary's rows answers "no such
+    /* Without them a query of the binary's rows fails with "no such
      * function", which is all a failure here costs. */
     (void)cosmic_sqlite_functions(binary);
     lua_pushlightuserdata(L, binary);

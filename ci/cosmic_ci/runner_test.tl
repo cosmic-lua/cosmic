@@ -268,7 +268,7 @@ local function test_spawned_commands_run_at_once_and_are_reaped_in_the_order_the
   local outcome = Runner.reap(first)
   assert(outcome.code == 0 and outcome.status == "success")
   assert(assert(Fs.read(tmp .. "/quick.out")) == "quick")
-  -- A command is reaped once: a second reap answers the same outcome.
+  -- A command is reaped once: a second reap returns the same outcome.
   assert(Runner.reap(first) == outcome)
   local second = Runner.wait_any({ slow })
   assert(second == slow)

@@ -3,8 +3,8 @@
  * to beside its Landlock ruleset, as an allow list of system calls. What
  * the basics and the promises asked for do not name is refused with
  * EPERM; a call numbered above the reviewed table, `clone3` and
- * `openat2` answer ENOSYS, so a libc falls back; a refused ioctl answers
- * ENOTTY; a call of another architecture ends the process.
+ * `openat2` fail with ENOSYS, so a libc falls back; a refused ioctl
+ * fails with ENOTTY; a call of another architecture ends the process.
  *
  * The program is a pure function of the promises, the architecture and
  * the process's own pid and what else holds it (COSMIC_HELD_), so
@@ -20,7 +20,7 @@
 #include <stdbool.h>
 
 /* One past the highest call number the tables are reviewed to: a call
- * above it is answered ENOSYS. */
+ * above it fails with ENOSYS. */
 #define PROMISE_CALLS_REVIEWED 472
 
 /* One past the highest call number the headers this core was built with
@@ -137,7 +137,7 @@ int cosmic_truncation_apply (void);
 /* Holds the calling process, for good, to call no execve: no_new_privs,
  * and a filter over whatever holds it already that refuses execve and
  * execveat with EPERM (and x32's calls with ENOSYS) in every thread,
- * allowing every other call for the filters before it to answer
+ * allowing every other call for the filters before it to decide
  * (core/promises.c's `no_x_program_for`). `restrict_self`
  * (core/syscalls.c) adds it where no grant gives `x`: a layer derived
  * from the grants, under Landlock's. A file the process reads it may

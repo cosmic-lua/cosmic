@@ -74,7 +74,7 @@
 #define COSMIC_CTIME_NANOSECONDS(st) ((st).st_ctim.tv_nsec)
 #endif
 
-/* What a mode says a path is, in the words `stat` and `readdir` answer. */
+/* What a mode says a path is, in the words `stat` and `readdir` return. */
 static const char *mode_kind (mode_t mode) {
   if (S_ISREG(mode)) return "file";
   if (S_ISDIR(mode)) return "dir";
@@ -86,7 +86,7 @@ static const char *mode_kind (mode_t mode) {
   return "other";
 }
 
-/* Whether a directory entry is "." or "..", which no listing answers. */
+/* Whether a directory entry is "." or "..", which no listing includes. */
 static bool is_dot_entry (const char *name) {
   return name[0] == '.' &&
          (name[1] == '\0' || (name[1] == '.' && name[2] == '\0'));
@@ -205,7 +205,7 @@ static bool reaches_descriptor_name (const char *path, bool follow,
  *
  * This stands in for openat2's RESOLVE_NO_MAGICLINKS, which cannot be had
  * under a promises filter: classic BPF cannot read openat2's `struct
- * open_how`, so core/promises.c answers it ENOSYS. */
+ * open_how`, so core/promises.c fails it with ENOSYS. */
 static int walk_without_descriptor_links (const char *path, bool follow, int *found) {
   char rest[PATH_MAX], target[PATH_MAX];
   if (snprintf(rest, sizeof rest, "%s", path) >= (int)sizeof rest) return ENAMETOOLONG;
@@ -308,7 +308,7 @@ static int walk_without_descriptor_links (const char *path, bool follow, int *fo
  * named through /proc/self/cwd/... or /proc/self/root/... too, which are
  * such links: this program's own file is the one file refused that way,
  * and it has a name of its own to be reached by. A walk that fails
- * otherwise answers its own errno, which the call would have met.
+ * otherwise returns its own errno, which the call would have met.
  * Elsewhere -- macOS -- the path is walked by name
  * ([`reaches_descriptor_name`]), and what resolves under /dev or /proc
  * is refused too. */
@@ -445,7 +445,7 @@ COSMIC_SYSCALL(open, 3) {
   return 1;
 }
 
-/* The answer is built before the file is opened, with "fd" already a
+/* The result is built before the file is opened, with "fd" already a
  * key, so that setting the descriptor into it allocates nothing: an
  * allocation that raised while the descriptor was open would leak it. */
 COSMIC_SYSCALL(open_temporary, 2) {
@@ -497,12 +497,12 @@ COSMIC_SYSCALL(close, 1) {
 
 /* How many of `count` bytes one read of `fd` at `offset` (or, when
  * negative, at its own position) asks for, which is what its buffer
- * costs: a count past what the read could answer is never allocated,
+ * costs: a count past what the read could return is never allocated,
  * so a huge count is no out-of-memory and a small file no huge buffer.
- * A regular file answers at most what is left of it -- but never less
- * than READ_SMALL, since a file that says it is empty or small (the
- * ones under /proc) may hold more -- and anything else at most
- * READ_STREAM. A read may always answer short, so a caller that loops
+ * A read of a regular file returns at most what is left of it -- but
+ * never less than READ_SMALL, since a file that says it is empty or
+ * small (the ones under /proc) may hold more -- and anything else at
+ * most READ_STREAM. A read may always return short, so a caller that loops
  * until the empty string sees the same bytes either way. */
 static size_t read_room (int fd, lua_Integer count, off_t offset) {
   if (count <= READ_SMALL) return (size_t)count;
@@ -667,6 +667,185 @@ COSMIC_SYSCALL(rename, 2) {
   return cosmic_ok(L);
 }
 
+/* Opens the directory `path` names, reached with no link anywhere on it,
+ * its last part's included, in *found, which the caller closes: 0, or
+ * the errno met -- ELOOP for a link, ENOTDIR for a part that is no
+ * directory. On Linux each part is opened O_PATH|O_NOFOLLOW from the
+ * descriptor held for the one before it, so no part is resolved twice
+ * and a link a process swaps in meanwhile is met, not followed; the
+ * result is an O_PATH descriptor, which the *at calls take and which
+ * asks the sandbox nothing to open. macOS has the walk as one flag,
+ * O_NOFOLLOW_ANY. */
+static int open_dir_unlinked (const char *path, int *found) {
+  if (path[0] == '\0') return ENOENT;
+#if defined(__linux__)
+  char rest[PATH_MAX];
+  if (snprintf(rest, sizeof rest, "%s", path) >= (int)sizeof rest) return ENAMETOOLONG;
+  int at = open(rest[0] == '/' ? "/" : ".", O_PATH | O_DIRECTORY | O_CLOEXEC);
+  if (at < 0) return errno;
+  size_t used = 0;
+  for (;;) {
+    while (rest[used] == '/') used++;
+    if (rest[used] == '\0') break;
+    size_t length = strcspn(rest + used, "/");
+    if (length > NAME_MAX) {
+      close(at);
+      return ENAMETOOLONG;
+    }
+    char part[NAME_MAX + 1];
+    memcpy(part, rest + used, length);
+    part[length] = '\0';
+    used += length;
+    int next = openat(at, part, O_PATH | O_NOFOLLOW | O_CLOEXEC);
+    int number = next < 0 ? errno : 0;
+    struct stat st;
+    if (number == 0 && fstat(next, &st) != 0) number = errno;
+    if (number == 0 && S_ISLNK(st.st_mode)) number = ELOOP;
+    if (number == 0 && !S_ISDIR(st.st_mode)) number = ENOTDIR;
+    close(at);
+    if (number != 0) {
+      if (next >= 0) close(next);
+      return number;
+    }
+    at = next;
+  }
+  *found = at;
+  return 0;
+#else
+#ifndef O_NOFOLLOW_ANY
+#define O_NOFOLLOW_ANY 0x20000000
+#endif
+  int fd;
+  do {
+    fd = open(path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW_ANY | O_CLOEXEC);
+  } while (fd < 0 && errno == EINTR);
+  if (fd < 0) return errno;
+  *found = fd;
+  return 0;
+#endif
+}
+
+/* Whether `name` is one entry's name: not empty, no "/", not "." or "..". */
+static bool one_name (const char *name) {
+  return name[0] != '\0' && strchr(name, '/') == NULL && strcmp(name, ".") != 0 &&
+         strcmp(name, "..") != 0;
+}
+
+COSMIC_SYSCALL(open_dir, 1) {
+  const char *path = cosmic_path(L, 1);
+  if (path == NULL) return cosmic_fail(L, EINVAL);
+  int fd = -1;
+  int number = open_dir_unlinked(path, &fd);
+  if (number != 0) return cosmic_fail(L, number);
+  lua_pushinteger(L, fd);
+  return 1;
+}
+
+COSMIC_SYSCALL(openat, 4) {
+  int dir = cosmic_checkfd(L, 1);
+  const char *name = cosmic_path(L, 2);
+  if (name == NULL || !one_name(name)) return cosmic_fail(L, EINVAL);
+  int flags = cosmic_checkint(L, 3);
+  int mode = cosmic_optint(L, 4, 0644);
+  /* The program's own file is refused, by any name: on macOS /dev/fd
+   * holds descriptor nodes, not links, which no O_NOFOLLOW meets, and
+   * one of them is the retained descriptor of the program
+   * ([`artifact_through_descriptor`]). Asked before the open, since
+   * asking may raise. */
+  const struct cosmic_artifact *artifact = cosmic_store_artifact(L);
+  int fd;
+  do {
+    fd = openat(dir, name, flags | O_NOFOLLOW | O_CLOEXEC, (mode_t)mode);
+  } while (fd < 0 && errno == EINTR);
+  if (fd < 0) return cosmic_fail(L, errno);
+  if (artifact != NULL) {
+    struct stat st;
+    int refused = fstat(fd, &st) != 0 ? errno : 0;
+    if (refused == 0 && (uint64_t)st.st_dev == artifact->device && (uint64_t)st.st_ino == artifact->inode) {
+      refused = EACCES;
+    }
+    if (refused != 0) {
+      close(fd);
+      return cosmic_fail(L, refused);
+    }
+  }
+  lua_pushinteger(L, fd);
+  return 1;
+}
+
+COSMIC_SYSCALL(open_dir_at, 2) {
+  int dir = cosmic_checkfd(L, 1);
+  const char *name = cosmic_path(L, 2);
+  if (name == NULL || !one_name(name)) return cosmic_fail(L, EINVAL);
+#if defined(__linux__)
+  int fd = openat(dir, name, O_PATH | O_NOFOLLOW | O_CLOEXEC);
+  int number = fd < 0 ? errno : 0;
+  struct stat st;
+  if (number == 0 && fstat(fd, &st) != 0) number = errno;
+  if (number == 0 && S_ISLNK(st.st_mode)) number = ELOOP;
+  if (number == 0 && !S_ISDIR(st.st_mode)) number = ENOTDIR;
+  if (number != 0) {
+    if (fd >= 0) close(fd);
+    return cosmic_fail(L, number);
+  }
+#else
+  int fd;
+  do {
+    fd = openat(dir, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+  } while (fd < 0 && errno == EINTR);
+  if (fd < 0) {
+    /* macOS fails with ENOTDIR for a link when O_DIRECTORY is asked; a link
+     * is ELOOP here, as on Linux. Only the errno is read again: nothing
+     * is opened through the name. */
+    int number = errno;
+    struct stat st;
+    if (number == ENOTDIR && fstatat(dir, name, &st, AT_SYMLINK_NOFOLLOW) == 0 && S_ISLNK(st.st_mode)) {
+      number = ELOOP;
+    }
+    return cosmic_fail(L, number);
+  }
+#endif
+  lua_pushinteger(L, fd);
+  return 1;
+}
+
+COSMIC_SYSCALL(fstatat, 2) {
+  int dir = cosmic_checkfd(L, 1);
+  const char *name = cosmic_path(L, 2);
+  if (name == NULL || !one_name(name)) return cosmic_fail(L, EINVAL);
+  struct stat st;
+  if (fstatat(dir, name, &st, AT_SYMLINK_NOFOLLOW) != 0) return cosmic_fail(L, errno);
+  push_stat(L, &st);
+  return 1;
+}
+
+COSMIC_SYSCALL(mkdirat, 3) {
+  int dir = cosmic_checkfd(L, 1);
+  const char *name = cosmic_path(L, 2);
+  if (name == NULL || !one_name(name)) return cosmic_fail_effect(L, EINVAL);
+  int mode = cosmic_optint(L, 3, 0755);
+  if (mkdirat(dir, name, (mode_t)mode) != 0) return cosmic_fail_effect(L, errno);
+  return cosmic_ok(L);
+}
+
+COSMIC_SYSCALL(renameat, 3) {
+  int dir = cosmic_checkfd(L, 1);
+  const char *from = cosmic_path(L, 2);
+  if (from == NULL || !one_name(from)) return cosmic_fail_effect(L, EINVAL);
+  const char *to = cosmic_path(L, 3);
+  if (to == NULL || !one_name(to)) return cosmic_fail_effect(L, EINVAL);
+  if (renameat(dir, from, dir, to) != 0) return cosmic_fail_effect(L, errno);
+  return cosmic_ok(L);
+}
+
+COSMIC_SYSCALL(unlinkat, 2) {
+  int dir = cosmic_checkfd(L, 1);
+  const char *name = cosmic_path(L, 2);
+  if (name == NULL || !one_name(name)) return cosmic_fail_effect(L, EINVAL);
+  if (unlinkat(dir, name, 0) != 0) return cosmic_fail_effect(L, errno);
+  return cosmic_ok(L);
+}
+
 COSMIC_SYSCALL(chmod, 2) {
   const char *path = cosmic_path(L, 1);
   if (path == NULL) return cosmic_fail_effect(L, EINVAL);
@@ -687,9 +866,9 @@ COSMIC_SYSCALL(chmod, 2) {
   if (syscall(SYS_fchmodat2, probe, "", (mode_t)mode, AT_EMPTY_PATH) != 0) {
     number = errno;
     char name[32];
-    /* A filter that knows no fchmodat2 may answer EPERM, which the
-     * call by name answers again where it is the file's own. Where
-     * that name is not there (no /proc), the first answer stands. */
+    /* A filter that knows no fchmodat2 may fail it with EPERM, which
+     * the call by name fails with again where it is the file's own.
+     * Where that name is not there (no /proc), the first errno stands. */
     if ((number == ENOSYS || number == EPERM) && probe_name(probe, name, sizeof name)) {
       if (chmod(name, (mode_t)mode) == 0) number = 0;
       else if (errno != ENOENT) number = errno;
@@ -755,7 +934,7 @@ COSMIC_SYSCALL(chown, 3) {
 #define REMOVE_PASSES_MAX 64
 
 /* Removes `name` in the directory `parent` and, for a directory, all of
- * it, and answers 0 or an errno. Every step is relative to a descriptor
+ * it, and returns 0 or an errno. Every step is relative to a descriptor
  * and never follows a link -- a directory is opened with O_NOFOLLOW from
  * its parent's descriptor, a link is unlinked as itself -- so a process
  * that swaps an entry for a link to somewhere else while this walks is
@@ -874,7 +1053,7 @@ COSMIC_SYSCALL(readdir, 1) {
     }
     /* The entry says what it is for free on every filesystem that
      * matters; a filesystem that does not say is asked with one lstat,
-     * so a link is a link either way, as lstat answers it, and never
+     * so a link is a link either way, as lstat returns it, and never
      * the kind of what it points at. The checked core's fault point
      * stands in for such a filesystem, one entry at a time. */
     unsigned char type = COSMIC_FAULT("readdir_d_type") ? DT_UNKNOWN : entry->d_type;
@@ -1092,7 +1271,7 @@ COSMIC_SYSCALL(access, 2) {
                 "not 0 or R_OK, W_OK and X_OK or'd together");
   if (path == NULL) return cosmic_fail_effect(L, EINVAL);
   /* AT_EACCESS only where the effective ids differ from the real ones,
-   * where alone it changes the answer: musl asks faccessat2 for any
+   * where alone it changes the result: musl asks faccessat2 for any
    * flag, which an older container's seccomp profile refuses with
    * EPERM rather than ENOSYS, so plain faccessat is asked otherwise. */
   int flags = (getuid() != geteuid() || getgid() != getegid()) ? AT_EACCESS : 0;
