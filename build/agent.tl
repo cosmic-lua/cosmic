@@ -445,7 +445,6 @@ local type Opened = {session: Agent.Session, lock: integer?}
 --- unless --new, and a fresh one starts where there is none, or another run holds it.
 local function session(r: Run, got: Flags.Parsed, db: Sqlite.Handle, newest: boolean,
                        by_default: boolean): Opened?, string
-  local effort = got.values["--effort"] or Agent.EFFORT
   local budget: Agent.Budget? = nil
   local limits = got.values["--budget"]
   if limits ~= nil then
@@ -549,7 +548,7 @@ local function session(r: Run, got: Flags.Parsed, db: Sqlite.Handle, newest: boo
     r.io.err("cosmic: agent: going on with session " .. tostring(id) .. " (" .. String.counted(#held, "message") ..
         ", " .. model .. unfinished .. "); --new starts a fresh one")
   end
-  local s = Agent.new({ model = model, effort = effort, sign = sign, base_url = base, cwd = here,
+  local s = Agent.new({ model = model, effort = got.values["--effort"], sign = sign, base_url = base, cwd = here,
     send = r.io.send, system = Prompt.build(here, Prompt.contexts(here), { tools = offered }),
     sandbox = if policy == nil then nil else { policy } end, jobs = Jobs.new(), worker = Worker.new(), mcp = AgentMcp.new(servers, here), build = build(),
     tools = offered, messages = held, db = db, id = id, restarts = restarts, ended = ended, budget = budget })

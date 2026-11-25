@@ -87,6 +87,16 @@ local function test_the_loop_runs_tools_until_the_turn_ends()
   assert(again ~= nil and #again == 5)
 end
 
+--- Each model has its own effort unless one is named: low for Haiku, medium for the rest.
+local function test_the_effort_is_the_models_own_unless_named()
+  assert(Agent.effort(Agent.MODELS.haiku) == "low" and Agent.effort(Agent.MODELS.opus) == Agent.EFFORT)
+  local function made(model: string, effort?: string): string
+    return Agent.new({ model = model, effort = effort, sign = keyed("k"), system = "sys", cwd = "/", where = "" }).effort
+  end
+  assert(made(Agent.MODELS.haiku) == "low" and made(Agent.MODELS.sonnet) == "medium")
+  assert(made(Agent.MODELS.haiku, "high") == "high")
+end
+
 --- The sandbox is a list of layers, held stacked: a write one layer lets and another does not is refused, and
 --- layers that do not join block the call, naming why.
 local function test_the_sandbox_layers_are_held_stacked()

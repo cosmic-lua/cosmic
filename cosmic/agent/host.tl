@@ -456,7 +456,7 @@ local TOOLING <const>: {string: boolean} = {
 }
 
 --- The modules a snippet may require, from this binary's docs: a line each, `cosmic.<name>: ` and the start of what
---- it is for (about 90 bytes), but the agent's own and tooling's. Some hold more under them (cosmic.web.route), which
+--- it is for (its first clause, at most about 60 bytes), but the agent's own and tooling's. Some hold more under them (cosmic.web.route), which
 --- [`Host.docs`] of the module names. A plain string, to print: where the docs cannot be read, it says why. `index`
 --- stands in for the docs' index ([`Doc.index`]), for a test.
 function Host.modules(index?: {Doc.Summary}): string
@@ -478,8 +478,15 @@ function Host.modules(index?: {Doc.Summary}): string
     local name = summary.module:match("^cosmic%.([%w_]+)$")
     if name ~= nil and TOOLING[name] == nil then
       local about = summary.text:gsub("%s+", " "):gsub("^ ", "")
-      if #about > 90 then
-        about = String.cut(about, 88):gsub("%s%S*$", ""):gsub("[%s,;:(]+$", "") .. "..."
+      -- The first clause past its first few words, and at most 60 bytes: each line is read on every request, and
+      -- Host.docs has the rest.
+      local stop = about:find("[.:;] ", 25)
+      local dash = about:find(" %-%- ", 25)
+      if dash ~= nil and (stop == nil or dash < stop) then stop = dash end
+      if stop ~= nil then about = about:sub(1, stop - 1) end
+      about = about:gsub("%.$", "")
+      if #about > 60 then
+        about = String.cut(about, 58):gsub("%s%S*$", ""):gsub("[%s,;:(]+$", "") .. "..."
       end
       out[#out + 1] = "cosmic." .. name .. (if about ~= "" then ": " .. about else "" end)
     end
