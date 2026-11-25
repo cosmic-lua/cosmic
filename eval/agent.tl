@@ -365,7 +365,9 @@ return function(argv: {string}): integer
       }
     end
   end
-  assert(Server.new{ info = { name = "decoy", version = "1" }, tools = tools }:serve_stdio())
+  -- It is named for the directory of its data, which is its name in the config, as a real server names itself.
+  local named = (argv[1] or ""):match("([^/]+)/[^/]*$") or "server"
+  assert(Server.new{ info = { name = named, version = "1" }, tools = tools }:serve_stdio())
   return 0
 end
 ]==]
@@ -638,7 +640,7 @@ Agent.tasks = {
     name = "web-csv",
     prompt = "The web API at {url} serves the sales as CSV at GET /sales.csv, with a header row " ..
       "`region,customer,amount_cents`. Write to answer.txt, for each customer, the sum of its amount_cents, as " ..
-      "`sum customer`, one a line, largest first, ties by customer.",
+      "`sum customer`, the name as it reads unquoted, one a line, largest first, ties by customer in byte order.",
     truth = "awk -F'\\t' '{s[$2] += $3} END {for (c in s) print s[c]\" \"c}' \"$data\" | LC_ALL=C sort -k1,1nr -k2",
     check = "cat answer.txt",
     site = { source = SALES_SITE, data = sales() },
