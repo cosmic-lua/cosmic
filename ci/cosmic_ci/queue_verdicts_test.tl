@@ -443,7 +443,7 @@ local function test_a_first_try_takes_nothing()
     assert(#fake.outputs == 0, case .. ": " .. GithubFake.text(fake.outputs))
   end
   for key, value in pairs({ HEAD_REF = "refs/heads/main", BASE_SHA = "main", SHA = "HEAD", ARTIFACT = "a/b",
-      GITHUB_REPOSITORY = "o" }) do
+      PASSED_ARTIFACT = "a b", GITHUB_REPOSITORY = "o" }) do
     local bad = tried_env()
     bad[key] = value
     local fake = GithubFake.new(function(_path: string, _nth: integer): string?
@@ -472,4 +472,39 @@ local function test_a_queue_ref_that_holds_a_cache_fails_the_run()
   local fake = GithubFake.new(function(_path: string, _nth: integer): string? return nil end)
   assert(QueueVerdicts.ref_caches({ GITHUB_REF = "refs/heads/main", GITHUB_REPOSITORY = "o/r" }, fake.host) == 2)
   assert(#fake.calls == 0)
+end
+
+--- Where the run that failed holds none of this job's tried rows, the
+--- rows this job left where it passed (PASSED_ARTIFACT) are named, by
+--- the same rules; where the step names none, nothing is.
+local function test_a_job_that_passed_in_a_failed_try_is_taken()
+  local mine = "gh-readonly-queue/main/pr-41-" .. OTHER
+  local passed = "queue-verdicts-linux-x86_64"
+  for _, case in ipairs({ "passed", "none named", "neither", "two passed" }) do
+    local fake = GithubFake.new(function(path: string, _nth: integer): string?
+      if path == FAILED then return '{"workflow_runs":[' .. run(5, tried_sha(5), mine) .. ']}' end
+      if path == "repos/o/r/actions/caches?ref=refs/heads/" .. mine .. "&per_page=1" then
+        return '{"total_count":0}'
+      end
+      if path == "repos/o/r/compare/" .. OTHER .. "...main" then return '{"status":"ahead"}' end
+      if path == "repos/o/r/compare/" .. SHA .. "..." .. NOW then return change("aa") end
+      if path == "repos/o/r/compare/" .. OTHER .. "..." .. tried_sha(5) then return change("aa") end
+      if path == "repos/o/r/actions/runs/5/jobs?per_page=100" then
+        return jobs("success", "success")
+      end
+      if path == "repos/o/r/actions/runs/5/artifacts?name=" .. TRIED_ARTIFACT then
+        return '{"artifacts":[]}'
+      end
+      if path == "repos/o/r/actions/runs/5/artifacts?name=" .. passed and case ~= "neither" then
+        local one = '{"id":700,"name":"' .. passed .. '","expired":false}'
+        return '{"artifacts":[' .. one .. (if case == "two passed" then "," .. one:gsub("700", "701") else "" end) .. ']}'
+      end
+      return nil
+    end)
+    local step = tried_env()
+    if case ~= "none named" then step["PASSED_ARTIFACT"] = passed end
+    assert(QueueVerdicts.find_tried(step, fake.host) == 0, case)
+    local want = if case == "passed" then "run=5\nartifact=700\n" else "" end
+    assert(GithubFake.text(fake.outputs) == want, case .. ": " .. GithubFake.text(fake.outputs))
+  end
 end

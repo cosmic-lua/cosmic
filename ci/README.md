@@ -563,11 +563,13 @@ queue run whose ref holds one (`driver.tl queue-ref-caches`), and the
 while the run ran. A cache GitHub evicted before the second listing goes
 unseen.
 
-A queue leg, checked shard or narrowing suite that failed uploads the rows it used too
-(`queue-tried-verdicts-<job>`, kept a day), and the next try of the same
+A queue leg that failed uploads the rows it used too
+(`queue-tried-verdicts-<job>`, kept a day), as a checked shard or the
+narrowing suite does passing or failing; a release leg's suite that
+passed left them as `queue-verdicts-<leg>`. The next try of the same
 pull request finds the newest failed run that has ended and holds that
-job's artifact (`driver.tl queue-tried-run`) and merges it in before its
-suites, so a suite the deadline stopped (COSMIC_TEST_DEADLINE) keeps its
+job's artifact, or else that leg's (`driver.tl queue-tried-run`), and
+merges it in before its suites, so a suite the deadline stopped (COSMIC_TEST_DEADLINE) keeps its
 passes for that try. The code a run ran can write any row, so it takes a
 run only where GitHub's record shows that run ran merged code and this
 try's change: the commit its entry was put on is on main (a queue commit

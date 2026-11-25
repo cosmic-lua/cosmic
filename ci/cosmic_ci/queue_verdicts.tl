@@ -222,9 +222,10 @@ end
 --- the jobs it did not run again, so what GitHub says of its jobs need
 --- not be of the attempt that uploaded the rows.
 ---
---- TODO: upload a try's rows from the legs that passed too, so the next
---- try reruns none of them whole, once the size of a day's queue
---- artifacts is measured.
+--- A job that passed in a run that failed left its rows too: a release
+--- leg's suite as `queue-verdicts-<leg>`, for main's push, and a checked
+--- shard or the narrowing suite under its tried name, which it uploads
+--- passing or failing.
 
 --- How many of the newest failed merge-queue runs are read for the pull
 --- request's: some 14 hours of the queue's failures on 2026-11-24.
@@ -440,15 +441,18 @@ end
 --- first attempt for the pull request HEAD_REF is of, was built on a
 --- commit of main with the change SHA makes over BASE_SHA (this run's),
 --- and refused its ref's caches before and after its jobs; and the one
---- ARTIFACT it uploaded. Where it finds none it says why and writes
+--- ARTIFACT it uploaded, or else the one PASSED_ARTIFACT, where it names
+--- one: what this job uploads where it passes in a run that failed. Where it finds none it says why and writes
 --- nothing: the run's suites run their tests. 2 where the step names no
 --- queue ref, artifact, repository, base or commit, else 0.
 function QueueVerdicts.find_tried(env: {string:string}, host: Github.Host): integer
   local ref, name, repository = env["HEAD_REF"] or "", env["ARTIFACT"] or "", env["GITHUB_REPOSITORY"] or ""
+  local passed = env["PASSED_ARTIFACT"] or ""
   local queued = QueueVerdicts.entry_of(ref)
-  if queued == nil or not name:match("^[%w._-]+$") or not repository:match("^[%w._-]+/[%w._-]+$") then
-    local _, _ = Fs.put(Fs.stderr, "queue-tried-run: HEAD_REF, ARTIFACT and GITHUB_REPOSITORY must name " ..
-        "a merge-queue ref, an artifact and a repository\n")
+  if queued == nil or not name:match("^[%w._-]+$") or not repository:match("^[%w._-]+/[%w._-]+$") or
+      not passed:match("^[%w._-]*$") then
+    local _, _ = Fs.put(Fs.stderr, "queue-tried-run: HEAD_REF, ARTIFACT, PASSED_ARTIFACT and GITHUB_REPOSITORY " ..
+        "must name a merge-queue ref, an artifact, an artifact or nothing, and a repository\n")
     return 2
   end
   local entry = queued.pr
@@ -480,6 +484,11 @@ function QueueVerdicts.find_tried(env: {string:string}, host: Github.Host): inte
           absent = "run " .. tostring(id) .. " did not refuse its ref's caches before and after its jobs"
           if refused_caches(host, repository, id) then
             held, absent = tried_artifact(host, repository, id, name)
+            if held == nil and passed ~= "" then
+              local missed = absent
+              held, absent = tried_artifact(host, repository, id, passed)
+              if held == nil then absent = missed .. "; " .. absent end
+            end
           end
         end
       end
@@ -487,7 +496,8 @@ function QueueVerdicts.find_tried(env: {string:string}, host: Github.Host): inte
     if held ~= nil then
       host.output("run=" .. tostring(id))
       host.output("artifact=" .. tostring(held))
-      host.print("merge-queue run " .. tostring(id) .. " of pull request " .. entry .. " failed and uploaded " .. name)
+      host.print("merge-queue run " .. tostring(id) .. " of pull request " .. entry .. " failed; its artifact " ..
+          tostring(held) .. " holds this job's verdicts")
       return 0
     end
     why = absent
