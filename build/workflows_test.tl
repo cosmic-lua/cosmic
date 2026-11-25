@@ -1864,7 +1864,7 @@ local function test_a_queue_try_stands_on_its_pull_requests_last_failed_try()
   for _, leg in ipairs({
       { "platform", "release-suite", "queue-tried-verdicts-${{ matrix.name }}", "job.status == 'failure' && ", release },
       { "checked", "checked-suite", "queue-tried-verdicts-${{ matrix.name }}", "", "" },
-      { "narrowing", "checked-narrowing", "queue-tried-verdicts-linux-x86_64-checked-narrowing", "", "" } }) do
+      { "narrowing", "checked-narrowing", "queue-tried-verdicts-${{ matrix.name }}", "", "" } }) do
     local job_name, suite, name, waits, passed = leg[1]!, leg[2]!, leg[3]!, leg[4]!, leg[5]!
     local steps = job_of(ci_workflow().jobs, job_name).steps
     local find, find_at = step_with_id(steps, "tried-run")
@@ -2211,6 +2211,39 @@ local function test_mains_push_takes_the_queues_verdicts_before_its_suites()
       "steps.release-suite.outcome == 'success' && steps.verdicts-trim.outputs.digest != ''" and
       with_of(upload)["name"] == "queue-verdicts-${{ matrix.leg }}",
     "the queue uploads its verdicts otherwise: " .. tostring(upload["if"]))
+end
+
+--- The merge queue and a manual run of a branch run the checked narrowing suite in three shares at once too, each a
+--- job named for its share: whole and standing on no verdict, it took 1276 and 1289 s of its 1260 s deadline (#4241,
+--- #4245). Main's push and the scheduled run, which save its verdicts, run it whole. Each share's uploads are its own.
+local function test_the_queue_runs_the_narrowing_suite_in_three_shares()
+  local narrowing = job_of(ci_workflow().jobs, "narrowing")
+  assert(narrowing.name == "${{ matrix.name }}", "the narrowing job is not named for its share")
+  local function shares(kind: string): string
+    local out: mut {string} = {}
+    for _, entry in ipairs(legs_of(narrowing, kind)) do
+      out[#out + 1] = assert(entry["name"]) .. "=" .. assert(entry["shard"])
+    end
+    table.sort(out)
+    return table.concat(out, " ")
+  end
+  local three = "linux-x86_64-checked-narrowing-1=1/3 linux-x86_64-checked-narrowing-2=2/3 linux-x86_64-checked-narrowing-3=3/3"
+  assert(shares("queue") == three, "the queue's narrowing shares: " .. shares("queue"))
+  assert(shares("dispatch") == three, "a branch's manual run's narrowing shares: " .. shares("dispatch"))
+  for _, kind in ipairs({ "push", "full" }) do
+    assert(shares(kind) == "linux-x86_64-checked-narrowing=", kind .. " runs the narrowing suite in shares: " .. shares(kind))
+  end
+  assert(full_condition(narrowing) == "github.event_name == 'schedule' || github.ref == 'refs/heads/main'",
+    "the narrowing suite is whole on other manual runs: " .. tostring(full_condition(narrowing)))
+  local env = map_of(narrowing.env)
+  assert(env["COSMIC_CI_NARROWING_SHARD"] == "${{ matrix.shard }}" and env["COSMIC_WORKER"] == "linux-x86_64-checked-narrowing",
+    "the share does not reach the suite, or a share keys its verdicts apart")
+  for _, step in ipairs(narrowing.steps) do
+    if step.uses ~= nil and step.uses:find("upload-artifact", 1, true) ~= nil then
+      local name = tostring(with_of(step)["name"])
+      assert(name:find("${{ matrix.name }}", 1, true) ~= nil, "two shares upload under one name: " .. name)
+    end
+  end
 end
 
 --- The merge queue and a manual run of a branch run the checked suite in three shares at once, each a job named for
