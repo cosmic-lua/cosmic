@@ -105,6 +105,9 @@ local record Worker
     mut next: integer
     --- How many workers it started.
     mut started: integer
+    --- Told a line for each call of a snippet it reads and each reply it writes, and for each run that ends; nil for
+    --- none. A test's, to tell where a run that never answers stopped.
+    mut trace?: function(what: string)
   end
 
   --- What the worker answered for a snippet, as it sent it: see above.
@@ -227,7 +230,10 @@ end
 --- replied to on `writer`: or why there is none, which ends the worker. Each call is served in a task of its own, so
 --- calls a snippet makes from tasks of its own are served at once; each reply goes out whole, one at a time.
 local function answer_of(lines: Stream.Lines, writer: Stream.Writer, id: integer, serve: Worker.Serve?,
-                         budget: Worker.Budget): Worker.Answer?, string
+                         budget: Worker.Budget, trace?: function(string)): Worker.Answer?, string
+  local function told(what: string)
+    if trace ~= nil then trace(what) end
+  end
   local answer: Worker.Answer? = nil
   local trouble = ""
   Poll.within(function()
@@ -252,18 +258,28 @@ local function answer_of(lines: Stream.Lines, writer: Stream.Writer, id: integer
         break
       end
       if message["call"] == nil then
+        told("answer read")
         answer = message
         break
       end
+      local call_id = tostring(message["call_id"])
+      told("call " .. call_id .. " read: " .. tostring(message["call"]))
       local task = Poll.spawn(function()
         local text = reply_to(message, serve, budget)
+        told("call " .. call_id .. " served")
         while writing and not done do local _, _ = written:wait() end
         -- Once the snippet answered, no reply goes out: one cut short would be read as the next request.
-        if done then return end
+        if done then
+          told("call " .. call_id .. " reply dropped: the snippet answered")
+          return
+        end
         writing = true
         -- A worker that ended is read as ended next. Shielded: a reply cut short when the snippet answers would be read
         -- as the start of the next request.
-        Poll.shielded(function() local _, _ = writer:write(text .. "\n") end)
+        Poll.shielded(function()
+          local wrote, why = writer:write(text .. "\n")
+          told("call " .. call_id .. " reply written: " .. tostring(wrote) .. " " .. tostring(why))
+        end)
         writing = false
         written:notify_all()
       end)
@@ -403,7 +419,7 @@ function Worker.run(set: Worker.Set, code: string, opts: Worker.Options): (Worke
   }
   Poll.within(function()
     local reading = Poll.spawn(function()
-      answer, trouble = answer_of(lines, writer, id, opts.serve, budget)
+      answer, trouble = answer_of(lines, writer, id, opts.serve, budget, set.trace)
     end)
     local printed = Poll.spawn(function()
       while not output.ended do

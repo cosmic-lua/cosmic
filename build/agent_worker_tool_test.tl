@@ -62,7 +62,9 @@ end
 --- module first.
 local function set_of_worker(): Worker.Set
   local started = this_program.program({ "agent", "worker" }, { env = this_program.environment(), timeout_ns = -1 })
-  return Worker.new(started.argv, started.options)
+  local set = Worker.new(started.argv, started.options)
+  set.trace = step
+  return set
 end
 
 --- `answer` as JSON text, for an assertion's message.
@@ -319,7 +321,7 @@ print(got[1], got[2], got[3], got[4])
 local after, _ = Host.call("nap", 5)
 print(tostring(after))
 ]]
-  local answer = assert(worker_run(w, code, { cwd = dir, seconds = 30, serve = serve }))
+  local answer = assert(worker_run(w, code, { cwd = dir, seconds = 25, serve = serve }))
   assert(answer["ok"] == true and answer["output"] == "napped 1\tnapped 2\thost: fail: refused 3\tnapped 4\n" ..
       "napped 5\n", shown(answer))
   assert(served == 5, tostring(served))
@@ -729,7 +731,7 @@ Poll.run(function()
 end)
 print(got[1], got[2], got[3])
 ]]
-  local parallel = tools_run("run", { code = at_once }, context)
+  local parallel = tools_run("run", { code = at_once, timeout = 15 }, context)
   assert(not parallel.is_error and parallel.text:find("2\t4\t6\n", 1, true) ~= nil, parallel.text)
   local unknown = tools_run("run", { code = "local nope = require(\"mcp.nope\")\nprint(nope)\n" }, context)
   assert(unknown.is_error and unknown.text:find("require(\"mcp.nope\"): host: mcp.tools: no MCP server \"nope\"", 1,
