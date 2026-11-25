@@ -804,7 +804,7 @@ local function sent(endpoint: Endpoint, default_ns: integer, method: string, pat
   -- A POST with no body says so, as the daemon's own client does.
   local sending = body or (if method == "GET" then nil else "" end)
   local request, bad = Message.format_request({ method = method, target = path, headers = headers, body = sending })
-  if request == nil then return nil, "tailscale: " .. bad end
+  if request == nil then return nil, "tailscale: " .. tostring(bad) end
   local conn <close>, why = Net.connect(endpoint.via, { timeout_ns = left() })
   if conn == nil then return nil, "tailscale: " .. tostring(why) end
   conn:set_timeout(left())
@@ -1089,7 +1089,7 @@ local function exchanged(endpoint: Endpoint, wait_ns: integer, method: string, p
   end
   local head, bad = Message.format_request({ method = method, target = path, headers = headers,
     body = if body == nil and method ~= "GET" then "" else nil end })
-  if head == nil then return nil, "tailscale: " .. bad end
+  if head == nil then return nil, "tailscale: " .. tostring(bad) end
   -- 0 is no limit, as everywhere in this module.
   local limit = if wait_ns == 0 then nil else wait_ns end
   local conn, why = Net.connect(endpoint.via, { timeout_ns = limit })

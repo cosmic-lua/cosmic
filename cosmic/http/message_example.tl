@@ -133,7 +133,7 @@ function Example.format_response()
   local read = Message.response_reader():feed(text)
   assert(assert(read.response, read.reason).body == "no such note\n" and read.consumed == #text)
   local refused, why = Message.format_response({ status = 200, headers = { ["X-Note"] = "a\r\nSet-Cookie: stolen" } })
-  print(refused, why)
+  print(refused, tostring(why))
   assert(refused == nil)
 end
 

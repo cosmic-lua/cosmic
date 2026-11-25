@@ -431,7 +431,7 @@ local function test_a_written_message_reads_back(tmp: string)
           Fuzz.label("refused body")
           return true, ""
         end
-        if sent == nil then return false, "not written: " .. why end
+        if sent == nil then return false, "not written: " .. tostring(why) end
         text = sent
         local reader = Message.response_reader(opts)
         local read = reader:feed(text)
@@ -466,7 +466,7 @@ local function test_a_written_message_reads_back(tmp: string)
       else
         local sent, why = Message.format_request({ method = method, target = target, protocol = protocol,
           headers = headers, fields = fields, body = body })
-        if sent == nil then return false, "not written: " .. why end
+        if sent == nil then return false, "not written: " .. tostring(why) end
         text = sent
         local read = Message.request_reader(opts):feed(text)
         local got = read.request
