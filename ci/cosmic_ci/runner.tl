@@ -121,10 +121,10 @@ local record Called
   mut trouble?: string
 end
 
--- TODO: once ci/cosmic-driver.pin carries Child.Result's `remains`, judge a command whose group
--- outlived SIGKILL as an error, as the old pinned release did by failing the run.
-
---- The outcome of a command that ran: how it ended, by `called`.
+--- The outcome of a command that ran: how it ended, by `called`. Where
+--- its settle left `remains` (its group alive after SIGKILL), they are
+--- the outcome's trouble, and a command that otherwise succeeded is an
+--- error, as the test runner fails a test whose worker left them.
 local function judged(called: Called, elapsed: integer): Runner.Outcome
   local raised = called.raised
   if raised ~= nil then
@@ -135,15 +135,19 @@ local function judged(called: Called, elapsed: integer): Runner.Outcome
     return { status = "start-error", code = 1,
       trouble = limited(called.trouble or "child operation failed"), elapsed_ns = elapsed }
   end
+  local remains = result.remains
+  local trouble = if remains ~= nil then limited(remains) else nil end
   local status, code = "exit", result.code or 1
   if result.timed_out then
     status, code = "timeout", 124
+  elseif result.ok and remains ~= nil then
+    status, code = "error", 1
   elseif result.ok then
     status, code = "success", 0
   elseif result.signal then
     status, code = "signal", Child.shell_status(result)
   end
-  return { result = result, status = status, code = code, elapsed_ns = elapsed }
+  return { result = result, status = status, code = code, trouble = trouble, elapsed_ns = elapsed }
 end
 
 function Runner.execute(request: Runner.Request): Runner.Outcome

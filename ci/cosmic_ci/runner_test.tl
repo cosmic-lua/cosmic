@@ -1,3 +1,4 @@
+local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Runner = require("cosmic_ci.runner")
@@ -124,6 +125,34 @@ local function test_step_records_work_done_in_process(tmp: string)
   for _, row in ipairs(rows) do
     assert(row:text(4) == "1", "a boolean step acquired an exit code")
   end
+end
+
+--- What Runner.execute returns while the child's run returns `result`.
+local function executed_as(tmp: string, result: Child.Result): Runner.Outcome
+  local seams = Seams.calls()
+  local original = seams.child_run
+  seams.child_run = function(_argv: {string}, _options?: Child.Options): Child.Result?, string
+    return result, ""
+  end
+  local judged: Runner.Outcome? = nil
+  local ok, raised = pcall(function()
+    judged = Runner.execute({ argv = { "true" }, cwd = tmp, output = tmp .. "/out", timeout_ns = hang_guard })
+  end)
+  seams.child_run = original
+  assert(ok, tostring(raised))
+  return assert(judged)
+end
+
+--- A command whose settle left remains is an error, though it exited 0;
+--- one that timed out stays a timeout. Both carry the remains.
+local function test_a_command_that_left_remains_is_an_error(tmp: string)
+  local remains = "child: process group 7 still has members after SIGKILL"
+  local passed = executed_as(tmp, { ok = true, code = 0, signal = nil, stdout = "", stderr = "", truncated = false,
+    timed_out = false, captured = {}, remains = remains })
+  assert(passed.status == "error" and passed.code == 1 and passed.trouble == remains, passed.status)
+  local late = executed_as(tmp, { ok = false, code = nil, signal = 9, stdout = "", stderr = "", truncated = false,
+    timed_out = true, captured = {}, remains = remains })
+  assert(late.status == "timeout" and late.code == 124 and late.trouble == remains, late.status)
 end
 
 local function test_execute_passes_more_descriptors(tmp: string)
