@@ -165,6 +165,10 @@
         # its own (part `rebuild`, 153 s of the regressions' 6 min on
         # 45552392984), beside the leg's product or regressions job, which
         # skips it.
+        # The self-driven fixture's boot of the tree by the product, which
+        # proves it can be the next pin: main's push and the daily run, not
+        # the queue (some 2 min of each product job).
+        COSMIC_CI_SELF_BOOT: "${{ github.event_name == 'merge_group' && 'skip' || 'run' }}",
         COSMIC_CI_SELF_REBUILD: "${{ matrix.part == 'rebuild' && 'only' || (matrix.part == 'product' || matrix.part == 'regressions') && 'skip' || 'run' }}",
         # The small fixtures run beside the self-driven one, within one
         # worker budget of the leg's processors (phase_fixtures,

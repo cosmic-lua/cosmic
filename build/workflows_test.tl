@@ -1520,6 +1520,10 @@ local function test_each_kind_of_run_has_its_legs()
   assert(map_of(job_of(ci_workflow().jobs, "platform").env)["COSMIC_CI_SELF_REBUILD"] ==
       "${{ matrix.part == 'rebuild' && 'only' || (matrix.part == 'product' || matrix.part == 'regressions') && 'skip' " ..
       "|| 'run' }}", "the self-rebuild regression runs in some job other than its own, or in none")
+  -- The product's boot of its own tree (the self-driven fixture's) proves the next pin: main's push and the daily run
+  -- run it, the queue does not.
+  assert(map_of(job_of(ci_workflow().jobs, "platform").env)["COSMIC_CI_SELF_BOOT"] ==
+      "${{ github.event_name == 'merge_group' && 'skip' || 'run' }}", "the queue runs the product's self-boot, or main does not")
   -- alpine-x86_64's product, the longest, is two jobs: its portable suite and its regressions. macOS's suite, of a
   -- push too, is pinned above.
   for name, leg in pairs(push) do

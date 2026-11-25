@@ -1515,6 +1515,16 @@ exit 0
   end
 end
 
+--- The self-driven fixture's boot of the tree by the product runs unless ci.yml says skip (the merge queue), and a
+--- value it does not know fails the phase rather than run or skip it unasked.
+local function test_the_self_boot_runs_unless_the_queue_skips_it()
+  local Orchestration = require("cosmic_ci.orchestration")
+  assert(Orchestration.self_boot({}) == "run" and Orchestration.self_boot({ COSMIC_CI_SELF_BOOT = "" }) == "run")
+  assert(Orchestration.self_boot({ COSMIC_CI_SELF_BOOT = "skip" }) == "skip")
+  assert(Orchestration.self_boot({ COSMIC_CI_SELF_BOOT = "run" }) == "run")
+  Test.raises(function() Orchestration.self_boot({ COSMIC_CI_SELF_BOOT = "Skip" }) end, "must be run or skip")
+end
+
 --- The merge queue's checked jobs each run a share of the checked suite (COSMIC_CI_CHECKED_SHARD, ci.yml's
 --- `checked`), and every other run the whole suite, whose run alone checks the C functions.
 local function test_a_share_of_the_checked_suite_runs_only_its_share()

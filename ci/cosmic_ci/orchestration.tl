@@ -2127,6 +2127,15 @@ function Orchestration.run_groups(high: Orchestration.Group,
   return run.status
 end
 
+--- Whether the self-driven fixture's boot of the tree by the product runs (`run`) or not (`skip`), given `env`, the
+--- driver's: COSMIC_CI_SELF_BOOT, which ci.yml sets to `skip` in the merge queue alone; unset, `run`.
+function Orchestration.self_boot(env: {string:string}): string
+  local value = env["COSMIC_CI_SELF_BOOT"] or ""
+  if value == "" then return "run" end
+  assert(value == "run" or value == "skip", "COSMIC_CI_SELF_BOOT must be run or skip, not " .. value)
+  return value
+end
+
 local function phase_fixtures(p: PlatformContext): integer
   local c = p.operation
   local target = p.target
@@ -2229,6 +2238,7 @@ local function phase_fixtures(p: PlatformContext): integer
     source = "self_driven", timeout_ns = self_driven_test_timeout_ns, extra = {
       COSMIC_FIXTURE_SOURCE = source,
       COSMIC_FIXTURE_PRODUCT = product,
+      COSMIC_FIXTURE_SELF_BOOT = Orchestration.self_boot(Env.all()),
       COSMIC_TEST_TIMEOUT = self_driven_per_test_timeout_s,
     } }, high_jobs)
   local low: mut {Orchestration.Group} = {}
