@@ -22,7 +22,8 @@
 ---
 --- where a pipeline `P` is a head, a path of fields from it, and then
 --- stages `| import.path.func` (or `| name`, a `{{define}}`), each applied
---- to what is before it. The
+--- to what is before it, and given after it the arguments that follow
+--- its name: strings, numbers and paths (`| fmt.date "%Y" .zone`). The
 --- head is dot (`.a` is a field of dot, `.` alone is dot), `$` (the value
 --- `render`, or the `{{define}}` it stands in, is given) or a variable `$name`. A range's
 --- variables are seen in its own body and everything nested in it, not in
@@ -103,6 +104,65 @@ local function fields(path: string): {string}
   return out
 end
 
+--- The path `token` spells, from dot, `$` or a variable, with no stages.
+local function path_of(p: Parser, token: types.Token): types.Pipeline?, string
+  local result: types.Pipeline = { head = "dot", name = "", path = {}, stages = {} }
+  if token.kind == "variable" then
+    local name = token.value:match("^%$([%a_][%w_]*)") or ""
+    local rest = token.value:sub(2 + #name)
+    if rest ~= "" and (rest:sub(1, 1) ~= "." or not dotted(rest:sub(2), 1)) then
+      return nil, refuse(p, token.line, token.col,
+        "'" .. token.value .. "' is not a variable such as $, $.a, $x or $x.a")
+    end
+    result.head = if name == "" then "root" else "variable" end
+    result.name = name
+    result.path = fields(rest)
+  elseif token.kind == "field" and (token.value == "." or dotted(token.value:sub(2), 1)) then
+    result.path = fields(token.value:sub(2))
+  else
+    return nil, refuse(p, token.line, token.col, if token.kind == "string" then STRING_ALONE else
+      "'" .. token.value .. "' is not a field path such as . or .a.b, nor a variable such as $ or $x.a" ..
+        trim_hint(token) end)
+  end
+  return result, ""
+end
+
+--- Why the variable `path` starts from, which `token` spells, is not seen
+--- here, or "".
+local function unseen(p: Parser, path: types.Pipeline, token: types.Token): string
+  if path.head == "variable" and p.visible[path.name] == nil then
+    return refuse(p, token.line, token.col, "'$" .. path.name .. "' is not declared here: a variable is seen only in the body of " ..
+        "the {{range}} that binds it, as {{range $x := .list}}")
+  end
+  return ""
+end
+
+--- The argument `token` spells after a stage: a string, a number, or a
+--- path.
+local function argument(p: Parser, token: types.Token): types.Arg?, string
+  if token.kind == "string" then
+    return { kind = "string", text = token.value }, ""
+  elseif token.kind == "word" then
+    local v = token.value
+    -- An integer is one Lua reads as an integer, with no leading zero.
+    local whole = v:find("^%-?[1-9]%d*$") ~= nil or v == "0"
+    if (whole and math.tointeger(tonumber(v)) ~= nil) or v:find("^%-?%d+%.%d+$") ~= nil then
+      return { kind = "number", text = v }, ""
+    end
+    return nil, refuse(p, token.line, token.col, "'" .. v .. "' is not an argument: a stage takes strings (\"x\"), " ..
+        "numbers (2, -1, 0.5) and paths (.a, $, $x.a) after the value piped to it" .. trim_hint(token))
+  end
+  local path, why = path_of(p, token)
+  if path == nil then
+    return nil, why
+  end
+  local hidden = unseen(p, path, token)
+  if hidden ~= "" then
+    return nil, hidden
+  end
+  return { kind = "path", text = "", path = path }, ""
+end
+
 --- The pipeline `tokens[first ..]` spell, which is all that is left of
 --- the action; `ranged` when it is a range's list.
 local function pipeline(p: Parser, item: types.Item, first: integer, ranged: boolean): types.Pipeline?, string
@@ -111,29 +171,19 @@ local function pipeline(p: Parser, item: types.Item, first: integer, ranged: boo
   if head == nil then
     return nil, refuse(p, item.line, item.col, "expected a value: a field path such as . or .name, or $ or $x.name")
   end
-  local result: types.Pipeline = { head = "dot", name = "", path = {}, stages = {} }
-  if head.kind == "variable" then
-    local name = head.value:match("^%$([%a_][%w_]*)") or ""
-    local rest = head.value:sub(2 + #name)
-    if rest ~= "" and (rest:sub(1, 1) ~= "." or not dotted(rest:sub(2), 1)) then
-      return nil, refuse(p, head.line, head.col,
-        "'" .. head.value .. "' is not a variable such as $, $.a, $x or $x.a")
-    end
-    result.head = if name == "" then "root" else "variable" end
-    result.name = name
-    result.path = fields(rest)
-  elseif head.kind == "field" and (head.value == "." or dotted(head.value:sub(2), 1)) then
-    result.path = fields(head.value:sub(2))
-  else
-    return nil, refuse(p, head.line, head.col, if head.kind == "string" then STRING_ALONE else
-      "'" .. head.value .. "' is not a field path such as . or .a.b, nor a variable such as $ or $x.a" ..
-        trim_hint(head) end)
+  local result, hwhy = path_of(p, head)
+  if result == nil then
+    return nil, hwhy
   end
+  -- A comma or `:=` is never part of a pipeline, nor a string before the first stage.
+  local staged = false
   for at = first + 1, #tokens do
     local token = assert(tokens[at], "the loop stays inside the tokens")
     local kind = token.kind
     local why = ""
-    if kind == "string" then
+    if kind == "pipe" then
+      staged = true
+    elseif kind == "string" and not staged then
       why = STRING_ALONE
     elseif kind == "comma" then
       why = STRAY_COMMA
@@ -144,9 +194,9 @@ local function pipeline(p: Parser, item: types.Item, first: integer, ranged: boo
       return nil, refuse(p, token.line, token.col, why)
     end
   end
-  if result.head == "variable" and p.visible[result.name] == nil then
-    return nil, refuse(p, head.line, head.col, "'$" .. result.name .. "' is not declared here: a variable is seen only in the body of " ..
-        "the {{range}} that binds it, as {{range $x := .list}}")
+  local hidden = unseen(p, result, head)
+  if hidden ~= "" then
+    return nil, hidden
   end
   local stages = result.stages
   local at = first + 1
@@ -159,23 +209,46 @@ local function pipeline(p: Parser, item: types.Item, first: integer, ranged: boo
     if stage == nil then
       return nil, refuse(p, pipe.line, pipe.col, "expected a function after |, as module.path.func")
     end
+    if stage.kind == "string" then
+      return nil, refuse(p, stage.line, stage.col, "a string is not a function: write the stage's name bare, " ..
+          "as | module.path.func")
+    end
+    -- The stage's name is checked before its arguments, so a refusal names
+    -- what goes wrong first.
+    local module_path, func = "", stage.value
+    local after = tokens[at + 2]
     if stage.kind == "word" and dotted(stage.value, 1) and not dotted(stage.value, 2) then
       -- One name is a `{{define}}` of this template, which the parse checks once it has read them all.
-      stages[#stages + 1] = { module_path = "", func = stage.value, line = stage.line, col = stage.col }
+      if after ~= nil and after.kind ~= "pipe" then
+        return nil, refuse(p, stage.line, stage.col, "'" .. stage.value .. "' is one name, as only a {{define}} is " ..
+            "called, and a {{define}} takes no arguments: a function that takes them is written module.path.func")
+      end
     else
       if stage.kind ~= "word" or not dotted(stage.value, 2) then
         return nil, refuse(p, stage.line, stage.col,
           "'" .. stage.value .. "' is not a function reached by import path, as module.path.func, nor a {{define}}'s name")
       end
-      local module_path, func = stage.value:match("^(.+)%.([^.]+)$")
-      if module_path == nil or func == nil then
+      local path, name = stage.value:match("^(.+)%.([^.]+)$")
+      if path == nil or name == nil then
         return nil, refuse(p, stage.line, stage.col,
           "'" .. stage.value .. "' is not a function reached by import path, as module.path.func")
       end
-      stages[#stages + 1] = { module_path = module_path, func = func, line = stage.line, col = stage.col }
+      module_path, func = path, name
     end
+    local args: mut {types.Arg} = {}
     at = at + 2
-    pipe = tokens[at]
+    local next_token = tokens[at]
+    while next_token ~= nil and next_token.kind ~= "pipe" do
+      local given, why = argument(p, next_token)
+      if given == nil then
+        return nil, why
+      end
+      args[#args + 1] = given
+      at = at + 1
+      next_token = tokens[at]
+    end
+    stages[#stages + 1] = { module_path = module_path, func = func, line = stage.line, col = stage.col, args = args }
+    pipe = next_token
   end
   return result, ""
 end

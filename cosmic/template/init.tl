@@ -17,6 +17,7 @@
 ---     <h1>{{.title}}</h1>               a value: fields from dot, `.` for dot
 ---     {{$.title}}  {{$}}                fields from `$`, the record itself
 ---     {{.when | site.fmt.date}}         then each stage `| module.path.func`
+---     {{.when | site.fmt.date "%Y" .tz}}  a stage's arguments, after the piped value
 ---     {{if .admin}}..{{else if .user}}..{{else}}..{{end}}
 ---     {{range .items}}<li>{{.name}}</li>{{end}}   dot is each element
 ---     {{range .items}}..{{else}}none{{end}}       `none` when there is no element
@@ -41,6 +42,11 @@
 --- one declared to return a fixed number of values above one is a type
 --- error on the template's line, so a function that can fail (`nil,
 --- reason`) is wrapped by the caller into a stage that returns a value.
+--- A stage may take arguments after its name, each a string (`"%Y"`), a
+--- number (`2`, `-1`, `0.5`) or a path with no stages (`.tz`, `$.lang`,
+--- `$x.id`): `{{.when | site.fmt.date "%Y" .tz}}` is
+--- `fmt.date(d.when, "%Y", d.tz)`, the piped value first, and the checker
+--- holds each argument to the function's parameter.
 --- An `{{if}}` or a `{{with}}` holds of a value that is filled
 --- ([`html.filled`]): not `nil`, `false` or empty. `""`, a safe value of
 --- [`cosmic.html`] that holds `""` (an empty `SafeHtml`) and a table with

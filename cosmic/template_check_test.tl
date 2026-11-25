@@ -153,6 +153,10 @@ return fmt
 local MULTI <const> = [[
 local record multi
   pair: function(s: string): string?, string
+  times: function(s: string, n: integer): string
+end
+function multi.times(s: string, n: integer): string
+  return s:rep(n)
 end
 function multi.pair(s: string): string?, string
   if s == "" then
@@ -830,6 +834,20 @@ local function test_a_range_else_reads_the_enclosing_dot(tmp: string)
   end
   local wrong = refused(tmp, "else-dot-wrong", HEAD .. "{{range .items}}{{.name}}\n{{else}}{{.name}}{{end}}")
   assert(wrong:find("page.tmpl:3:", 1, true) and wrong:find("name", 1, true), wrong)
+end
+
+local function test_a_stage_takes_arguments_after_the_piped_value(tmp: string)
+  local template = HEAD .. "{{.title | fmt.join \"-\"}} {{.title | fmt.join}} {{.title | fmt.join $.cls}}" ..
+    "{{range .items}} {{.name | fmt.join $.title | fmt.upper}}{{end}}"
+  local got = render(tmp, "args", template, { title = "t<", cls = "c", items = { { name = "a", n = 1 } } })
+  assert(got == "\nt&lt;|- t&lt;|none t&lt;|c A|T&lt;", got)
+  local repeated = render(tmp, "args-integer", "{{type Page from data}}{{mode text}}\n{{.title | multi.times 3}}",
+    { title = "ab" })
+  assert(repeated == "\nababab", repeated)
+  local number = refused(tmp, "args-number", HEAD .. "fine\n{{.title | fmt.join 2}}")
+  assert(number:find("page.tmpl:3:", 1, true) ~= nil, number)
+  local extra = refused(tmp, "args-extra", HEAD .. "fine\n{{.title | fmt.upper \"x\"}}")
+  assert(extra:find("page.tmpl:3:", 1, true) ~= nil, extra)
 end
 
 local function test_a_stage_answering_more_than_one_value_is_refused_in_every_position(tmp: string)

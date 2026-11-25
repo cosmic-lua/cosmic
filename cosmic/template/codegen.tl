@@ -237,7 +237,17 @@ local function value(g: Gen, pipe: types.Pipeline, dot: Dot, raw?: boolean): str
     if func == nil then
       error("cosmic.template: codegen met | " .. stage.func .. ", which the parser let through undefined")
     end
-    expr = "_one(" .. func .. "(" .. expr .. "))"
+    local call: mut {string} = { expr }
+    for _, given in ipairs(stage.args) do
+      if given.kind == "string" then
+        call[#call + 1] = quote(given.text)
+      elseif given.kind == "number" then
+        call[#call + 1] = given.text
+      else
+        call[#call + 1] = value(g, assert(given.path, "the parser gives a path argument its path"), dot)
+      end
+    end
+    expr = "_one(" .. func .. "(" .. table.concat(call, ", ") .. "))"
   end
   return expr
 end
