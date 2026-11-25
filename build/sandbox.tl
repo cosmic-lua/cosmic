@@ -185,7 +185,6 @@ local record PolicyFields
   mut grants?: {{string:string}}
   mut profiles?: {string}
   mut isolate?: {string}
-  mut connect?: {string}
   mut loopback?: {string}
   mut env?: {string}
   mut tmp?: boolean
@@ -243,6 +242,9 @@ local function table_of(parsed: Flags.Parsed): PolicyFields?, string
   for _, call in ipairs(list("--promise")) do
     grants[#grants + 1] = { calls = call }
   end
+  for _, target in ipairs(list("--connect")) do
+    grants[#grants + 1] = { connect = target }
+  end
   if #grants > 0 then policy.grants = grants end
   local profiles: mut {string} = {}
   if parsed.set["--system"] == true then profiles[#profiles + 1] = "system" end
@@ -252,7 +254,6 @@ local function table_of(parsed: Flags.Parsed): PolicyFields?, string
     return if #list(name) > 0 then list(name) else nil end
   end
   policy.isolate = some("--isolate")
-  policy.connect = some("--connect")
   policy.loopback = some("--loopback")
   policy.env = some("--env")
   if parsed.set["--tmp"] == true then policy.tmp = true end
@@ -650,8 +651,7 @@ local function run_here(argv: {string}, opts: Child.Options): Child.Result?, str
   local terminal: TermRelay.Terminal?
   local notes: Notes?
   local policy = opts.policy
-  local connect = policy and policy.connect
-  local connects = policy ~= nil and connect ~= nil and #connect > 0
+  local connects = policy ~= nil and #Sandbox.connects(policy) > 0
   if opts.relay_log == "inherit" and connects and sys.isatty(2) then
     local made, why = notes_pipe()
     if made == nil then return nil, "the relay's log: " .. why end

@@ -188,7 +188,7 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
   local trouble = unsupported(policy)
   if trouble ~= "" then return refuse(trouble) end
   local relay_port = options and options.relay_port
-  if #(policy.connect or {}) > 0 then
+  if #rules.connects(policy) > 0 then
     if relay_port == nil or math.type(relay_port) ~= "integer" or relay_port < 1 or relay_port > 65535 then
       return refuse("connect needs the port of the network relay that serves it")
     end

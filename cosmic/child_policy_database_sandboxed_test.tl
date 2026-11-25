@@ -31,10 +31,9 @@ local ChildPolicy = require("build.child_policy_fixture")
 -- failure to reopen the program until Proc.relaunch can say which.
 Test.policy{
   profiles = { "cosmic" },
-  promises = { "nest" },
   grants = {
     { path = "o/bin", letters = "rx" },
-    { path = "o/cosmic.db", letters = "r" },
+    { path = "o/cosmic.db", letters = "r" }, { calls = "nest" },
   },
   requires = { "sandbox" },
 }

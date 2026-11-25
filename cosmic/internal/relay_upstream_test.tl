@@ -16,7 +16,7 @@ local test_child = require("build.test_child")
 local this_program = require("build.this_program")
 
 --- The program itself, which runs a relay; only a loopback is reachable.
-Test.policy{ profiles = { "cosmic" }, loopback = { "127.0.0.1" }, promises = { "fork" } }
+Test.policy{ profiles = { "cosmic" }, loopback = { "127.0.0.1" }, grants = { { calls = "fork" } } }
 
 local TYPE_A <const> = 1
 

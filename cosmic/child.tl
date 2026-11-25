@@ -3109,7 +3109,7 @@ end
 --- Why a policy with `connect` may not have the environment it names, or
 --- "": the proxy variables the relay sets are not the policy's to set.
 local function reserved_by_relay(merged: Rules.Policy): string
-  if #(merged.connect or {}) == 0 then return "" end
+  if #Rules.connects(merged) == 0 then return "" end
   local variables: mut {string} = {}
   for _, name in ipairs(merged.env or {}) do variables[#variables + 1] = name end
   for name, _ in pairs(merged.set_env or {}) do variables[#variables + 1] = name end
@@ -3117,7 +3117,7 @@ local function reserved_by_relay(merged: Rules.Policy): string
   local reserved = RelayConfig.reserved(variables)
   if reserved == "" then return "" end
   return "sandbox: " .. reserved .. " is set by the relay that serves connect \"" ..
-    assert(merged.connect)[1] .. "\" (the proxy variables point the program at it), so the policy " .. -- checked: nil_not_allowed
+    Rules.connects(merged)[1] .. "\" (the proxy variables point the program at it), so the policy " .. -- checked: nil_not_allowed
     "may not name it in env or set_env"
 end
 
@@ -3136,7 +3136,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
   -- The daemon is asked only of a policy the checks above let start.
   local merged, unresolved = Tailnet.policy(joined, opts.tailscale)
   if merged == nil then return nil, unresolved end
-  local relayed = #(merged.connect or {}) > 0
+  local relayed = #Rules.connects(merged) > 0
   local file = isolates(merged, "file")
   local proc = isolates(merged, "proc")
   local nest = nests(merged)
@@ -3147,8 +3147,8 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
   local tmp_exec = false
   if file and merged.tmp == true then
     local others: mut {Rules.Grant} = {}
-    for _, grant in ipairs(Rules.paths(merged)) do
-      if grant.from == nil and named(grant.path, "/") == "/tmp" then
+    for _, grant in ipairs(merged.grants or {}) do
+      if grant is Rules.Path and grant.from == nil and named(grant.path, "/") == "/tmp" then
         if grant.letters ~= "rwc" and grant.letters ~= "rwxc" then
           return nil, "sandbox: grant \"" .. grant.path .. "\" (" .. grant.letters .. ") is the " ..
             "sandbox's own /tmp, which tmp makes: it is `rwc`, and `rwxc` where the program is to " ..
@@ -3159,7 +3159,6 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
         others[#others + 1] = grant
       end
     end
-    for _, promise in ipairs(Rules.calls(merged)) do others[#others + 1] = { calls = promise } end
     merged.grants = others -- checked: field_fixed
   end
   -- The directory the root of `isolate` file is built around, and the one
@@ -3362,7 +3361,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
   end
   for name, value in pairs(merged.set_env or {}) do env[name] = value end
   if relayed then
-    for name, value in pairs(RelayConfig.proxy_env(assert(merged.loopback), nil, nil, merged.connect)) do
+    for name, value in pairs(RelayConfig.proxy_env(assert(merged.loopback), nil, nil, Rules.connects(merged))) do
       env[name] = value
     end
   end
@@ -3437,7 +3436,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
     layer = if relaunch ~= nil and not file and not nest then layer else nil end,
     sandbox = sandbox, cwd = if file then base else nil end, user = user, drop = drop, nests = nest,
     argv = run_argv, fds = if relaunch ~= nil then relaunch.fds else nil end,
-    relay = if relayed then merged.connect else nil end }, ""
+    relay = if relayed then Rules.connects(merged) else nil end }, ""
 end
 
 local holds_by_seatbelt <const> = Rules.on_macos
@@ -3462,7 +3461,7 @@ local function with_grants(p: Rules.Policy, extra: {Rules.Path}): Rules.Policy
   for _, grant in ipairs(extra) do grants[#grants + 1] = grant end
   local result: Rules.Policy = {
     grants = grants, isolate = p.isolate,
-    connect = p.connect, loopback = p.loopback, env = p.env, set_env = p.set_env,
+    loopback = p.loopback, env = p.env, set_env = p.set_env,
     set_env_digests = p.set_env_digests, tmp = p.tmp, limits = p.limits,
     user = p.user, group = p.group, database = p.database, profiles = p.profiles,
   }
@@ -3491,7 +3490,7 @@ local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Pol
   if merged == nil then return nil, unresolved end
   -- The profile holds the addresses the tailnet targets resolved to.
   policy = Tailnet.applied(policy, merged)
-  local relayed = #(merged.connect or {}) > 0
+  local relayed = #Rules.connects(merged) > 0
   -- The child leads a session of its own, so that it has no controlling
   -- terminal (the caller's would let it push input into the caller's
   -- session): a session is a group of its own too, so a start that wants
@@ -3608,7 +3607,7 @@ local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Pol
   }
   return { path = path, env = env, tmp = "", wants_tmp = merged.tmp, tmp_parameter = profile.tmp, -- checked: nil_not_allowed*2
     sandbox = sandbox, nests = false, seatbelt = true, seatbelt_boot = booted, argv = run_argv,
-    fds = if relaunch ~= nil then relaunch.fds else nil end, relay = if relayed then merged.connect else nil end,
+    fds = if relaunch ~= nil then relaunch.fds else nil end, relay = if relayed then Rules.connects(merged) else nil end,
     seatbelt_policy = policy, seatbelt_options = options }, ""
 end
 

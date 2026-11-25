@@ -219,6 +219,10 @@ Check.advice = {
   ["cosmic.json Json.Value"] = "for a record or a class of your own, call `Json.encode_any`, which takes any value",
   ["cosmic.sandbox.policy rules.Policy .promises"] = "a promise is a grant now: write `grants = { { calls = \"fork\" } }`, " ..
     "and read them with `Sandbox.calls(policy)`",
+  ["cosmic.sandbox.policy rules.Policy .connect"] = "a host is a grant now: write " ..
+    "`grants = { { connect = \"github.com:443\" } }`, and read them with `Sandbox.connects(policy)`",
+  ["cosmic.internal.test_policy test_policy.Policy .promises"] = "a promise is a grant now: write " ..
+    "`grants = { { calls = \"nest\" } }`",
 }
 
 -- State ----------------------------------------------------------------------------------
