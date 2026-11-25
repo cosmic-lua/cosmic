@@ -2,9 +2,25 @@ local Codec = require("cosmic.codec")
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
 local Session = require("cosmic.web.session")
+local SessionCookie = require("cosmic.web.session.cookie")
 local SessionSqlite = require("cosmic.web.session.sqlite")
 local Sqlite = require("cosmic.sqlite")
 local Web = require("cosmic.web")
+
+--- The info [`SessionSqlite.info`] gives, or false where `token` names
+--- no live session; fails the test on a Failure.
+local function info_or_false(store: Session.Store, token: string, now: integer): SessionSqlite.Info | false
+  local info, why = SessionSqlite.info(store, token, now)
+  assert(info ~= nil, tostring(why))
+  return info
+end
+
+--- The info of the live session `token` names; fails the test where there is none.
+local function live_info(store: Session.Store, token: string, now: integer): SessionSqlite.Info
+  local info = info_or_false(store, token, now)
+  assert(info ~= false, "no live session")
+  return info
+end
 
 --- A client acting as a browser on an https page, which sends the Secure
 --- session cookie back.
@@ -155,10 +171,10 @@ local function test_destroy_subject_signs_a_user_out_everywhere()
   local bound = assert(store:save(theirs, assert(store:load(theirs, 500, "session")),
     { set = {}, removed = {}, subject = "grace" }, 500, "session"))
   local anonymous = create(store, { n = 0 })
-  assert(SessionSqlite.destroy_subject(store, "ada") == 3)
+  assert(assert(SessionSqlite.destroy_subject(store, "ada")) == 3)
   for _, id in ipairs(mine) do assert(store:load(id, 501, "session") == nil) end
   assert(store:load(bound, 501, "session") ~= nil and store:load(anonymous, 501, "session") ~= nil)
-  assert(SessionSqlite.destroy_subject(store, "ada") == 0)
+  assert(assert(SessionSqlite.destroy_subject(store, "ada")) == 0)
   assert(count(db) == 2)
 end
 
@@ -169,7 +185,7 @@ local function test_the_subject_survives_later_saves_and_a_regeneration()
     { set = {}, removed = {}, subject = "ada" }, 500, "session"))
   local renewed = assert(store:save(id, assert(store:load(id, 501, "session")),
     { set = { b = 2 }, removed = {}, regenerated = true }, 501, "session"))
-  assert(SessionSqlite.destroy_subject(store, "ada") == 1)
+  assert(assert(SessionSqlite.destroy_subject(store, "ada")) == 1)
   assert(store:load(renewed, 502, "session") == nil)
 end
 
@@ -178,10 +194,10 @@ local function test_sweep_deletes_expired_rows_in_bounded_batches()
   for _ = 1, 5 do create(store, { a = 1 }, 200) end
   local live = create(store, { a = 1 }, 5000)
   assert(count(db) == 6)
-  assert(SessionSqlite.sweep(store, 100, 2) == 0, "nothing has expired yet")
-  assert(SessionSqlite.sweep(store, 300, 2) == 2)
-  assert(SessionSqlite.sweep(store, 300, 2) == 2)
-  assert(SessionSqlite.sweep(store, 300) == 1)
+  assert(assert(SessionSqlite.sweep(store, 100, 2)) == 0, "nothing has expired yet")
+  assert(assert(SessionSqlite.sweep(store, 300, 2)) == 2)
+  assert(assert(SessionSqlite.sweep(store, 300, 2)) == 2)
+  assert(assert(SessionSqlite.sweep(store, 300)) == 1)
   assert(count(db) == 1 and store:load(live, 300, "session") ~= nil)
 end
 
@@ -200,7 +216,9 @@ end
 
 local function test_a_table_name_that_is_not_an_identifier_is_refused_and_a_name_is_used()
   local db = assert(Sqlite.memory())
-  local ok, why = pcall(SessionSqlite.store, db, { table = "x; DROP TABLE y" })
+  local ok, why = pcall(function()
+    local _, _ = SessionSqlite.store(db, { table = "x; DROP TABLE y" })
+  end)
   assert(not ok and tostring(why):find("identifier", 1, true) ~= nil)
   local store = assert(SessionSqlite.store(db, { table = "my_sessions" }))
   local id = assert(store:save("", fresh({}), changed({ a = 1 }), 100, "session"))
@@ -210,7 +228,8 @@ local function test_a_table_name_that_is_not_an_identifier_is_refused_and_a_name
 end
 
 local function test_a_store_function_refuses_a_store_not_made_here()
-  local ok, why = pcall(SessionSqlite.sweep, { revocable = true } as Session.Store, 100) -- checked: cast_refused
+  local foreign = SessionCookie.store({ keys = { "Qp8Ws2Ed5Rf7Tg1Yh3Uj6Ik9Ol0Pm4NbXz3Lk8Mv5Rs" } })
+  local ok, why = pcall(function() local _, _ = SessionSqlite.sweep(foreign, 100) end)
   assert(not ok and tostring(why):find("not a store made by SessionSqlite.store", 1, true) ~= nil)
 end
 
@@ -270,8 +289,8 @@ local function test_list_answers_live_sessions_with_public_ids_and_never_a_token
   assert(#mine == 1 and assert(mine[1]).id == ipad.id)
   assert(#assert(SessionSqlite.list(store, 450, { subject = "grace" })) == 0)
   assert(#assert(SessionSqlite.list(store, 450, { limit = 1 })) == 1)
-  assert(assert(SessionSqlite.info(store, ada, 450)).id == ipad.id)
-  assert(SessionSqlite.info(store, "junk", 450) == nil and SessionSqlite.info(store, ada, 1000) == nil)
+  assert(live_info(store, ada, 450).id == ipad.id)
+  assert(info_or_false(store, "junk", 450) == false and info_or_false(store, ada, 1000) == false)
   assert(count(db) == 3)
 end
 
@@ -302,13 +321,13 @@ local function test_destroy_id_revokes_that_session_alone()
   local store = open()
   local one = create(store, { a = 1 })
   local two = create(store, { b = 2 })
-  local info = assert(SessionSqlite.info(store, one, 500))
+  local info = live_info(store, one, 500)
   bind(store, one, "ada")
-  assert(SessionSqlite.destroy_id(store, info.id, "grace") == 0, "another user's session is not ended")
-  assert(SessionSqlite.label(store, info.id, "x", "grace") == 0)
-  assert(SessionSqlite.destroy_id(store, info.id, "ada") == 1)
+  assert(assert(SessionSqlite.destroy_id(store, info.id, "grace")) == 0, "another user's session is not ended")
+  assert(assert(SessionSqlite.label(store, info.id, "x", "grace")) == 0)
+  assert(assert(SessionSqlite.destroy_id(store, info.id, "ada")) == 1)
   assert(store:load(one, 500, "session") == nil and store:load(two, 500, "session") ~= nil)
-  assert(SessionSqlite.destroy_id(store, info.id) == 0 and SessionSqlite.destroy_id(store, one) == 0,
+  assert(assert(SessionSqlite.destroy_id(store, info.id)) == 0 and assert(SessionSqlite.destroy_id(store, one)) == 0,
     "a token is not a public id")
 end
 
@@ -317,18 +336,20 @@ local function test_a_regeneration_keeps_the_public_id_the_label_and_last_seen()
   local id = create(store, { a = 1 })
   bind(store, id, nil, "laptop")
   note(store, id, 500, "10.0.0.2")
-  local before = assert(SessionSqlite.info(store, id, 501))
+  local before = live_info(store, id, 501)
   local renewed = assert(store:save(id, assert(store:load(id, 501, "session")),
     { set = {}, removed = {}, regenerated = true }, 501, "session"))
-  local after = assert(SessionSqlite.info(store, renewed, 502))
+  local after = live_info(store, renewed, 502)
   assert(renewed ~= id and after.id == before.id and after.label == "laptop")
   assert(after.seen_at == 500 and after.seen_from == "10.0.0.2")
-  assert(SessionSqlite.label(store, after.id, "") == 1)
-  assert(assert(SessionSqlite.info(store, renewed, 502)).label == nil)
-  assert(SessionSqlite.label(store, after.id, "desk") == 1 and SessionSqlite.label(store, "nobody", "x") == 0)
+  assert(assert(SessionSqlite.label(store, after.id, "")) == 1)
+  assert(live_info(store, renewed, 502).label == nil)
+  assert(assert(SessionSqlite.label(store, after.id, "desk")) == 1 and assert(SessionSqlite.label(store, "nobody", "x")) == 0)
   bind(store, renewed, nil, nil)
-  assert(assert(SessionSqlite.info(store, renewed, 502)).label == "desk", "a save that does not label keeps it")
-  local ok, why = pcall(SessionSqlite.label, store, after.id, ("x"):rep(Session.MAX_LABEL + 1))
+  assert(live_info(store, renewed, 502).label == "desk", "a save that does not label keeps it")
+  local ok, why = pcall(function()
+    local _, _ = SessionSqlite.label(store, after.id, ("x"):rep(Session.MAX_LABEL + 1))
+  end)
   assert(not ok and tostring(why):find("no longer than", 1, true) ~= nil)
 end
 
@@ -359,10 +380,11 @@ CREATE INDEX web_sessions_subject ON web_sessions (subject) WHERE subject IS NOT
   local indexed = assert(db:rows(
     "SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name = 'web_sessions_public_id' AND sql LIKE '%UNIQUE%'"))
   assert(assert(indexed[1]):integer(1) == 1, "the public ids are unique")
-  assert(SessionSqlite.store(db), "a second open finds nothing to do")
+  local reopened, reopen_why = SessionSqlite.store(db)
+  assert(reopened ~= nil, "a second open finds nothing to do: " .. tostring(reopen_why))
   local again = assert(SessionSqlite.list(store, 500))
   assert(assert(again[1]).id == assert(listed[1]).id, "the ids are kept")
-  assert(SessionSqlite.destroy_id(store, assert(listed[1]).id) == 1)
+  assert(assert(SessionSqlite.destroy_id(store, assert(listed[1]).id)) == 1)
 end
 
 --- How many rows the connection has written since it opened.
@@ -439,7 +461,7 @@ local function test_two_requests_that_loaded_the_same_old_note_write_it_once()
   seen(store, id, first, 500, "10.0.0.1")
   seen(store, id, second, 501, "10.0.0.2")
   assert(writes_of(db) == writes + 1, "the second found the note already made")
-  local info = assert(SessionSqlite.info(store, id, 502))
+  local info = live_info(store, id, 502)
   assert(info.seen_at == 500 and info.seen_from == "10.0.0.1")
 end
 
@@ -448,16 +470,20 @@ local function test_a_row_an_earlier_version_wrote_after_the_migration_gets_an_i
   local token = Codec.base64url(("c"):rep(32))
   assert(db:run("INSERT INTO web_sessions (id_hash, data, created, touched, expires) VALUES (?1, '{}', 100, 100, 1000)",
     { { blob = Hash.sha256(token) } }))
-  assert(#assert(SessionSqlite.list(store, 500)) == 0 and SessionSqlite.info(store, token, 500) == nil,
+  assert(#assert(SessionSqlite.list(store, 500)) == 0 and info_or_false(store, token, 500) == false,
     "a row with no public id is not listed, and does not break the list")
   assert(store:save(token, assert(store:load(token, 500, "session")), changed({ b = 2 }), 500, "session") == token)
-  assert(#assert(assert(SessionSqlite.info(store, token, 501)).id) == 16)
+  assert(#assert(live_info(store, token, 501).id) == 16)
 end
 
 local function test_a_seen_interval_or_a_limit_below_one_is_refused()
-  local ok, why = pcall(SessionSqlite.store, assert(Sqlite.memory()), { seen_interval = 0 })
+  local ok, why = pcall(function()
+    local _, _ = SessionSqlite.store(assert(Sqlite.memory()), { seen_interval = 0 })
+  end)
   assert(not ok and tostring(why):find("at least 1", 1, true) ~= nil)
   local store = open()
-  local listed, list_why = pcall(SessionSqlite.list, store, 100, { limit = 0 })
+  local listed, list_why = pcall(function()
+    local _, _ = SessionSqlite.list(store, 100, { limit = 0 })
+  end)
   assert(not listed and tostring(list_why):find("at least 1", 1, true) ~= nil)
 end
