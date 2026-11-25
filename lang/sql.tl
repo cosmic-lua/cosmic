@@ -161,7 +161,7 @@ local function try_prepare(handle: sqlite.Handle, sql: string): Prepared
 end
 
 --- What SQLite says of `sql` against the schema `ddl`: nil where the DDL itself is refused
---- ([`Sql.schema`]), or where `sql` names an attached database or a table of one, which the
+--- ([`Sql.schema`]), or where `sql` names an attached database or a table of one, or a `temp.` table, which the
 --- schema does not cover.
 function Sql.read(ddl: string, sql: string): Sql.Read?
   local first = hold(ddl).handle
@@ -183,9 +183,9 @@ function Sql.read(ddl: string, sql: string): Sql.Read?
   end
   local statement, why = prepared.statement, prepared.refusal
   if statement == nil then
-    -- An attached database's tables are not the schema's.
+    -- An attached database's tables are not the schema's, nor are the temporary tables a program makes as it runs.
     local prefix = why:match("^no such table: ([%w_]+)%.")
-    if (prefix ~= nil and prefix ~= "main" and prefix ~= "temp") or why:find("^unknown database ") ~= nil then
+    if (prefix ~= nil and prefix ~= "main") or why:find("^unknown database ") ~= nil then
       return nil
     end
     return { refused = why, parameters = 0, columns = {} }
