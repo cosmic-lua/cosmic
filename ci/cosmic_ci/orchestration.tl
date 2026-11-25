@@ -755,12 +755,9 @@ local suite_test_timeout_s <const> = "10"
 --- run something to stand on; ended by the bound, it would keep none.
 --- The margin holds the longest a test in flight may take and the run's
 --- settling.
---- In the merge queue, which saves no cache, the release suites' pull
---- request's next try takes them in (ci.yml's "find this pull request's
---- last failed try").
---- TODO: do the same for the queue's checked shards and narrowing suite,
---- whose jobs trim their verdicts only where main saves; it waits on a
---- verdicts-trim of those jobs in the queue.
+--- In the merge queue, which saves no cache, the pull request's next
+--- try takes them in, in each job that runs a suite (ci.yml's "find this
+--- pull request's last failed try").
 function Orchestration.deadlined(env: {string:string}, timeout_ns: integer,
                                  margin_ns: integer): {string:string}
   return Maps.with(env, { COSMIC_TEST_DEADLINE = tostring((timeout_ns - margin_ns) // Clock.seconds(1)) })
