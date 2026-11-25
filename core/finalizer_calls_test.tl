@@ -36,13 +36,26 @@ end
 local function test_a_loop_of_calls_the_checker_counts_inert_runs_none()
   -- `string.rep` (also as a method), `math.max` and `math.random` (a C closure) run no code of the
   -- program, so no finalizer runs at their calls, however much they
-  -- allocate (lang/check/init.tl's [`Tests.inert_callee`]).
+  -- allocate (lang/check/tests.tl's [`Tests.inert_callee`]).
   local seen = finalized_during([[
     for i = 1, 200000 do
       local s = string.rep("x", 64 + i % 7); s = s:rep(2); math.max(i, random(3))
     end
   ]])
   assert(seen == 0, tostring(seen) .. " finalizers ran at calls of inert C functions")
+end
+
+local function test_a_call_of_print_runs_none()
+  -- `print` of plain values runs no code of the program (core/surface.c's surface_print), so the checker counts it inert
+  -- too: no finalizer runs at its calls. It prints a string and a number every 1000 passes, after collections have left
+  -- finalizers pending.
+  local seen = finalized_during([[
+    for i = 1, 200000 do
+      local s = string.rep("x", 64 + i % 7)
+      if i % 1000 == 0 then print(s, i) end
+    end
+  ]])
+  assert(seen == 0, tostring(seen) .. " finalizers ran at calls of print")
 end
 
 local function test_a_loop_of_calls_of_a_value_whose_call_is_a_c_function_runs_them()
