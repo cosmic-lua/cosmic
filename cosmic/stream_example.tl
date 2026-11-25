@@ -195,6 +195,7 @@ end
 --- memory. Any record that lists [`Stream.Transform`] and gives its
 --- functions is one, such as this one that shouts.
 function Example.run()
+  local type Failure = require("cosmic.failure")
   local packed = assert(Stream.run(assert(Compress.encoder("gzip")), string.rep("a", 10000)))
   local back = assert(Stream.run(assert(Compress.decoder("gzip")), packed, 10000))
   assert(back == string.rep("a", 10000))
@@ -202,15 +203,15 @@ function Example.run()
   print(why)
   assert(out == nil and tostring(why) == "stream: output is larger than 100 bytes", why)
   local record Shouter is Stream.Transform
-    update: function(Shouter, chunk: string): string?, string
-    finish: function(Shouter): string?, string
+    update: function(Shouter, chunk: string, max_bytes?: integer): (string) | (nil, Failure)
+    finish: function(Shouter): (string) | (nil, Failure)
     pending: function(Shouter): boolean
   end
   local shouting: Shouter = {
-    update = function(_self: Shouter, chunk: string): string?, string
-      return chunk:upper(), ""
+    update = function(_self: Shouter, chunk: string, _max_bytes?: integer): (string) | (nil, Failure)
+      return chunk:upper()
     end,
-    finish = function(_self: Shouter): string?, string return "!", "" end,
+    finish = function(_self: Shouter): (string) | (nil, Failure) return "!" end,
     pending = function(_self: Shouter): boolean return false end,
   }
   local shouted = assert(Stream.run(shouting, "hello"))

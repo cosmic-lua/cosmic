@@ -81,8 +81,9 @@ local record test_policy
     --- from a closed table: `portable`, `root`, `unix_socket` (Unix stream
     --- socket creation), `loopback` (a TCP listener and a UDP socket bound
     --- to 127.0.0.1), `path:<absolute path>` and
-    --- `program:<name>`, and the Linux-class `sandbox`, `landlock:N`, `userns`,
-    --- `nest`, `own_proc` and `proc`. The runner asks the host
+    --- `program:<name>`, the Linux-class `sandbox`, `landlock:N`, `userns`,
+    --- `nest`, `own_proc` and `proc`, and `os:linux` or `os:darwin` for
+    --- tests that mean nothing on another system. The runner asks the host
     --- once, before any worker starts, and a module whose requirement is
     --- absent is not run: its tests are counted n/a where the platform never
     --- has it and skipped where this host lacks it. Nothing is inferred from

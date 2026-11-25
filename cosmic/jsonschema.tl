@@ -15,14 +15,14 @@
 --- below), `propertyNames`, `minProperties`, `maxProperties`, `dependentRequired`; `items`, `prefixItems`,
 --- `minItems`, `maxItems`, `uniqueItems`, `contains`, `minContains`, `maxContains`; `minLength`, `maxLength`;
 --- `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `multipleOf`; `allOf`, `anyOf`, `oneOf`, `not`,
---- `if`, `then`, `else`; and `$ref` to the schema's root (`#`) or to one of its `$defs` (`#/$defs/name`), or of
---- `definitions`, the older name for them (`#/definitions/name`).
+--- `if`, `then`, `else`; and `$ref` to the schema's root (`#`), to one of its `$defs` (`#/$defs/name`), or to one
+--- of its `definitions`, the older name for them (`#/definitions/name`); the two are kept apart.
 --- `true` and `false` are schemas too. Words for a reader are let through and assert nothing: `$schema`, `$id`
 --- (at the root only), `$comment`, `title`, `description`, `default`, `examples`, `deprecated`, `readOnly`, `writeOnly`,
 --- `format` (an annotation in 2020-12), `contentMediaType`, `contentEncoding`, and any keyword that starts with
 --- `x-`. Any other keyword is refused, `pattern` and `patternProperties` among them: an ECMAScript regular
 --- expression is not a Lua pattern, and a check that read one as the other would allow what the schema refuses.
---- So is a `$ref` anywhere else, or to a `$defs` the schema lacks, and `$anchor`.
+--- So is a `$ref` anywhere else, or to a `$defs` or `definitions` entry the schema lacks, and `$anchor`.
 ---
 --- A failure's `path` is the JSON Pointer of the value that broke the schema ("" for the whole value, "/n" above),
 --- and its message says what is wrong and which keyword says so. A value nested past 64 levels, or a `$ref` that
@@ -108,11 +108,12 @@ local record Node
   mut if_node?: Node
   mut then_node?: Node
   mut else_node?: Node
-  --- The `$defs` name a `$ref` names ("" for the root), resolved as the check reads it.
+  --- The JSON Pointer of the definition a `$ref` names (`/$defs/<name>` or `/definitions/<name>`, "" for the
+  --- root), resolved as the check reads it.
   mut ref?: string
 end
 
---- What a compile is building: the definitions a `$ref` may name.
+--- What a compile is building: the definitions a `$ref` may name, each by its JSON Pointer.
 local record Build
   defs: {string: Json.Value}
   compiled: mut {string: Node}
@@ -364,12 +365,15 @@ function S.keyword(build: Build, node: Node, o: {string: Json.Value}, key: strin
     if value == "#" then
       name = ""
     else
-      local escaped = value:match("^#/%$defs/([^/]+)$") or value:match("^#/definitions/([^/]+)$")
-      if escaped ~= nil then name = (escaped:gsub("~1", "/"):gsub("~0", "~")) end
+      local under, escaped = value:match("^#/(%$defs)/([^/]+)$")
+      if under == nil then under, escaped = value:match("^#/(definitions)/([^/]+)$") end
+      if under ~= nil and escaped ~= nil then
+        name = "/" .. under .. "/" .. token((escaped:gsub("~1", "/"):gsub("~0", "~")))
+      end
     end
     if name == nil then
-      return fail(here, "$ref " .. Json.quote(value) .. " is not # or #/$defs/<name>: only a schema's own " ..
-          "definitions are followed")
+      return fail(here, "$ref " .. Json.quote(value) .. " is not #, #/$defs/<name> or " ..
+          "#/definitions/<name>: only a schema's own definitions are followed")
     end
     if name ~= "" and build.defs[name] == nil then
       return fail(here, "$ref " .. Json.quote(value) .. " names a definition the schema does not hold")
@@ -413,7 +417,7 @@ local function resolved(build: Build, name: string): Node
   if done ~= nil then return done end
   local def = build.defs[name]
   assert(def ~= nil)
-  local node = assert(S.compile(build, def, "/$defs/" .. token(name), 1))
+  local node = assert(S.compile(build, def, name, 1))
   build.compiled[name] = node
   return node
 end
@@ -702,8 +706,9 @@ end
 
 --- `schema`, a JSON Schema as [`Json.decode`] reads one, compiled, or nil and why: the failure's `path` is the
 --- JSON Pointer of the part of the schema refused, and its message says why (a keyword it does not assert, a
---- `$ref` it does not follow, a value a keyword cannot take). Each definition of `$defs` is compiled too, so one a
---- `$ref` does not reach is still checked.
+--- `$ref` it does not follow, a value a keyword cannot take). Each definition of `$defs` and of `definitions` is
+--- compiled too, so one a `$ref` does not reach is still checked; the two are apart, so `#/$defs/x` and
+--- `#/definitions/x` are two schemas.
 function JsonSchema.compile(schema: Json.Value): (JsonSchema.Schema) | (nil, Failure)
   local defs: mut {string: Json.Value} = {}
   local top = if kind_of(schema) == "object" then Json.object_of(schema) else nil end
@@ -715,7 +720,7 @@ function JsonSchema.compile(schema: Json.Value): (JsonSchema.Schema) | (nil, Fai
         if named == nil then
           return nil, fail("/" .. key, key .. " must be an object of schemas")
         end
-        for name, each in pairs(named) do defs[name] = each end
+        for name, each in pairs(named) do defs["/" .. key .. "/" .. token(name)] = each end
       end
     end
   end
@@ -723,10 +728,15 @@ function JsonSchema.compile(schema: Json.Value): (JsonSchema.Schema) | (nil, Fai
   local root, why = S.compile(build, schema, "", 0)
   if root == nil then return nil, why end
   build.root = root
-  for name, each in pairs(defs) do
-    local node, bad = S.compile(build, each, "/$defs/" .. token(name), 1)
+  local pointers: mut {string} = {}
+  for pointer in pairs(defs) do pointers[#pointers + 1] = pointer end
+  table.sort(pointers)
+  for _, pointer in ipairs(pointers) do
+    local def = defs[pointer]
+    assert(def ~= nil)
+    local node, bad = S.compile(build, def, pointer, 1)
     if node == nil then return nil, bad end
-    build.compiled[name] = node
+    build.compiled[pointer] = node
   end
   local compiled: Compiled = { build = build }
   return compiled

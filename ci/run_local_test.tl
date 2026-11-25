@@ -72,7 +72,8 @@ return Paths
 set -eu
 phase=$3
 printf '%s\n' "$phase" >> "$TRACE"
-printf '%s\n' "$GITHUB_WORKSPACE" "$RUNNER_TEMP" "$TARGET" "$COSMIC_ZIG_CACHE_FROM" "$COSMIC_ZIG_GLOBAL_CACHE" "$XDG_CACHE_HOME" > "$TRACE.env"
+printf '%s\n' "$GITHUB_WORKSPACE" "$RUNNER_TEMP" "$TARGET" "$COSMIC_ZIG_CACHE_FROM" "$COSMIC_ZIG_GLOBAL_CACHE" "$XDG_CACHE_HOME" \
+  "fixed_point=${COSMIC_CI_FIXED_POINT-}" > "$TRACE.env"
 printf '%s\n' "$PWD" > "$TRACE.cwd"
 if [ "$phase" = fail ]; then
   printf 'error: selected phase failed\n'
@@ -229,6 +230,21 @@ local function test_default_phases_keep_the_workflow_order(tmp: string)
   assert(invoke(root, env, {}) == 0)
   assert(assert(Fs.read(assert(env["TRACE"]))) ==
       "build\nlocal-boundary\ndarwin-suite\nsandbox\nassemble\nfixtures\nportable\nportable-boundary\n")
+end
+
+local function test_fixed_point_is_skipped_unless_the_caller_runs_it(tmp: string)
+  local root, env = checkout(tmp)
+  local unset: mut {string:string} = {}
+  for name, value in pairs(env) do
+    if name ~= "COSMIC_CI_FIXED_POINT" then unset[name] = value end
+  end
+  assert(invoke(root, unset, { "build" }) == 0)
+  local trace = assert(env["TRACE"]) .. ".env"
+  assert(assert(Fs.read(trace)):find("\nfixed_point=skip\n", 1, true), "an unset COSMIC_CI_FIXED_POINT was not skip")
+  assert(invoke(root, Maps.with(unset, { COSMIC_CI_FIXED_POINT = "run" }), { "build" }) == 0)
+  assert(assert(Fs.read(trace)):find("\nfixed_point=run\n", 1, true), "the caller's COSMIC_CI_FIXED_POINT was replaced")
+  assert(invoke(root, Maps.with(unset, { COSMIC_CI_FIXED_POINT = "" }), { "build" }) == 0)
+  assert(assert(Fs.read(trace)):find("\nfixed_point=\n", 1, true), "the caller's empty COSMIC_CI_FIXED_POINT was replaced")
 end
 
 local function test_phase_failure_stops_and_preserves_its_status(tmp: string)
