@@ -134,3 +134,12 @@ local function test_a_prompt_that_offers_run_lists_the_modules_a_snippet_may_req
   assert(Prompt.build("/w", {}, { tools = { read }, modules = "cosmic.csv: CSV." }):find("cosmic_modules", 1, true) == nil)
   assert(Prompt.build("/w", {}, { tools = { run }, modules = "" }):find("cosmic_modules", 1, true) == nil)
 end
+
+--- Given no modules, a prompt that offers run reads them from this binary's docs; where the store withholds them, as
+--- this test's does, it lists none and says nothing of why, rather than raise.
+local function test_a_prompt_whose_binary_withholds_its_docs_lists_no_modules()
+  local run = assert(Tools.find(Tools.all(), "run"))
+  local built = Prompt.build("/w", {}, { tools = { run } })
+  assert(built:find("<cosmic_modules>", 1, true) == nil, built)
+  assert(built:find("host: modules:", 1, true) == nil, built)
+end

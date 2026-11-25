@@ -27,6 +27,26 @@ local function test_the_modules_a_snippet_may_require_are_listed_short()
   assert(#lines[2] <= 90 + #"cosmic.long: " and lines[2]:sub(-7) == "word...", modules)
 end
 
+--- With no index given, the modules are this binary's own, read from its docs: a line each, sorted, none of the
+--- agent's own or tooling's; and a prompt that offers run lists them so.
+local function test_the_modules_are_read_from_the_binarys_own_docs()
+  local modules = Host.modules()
+  assert(modules:find("host: modules: ", 1, true) == nil, modules)
+  local names: mut {string} = {}
+  for name in modules:gmatch("cosmic%.([%w_]+)[^\n]*") do names[#names + 1] = name end
+  local seen: mut {string: boolean} = {}
+  for _, name in ipairs(names) do seen[name] = true end
+  -- A test's store holds the docs of its import closure alone: what this one requires is among them.
+  assert(seen["fs"] == true and seen["json"] == true, modules)
+  assert(seen["agent"] == nil and seen["test"] == nil and seen["store"] == nil, modules)
+  local sorted = Host.sort(names)
+  assert(table.concat(sorted, " ") == table.concat(names, " "), modules)
+  local Prompt = require("cosmic.agent.prompt")
+  local Tools = require("cosmic.agent.tools")
+  local built = Prompt.build("/w", {}, { tools = { assert(Tools.find(Tools.all(), "run")) } })
+  assert(built:find("<cosmic_modules>", 1, true) ~= nil and built:find(modules, 1, true) ~= nil, built)
+end
+
 --- Where the docs cannot be read, or nothing is asked, docs say so, as a string to print, and raise nothing.
 local function test_docs_say_why_there_are_none()
   assert(Host.docs("zzqqxx"):find("host: docs: ", 1, true) == 1)
