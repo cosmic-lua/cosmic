@@ -208,7 +208,9 @@ removed lines in `git diff origin/main...HEAD | grep '^-.*TODO:'`.
   re-run the checks and the TODO listing, and review again if the
   merge conflicted. CI on a
   branch cut from an old main can fail on what main has since fixed.
-- `git push -u origin <branch>`.
+- `git push -u origin <branch>`, and open the PR as a draft (`gh pr create
+  --draft`): a draft's check runs linux-x86_64's leg alone, and leaves the
+  few macOS runners to the queue.
 - title it `area: summary`.
 - the description says what changed and why, how it was verified, what
   review found and what was done about it, and lists each TODO added
@@ -220,9 +222,13 @@ main takes changes only through the merge queue, which runs CI on the
 queued merge commit ([`.github/workflows/ci.yml`] runs on
 `merge_group`). a push to a branch runs no CI: the checks above, run
 locally, are the branch's. a pull request runs one light check, the `ci`
-check the queue requires of it: the tree booted and `fix --check` of
-what it changed, with the checks spanning files over the whole tree.
-enable auto-merge, and watch the queue's run.
+check the queue requires of it: the tree booted, `fix --check` of what it
+changed, with the checks spanning files over the whole tree, and
+linux-x86_64's native suite and, once the pull request is not a draft,
+macOS's, which stand on main's verdicts and so run only the tests the
+change reaches. once it is ready, mark it so (`gh pr ready`), which runs
+the check again with macOS's suite, then enable auto-merge, and watch the
+queue's run.
 start a next PR that depends on this one only once it has merged.
 
 on a failure, find the cause, fix it in the worktree, re-run the checks
