@@ -1,9 +1,8 @@
 --- A zip reader over a whole file or an in-memory string, walked
 --- through the central directory with positional reads rather than a
---- sequential scan, plus a streaming writer. Store (method 0) and
---- deflate (method 8, through [`cosmic.compress`]'s `inflater`/
---- `deflater`) and Zstandard (method 93, through its `zstd_decoder`/
---- `zstd_encoder`) are the methods understood. Zip64 is read and
+--- sequential scan, plus a streaming writer. Store (method 0), deflate
+--- (method 8, [`cosmic.compress`]'s "raw" format) and Zstandard (method
+--- 93, its "zstd" format) are the methods understood. Zip64 is read and
 --- written wherever an archive needs it: on the end-of-central-
 --- directory record (more than 65535 entries, or a central directory
 --- at or past the 4 GiB mark) and in each entry's extra field (a size
@@ -148,7 +147,7 @@ local record Zip
     --- is then never held whole. Closing it ends the entry; until then
     --- the archive takes no other entry and does not close, and aborting
     --- it abandons the archive, whose bytes are written already, so the
-    --- archive's `close` then fails. Closing it while the archive is open
+    --- archive's `close` then fails. Closing the archive while it is open
     --- is refused without failing the archive. A body that fails, by its
     --- encoder or the underlying Writer, fails the archive. `opts.size`,
     --- when given, is what the body must come to, as for [`add_file`]: a
