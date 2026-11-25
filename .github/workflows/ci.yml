@@ -863,7 +863,9 @@
       },
       defaults: {run: {"working-directory": "ci", shell: "leg-shell {0}"}},
       "runs-on": "ubuntu-24.04",
-      permissions: {contents: "read", packages: "read"},
+      # actions: to find and download the pull request's last failed try in
+      # the merge queue.
+      permissions: {contents: "read", packages: "read", actions: "read"},
       "timeout-minutes": 60,
       env: {
         COSMIC_WORKER: "linux-x86_64-checked",
@@ -969,6 +971,37 @@
             "restore-keys": "${{ steps.host-id.outputs.verdicts }}\n",
           },
         },
+        # As the platform job's: what this pull request's last failed try
+        # in the merge queue reached.
+        {
+          name: "find this pull request's last failed try in the merge queue",
+          id: "tried-run",
+          if: "github.event_name == 'merge_group'",
+          shell: "sh",
+          "continue-on-error": true,
+          env: {HEAD_REF: "${{ github.event.merge_group.head_ref }}", BASE_SHA: "${{ github.event.merge_group.base_sha }}", SHA: "${{ github.sha }}", ARTIFACT: "queue-tried-verdicts-${{ matrix.name }}", RUN_ID: "${{ github.run_id }}", GH_TOKEN: "${{ github.token }}"},
+          run: "cosmic-driver cosmic_ci/driver.tl queue-tried-run",
+        },
+        {
+          name: "download the last failed try's verdicts",
+          id: "tried-download",
+          if: "steps.tried-run.outputs.artifact != ''",
+          "continue-on-error": true,
+          uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
+          with: {
+            "artifact-ids": "${{ steps.tried-run.outputs.artifact }}",
+            "merge-multiple": true,
+            path: "${{ runner.temp }}/tried-verdicts",
+            "run-id": "${{ steps.tried-run.outputs.run }}",
+            "github-token": "${{ github.token }}",
+          },
+        },
+        {
+          name: "take in the last failed try's verdicts",
+          if: "steps.tried-download.outcome == 'success'",
+          "continue-on-error": true,
+          run: "cosmic-driver cosmic_ci/driver.tl verdicts-merge \"${{ runner.temp }}/tried-verdicts\"",
+        },
         {
           name: "restore compiles and parses",
           id: "compiles-restore",
@@ -1005,13 +1038,27 @@
           if: "matrix.performance == 'run'",
           run: "cosmic-driver cosmic_ci/driver.tl platform performance-checked",
         },
-        # A run that failed keeps what it restored too (`whole`). Cut to
+        # A run that failed keeps what it restored too (`whole`), but in
+        # the merge queue, which saves no cache, only what it used. Cut to
         # the rows this run used, named by their digest.
         {
           name: "keep only this run's test verdicts",
           id: "verdicts-trim",
-          if: "always() && steps.driver.outcome == 'success' && env.COSMIC_CI_SAVES == 'true'",
-          run: "cosmic-driver cosmic_ci/driver.tl verdicts-trim ${{ job.status == 'success' && steps.names.outputs.since || 'whole' }}",
+          if: "always() && steps.driver.outcome == 'success' && (env.COSMIC_CI_SAVES == 'true' || github.event_name == 'merge_group')",
+          run: "cosmic-driver cosmic_ci/driver.tl verdicts-trim ${{ (job.status == 'success' || github.event_name == 'merge_group') && steps.names.outputs.since || 'whole' }}",
+        },
+        # Read by this pull request's next try in the merge queue.
+        {
+          name: "upload what this failed try in the merge queue reached",
+          if: "always() && github.event_name == 'merge_group' && job.status == 'failure' && steps.verdicts-trim.outputs.digest != ''",
+          "continue-on-error": true,
+          uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
+          with: {
+            name: "queue-tried-verdicts-${{ matrix.name }}",
+            path: "${{ runner.temp }}/verdicts/*.db",
+            "if-no-files-found": "ignore",
+            "retention-days": 1,
+          },
         },
         {
           name: "summarize worker operations",
@@ -1084,7 +1131,7 @@
         # would match no other run.
         {
           name: "save test verdicts",
-          if: "always() && steps.verdicts-trim.outputs.digest != '' && !(github.event_name == 'schedule' && env.COSMIC_CI_DECLARED_KEYS == '1') && steps.verdicts-restore.outputs.cache-matched-key != format('{0}{1}', steps.host-id.outputs.verdicts, steps.verdicts-trim.outputs.digest)",
+          if: "always() && env.COSMIC_CI_SAVES == 'true' && steps.verdicts-trim.outputs.digest != '' && !(github.event_name == 'schedule' && env.COSMIC_CI_DECLARED_KEYS == '1') && steps.verdicts-restore.outputs.cache-matched-key != format('{0}{1}', steps.host-id.outputs.verdicts, steps.verdicts-trim.outputs.digest)",
           uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/verdicts",
@@ -1105,7 +1152,9 @@
       name: "linux-x86_64-checked-narrowing",
       defaults: {run: {"working-directory": "ci", shell: "leg-shell {0}"}},
       "runs-on": "ubuntu-24.04",
-      permissions: {contents: "read", packages: "read"},
+      # actions: to find and download the pull request's last failed try in
+      # the merge queue.
+      permissions: {contents: "read", packages: "read", actions: "read"},
       "timeout-minutes": 60,
       env: {
         COSMIC_WORKER: "linux-x86_64-checked-narrowing",
@@ -1209,6 +1258,37 @@
             "restore-keys": "${{ steps.host-id.outputs.verdicts }}\n",
           },
         },
+        # As the platform job's: what this pull request's last failed try
+        # in the merge queue reached.
+        {
+          name: "find this pull request's last failed try in the merge queue",
+          id: "tried-run",
+          if: "github.event_name == 'merge_group'",
+          shell: "sh",
+          "continue-on-error": true,
+          env: {HEAD_REF: "${{ github.event.merge_group.head_ref }}", BASE_SHA: "${{ github.event.merge_group.base_sha }}", SHA: "${{ github.sha }}", ARTIFACT: "queue-tried-verdicts-linux-x86_64-checked-narrowing", RUN_ID: "${{ github.run_id }}", GH_TOKEN: "${{ github.token }}"},
+          run: "cosmic-driver cosmic_ci/driver.tl queue-tried-run",
+        },
+        {
+          name: "download the last failed try's verdicts",
+          id: "tried-download",
+          if: "steps.tried-run.outputs.artifact != ''",
+          "continue-on-error": true,
+          uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
+          with: {
+            "artifact-ids": "${{ steps.tried-run.outputs.artifact }}",
+            "merge-multiple": true,
+            path: "${{ runner.temp }}/tried-verdicts",
+            "run-id": "${{ steps.tried-run.outputs.run }}",
+            "github-token": "${{ github.token }}",
+          },
+        },
+        {
+          name: "take in the last failed try's verdicts",
+          if: "steps.tried-download.outcome == 'success'",
+          "continue-on-error": true,
+          run: "cosmic-driver cosmic_ci/driver.tl verdicts-merge \"${{ runner.temp }}/tried-verdicts\"",
+        },
         {
           name: "restore compiles and parses",
           id: "compiles-restore",
@@ -1236,13 +1316,27 @@
           id: "checked-narrowing",
           run: "cosmic-driver cosmic_ci/driver.tl platform checked-narrowing",
         },
-        # A run that failed keeps what it restored too (`whole`). Cut to
+        # A run that failed keeps what it restored too (`whole`), but in
+        # the merge queue, which saves no cache, only what it used. Cut to
         # the rows this run used, named by their digest.
         {
           name: "keep only this run's test verdicts",
           id: "verdicts-trim",
-          if: "always() && steps.driver.outcome == 'success' && env.COSMIC_CI_SAVES == 'true'",
-          run: "cosmic-driver cosmic_ci/driver.tl verdicts-trim ${{ job.status == 'success' && steps.names.outputs.since || 'whole' }}",
+          if: "always() && steps.driver.outcome == 'success' && (env.COSMIC_CI_SAVES == 'true' || github.event_name == 'merge_group')",
+          run: "cosmic-driver cosmic_ci/driver.tl verdicts-trim ${{ (job.status == 'success' || github.event_name == 'merge_group') && steps.names.outputs.since || 'whole' }}",
+        },
+        # Read by this pull request's next try in the merge queue.
+        {
+          name: "upload what this failed try in the merge queue reached",
+          if: "always() && github.event_name == 'merge_group' && job.status == 'failure' && steps.verdicts-trim.outputs.digest != ''",
+          "continue-on-error": true,
+          uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
+          with: {
+            name: "queue-tried-verdicts-linux-x86_64-checked-narrowing",
+            path: "${{ runner.temp }}/verdicts/*.db",
+            "if-no-files-found": "ignore",
+            "retention-days": 1,
+          },
         },
         {
           name: "summarize worker operations",
@@ -1315,7 +1409,7 @@
         # would match no other run.
         {
           name: "save test verdicts",
-          if: "always() && steps.verdicts-trim.outputs.digest != '' && !(github.event_name == 'schedule' && env.COSMIC_CI_DECLARED_KEYS == '1') && steps.verdicts-restore.outputs.cache-matched-key != format('{0}{1}', steps.host-id.outputs.verdicts, steps.verdicts-trim.outputs.digest)",
+          if: "always() && env.COSMIC_CI_SAVES == 'true' && steps.verdicts-trim.outputs.digest != '' && !(github.event_name == 'schedule' && env.COSMIC_CI_DECLARED_KEYS == '1') && steps.verdicts-restore.outputs.cache-matched-key != format('{0}{1}', steps.host-id.outputs.verdicts, steps.verdicts-trim.outputs.digest)",
           uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/verdicts",
