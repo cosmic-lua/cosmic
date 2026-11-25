@@ -236,9 +236,9 @@ local launcher_programs <const> = { "uname", "id", "mkdir", "stat", "mktemp", "d
 
 --- The policy [`Prerelease.smoke`] runs the tool at `path` under, its cores unpacked in `cache`, as JSON text: it
 --- reads and runs `path` and the programs its launcher runs, of those under /bin, /usr/bin and /sbin (where macOS
---- keeps sha256sum), writes `cache`, and nothing else, so it cannot touch the files whose lines set the environment of the job's later steps
---- (`GITHUB_ENV`, `GITHUB_PATH`), the publishing one among them, nor the driver that step runs; of the job's
---- variables it gets `PATH` and `HOME` alone. The launcher is a shell script that unpacks its core and marks it
+--- keeps sha256sum), writes `cache`, and nothing else, so it cannot touch the files whose lines set the
+--- environment of the job's later steps (`GITHUB_ENV`, `GITHUB_PATH`), the publishing one among them, nor the
+--- driver that step runs; of the job's variables it gets `PATH` and `HOME` alone. The launcher is a shell script that unpacks its core and marks it
 --- executable: `fork` lets it run its programs, and `fattr` lets the tool change the mode of any file its user
 --- owns, but not write one outside the cache. With `as_grants` they are `{"calls": ...}` grants, as cosmic writes
 --- them now; without, a `promises` list, as the pinned driver (ci/cosmic-driver.pin) reads them.
