@@ -3,7 +3,7 @@
 --- [`cosmic.cli`]'s groups name (the prose of every verb is held in
 --- build/verbs_store_test.tl, which reads each one's help). A module's `spec`
 --- missing from the list, and a verb's guide and tests, are held over the
---- whole tree by build/tree_checks.tl's `verbs`.
+--- whole tree by build/tree_checks/docs.tl's `verbs`.
 
 local Cli = require("cosmic.cli")
 local verb_list = require("build.verb_list")

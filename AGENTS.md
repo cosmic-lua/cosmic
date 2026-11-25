@@ -79,7 +79,7 @@ worktree's build directory when you delete the worktree.
    not laid out and on one it refuses. A run over some paths of cosmic's
    own tree also makes the cheap checks of the tree (doc references, the public docs,
    rendered docs and plurals of the Teal files named, their markers' ceilings), and in `ci/` the plurals.
-   The rest of the checks, which only the whole tree can make ([`build/tree_checks.tl`]), run in `bin/cosmic fix --check .`,
+   The rest of the checks, which only the whole tree can make ([`build/tree_checks/`]), run in `bin/cosmic fix --check .`,
    as CI runs it, which also refuses a tree that does not build: run it
    before pushing a change to what they read.
 3. A tool older than the tree rebuilds itself and re-enters the command
@@ -179,7 +179,7 @@ unblocks: `bin/cosmic todos '"cosmic-driver.pin"'` lists them, and
 [`build/paths.tl`]: build/paths.tl
 [`build/rebuild_lock.tl`]: build/rebuild_lock.tl
 [`build/seeded_boot.tl`]: build/seeded_boot.tl
-[`build/tree_checks.tl`]: build/tree_checks.tl
+[`build/tree_checks/`]: build/tree_checks/init.tl
 [`build/workflows_test.tl`]: build/workflows_test.tl
 [`ci/cosmic-driver.pin`]: ci/cosmic-driver.pin
 [`ci/cosmic_ci/orchestration.tl`]: ci/cosmic_ci/orchestration.tl
