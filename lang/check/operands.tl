@@ -1,6 +1,7 @@
 --- The operands of the operators: the types an arithmetic, a comparison or a length takes, and the fix of one it refuses.
 
 local Ast = require("lang.ast")
+local Codes = require("lang.check_codes")
 local Types = require("lang.types")
 local Context = require("lang.check.context")
 local Naming = require("lang.check.naming")
@@ -167,9 +168,10 @@ function Operands.string_operand(ctx: Ctx, node: Ast.Node, t: Type): boolean
     return false
   end
   if t.tag == "integer" or t.tag == "number" or is_integer_enum(t) or is_bool(t) then
+    -- `..` writes a number as `tostring` does, and refuses a boolean as it runs, so the call keeps what it meant.
     report(ctx, "concat_type", node, subject(ctx, node) .. " is " .. tq(ctx, t) .. ", and `..` takes strings",
       "write `tostring(" .. text_of(ctx, node) .. ")` or `string.format(\"%d\", " .. text_of(ctx, node) .. ")`",
-      { show(ctx, t) })
+      { show(ctx, t) }, nil, { before = "tostring(", after = ")" })
     return false
   end
   Operands.bad_operand(ctx, node, t, "..", "strings", "convert it to a string first: `tostring(" .. text_of(ctx, node) .. ")`")
@@ -244,10 +246,24 @@ local UNDECLARED_CALL_FIX <const> = UNDECLARED_RETURN_FIX .. "; where a function
   "a statement, with no `return`"
 Operands.UNDECLARED_CALL_FIX = UNDECLARED_CALL_FIX
 
+--- The rewrite of a `boolean?` condition `node` to the test it makes: it holds where the value is `true`, so `== true`.
+--- A place that binds less tightly than `==`, and any place where `tight` (the operand of an operator that binds more
+--- tightly than `==`), is put in parentheses.
+function Operands.is_true(node: Ast.Node, tight?: boolean): Codes.Rewrite
+  local kind = node.kind
+  if tight == true then return { before = "(", after = " == true)" } end
+  if kind == "Name" or kind == "Field" or kind == "Index" or kind == "Call" or kind == "MethodCall" or kind == "Paren" then
+    return { before = "", after = " == true" }
+  end
+  return { before = "(", after = " == true)" }
+end
+
 --- What a condition of type `t` is: "bool", "opt" (a `T?` for a `T` that is not a boolean), or "bad" after the error.
 --- `default` is the `or` whose left `node` is, which asks for a default: a value that is never nil there needs no test, and
---- no default.
-function Operands.condition_kind(ctx: Ctx, node: Ast.Node, t: Type, default?: Ast.Binary): string
+--- no default. `within` is the operator that holds `node`, where that is `and` or `not`: the value of the left of an
+--- `and` is the value of the whole, where `nil` and `false` are told apart, so a `boolean?` there has no rewrite to
+--- `== true`; and `not` binds more tightly than `==`, so the rewrite of its operand is in parentheses.
+function Operands.condition_kind(ctx: Ctx, node: Ast.Node, t: Type, default?: Ast.Binary, within?: string): string
   local tag = t.tag
   if is_bool(t) or tag == "never" or tag == "invalid" then
     return "bool"
@@ -263,7 +279,8 @@ function Operands.condition_kind(ctx: Ctx, node: Ast.Node, t: Type, default?: As
       return "opt"
     end
     report(ctx, "condition_type", node, s .. " is " .. tq(ctx, t) .. ": nil and false would not be told apart",
-      "write the test: `" .. text_of(ctx, node) .. " == true` or `" .. text_of(ctx, node) .. " == nil`", { show(ctx, t) })
+      "write the test: `" .. text_of(ctx, node) .. " == true` or `" .. text_of(ctx, node) .. " == nil`", { show(ctx, t) },
+      nil, if within == "and" then nil else Operands.is_true(node, within == "not") end)
     return "bad"
   elseif tag == "any" then
     report(ctx, "any_use", node, s .. " is untrusted data (`any`) and is used as a condition",

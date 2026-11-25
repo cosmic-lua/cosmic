@@ -41,6 +41,7 @@ local LuaTail = require("build.lua_tail")
 local Node = require("build.syntax_node")
 local ProjectRefusals = require("build.project_refusals")
 local library_record = require("build.library_record")
+local type Rewrite = require("lang.rewrite")
 local positions = require("build.positions")
 local Receivers = require("build.syntax_receivers")
 local RecordSplices = require("build.syntax_record_splices")
@@ -150,6 +151,8 @@ local record Pipeline
     --- finding: from the checker's own lists, so that a code two stages have is told apart. A finding two stages report at
     --- one place and under one code is "" (no stage can hold it), and a warning has no entry.
     stages: {string: string}
+    --- Where it is refused: the rewrites of its errors that put each right with the meaning kept ([`lang.rewrite`]).
+    edits?: {Rewrite.Edit}
   end
 
   --- [`Pipeline.lone`] with the refusal as a line for each problem, for a caller that lists them.
@@ -871,7 +874,15 @@ local function alone_of(build: Driver.Build, module: string, file: string, optio
     end
   end
   if #told > 0 then
-    return { code = nil, lines = told, stages = stages }
+    local edits: mut {Rewrite.Edit} = {}
+    for _, p in ipairs(result.bodies) do
+      local r = p.rewrite
+      if r ~= nil then
+        edits[#edits + 1] = { code = p.code, y = p.y, x = p.x, offset = p.offset, length = p.length, before = r.before,
+          after = r.after }
+      end
+    end
+    return { code = nil, lines = told, stages = stages, edits = edits }
   end
   -- A file alone keeps an import it reads as a type only: nothing serves the module it names.
   local emitted = CompileGrammar.emit(build, result, false, true, false)

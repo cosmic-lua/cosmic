@@ -17,6 +17,7 @@ local Tests = require("lang.check.tests")
 local Functions = require("lang.check.functions")
 local GenericCalls = require("lang.check.generic_calls")
 local Operands = require("lang.check.operands")
+local type Codes = require("lang.check_codes")
 local type Type = Types.Type
 local type Named = Types.Named
 local type Fn = Types.Fn
@@ -1124,7 +1125,10 @@ local function asserted_boolean(ctx: Ctx, node: Ast.Node, args: {Ast.Exp}, t: Ty
   local text = text_of(ctx, first)
   local at = peel(first)
   local fix = "say which is asserted: `assert(" .. text .. " ~= nil)` that it is there, or `assert(" .. text .. " == true)` that it is true"
+  -- `assert` passes the value where it is `true`. A call's other values would be cut by `==`, so a call has no rewrite.
+  local rewrite: Codes.Rewrite? = Operands.is_true(first)
   if at.kind == "Call" or at.kind == "MethodCall" then
+    rewrite = nil
     -- A comparison keeps only the first value of a call, so a reason it gives is named to be passed on. A call that
     -- gives one value has none to name, and one cut to its first value by a message after it is named alone.
     local names, rest = "value", if #args > 1 then ", ..." else "" end
@@ -1135,7 +1139,7 @@ local function asserted_boolean(ctx: Ctx, node: Ast.Node, args: {Ast.Exp}, t: Ty
       rest .. ")` that it is there, or `assert(value == true" .. rest .. ")` that it is true"
   end
   report(ctx, "condition_type", first, subject(ctx, first) .. " is " .. tq(ctx, t) .. ": nil and false would not be told apart", fix,
-    { show(ctx, t) })
+    { show(ctx, t) }, nil, rewrite)
 end
 
 local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: {Type}, args: {Ast.Exp}, recv: Type?,

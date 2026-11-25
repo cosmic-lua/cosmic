@@ -177,6 +177,7 @@ local vararg_rest = ValueLists.vararg_rest
 local record Check
   type Error = Codes.Error
   type Argument = Codes.Argument
+  type Rewrite = Codes.Rewrite
 
   --- See [`Context.Narrowed`].
   type Narrowed = Context.Narrowed

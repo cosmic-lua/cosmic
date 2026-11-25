@@ -194,6 +194,13 @@ local record Codes
     position: integer
   end
 
+  --- A rewrite of the place an error is at that keeps what the program means and that the checker passes: the text
+  --- to write before the place and after it (`tostring(` and `)`). A fixer ([`lang.rewrite`]) may make it unasked.
+  record Rewrite
+    before: string
+    after: string
+  end
+
   --- An error: the scope builder's, with the types it is about.
   record Error
     filename: string
@@ -212,6 +219,8 @@ local record Codes
     types: {string}
     --- Set when the error is a value refused by a parameter of a call; nil for any other.
     argument?: Argument
+    --- Set where the error has one rewrite that puts it right with the meaning kept; nil where a fix needs a choice.
+    rewrite?: Rewrite
   end
 
   --- The rule behind a code.
