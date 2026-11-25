@@ -231,10 +231,20 @@ end
 
 local FAILED <const> = "repos/o/r/actions/workflows/ci.yml/runs?event=merge_group&status=failure&per_page=50"
 local TRIED_ARTIFACT <const> = "queue-tried-verdicts-linux-x86_64"
+--- This run's commit, and the commits of earlier tries.
+local NOW <const> = "2222222222222222222222222222222222222222"
+local AHEAD <const> = "1111111111111111111111111111111111111111"
+local function tried_sha(id: integer): string return string.format("%040x", id) end
+
+--- A comparison of commits that changes `blob` into a.tl, and b.tl.
+local function change(blob: string): string
+  return '{"status":"ahead","files":[{"filename":"b.tl","status":"added","sha":"bb"},' ..
+    '{"filename":"a.tl","status":"modified","sha":"' .. blob .. '"}]}'
+end
 
 local function tried_env(): mut {string:string}
-  return { HEAD_REF = "refs/heads/gh-readonly-queue/main/pr-41-" .. SHA, ARTIFACT = TRIED_ARTIFACT,
-    GITHUB_REPOSITORY = "o/r", RUN_ID = "20" }
+  return { HEAD_REF = "refs/heads/gh-readonly-queue/main/pr-41-" .. SHA, BASE_SHA = SHA, SHA = NOW,
+    ARTIFACT = TRIED_ARTIFACT, GITHUB_REPOSITORY = "o/r", RUN_ID = "20" }
 end
 
 --- A queue ref, or its branch, names its pull request and the commit its
@@ -250,41 +260,57 @@ local function test_a_queue_ref_names_its_pull_request()
 end
 
 --- The newest failed run of the same pull request that was built on main
---- and holds the verdicts is named: this run, another pull request's
---- (pr-410 among them), a fork's, one with none and one built on an entry
---- that never merged are passed over.
+--- with this run's change and holds the verdicts is named: this run,
+--- another pull request's (pr-410 among them), a fork's, one with none,
+--- one built on an entry that never merged, one of another change and one
+--- whose comparison GitHub does not answer are passed over.
 local function test_the_newest_failed_try_of_the_pull_request_is_named()
-  local AHEAD <const> = "1111111111111111111111111111111111111111"
   local mine = "gh-readonly-queue/main/pr-41-" .. OTHER
   local fake = GithubFake.new(function(path: string, _nth: integer): string?
     if path == FAILED then
-      return '{"workflow_runs":[' .. table.concat({ run(5, OTHER, mine), run(8, OTHER, mine),
-        run(11, OTHER, mine), run(12, OTHER, "gh-readonly-queue/main/pr-410-" .. OTHER),
-        run(13, OTHER, mine, "fork/r"), run(15, AHEAD, "gh-readonly-queue/main/pr-41-" .. AHEAD),
-        run(20, SHA, "gh-readonly-queue/main/pr-41-" .. SHA) }, ",") .. ']}'
+      return '{"workflow_runs":[' .. table.concat({ run(5, tried_sha(5), mine), run(8, tried_sha(8), mine),
+        run(9, tried_sha(9), mine), run(10, tried_sha(10), mine), run(11, tried_sha(11), mine),
+        run(12, tried_sha(12), "gh-readonly-queue/main/pr-410-" .. OTHER),
+        run(13, tried_sha(13), mine, "fork/r"), run(15, tried_sha(15), "gh-readonly-queue/main/pr-41-" .. AHEAD),
+        run(20, NOW, "gh-readonly-queue/main/pr-41-" .. SHA) }, ",") .. ']}'
     end
     if path == "repos/o/r/compare/" .. OTHER .. "...main" then return '{"status":"ahead"}' end
     if path == "repos/o/r/compare/" .. AHEAD .. "...main" then return '{"status":"diverged"}' end
+    if path == "repos/o/r/compare/" .. SHA .. "..." .. NOW then return change("aa") end
+    for _, id in ipairs({ 5, 8, 11, 15 }) do
+      if path == "repos/o/r/compare/" .. OTHER .. "..." .. tried_sha(id) then
+        return change("aa")
+      end
+    end
+    if path == "repos/o/r/compare/" .. OTHER .. "..." .. tried_sha(10) then return change("a0") end
     local artifacts = "/artifacts?name=" .. TRIED_ARTIFACT
     if path == "repos/o/r/actions/runs/11" .. artifacts then return '{"artifacts":[]}' end
-    if path == "repos/o/r/actions/runs/15" .. artifacts or path == "repos/o/r/actions/runs/8" .. artifacts or
-        path == "repos/o/r/actions/runs/5" .. artifacts then
-      return '{"artifacts":[{"name":"' .. TRIED_ARTIFACT .. '","expired":false}]}'
+    for _, id in ipairs({ 5, 8, 9, 10, 15 }) do
+      if path == "repos/o/r/actions/runs/" .. tostring(id) .. artifacts then
+        return '{"artifacts":[{"name":"' .. TRIED_ARTIFACT .. '","expired":false}]}'
+      end
     end
     return nil
   end)
   assert(QueueVerdicts.find_tried(tried_env(), fake.host) == 0)
   assert(GithubFake.text(fake.outputs) == "run=8\n", GithubFake.text(fake.outputs))
-  assert(GithubFake.count(fake, "runs/12/") + GithubFake.count(fake, "runs/13/") + GithubFake.count(fake, "runs/15/") +
-      GithubFake.count(fake, "runs/20/") == 0, table.concat(fake.calls, "\n"))
+  for _, id in ipairs({ 9, 10, 12, 13, 15, 20 }) do
+    assert(GithubFake.count(fake, "runs/" .. tostring(id) .. "/") == 0, tostring(id) .. ": " .. table.concat(fake.calls, "\n"))
+  end
 end
 
 --- A first try, an API that fails and a step that names no queue ref
 --- write nothing; only the last fails the step.
 local function test_a_first_try_takes_nothing()
-  for _, case in ipairs({ "none", "failing" }) do
+  for _, case in ipairs({ "none", "failing", "unchanged" }) do
     local fake = GithubFake.new(function(path: string, _nth: integer): string?
       if case == "none" and path == FAILED then return '{"workflow_runs":[]}' end
+      if case == "none" and path == "repos/o/r/compare/" .. SHA .. "..." .. NOW then
+        return change("aa")
+      end
+      if case == "unchanged" and path == FAILED then
+        return '{"workflow_runs":[' .. run(5, tried_sha(5), "gh-readonly-queue/main/pr-41-" .. OTHER) .. ']}'
+      end
       return nil
     end)
     assert(QueueVerdicts.find_tried(tried_env(), fake.host) == 0, case)

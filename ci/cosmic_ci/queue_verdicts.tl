@@ -172,14 +172,16 @@ end
 --- and the next run of the same pull request takes them in before its
 --- suites.
 ---
---- Only a try built on main itself: a merge-queue commit holds the
---- entries queued ahead of it too, and an entry dropped from the queue
---- never merges, so rows its code wrote are no one's to stand on. A try
---- whose commit is the pull request on a commit of main ran only code
---- that is merged, or that its next try runs again.
+--- Only a try built on main with this try's change. A merge-queue commit
+--- holds the entries queued ahead of it too, and an entry dropped from the
+--- queue never merges; a pull request's earlier head never merges either.
+--- The code a run ran can write any row, so a try is taken only where
+--- GitHub's own record shows it ran merged code and this try's change:
+--- the commit its entry was put on is on main, and its commit changes the
+--- same files to the same contents as this try's does over its own base.
 
 --- How many of the newest failed merge-queue runs are read for the pull
---- request's: about 15 hours of the queue's failures.
+--- request's: some 14 hours of the queue's failures on 2026-11-24.
 local FAILED_LISTED <const> = 50
 
 --- The entry a merge-queue ref, `refs/heads/gh-readonly-queue/<base>/pr-<n>-<sha>`
@@ -208,11 +210,52 @@ local function on_main(host: Github.Host, repository: string, sha: string): bool
   return compared.status == "identical" or compared.status == "ahead"
 end
 
---- A failed run of the pull request: its id and the commit its entry
---- was put on.
+--- What a comparison's changed file is read for.
+local record FileRow
+  filename?: any
+  status?: any
+  sha?: any
+end
+local FILE_ROW <const> = Shape.record_of("FileRow")
+local record ChangeRow
+  status?: any
+  files?: {any}
+end
+local CHANGE_ROW <const> = Shape.record_of("ChangeRow")
+
+--- The most files a comparison lists; one that lists as many may hold more.
+local LISTED_FILES <const> = 300
+
+--- What commit `head` changes over `base` in `repository`, as GitHub
+--- says: each changed file's name, status and content's blob, sorted, one
+--- a line. Nil where GitHub does not say, `head` is not ahead of `base`,
+--- or the list may be cut.
+local function change_of(host: Github.Host, repository: string, base: string, head: string): string?
+  local pages = Github.ask(host, "repos/" .. repository .. "/compare/" .. base .. "..." .. head, false, LOOKUP_SECONDS)
+  local compared, _ = CHANGE_ROW:decode_into((pages or {})[1] or "")
+  if compared == nil or compared.status ~= "ahead" then return nil end
+  local files = compared.files or {}
+  if #files >= LISTED_FILES then return nil end
+  local lines: mut {string} = {}
+  for _, item in ipairs(files) do
+    local file, _ = FILE_ROW:into(item)
+    if file == nil then return nil end
+    local name, status, blob = file.filename, file.status, file.sha
+    if not (name is string) or not (status is string) then return nil end
+    local content = ""
+    if blob is string then content = blob end
+    lines[#lines + 1] = name .. "\0" .. status .. "\0" .. content
+  end
+  table.sort(lines)
+  return table.concat(lines, "\n")
+end
+
+--- A failed run of the pull request: its id, the commit its entry was
+--- put on and its own commit.
 local record Tried
   id: integer
   on: string
+  sha: string
 end
 
 --- `item`, a run on the list, where it is a merge-queue run in
@@ -226,8 +269,10 @@ local function tried_run_of(item: any, repository: string, entry: string, own: i
   if of == nil or of.pr ~= entry then return nil end
   local from, _ = REPOSITORY_ROW:into(run.head_repository)
   if from == nil or from.full_name ~= repository then return nil end
-  local id = run.id
-  if id is integer and id ~= own then return { id = id, on = of.on } end
+  local id, sha = run.id, run.head_sha
+  if id is integer and id ~= own and sha is string and Github.is_commit(sha) then
+    return { id = id, on = of.on, sha = sha }
+  end
   return nil
 end
 
@@ -253,8 +298,9 @@ end
 
 --- `driver.tl queue-tried-run`: writes `run=<id>` to $GITHUB_OUTPUT, the
 --- newest merge-queue run of ci.yml in GITHUB_REPOSITORY that failed for
---- the pull request HEAD_REF is of, was built on a commit of main and
---- uploaded ARTIFACT, other than RUN_ID, this run. Where it finds none it says why and writes nothing:
+--- the pull request HEAD_REF is of, was built on a commit of main with
+--- the change SHA makes over BASE_SHA, this run's, and uploaded ARTIFACT,
+--- other than RUN_ID, this run. Where it finds none it says why and writes nothing:
 --- the run's suites run their tests. 2 where the step names no queue
 --- ref, artifact or repository, else 0.
 function QueueVerdicts.find_tried(env: {string:string}, host: Github.Host): integer
@@ -266,14 +312,28 @@ function QueueVerdicts.find_tried(env: {string:string}, host: Github.Host): inte
     return 2
   end
   local entry = queued.pr
+  local base, sha = env["BASE_SHA"] or "", env["SHA"] or ""
+  if not Github.is_commit(base) or not Github.is_commit(sha) then
+    local _, _ = Fs.put(Fs.stderr, "queue-tried-run: BASE_SHA and SHA must name this run's base and commit\n")
+    return 2
+  end
   local own = math.tointeger(tonumber(env["RUN_ID"] or ""))
+  local mine = change_of(host, repository, base, sha)
+  if mine == nil then
+    Github.say(host, "no verdicts from an earlier try: GitHub did not say what " .. sha .. " changes over " ..
+        base .. "; the suites run what they would have answered")
+    return 0
+  end
   local runs, trouble = tried_runs(host, repository, entry, own)
   local why = if runs == nil then trouble else "no failed merge-queue run of pull request " .. entry .. " is listed" end
   for _, tried in ipairs(runs or {}) do
     local id = tried.id
     local held, absent = false, "run " .. tostring(id) .. " was built on " .. tried.on .. ", which is not on main"
     if on_main(host, repository, tried.on) then
-      held, absent = holds_artifact(host, repository, id, name)
+      absent = "run " .. tostring(id) .. " tested another change than this run's"
+      if change_of(host, repository, tried.on, tried.sha) == mine then
+        held, absent = holds_artifact(host, repository, id, name)
+      end
     end
     if held then
       host.output("run=" .. tostring(id))
@@ -282,7 +342,7 @@ function QueueVerdicts.find_tried(env: {string:string}, host: Github.Host): inte
     end
     why = absent
   end
-  host.print("no verdicts from an earlier try: " .. why .. "; the suites run what they would have answered")
+  Github.say(host, "no verdicts from an earlier try: " .. why .. "; the suites run what they would have answered")
   return 0
 end
 

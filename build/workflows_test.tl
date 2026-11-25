@@ -1780,7 +1780,8 @@ local function test_a_queue_try_stands_on_its_pull_requests_last_failed_try()
   local env = map_of(find.env)
   assert(find["if"] == "github.event_name == 'merge_group'" and find["continue-on-error"] == true and
       env["ARTIFACT"] == name and env["HEAD_REF"] == "${{ github.event.merge_group.head_ref }}" and
-      env["RUN_ID"] == "${{ github.run_id }}" and (find.run or ""):find("driver.tl queue-tried-run", 1, true) ~= nil,
+      env["RUN_ID"] == "${{ github.run_id }}" and env["BASE_SHA"] == "${{ github.event.merge_group.base_sha }}" and
+      env["SHA"] == "${{ github.sha }}" and (find.run or ""):find("driver.tl queue-tried-run", 1, true) ~= nil,
     "the tried run's lookup")
   assert(download["if"] == "steps.tried-run.outputs.run != ''" and download["continue-on-error"] == true and
       param(download, "name") == name and param(download, "run-id") == "${{ steps.tried-run.outputs.run }}",

@@ -554,11 +554,15 @@ row stands only for a test whose key is the same, so the relay decides how
 many tests stand, never whether one is right, and no step of it fails a
 job. A queue leg that failed uploads the rows it used too
 (`queue-tried-verdicts-<job>`, kept a day), and the next try of the same
-pull request finds the newest such run that has ended (`driver.tl
-queue-tried-run`) and merges them in before its suites, so a suite the
-deadline stopped (COSMIC_TEST_DEADLINE) keeps its passes for that try.
-It takes only a run built on a commit of main: a queue commit holds the
-entries ahead of it too, and one dropped from the queue never merges.
+pull request finds the newest failed run that has ended and holds that
+job's artifact (`driver.tl queue-tried-run`) and merges it in before its
+suites, so a suite the deadline stopped (COSMIC_TEST_DEADLINE) keeps its
+passes for that try. The code a run ran can write any row, so it takes a
+run only where GitHub's record shows that run ran merged code and this
+try's change: the commit its entry was put on is on main (a queue commit
+holds the entries ahead of it too, and one dropped from the queue never
+merges), and its commit changes the same files to the same contents (an
+earlier head of the pull request never merges either).
 The queue's format job, where its check passed, seals the memo of the
 tree checks (the shared rows of `build/check_memo.tl`, in the cache
 directory: `driver.tl checks-seal` keeps the rows the run used, in one
