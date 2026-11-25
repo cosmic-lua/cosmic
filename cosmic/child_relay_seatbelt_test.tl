@@ -18,6 +18,7 @@ local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
 local RelayStart = require("cosmic.internal.relay_start")
+local Sandbox = require("cosmic.sandbox")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
@@ -642,8 +643,8 @@ local function test_the_relays_policy_grants_reads_alone(_tmp: string)
   SeatbeltFixture.macos_only()
   local policy = RelayStart.policy("/tmp/relay.db", string.rep("0", 64), true)
   assert(assert(policy.database).path == "/tmp/relay.db" and assert(policy.profiles)[1] == "system")
-  for _, grant in ipairs(policy.grants or {}) do
+  for _, grant in ipairs(Sandbox.paths(policy)) do
     assert(grant.letters == "r", grant.path .. " is granted " .. grant.letters)
   end
-  assert(#(policy.connect or {}) == 0 and #(policy.promises or {}) == 0)
+  assert(#(policy.connect or {}) == 0 and #Sandbox.calls(policy) == 0)
 end

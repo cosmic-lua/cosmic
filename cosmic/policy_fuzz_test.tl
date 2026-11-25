@@ -37,15 +37,18 @@ local function gen_policy(src: Fuzz.Source): {string:any}
   local fields: {string:any} = {}
   fields.profiles = list(src, PROFILES, 3) -- checked: map_field
   fields.isolate = list(src, ISOLATES, 3) -- checked: map_field
-  fields.promises = list(src, PROMISES, 5) -- checked: map_field
   fields.connect = list(src, TARGETS, 4) -- checked: map_field
   fields.loopback = list(src, ADDRESSES, 3) -- checked: map_field
   fields.env = list(src, NAMES, 4) -- checked: map_field
   if src:int(0, 2) == 0 then
     local grants: mut {{string:string}} = {}
-    while Fuzz.more(src, #grants, 4) do
-      grants[#grants + 1] = { path = Fuzz.pick(src, PATHS), letters = Fuzz.pick(src, LETTERS),
-        from = src:int(0, 3) == 0 and Fuzz.pick(src, PATHS) or nil } -- checked: and_ternary
+    while Fuzz.more(src, #grants, 6) do
+      if src:int(0, 2) == 0 then
+        grants[#grants + 1] = { calls = Fuzz.pick(src, PROMISES) }
+      else
+        grants[#grants + 1] = { path = Fuzz.pick(src, PATHS), letters = Fuzz.pick(src, LETTERS),
+          from = src:int(0, 3) == 0 and Fuzz.pick(src, PATHS) or nil } -- checked: and_ternary
+      end
     end
     if #grants > 0 then fields.grants = grants end -- checked: map_field
   end

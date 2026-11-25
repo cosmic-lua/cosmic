@@ -13,12 +13,12 @@ local Example = {} -- checked: literal_needs_type
 --- values for one limit are refused -- here, naming the limit, not the
 --- policies.
 function Example.union()
-  local reads: Sandbox.Policy = { grants = { { path = "/srv", letters = "r" } }, promises = { "fork" } }
-  local runs: Sandbox.Policy = { grants = { { path = "/srv", letters = "x" } }, promises = { "jit", "fork" } }
+  local reads: Sandbox.Policy = { grants = { { path = "/srv", letters = "r" }, { calls = "fork" } } }
+  local runs: Sandbox.Policy = { grants = { { path = "/srv", letters = "x" }, { calls = "jit" }, { calls = "fork" } } }
   local both = assert(Sandbox.union(reads, runs))
-  local grant = assert(assert(both.grants)[1])
-  print(grant.letters, table.concat(both.promises or {}, ",")) -- rx  fork,jit
-  assert(grant.letters == "rx" and table.concat(both.promises or {}, ",") == "fork,jit")
+  local grant = assert(Sandbox.paths(both)[1])
+  print(grant.letters, table.concat(Sandbox.calls(both), ",")) -- rx  fork,jit
+  assert(grant.letters == "rx" and table.concat(Sandbox.calls(both), ",") == "fork,jit")
   local clash, why = Sandbox.union({ limits = { open_files = 64 } }, { limits = { open_files = 128 } })
   print(why) -- sandbox: $.limits.open_files: given two values, 64 and 128
   assert(clash == nil)
@@ -30,10 +30,10 @@ end
 --- resolved by [`Sandbox.union`].
 function Example.profile()
   local cosmic = assert(Sandbox.profile("cosmic"))
-  local grant = assert(assert(cosmic.grants)[1])
+  local grant = assert(Sandbox.paths(cosmic)[1])
   assert(grant.path == assert(Proc.executable()) and grant.letters == "rx")
   local merged = assert(Sandbox.union({ profiles = { "cosmic" } }))
-  assert(merged.profiles == nil and assert(assert(merged.grants)[1]).path == grant.path)
+  assert(merged.profiles == nil and assert(Sandbox.paths(merged)[1]).path == grant.path)
   local none, why = Sandbox.profile("everything")
   print(why) -- sandbox: unknown profile "everything" (known: cosmic, proc, system)
   assert(none == nil)
