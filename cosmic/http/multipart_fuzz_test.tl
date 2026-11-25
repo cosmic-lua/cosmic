@@ -117,15 +117,16 @@ local function read_all(text: string, boundary: string, chunk: integer, step: in
   local reader, bad = Multipart.reader(ChunkedReaderFixture.drip(text, chunk), { boundary = boundary, max_parts = 8,
     max_header_bytes = 256, max_header_lines = 6 })
   if reader == nil then
-    out.failure = bad
+    out.failure = tostring(bad)
     return out
   end
   while true do
     local part, why = reader:next_part()
     if part == nil then
-      out.failure = why
+      out.failure = tostring(why)
       return out
     end
+    if part == false then return out end
     local pieces: mut {string} = {}
     local failure = ""
     while true do

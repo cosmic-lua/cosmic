@@ -492,7 +492,11 @@ branch's push runs nothing.
   `cosmic_ci/changed_paths.tl`: `build/launcher.tl`, `core/startup.c`,
   `ci/fixtures/` and the like), or the paths changed are not known, it
   also builds the artifacts and runs those fixtures, which nothing else
-  before main's push runs. Beside it, once the pull request is not a
+  before main's push runs. Beside it, `linux-x86_64-driver` (the
+  `driver` job) boots nothing and checks the pinned CI driver where those
+  paths reach what its tests read (`ci/`, `.github/`), as the queue's
+  does, so a ci/ change that breaks `cosmic_ci`'s own tests fails here
+  and not in a queue entry. Once the pull request is not a
   draft, `macos-aarch64` (part `suite`) runs macOS's native suite and
   darwin suite, as the queue's does; marking it ready runs the check
   again. GitHub gives no job a priority, so a draft's pushes leave the

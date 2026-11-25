@@ -229,3 +229,24 @@ local function test_the_code_a_shared_row_is_held_under_is_the_closure_of_fix_an
   local none, why = coded(nil, "core", "lang.check")
   assert(none == nil and why == "lang.check: its bytecode does not inflate", why)
 end
+
+--- A salt entry that ends in `/` takes in every `.tl` file under the directory: an edit to one, a file added and a
+--- file renamed (to a name that sorts in the same place, so only its path moves) each move it, and a file of another kind does not.
+local function test_a_directory_in_the_salt_moves_with_each_file_under_it(tmp: string)
+  local root = tmp .. "/salted"
+  assert(Fs.mkdirs(root .. "/lang/check"))
+  assert(Fs.write(root .. "/lang/check/init.tl", "-- one\n"))
+  local function salt(): string return check_memo.salt(root, { "lang/check/" }, "v") end
+  local base = salt()
+  assert(base == salt())
+  assert(Fs.write(root .. "/lang/check/notes.txt", "not a module\n"))
+  assert(base == salt(), "a file that is no module moved the salt")
+  assert(Fs.write(root .. "/lang/check/init.tl", "-- two\n"))
+  local edited = salt()
+  assert(edited ~= base, "an edit to a file under the directory left the salt as it was")
+  assert(Fs.write(root .. "/lang/check/context.tl", "-- one\n"))
+  local added = salt()
+  assert(added ~= edited, "a file added under the directory left the salt as it was")
+  assert(Fs.rename(root .. "/lang/check/context.tl", root .. "/lang/check/core.tl"))
+  assert(salt() ~= added, "a file renamed under the directory left the salt as it was")
+end

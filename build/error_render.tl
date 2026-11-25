@@ -20,7 +20,7 @@
 --- The build prints the errors of a compile through [`ErrorRender.line`] ([`build.pipeline`]).
 --
 -- TODO: list the fields a record declares in the fix of `field_unknown` where none is near (`R's fields: y`, which the
--- checker's fix does not say), once lang/check.tl's fix names them; this prints the checker's fix as
+-- checker's fix does not say), once lang/check/init.tl's fix names them; this prints the checker's fix as
 -- it is.
 local Driver = require("build.driver")
 local ParseDerive = require("build.parse_derive")

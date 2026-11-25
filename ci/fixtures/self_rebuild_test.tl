@@ -432,7 +432,7 @@ local function run_refusal_case(fixture_dir: string,
     local pin = tree .. "/vendor/lua/PIN"
     Fixture.write(pin, Fixture.read(pin) .. "\n# refusal fixture\n")
   elseif name == "tl-checker" then
-    local checker = tree .. "/lang/check.tl"
+    local checker = tree .. "/lang/check/init.tl"
     Fixture.write(checker, Fixture.read(checker) .. "\n-- refusal fixture\n")
   elseif name == "launcher" then
     local launcher = tree .. "/build/launcher.tl"
