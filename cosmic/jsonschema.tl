@@ -15,7 +15,8 @@
 --- below), `propertyNames`, `minProperties`, `maxProperties`, `dependentRequired`; `items`, `prefixItems`,
 --- `minItems`, `maxItems`, `uniqueItems`, `contains`, `minContains`, `maxContains`; `minLength`, `maxLength`;
 --- `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `multipleOf`; `allOf`, `anyOf`, `oneOf`, `not`,
---- `if`, `then`, `else`; and `$ref` to the schema's root (`#`) or to one of its `$defs` (`#/$defs/name`).
+--- `if`, `then`, `else`; and `$ref` to the schema's root (`#`) or to one of its `$defs` (`#/$defs/name`), or of
+--- `definitions`, the older name for them (`#/definitions/name`).
 --- `true` and `false` are schemas too. Words for a reader are let through and assert nothing: `$schema`, `$id`
 --- (at the root only), `$comment`, `title`, `description`, `default`, `examples`, `deprecated`, `readOnly`, `writeOnly`,
 --- `format` (an annotation in 2020-12), `contentMediaType`, `contentEncoding`, and any keyword that starts with

@@ -220,8 +220,8 @@ end
 --- values for one `set_env` name are (without saying them: they may be
 --- secrets). Two different `database`s are refused too. A name
 --- with a value in one policy and a digest in another must have the
---- value's digest. The result has no `profiles`, and every
---- list and table of it, empty or not, and `isolate` "file" holds "proc"
+--- value's digest. The result has no `profiles`, has every
+--- list and table, empty or not, and its `isolate` "file" holds "proc"
 --- too, which it implies: it is what [`PolicyJson.encode`] writes and
 --- [`Child.start`] meets. A value a policy's type does not stop -- an
 --- unknown profile, a letter outside "rwxcu", a malformed address -- is

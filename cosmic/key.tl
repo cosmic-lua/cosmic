@@ -409,7 +409,7 @@ local function sec1_secret(der_bytes: string, curve?: string): string?, string
 end
 
 --- The key of the DER PrivateKeyInfo `der_bytes` (RFC 5208), Ed25519,
---- P-256 or RSA, or nil and why.
+--- X25519, P-256 or RSA, or nil and why.
 local function pkcs8_key(der_bytes: string): Key.Secret?, string
   local parts = Der.sequence_of(der_bytes)
   local version = if parts == nil then nil else parts[1] end

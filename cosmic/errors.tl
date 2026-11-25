@@ -1,8 +1,10 @@
---- Saying where a failure happened.
+--- Saying where a failure happened: stack traces, and guidance beneath an uncaught error.
 ---
---- A failure travels as a value: `T | nil, string` for a value and
---- `boolean, string` for an effect. This is for the place that reports
---- one to a person, where the message alone is not enough.
+--- A failure travels as a value. Most calls return `(T) | (nil, Failure)`
+--- for a value and `(true) | (false, Failure)` for an effect
+--- ([`cosmic.failure`]); some still return `T?, string`. This
+--- is for the place that reports one to a person, where the message
+--- alone is not enough.
 
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
