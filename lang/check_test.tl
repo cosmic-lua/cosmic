@@ -2168,7 +2168,8 @@ local function test_the_hint_of_an_index_read_names_the_loop_and_the_checked_rea
   end
   local named = fix_of("local xs: {integer} = {}\nlocal i: integer = 2\nlocal n: integer = xs[i]\n", "index_may_be_nil")
   for _, part in ipairs({ "for i = 1, #xs do", "if i >= 1 and i <= #xs then", "Array.at(xs, i)", "xs[i]!", "ipairs(xs)",
-      "or <default>", "a wrong value" }) do
+      "or <default>", "a wrong value", "whose body calls no function or method but `math`'s",
+      "whose block calls none but `string`'s, `math`'s and `tostring`" }) do
     assert(has(named, part), part .. " is not in " .. named)
   end
   -- the loop is offered only for a local array read at a name

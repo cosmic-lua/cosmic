@@ -1204,9 +1204,9 @@ local function index_fix(ctx: Ctx, e: Ast.Index, t: Type): string
   local object, at = peel(e.object), peel(e.key)
   local parts = "iterate with `for _, v in ipairs(" .. xs .. ")`, "
   if object.kind == "Name" and at.kind == "Name" then
-    parts = parts .. "count the keys with `for " .. key .. " = 1, #" .. xs .. " do` or test the index with `if " .. key ..
-      " >= 1 and " .. key .. " <= #" .. xs .. " then` (a body that leaves " .. quoted(xs) .. " alone reads " ..
-      quoted(read) .. " as a value), "
+    parts = parts .. "count the keys with `for " .. key .. " = 1, #" .. xs .. " do`, whose body calls no function or " ..
+      "method but `math`'s, or test the index with `if " .. key .. " >= 1 and " .. key .. " <= #" .. xs .. " then`, " ..
+      "whose block calls none but `string`'s, `math`'s and `tostring` (either reads " .. quoted(read) .. " as a value), "
   end
   return parts .. "read it with `Array.at(" .. xs .. ", " .. key .. ")` (`cosmic.array`: raises when missing)" ..
     (if flag then ", " .. named else " or `" .. read .. "!`" end) .. ", or test it (`local v = " .. read .. " if v ~= nil then ... end`); `or <default>` turns an out-of-range " ..
