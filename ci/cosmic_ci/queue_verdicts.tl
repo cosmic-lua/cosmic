@@ -202,10 +202,13 @@ end
 
 --- What a merge-queue run that failed left for its pull request's next
 --- try. A queue run saves no cache, so what a try whose suite the
---- deadline stopped (COSMIC_TEST_DEADLINE) reached is kept only here: each
---- of its legs uploads the rows it used as `queue-tried-verdicts-<job>`,
---- and the next run of the same pull request takes them in before its
---- suites.
+--- deadline stopped (COSMIC_TEST_DEADLINE) reached is kept only here,
+--- and the next run of the same pull request takes it in before its
+--- suites: a release leg that failed uploads the rows it used as
+--- `queue-tried-verdicts-<job>`, and one whose suite passed left them as
+--- `queue-verdicts-<leg>` for main's push; a checked shard and the
+--- narrowing suite upload theirs as `queue-tried-verdicts-<job>` whether
+--- they pass or fail.
 ---
 --- Only a try built on main with this try's change. A merge-queue commit
 --- holds the entries queued ahead of it too, and an entry dropped from the
@@ -222,10 +225,11 @@ end
 --- the jobs it did not run again, so what GitHub says of its jobs need
 --- not be of the attempt that uploaded the rows.
 ---
---- A job that passed in a run that failed left its rows too: a release
---- leg's suite as `queue-verdicts-<leg>`, for main's push, and a checked
---- shard or the narrowing suite under its tried name, which it uploads
---- passing or failing.
+--- TODO: upload the rows a release leg's product, portable and
+--- regressions parts used where they pass too, so the next try reruns
+--- none of their suites whole, once a day of the checked and narrowing
+--- jobs' uploads shows what one costs (a leg's `queue-verdicts` is some
+--- 44 MB).
 
 --- How many of the newest failed merge-queue runs are read for the pull
 --- request's: some 14 hours of the queue's failures on 2026-11-24.
@@ -442,9 +446,10 @@ end
 --- commit of main with the change SHA makes over BASE_SHA (this run's),
 --- and refused its ref's caches before and after its jobs; and the one
 --- ARTIFACT it uploaded, or else the one PASSED_ARTIFACT, where it names
---- one: what this job uploads where it passes in a run that failed. Where it finds none it says why and writes
---- nothing: the run's suites run their tests. 2 where the step names no
---- queue ref, artifact, repository, base or commit, else 0.
+--- one: what this job uploads where its suite passes. Where it finds
+--- none it says why and writes nothing: the run's suites run their
+--- tests. 2 where the step names no queue ref, artifact, repository, base
+--- or commit, or a PASSED_ARTIFACT that is no artifact's name, else 0.
 function QueueVerdicts.find_tried(env: {string:string}, host: Github.Host): integer
   local ref, name, repository = env["HEAD_REF"] or "", env["ARTIFACT"] or "", env["GITHUB_REPOSITORY"] or ""
   local passed = env["PASSED_ARTIFACT"] or ""

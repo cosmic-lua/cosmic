@@ -564,13 +564,14 @@ while the run ran. A cache GitHub evicted before the second listing goes
 unseen.
 
 A queue leg that failed uploads the rows it used too
-(`queue-tried-verdicts-<job>`, kept a day), as a checked shard or the
-narrowing suite does passing or failing; a release leg's suite that
-passed left them as `queue-verdicts-<leg>`. The next try of the same
-pull request finds the newest failed run that has ended and holds that
-job's artifact, or else that leg's (`driver.tl queue-tried-run`), and
-merges it in before its suites, so a suite the deadline stopped (COSMIC_TEST_DEADLINE) keeps its
-passes for that try. The code a run ran can write any row, so it takes a
+(`queue-tried-verdicts-<job>`, kept a day). A checked shard and the
+narrowing suite upload theirs whether they pass or fail, and a release
+leg's suite that passed left its rows as `queue-verdicts-<leg>`. The
+next try of the same pull request finds the newest failed run that has
+ended and holds that job's artifact, or else that leg's
+(`driver.tl queue-tried-run`), and merges it in before its suites, so a
+suite the deadline stopped (COSMIC_TEST_DEADLINE) keeps its passes for
+that try. The code a run ran can write any row, so it takes a
 run only where GitHub's record shows that run ran merged code and this
 try's change: the commit its entry was put on is on main (a queue commit
 holds the entries ahead of it too, and one dropped from the queue never
@@ -595,9 +596,9 @@ them (`compiles-<leg>-queue-<sha>`), and main's push boots on them in
 place of the entry it restored, so a pull request or a queue entry that
 boots soon after a merge takes them rather than compiling the tree from
 cold (about a minute).
-No other markers, products or verdicts pass between
-runs: the queue's product jobs and its checked and narrowing jobs relay
-nothing, so main's push runs those rows again.
+No other markers, products or verdicts reach main's push: the queue's
+product jobs and its checked and narrowing jobs relay nothing to it, so
+it runs those rows again.
 
 `COSMIC_CI_SAVES` is `true` only for a push to main and the scheduled runs,
 the only runs that save a cache, and is decided in the top-level `env`. The

@@ -1787,17 +1787,16 @@ local function test_only_main_saves_and_only_the_queue_relays_to_main()
 end
 
 --- A merge-queue run takes in what the last failed try of its pull
---- request reached, before each job's suite, and a failed try uploads
---- that under the job's own name, in the release legs, the checked
---- shards and the narrowing suite; neither takes part outside the queue, and
---- none of their steps fails the job.
+--- request reached, before each job's suite: what each release leg, checked
+--- shard and the narrowing suite uploaded under the job's own name, or a
+--- release leg's suite's verdicts for main's push. None of the steps takes
+--- part outside the queue or fails the job.
 local function test_a_queue_try_stands_on_its_pull_requests_last_failed_try()
-  -- Each job that runs a suite in the queue: its suite step and its artifact.
   -- Each job that runs a suite in the queue: its suite step, its artifact, what its upload
   -- of its rows waits on, and the artifact it reads where a try passed in a run that
   -- failed. A release leg's suite that passed left them for main's push
   -- ("upload the merge queue's verdicts"); the others upload theirs passing or failing.
-  local release = "${{ (matrix.part == 'all' || matrix.part == 'suite') && format('queue-verdicts-{0}', matrix.leg) || '' }}"
+  local release = "${{ matrix.part == 'suite' && format('queue-verdicts-{0}', matrix.leg) || '' }}"
   for _, leg in ipairs({
       { "platform", "release-suite", "queue-tried-verdicts-${{ matrix.name }}", "job.status == 'failure' && ", release },
       { "checked", "checked-suite", "queue-tried-verdicts-${{ matrix.name }}", "", "" },
