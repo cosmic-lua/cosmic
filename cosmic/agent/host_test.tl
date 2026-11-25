@@ -61,6 +61,11 @@ local function test_the_helpers_do_as_their_commands_do(tmp: string)
     return l:match("%S+$") or l
   end)
   assert(table.concat(by_path, ",") == "0a a.md,f0 b.md,0a c.md", table.concat(by_path, ","))
+  -- Records sort by a key, those of one key in their order, and the list given is left as it was.
+  local items = { { id = "b", n = 1 }, { id = "a", n = 2 }, { id = "b", n = 3 } }
+  local sorted = Host.sort_by(items, function(i: { id: string, n: integer }): string return i.id end)
+  assert(sorted[1]!.n == 2 and sorted[2]!.n == 1 and sorted[3]!.n == 3 and items[1]!.n == 1 and #sorted == 3)
+  sorted[#sorted + 1] = { id = "c", n = 4 }
   assert(#Host.top({ a = 1 }, -1) == 0 and #Host.find(tmp .. "/d/", "") == 3 and Host.find(tmp .. "/d/")[1] == files[1])
   Host.write(tmp .. "/d/crlf.txt", "a\r\nb\r\n")
   assert(Host.lines(tmp .. "/d/crlf.txt")[1] == "a" and assert(Host.grep("a$", { tmp .. "/d/crlf.txt" })[1]).text == "a")

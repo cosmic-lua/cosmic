@@ -6,7 +6,7 @@ Host (cosmic.agent.host), Fs (cosmic.fs) and Json (cosmic.json) need no require.
 - Host.cat(path) -> string; Host.lines(path) -> {string}; Host.wc(path) -> integer, its newlines as `wc -l`; Host.write(path, text or {lines}); Host.exists(path) -> boolean.
 - Host.grep(pattern, paths, plain?) -> {{"{{"}}path, line, text}}: the lines that hold a pattern (`%d`, `%.`, `[^/]+`; no regex).
 - Host.sed(path, pattern, replacement, plain?) -> integer: replaces every match, line by line (`%1` a capture).
-- Host.sort(list, by?) -> mut {string}, a new list, by the key `by(item)` gives where given; Host.uniq(keys) -> {string: integer}, each key's count; Host.top(counts, n?) -> {{"{{"}}key, count}}, most first, ties by key.
+- Host.sort(list, by?) -> mut {string}, a new list, by the key `by(item)` gives where given; Host.sort_by(items, by) -> mut {T}, the same for a list of records (`Host.sort_by(items, function(i: Item): string return i.id end)`); Host.uniq(keys) -> {string: integer}, each key's count; Host.top(counts, n?) -> {{"{{"}}key, count}}, most first, ties by key.
 - Host.bash(command) -> {output, ok, code}; Host.store(key, value) / Host.load(key).value.
 - Host.output(id) -> string: a cut output as sessions.db keeps it, by the id its note names. Host.history(query) -> {row}: one read-only SQLite statement on sessions.db, where every session and each tool's whole output is kept, for what was cut or seen before. {{.tables}}
 - Host.fetch(url, {method?, headers?, body?, any_status?}?) -> {status, headers, body}: no redirect followed; a status of 400 or more raises, with the start of its body, unless any_status = true; public addresses with --network, and the targets of --connect.
@@ -16,7 +16,7 @@ Host (cosmic.agent.host), Fs (cosmic.fs) and Json (cosmic.json) need no require.
 
 The checker refuses, so write:
 - A table you fill is declared: `local out: mut {string} = {}`, `local n: mut {string: integer} = {}`; append with `out[#out + 1] = v`.
-- A local that starts nil is optional: `local cursor: string? = nil`; test it with `if cursor ~= nil then`. A local of a plain type is never compared with nil.
+- A local that starts nil, or may become nil (a page cursor), is optional: `local cursor: string? = nil`, `local page: integer? = 1`; test it with `if cursor ~= nil then`. A local of a plain type is never compared with nil.
 - A local function declares its parameters and results: `local function f(x: integer): string`.
 - A read that may be nil (`t[i]`, `m[k]`, `s:match(...)`, `tonumber(s)`) is tested, given a default (`m[k] or 0`) or taken with `!` (`t[i]!`), which raises where it is nil. Walk a list with ipairs, a map with pairs.
 - A condition is a boolean or an optional of no boolean: `if s ~= "" then`; for a {string: boolean} set, `if seen[k] == nil then`.

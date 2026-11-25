@@ -571,6 +571,26 @@ function Host.sort(list: {string}, by?: function(string): string): mut {string}
   return Shell.sort(list, by)
 end
 
+--- A sorted copy of `list`, any kind of item, by the key `by` gives each (`Host.sort_by(items, function(i: Item):
+--- string return i.id end)`), as `LC_ALL=C sort` orders bytes; items of one key keep their order.
+function Host.sort_by<T>(list: {T}, by: function(T): string): mut {T}
+  local keys: mut {string} = {}
+  local order: mut {integer} = {}
+  for i, v in ipairs(list) do
+    local key = by(v)
+    keys[#keys + 1] = key
+    order[#order + 1] = i
+  end
+  table.sort(order, function(a: integer, b: integer): boolean
+    local ka, kb = keys[a]!, keys[b]!
+    if ka ~= kb then return ka < kb end
+    return a < b
+  end)
+  local out: mut {T} = {}
+  for _, i in ipairs(order) do out[#out + 1] = list[i]! end
+  return out
+end
+
 --- The rows of `statement` on the SQLite file `path` ([`Shell.sqlite`]); raises where it
 --- fails.
 function Host.sqlite(path: string, statement: string, values?: {Json.Value}): mut {Host.Row}
