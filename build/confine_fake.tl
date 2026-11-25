@@ -1,5 +1,7 @@
 --- The fake of the confine tests (build/confine_test.tl,
---- build/confine_tool_test.tl and those of build/must_confine_fixture.tl),
+--- build/confine_tool_test.tl, build/confine_forbid_tool_test.tl,
+--- build/test_sandbox_system_confined_test.tl and those of
+--- build/must_confine_fixture.tl),
 --- run as a [`cosmic.fake`] main by a process [`build.confine`] confines.
 --- Its first argument names the case and the rest are that case's words.
 
@@ -17,6 +19,12 @@ local cases: {string:function({string}): integer} = {
   exists = function(words: {string}): integer
     if Steps.exists(words[1]!) then return 3 end
     return 0
+  end,
+  -- Ends with 3 where `words[1]`, which a confined process is given, is
+  -- not there.
+  ["present-or-3"] = function(words: {string}): integer
+    if Steps.exists(words[1]!) then return 0 end
+    return 3
   end,
   -- Ends with 3 where `words[1]` is there; copies `words[2]` to
   -- `words[3]` where it is not.

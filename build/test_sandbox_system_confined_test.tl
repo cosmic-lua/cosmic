@@ -9,6 +9,8 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local confine = require("build.confine")
 local Fake = require("cosmic.fake")
+-- Required, so the fake's main is of this test's closure.
+local _fake = require("build.confine_fake")
 local support = require("build.test_support_fixture")
 local Test = require("cosmic.test")
 
@@ -27,13 +29,13 @@ Test.policy{
 --- module declares `system`. Where the kernel cannot confine it, it runs
 --- unconfined, and sees /usr all the same.
 local function test_a_confined_process_is_given_the_system_s_paths(tmp: string)
-  local probe = assert(Fake.build(tmp .. "/fake"))
+  local probe = assert(Fake.build(tmp .. "/fake", "build.confine_fake"))
   local own = tmp .. "/own"
   assert(Fs.mkdirs(own))
   local code: support.Cell<integer> = {}
   local ran = confine.call(function() -- checked: not_assignable
     confine.confine({ reads = { probe } })
-    local r = assert(Child.run({ probe, "present /usr || exit 3" }, { timeout_ns = Child.FOREVER, env = {} }))
+    local r = assert(Child.run({ probe, "present-or-3", "/usr" }, { timeout_ns = Child.FOREVER, env = {} }))
     confine.confine(nil)
     code.value = r.code
   end, nil, { own })

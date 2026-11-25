@@ -12,6 +12,6 @@ Test.policy{
 }
 
 local function test_a_sandboxed_hung_workers_orphan_is_ended(tmp: string)
-  local probe = assert(Fake.build(tmp .. "/fake"))
+  local probe = assert(Fake.build(tmp .. "/fake", fixture.FAKE))
   fixture.hung_runs(tmp, probe, true)
 end
