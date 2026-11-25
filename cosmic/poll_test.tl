@@ -457,7 +457,7 @@ local function test_answer_wakes_the_waits_on_a_descriptor_with_its_events(tmp: 
   local reader, writer = fifo(tmp, "a")
   local readable: boolean = false
   local answers: {integer}? = nil
-  local woken_for_room = false
+  local room_answer: integer? = nil
   Poll.run(function()
     local one = Poll.spawn(function()
       local ready, _ = Poll.readable(reader, Clock.seconds(5))
@@ -466,17 +466,19 @@ local function test_answer_wakes_the_waits_on_a_descriptor_with_its_events(tmp: 
     local both = Poll.spawn(function()
       answers = assert(Poll.ready({ writer, reader }, { sys.POLLIN, sys.POLLIN }, Clock.seconds(5)))
     end)
-    -- A wait for room on it asked for none of the events: it stays parked.
+    -- A wait for room on it asked for none of the events: it is not told them. (Whether the system answers it on its
+    -- own differs: macOS answers a wait for room on a FIFO's read end.)
     local other = Poll.spawn(function()
-      local _, _ = Poll.wait(reader, sys.POLLOUT, Clock.seconds(5))
-      woken_for_room = true
+      local got, _ = Poll.ready({ reader }, { sys.POLLOUT }, Clock.seconds(5))
+      if got ~= nil then room_answer = got[1] end
     end)
     assert(Clock.sleep(0))
     Poll.answer(reader, sys.POLLIN)
     assert(one:join(Clock.seconds(1)))
     assert(both:join(Clock.seconds(1)))
     assert(Clock.sleep(Clock.ms(20)))
-    assert(not woken_for_room, "a wait for room was answered with what it did not ask")
+    local room = room_answer
+    assert(room == nil or room & sys.POLLIN == 0, "a wait for room was answered with what it did not ask")
     other:cancel()
     local _, _ = other:join()
     Test.raises(function() Poll.answer(-1, sys.POLLIN) end, "fd must be a descriptor")
