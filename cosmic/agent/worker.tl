@@ -24,10 +24,10 @@
 --- refuses; what it keeps for the next it keeps with [`Host.store`], or writes to a file. Its standard input is /dev/null.
 ---
 --- Under a policy the worker is held as bash is, with these changes. Where it runs no commands
---- ([`Worker.Options.commands`] false), on Linux it keeps no right to run a file but this program's own, and has no
---- fork promise, so no program runs; on macOS it keeps them (Seatbelt's `x` maps libraries too). Beside that: it is granted this program's own file (read and
---- run), which it runs as, and it is not given the nest promise, beside which this program cannot be started again, so
---- Landlock holds its files too. Its environment is the policy's alone, so no key of the user's reaches it. With no
+--- ([`Worker.Options.commands`] false), on Linux no grant keeps `x`, and it has no fork promise, so no program runs; on
+--- macOS the grants keep `x` (Seatbelt's `x` maps libraries too). Beside that: it runs as this program, whose core its
+--- start runs with no grant of its file, and it is not given the nest promise, beside which this program cannot be
+--- started again, so Landlock holds its files too. Its environment is the policy's alone, so no key of the user's reaches it. With no
 --- policy (`--sandbox off`) it has the agent's whole environment, the API key included, as bash does then.
 
 local Child = require("cosmic.child")
@@ -165,9 +165,11 @@ local function started(set: Worker.Set, opts: Worker.Options): (Stream.Lines) | 
     local strip = not runs and not Sandbox.on_macos()
     for _, grant in ipairs(Sandbox.paths(merged)) do
       -- With no commands, no grant runs a file. The worker is this program, which its start runs as its core
-      -- whatever the policy grants, and the core holds its policy again at boot without that `rx`: with no grant left
-      -- with `x` the exec filter holds too, so the worker cannot become another program, nor run itself again. A
-      -- grant of `x` alone is then no grant.
+      -- whatever the policy grants. Outside `isolate` file the core holds its policy again at boot without that `rx`:
+      -- with no grant left with `x` the exec filter holds too, so the worker cannot become another program, nor run
+      -- itself again. A grant of `x` alone is then no grant.
+      -- TODO: under `isolate` file (the agent's Linux policy) the core's `rx` stays the worker's, so it may execve its
+      -- own core again (held as it is, with no fork); Child.start's boot layer under `isolate` file would close it.
       local letters = if not strip then grant.letters else (grant.letters:gsub("x", "")) end
       if letters ~= "" then
         grants[#grants + 1] = { path = grant.path, letters = letters, from = grant.from }

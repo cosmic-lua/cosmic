@@ -2997,7 +2997,6 @@ local function this_program(name: string, cwd: string?): string?
   return own
 end
 
-
 --- The path of the first of `grants` that reaches `file`, a real path
 --- (the grant is at it or above it, where it is a directory), as the
 --- grant names it; "" for none. A relative grant is from `base`, this
@@ -3351,7 +3350,9 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
     -- The child reads each path from where it starts, so it is handed
     -- the real one, not one relative to this process's directory.
     local real, _ = sys.realpath(at)
-    if grant ~= core_grant then layer[#layer + 1] = { path = real or at, access = grant.letters } end
+    if grant ~= core_grant then
+      layer[#layer + 1] = { path = real or at, access = grant.letters }
+    end
     if lettered(grant.letters, "u") then unix = true end
   end
   local env: mut {string:string} = {}

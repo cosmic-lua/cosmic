@@ -77,8 +77,8 @@ local function test_a_snippet_of_no_commands_runs_no_program()
 end
 
 --- A policy stacked of layers that each grant this program's own file, and name no profile, still starts the worker
---- of no commands, its core the start's alone, and the worker runs nothing again, itself included.
-local function test_layers_that_grant_this_program_start_a_worker_of_no_commands_that_runs_nothing()
+--- of no commands, and the grant loses its `x`: the worker cannot run that file.
+local function test_layers_that_grant_this_program_start_a_worker_of_no_commands_that_cannot_run_it()
   local dir = assert(Fs.mkdtemp("agent-worker-"))
   local own = assert(Proc.executable())
   local base = assert(Policy.of(dir, { mode = "write", network = false, grants = {} }))
@@ -90,13 +90,10 @@ local function test_layers_that_grant_this_program_start_a_worker_of_no_commands
   end
   assert(granted and p.profiles == nil, "the layers grant this program")
   local w = Worker.new()
-  local code = "local Child = require(\"cosmic.child\")\nlocal Proc = require(\"cosmic.proc\")\n" ..
-    "local res, _ = Child.run({ assert(Proc.executable()), \"--version\" }, { timeout_ns = 10000000000 })\n" ..
-    "local sys = require(\"cosmic.sys\")\n" ..
-    "local done, _, _ = sys.execve(assert(Proc.executable()), { \"cosmic\", \"--version\" }, {})\n" ..
-    "return { ran = res ~= nil and res.ok, execed = done == true }\n"
+  local code = "local Proc = require(\"cosmic.proc\")\nlocal sys = require(\"cosmic.sys\")\n" ..
+    "local done, _, errno = sys.execve(assert(Proc.executable()), { \"cosmic\", \"--version\" }, {})\n" ..
+    "return not done and (errno == sys.EPERM or errno == sys.EACCES)\n"
   local answer = assert(Worker.run(w, code, { cwd = dir, policy = p, seconds = 60, commands = false }))
-  local value, _ = Json.to_object(answer["value"])
-  assert(answer["ok"] == true and value ~= nil and value["ran"] == false and value["execed"] == false, shown(answer))
+  assert(answer["ok"] == true and answer["value"] == true, shown(answer))
   Worker.close(w)
 end
