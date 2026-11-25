@@ -197,18 +197,28 @@ local probe_module <const> = "cosmic.internal.fake_probe"
 local core_requires <const>: {string} = { "cosmic.errors" }
 
 --- Builds a fake under `dir`, made if it is not there, and returns
---- the path of the executable, `dir/probe`. It runs its first argument as
---- its script, with the rest its arguments, or the script `place` wrote
---- beside a copy of it. Nil and a Failure where `dir` cannot be made or
---- written, or where this process has no artifact of its own to take
---- its core from.
-function Fake.build(dir: string): (string) | (nil, Failure)
+--- the path of the executable, `dir/probe`. With no `main`, it runs its
+--- first argument as its script, with the rest its arguments, or the
+--- script `place` wrote beside a copy of it. With `main`, the name of a
+--- module this process holds -- one its test requires, so it is of the
+--- test's import closure -- it runs that module as a program, as
+--- `cosmic build` would make one of it: a function of the arguments that
+--- returns the exit status. Nil and a Failure where `dir` cannot be made
+--- or written, `main` is not held, or this process has no artifact of
+--- its own to take its core from.
+function Fake.build(dir: string, main?: string): (string) | (nil, Failure)
   local made, trouble = Fs.mkdirs(dir)
   if not made then return nil, trouble end
-  local roots: mut {string} = { probe_module }
+  local runs = main or probe_module
+  local roots: mut {string} = { runs }
   for _, name in ipairs(core_requires) do roots[#roots + 1] = name end
+  local found, names = pcall(Store.closure, roots)
+  if not found then
+    return nil, Failure.new("building the fake: " .. tostring(names) .. ": require " .. runs ..
+      " from the test, so this process holds it")
+  end
   local database = dir .. "/probe.db"
-  local sealed, seal_trouble = Store.seal(Store.closure(roots), database, { main = probe_module, data = false })
+  local sealed, seal_trouble = Store.seal(names, database, { main = runs, data = false })
   if sealed == nil then
     return nil, Failure.new("building the fake: " .. tostring(seal_trouble))
   end
