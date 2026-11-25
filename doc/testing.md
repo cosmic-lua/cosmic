@@ -550,15 +550,33 @@ sandbox.
 A test that needs an outside program to start -- a fake `git`, a
 process to leave running, a child to sandbox -- starts a fake
 ([`cosmic.fake`]), not a shell script. A fake is a static
-executable of the running core that runs a small script of commands.
-It needs no /bin/sh and no environment, so the test declares nothing
-for it.
+executable of the running core. It needs no /bin/sh and no
+environment, so the test declares nothing for it.
+
+A fake runs a module of the tree as its program: one that returns a
+`function(argv: {string}): integer`. The test requires
+that module, so the module is in the test's import closure, and the
+fake carries it. [`Fake.place`] copies the fake and writes the text
+that the copy reads with [`Fake.given`].
 
 ```text
+-- build/git_fake.tl
 local Fake = require("cosmic.fake")
-local program = assert(Fake.build(tmp .. "/fake"))
-assert(Fake.place(program, tmp .. "/bin/git", "print abc1234"))
+local function main(argv: {string}): integer
+  print(Fake.given() or "")
+  return 0
+end
+return main
+
+-- the test
+local Fake = require("cosmic.fake")
+local _ = require("build.git_fake")
+local program = assert(Fake.build(tmp .. "/fake", "build.git_fake"))
+assert(Fake.place(program, tmp .. "/bin/git", "abc1234"))
 ```
+
+A fake built with no module runs a small script of commands
+instead. That command language is going away.
 
 ## host requirements
 
@@ -1400,6 +1418,8 @@ Other rules:
 [`declared_key.host_split`]: ../build/declared_key.tl
 [`doc/performance.md`]: performance.md
 [`FactWraps.once`]: ../lang/fact_wraps.tl
+[`Fake.given`]: ../cosmic/fake.tl
+[`Fake.place`]: ../cosmic/fake.tl
 [`Fs.mkdtemp`]: ../cosmic/fs.tl
 [`Fuzz.label`]: ../build/fuzz/init.tl
 [`Fuzz.more`]: ../build/fuzz/init.tl
