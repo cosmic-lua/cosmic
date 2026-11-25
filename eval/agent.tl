@@ -288,7 +288,7 @@ return function(argv: {string}): integer
 end
 ]==]
 
---- The inventory web API, the same items over HTTP at a loopback port the kernel chose: GET /items?page=N answers
+--- The inventory web API, the same items over HTTP at a loopback port the kernel chose: the server replies to GET /items?page=N with
 --- JSON, `{items, next}`, 40 items a page, each with every field, and `next` the page after it, which the last
 --- page has not. It writes its port to the file its second argument names once it serves.
 local INVENTORY_SITE <const> = [==[
@@ -339,7 +339,7 @@ end
 ]==]
 
 --- A server that is there to be passed over: it lists the tools its data names, a line each as
---- `name<TAB>description<TAB>param,param`, each taking those string parameters, and answers any call with
+--- `name<TAB>description<TAB>param,param`, each taking those string parameters, and replies to any call with
 --- nothing found.
 local DECOY_SERVER <const> = [==[
 local Failure = require("cosmic.failure")
@@ -416,7 +416,7 @@ local function many_servers(): {Agent.Server}
   return out
 end
 
---- The sales web API: GET /sales.csv answers the sales as CSV (RFC 4180), a header `region,customer,amount_cents`
+--- The sales web API: GET /sales.csv replies with the sales as CSV (RFC 4180), a header `region,customer,amount_cents`
 --- then a row each, a field quoted where it holds a comma or a double quote. It writes its port to the file its
 --- second argument names once it serves.
 local SALES_SITE <const> = [==[
@@ -457,8 +457,8 @@ return function(argv: {string}): integer
 end
 ]==]
 
---- The log web API: GET /log answers the event log, as plain text, once; every request after the first is
---- answered 410, so a question about the log after the first turn is answered from sessions.db. It writes its port to the file its second argument names once it serves.
+--- The log web API: GET /log replies with the event log, as plain text, once; every request after the first is
+--- refused with 410, so a question about the log after the first turn must be settled from sessions.db. It writes its port to the file its second argument names once it serves.
 local LOG_SITE <const> = [==[
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")

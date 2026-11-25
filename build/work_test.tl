@@ -12,6 +12,7 @@ local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 local identity = require("build.identity")
 local work = require("build.work")
+local work_schema = require("build.work_schema")
 local build_paths = require("build.paths")
 local support = require("build.test_support_fixture")
 
@@ -1122,5 +1123,5 @@ end
 --- The schema the checker reads a handle's SQL against is the statements a file is made of, joined, the analysis's
 --- among them.
 local function test_the_schema_is_the_statements_joined(_: string)
-  assert(work.Database.ddl == table.concat(work.schema, ";\n"))
+  assert(work_schema.Database.ddl == table.concat(work.schema, ";\n"))
 end

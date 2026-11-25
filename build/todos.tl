@@ -20,6 +20,8 @@
 --- ([`reboot.unchecked`]), it stages and blames nothing and lists what
 --- is committed there (`read`).
 
+local work_schema = require("build.work_schema")
+local type Database = work_schema.Database
 local Child = require("cosmic.child")
 local Signal = require("cosmic.signal")
 local Verb = require("cosmic.cli.todos")
@@ -404,7 +406,7 @@ end
 --- Every TODO in the staged tree with what is known of its blame, in
 --- file and line order: a row with no blame for `head` has `commit` ""
 --- and `blamed` false.
-local function rows_of(db: Sqlite.Handle, head: string): {Row}?, string
+local function rows_of(db: Database, head: string): {Row}?, string
   local answered, answer_why = db:map(
     "SELECT f.path, t.line, t.last, t.text, t.sha256, b.commit_id, " ..
       "b.author_time, b.summary, b.boundary, t.id FROM " ..
@@ -442,7 +444,7 @@ end
 --- touched, or every file when the earlier `HEAD` is not an ancestor of
 --- this one -- a rebase or a reset, which may have dropped the commits
 --- the rows name -- is left to be blamed again.
-local function carry_forward(db: Sqlite.Handle, root: string, head: string,
+local function carry_forward(db: Database, root: string, head: string,
                              run_git: GitRunner?): boolean, string
   if head == "" then
     return true, ""
@@ -492,7 +494,7 @@ end
 --- Blames every row not yet blamed for `head`, one git call per file,
 --- keeping what it says in `blames`, and drops the rows there no TODO
 --- stands on any more. Returns how many files it blamed.
-local function blame_rows(db: Sqlite.Handle, root: string, head: string,
+local function blame_rows(db: Database, root: string, head: string,
                           rows: {Row}, run_git: GitRunner?): integer?, string
   local pruned, prune_trouble = db:run(
     "DELETE FROM blames WHERE head != ?1 OR NOT EXISTS (SELECT 1 FROM " ..
@@ -564,7 +566,7 @@ end
 --- in file and line order, and how many files had to be blamed. `run_git`,
 --- where given, runs every git call in the system's place (a test's
 --- recorded output); the tree must still lie in a repository.
-function todos.list(db: Sqlite.Handle, root: string,
+function todos.list(db: Database, root: string,
                     run_git?: function(root: string, args: {string}): string?
 ): todos.Listing?, string
   local head = head_of(root, run_git)
@@ -587,7 +589,7 @@ end
 --- nothing: a TODO not yet blamed for `HEAD` is listed with no commit,
 --- and none is blamed. What `todos` lists from a working database
 --- another run holds the write lock of.
-local function read(db: Sqlite.Handle, root: string): todos.Listing?, string
+local function read(db: Database, root: string): todos.Listing?, string
   local rows, trouble = rows_of(db, head_of(root, nil))
   if rows == nil then
     return nil, trouble
@@ -607,7 +609,7 @@ end
 --- where a `#` or `*` line is a heading or a list item rather than a
 --- comment. Read apart here, since a row is the bytes' alone and says
 --- nothing of the file's name.
-local function misses_of(db: Sqlite.Handle): {Miss}?, string
+local function misses_of(db: Database): {Miss}?, string
   local answered, answer_why = db:map(
     "SELECT f.path, m.line, m.spelling FROM " ..
       "(SELECT path, sha256 FROM files UNION SELECT path, sha256 FROM tool " ..
@@ -709,7 +711,7 @@ end
 --- best first from 1. The query is FTS5's own syntax -- a "phrase",
 --- OR, a prefix* -- when it parses as that, and its words, each quoted
 --- and every one required, when it does not (as [`cosmic.sys`] does not).
-function todos.search(db: Sqlite.Handle, query: string): {integer:integer}?, string
+function todos.search(db: Database, query: string): {integer:integer}?, string
   local sql = "SELECT rowid FROM todos_fts WHERE todos_fts MATCH ?1 ORDER BY rank"
   local first, _ = db:text_rows(sql, { { text = query } })
   local rows: Sqlite.Rows = {}
@@ -816,7 +818,7 @@ function todos.run(argv: {string}, at?: string, seen?: reboot.Seen): integer
     end
     handle, other = opening.handle, opening.other_schema
   end
-  local db: Sqlite.Handle
+  local db: Database
   if handle ~= nil then
     -- TODO: blame outside the write transaction. A free database is
     -- staged and blamed, one git run per file, under its write lock, so
@@ -872,7 +874,19 @@ function todos.run(argv: {string}, at?: string, seen?: reboot.Seen): integer
       log:complain("todos: no TODOs listed, the working database being staged by another tool's code")
       return 1
     end
-    db = readable
+    -- A file whose tables are not this tool's, though its stamps say so, is read no more than another tool's is.
+    local typed, typed_trouble = Sqlite.hold(readable, work_schema.Database)
+    if typed == nil then
+      local _, _ = readable:close()
+      if typed_trouble.code ~= nil then
+        log:complain("todos: " .. tostring(typed_trouble))
+        return 1
+      end
+      work.tell_other_schema("todos", working, "of another shape", root)
+      log:complain("todos: no TODOs listed, the working database being another tool's")
+      return 1
+    end
+    db = typed
   end
   -- Each step's trouble ends the run with `db` let go: a handle's, as a
   -- build abandons it; a read's, closed.

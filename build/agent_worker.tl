@@ -4,12 +4,12 @@
 --- standard library is not lowered again for the next, and runs the snippet only where the checker passes it: a snippet
 --- is checked as `cosmic -e` checks a chunk, and reaches only `cosmic.*`.
 ---
---- It reads requests, one JSON object a line, on standard input, and answers each with one line on standard output:
+--- It reads requests, one JSON object a line, on standard input, and responds to each with one response line on standard output:
 ---
 ---     {"id":1,"code":"print(1)"}
 ---     {"id":1,"ok":true,"output":"1\n"}
 ---
---- An answer holds the request's `id` and one of:
+--- A response line holds the request's `id` and one of:
 ---
 ---     "refused": ["run.tl:1:7: ..."]   the checker's lines; the snippet did not run
 ---     "ok": true, "output": "..."      it ran: what it wrote to standard output and
@@ -44,22 +44,22 @@ local standalone = require("build.standalone")
 local sys = require("cosmic.sys")
 
 local record worker
-  --- `cosmic agent worker`: answers requests on standard input until it ends. 0 at its end, 1 where it could not start.
+  --- `cosmic agent worker`: responds to requests on standard input until it ends. 0 at its end, 1 where it could not start.
   main: function(): integer
 end
 
---- An answer, as it is sent.
+--- A response line, as it is sent.
 local type Answer = {string: Json.Value}
 
 --- Where a snippet's output goes while it runs.
 local record Capture
   --- Runs `f` with descriptors 1 and 2 pointed at the agent's output pipe, between the marks of the request `id`
-  --- ([`Worker.mark`]): what `f` answered.
+  --- ([`Worker.mark`]): what `f` returns.
   run: function(Capture, id: integer, f: function(): Answer): Answer
 end
 
---- The most bytes of the JSON of what a snippet returned an answer holds: well within the line of 1MB the agent reads an
---- answer in, escaped.
+--- The most bytes of the JSON of what a snippet returned a response line holds: well within the line of 1MB the agent reads a
+--- response line in, escaped.
 local MAX_OUTPUT <const> = Worker.OUTPUT_BYTES
 
 --- The name each snippet is checked and run as.
@@ -69,7 +69,7 @@ local function failed(id: Json.Value, why: string): Answer
   return { id = id, error = why }
 end
 
---- What a snippet returned, as an answer holds it: its JSON where that is within MAX_OUTPUT, else its text, cut.
+--- What a snippet returned, as a response line holds it: its JSON where that is within MAX_OUTPUT, else its text, cut.
 local function value_of(value: any): Json.Value
   local text, _ = Json.encode_any(value)
   if text ~= nil and #text <= MAX_OUTPUT then
@@ -84,7 +84,7 @@ local function value_of(value: any): Json.Value
 end
 
 --- The lines between the worker and the agent: the requests and the replies to calls come in on `input`, a line each,
---- and the answers and calls go out on `out`.
+--- and the response lines and calls go out on `out`.
 local record Channel
   input: integer
   out: integer
@@ -180,7 +180,7 @@ end
 
 --- How a snippet's calls ([`cosmic.agent.host`]) reach the agent on `channel`: a line `{"id":1,"call":"history",
 --- "call_id":1,"args":{...}}` out, and the reply, `{"call_id":1,"reply":...}` or `{"call_id":1,"failed":"..."}`, in.
---- Calls made from tasks of one run ([`Poll.run`]) are out at once, and the agent answers each as it can.
+--- Calls made from tasks of one run ([`Poll.run`]) are out at once, and the agent replies to each as it can.
 local function transport_of(channel: Channel): Host.Transport
   return function(name: string, args: Json.Value): (Json.Value) | (nil, Failure)
     local call = channel.next_call
@@ -212,7 +212,7 @@ local function transport_of(channel: Channel): Host.Transport
 end
 
 --- The module of each MCP server a snippet required, by its name ("mcp.notes"): the Teal the checker reads of it, and
---- the table `require` answers.
+--- the table `require` returns.
 local record Modules
   teal: mut {string: string}
   values: mut {string: {string: Call}}
@@ -262,7 +262,7 @@ local function value_of_module(server: string, made: McpModule.Made): {string: C
 end
 
 --- Makes the module of each MCP server `code` requires that `modules` lacks ([`cosmic.agent.mcp_module`]), of the tools
---- the server lists now, and lets the snippet's `require` answer it: nil, or the line of why a server's could not be made, which
+--- the server lists now, so the snippet's `require` returns it. Returns nil, or the line of why a server's could not be made, which
 --- refuses the snippet.
 local function provide(modules: Modules, code: string): string?
   for server in code:gmatch("require%s*%(?%s*[\"']mcp%.([%w_]+)[\"']") do
@@ -365,7 +365,7 @@ local function stale(line: string): boolean
   return message ~= nil and message["call_id"] ~= nil and message["code"] == nil
 end
 
---- The answer to the request `line` holds, checked by `kept` and run within `capture`, its calls sent on `channel`;
+--- The response line to the request `line` holds, checked by `kept` and run within `capture`, its calls sent on `channel`;
 --- the MCP modules a snippet requires are made into `modules`, which `kept` reads.
 local function answer_to(kept: Pipeline.Kept, modules: Modules, capture: Capture, channel: Channel, line: string): Answer
   local request, why = Json.decode_object(line)
@@ -431,7 +431,7 @@ function worker.main(): integer
     local _, _ = Fs.put(Fs.stderr, "cosmic: agent worker: " .. why .. "\n")
     return 1
   end
-  -- The requests come in on a copy of standard input, the answers go out on a copy of standard output, and a
+  -- The requests come in on a copy of standard input, the response lines go out on a copy of standard output, and a
   -- snippet's output on a copy of standard error ([`Worker.mark`]); descriptors 0, 1 and 2 are /dev/null, but 1
   -- and 2 while a snippet runs.
   local input, input_why = sys.dup(0)
@@ -462,7 +462,7 @@ function worker.main(): integer
   while true do
     local line = line_of(channel)
     if line == nil then break end
-    -- A reply to a call whose snippet answered already (one a task of it left) is no request, and is let go.
+    -- A reply to a call whose snippet ended already (one a task of it left) is no request, and is let go.
     if not stale(line) then
       local answer = answer_to(kept, modules, capture, channel, line)
       local text, encode_why = Json.encode(answer)
@@ -470,7 +470,7 @@ function worker.main(): integer
         local id = answer["id"]
         text = assert(Json.encode(failed(if id == nil then Json.null else id end, tostring(encode_why))))
       end
-      -- An answer that cannot go out ends the worker, so the agent reads the end, not a wait.
+      -- A response line that cannot go out ends the worker, so the agent reads the end, not a wait.
       local sent, _ = Fs.put(out, text .. "\n")
       if not sent then break end
     end

@@ -84,6 +84,8 @@ harness_epoch.library = {
     "(`build.host_requires`: `exists`, `is_dir`, `absolute`)",
   ["cosmic.hash"] = "`build.paths` names a project's build directory by the SHA-256 of " ..
     "its root (`hex_sha256`), where the worker finds its tree's and builds its own",
+  ["cosmic.internal.artifact_layout"] = "build.artifact lays out a program by its fixed terms, which " ..
+    "cosmic.store's `host_program` shares; it holds constants and pure layout code, and requires nothing",
   ["cosmic.internal.source_run"] = "cosmic.proc requires it for the file a source run runs, which " ..
     "`relaunch` names; cosmic.web.assets for the module it is (`main`), and cosmic.doc for that and the " ..
     "build it attaches (`projection`); a worker is no source run, so it holds none there",
