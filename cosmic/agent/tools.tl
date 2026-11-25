@@ -77,8 +77,10 @@ local record Tools
   --- Where a tool runs: the working directory, the database of the
   --- sessions kept and the current one's id (nil where none is). The
   --- sandbox is not put on a tool from outside: a tool of your own that
-  --- reads or writes a path asks `Sandbox.permits(context.policy, path,
-  --- action, context.cwd)` first and opens the real name it returns.
+  --- reads or writes a path makes it absolute from `context.cwd` and acts
+  --- through `Sandbox.dir(context.policy, path, action, context.cwd)`,
+  --- which checks it and opens its directory with no link followed, so
+  --- the program cannot swap a link in between.
   record Context
     --- The working directory, which a relative path is from.
     cwd: string
