@@ -1340,3 +1340,63 @@ local function test_create_refuses_a_name_it_cannot_write_and_creates_nothing(tm
   local left = assert(Fs.list(dir))
   assert(#left == 0, table.concat(left, ","))
 end
+
+--- `why`'s kind, errno and path and its words, said in an assertion.
+local function said(why?: Failure): string
+  if why == nil then return "no failure" end
+  return why.kind .. " " .. tostring(why.errno) .. " " .. tostring(why.path) .. ": " .. tostring(why)
+end
+
+--- Whether `why` is a failure of `kind`, `errno` and `path`.
+local function is_failure(why: Failure?, kind: Failure.Kind, errno: integer, path?: string): boolean
+  return why ~= nil and why.kind == kind and why.errno == errno and why.path == path
+end
+
+local function test_a_missing_archive_keeps_its_errno_and_path(tmp: string)
+  local sys = require("cosmic.sys")
+  local missing = tmp .. "/missing.tar"
+  local r, open_why = Archive.open(missing)
+  assert(r == nil and is_failure(open_why, "system", sys.ENOENT, missing), said(open_why))
+  local entries, list_why = Archive.list(missing)
+  assert(entries == nil and is_failure(list_why, "system", sys.ENOENT, missing), said(list_why))
+  local written, extract_why = Archive.extract(missing, tmp .. "/out")
+  assert(written == nil and is_failure(extract_why, "system", sys.ENOENT, missing), said(extract_why))
+  local target = tmp .. "/no/such/dir/a.tar"
+  local w, create_why = Archive.create(target)
+  assert(w == nil and is_failure(create_why, "system", sys.ENOENT, target), said(create_why))
+end
+
+--- What [`failing_after`] returns.
+local class FailingAfter is Stream.Reader
+  mut data: string
+  failure: Failure
+
+  function read(self, _max_bytes?: integer): (string | false) | (nil, Failure)
+    local data = self.data
+    if data == "" then return nil, self.failure end
+    self.data = ""
+    return data
+  end
+
+  function close(self): (true) | (false, Failure) return true end
+end
+
+--- A Reader that gives `data`, as one read, then fails with `failure`.
+local function failing_after(data: string, failure: Failure): Stream.Reader
+  local r: FailingAfter = { data = data, failure = failure, skip = nil }
+  return r
+end
+
+local function test_a_stream_that_times_out_keeps_the_kind(tmp: string)
+  local timeout = Failure.timeout()
+  local none, open_why = Archive.open(failing_after("", timeout))
+  assert(none == nil and open_why == timeout, said(open_why))
+
+  local c = Stream.collect()
+  local w = Tar.writer(c)
+  assert(w:add_file("f", string.rep("x", 4096)))
+  assert(w:close())
+  local r = assert(Archive.open(failing_after(c:result():sub(1, 1024), timeout)))
+  local written, why = Archive.extract(r, tmp .. "/out")
+  assert(written == nil and why == timeout, said(why))
+end
