@@ -392,12 +392,15 @@ local record McpServer
     --- A handler for [`cosmic.http.server`] that speaks Streamable HTTP at `spec.path`: one POST a message, each response
     --- `application/json`. In order, a request is refused 403 for an
     --- `Origin` not in `spec.origins`, 404 for another path, 405 for a
-    --- method other than POST, 401 where `spec.authorize` says no, 415 for a
+    --- method other than POST, 401 where `spec.authorize` says no (or, with
+    --- `spec.oauth`, where no access token `verify` takes comes with it), 415 for a
     --- body that is not `application/json`, 406 for an `Accept` that takes
-    --- no JSON, and 400 for headers that disagree with the body
+    --- no JSON, 413 for a body past [`Mcp.MAX_MESSAGE_BYTES`], 400 for a body
+    --- that is no JSON-RPC message, and 400 for headers that disagree with the body
     --- (`MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name`, and each
     --- `Mcp-Param-` a tool's schema names). A notification gets 202.
-    --- A request with a `progressToken` from a client whose `Accept` names
+    --- A `spec` that gives neither or both of `authorize` and `oauth` raises.
+    --- A request with a `progressToken`, or a `subscriptions/listen`, from a client whose `Accept` names
     --- `text/event-stream` gets an event stream in response: each notice of
     --- progress an event, then the response. A client that closes it
     --- cancels the request, which the server finds at the next event it
@@ -2491,7 +2494,8 @@ end
 --- `spec.keys` signed, of `typ` "at+jwt", whose `iss` is `spec.issuer`,
 --- whose `aud` holds the endpoint's resource, that has a `sub` and an
 --- `exp` and is within its time. Its grant is its `iss`, its `sub`, its
---- `exp` and the scopes of its `scope` (or `scp`).
+--- `exp` and the scopes of its `scope` (or `scp`). An empty `spec.keys`
+--- raises.
 ---
 ---     local keys = assert(Jose.keys(jwks))
 ---     local verify = McpServer.jwt{ issuer = "https://auth.example.com", keys = keys }

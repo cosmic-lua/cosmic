@@ -1071,8 +1071,9 @@ end
 --- Serves HTTP/1.1 at each of `spec.listeners`, calling `spec.handle`
 --- for each request, until the server stops: [`Net.serve`], whose
 --- connections, signals and stopping it shares, speaking HTTP. It
---- returns as [`Net.serve`] does, and raises for a spec of the wrong
---- shape, naming the field.
+--- returns when [`Net.serve`] does: true and "", or false and the
+--- failure's message. It raises for a spec of the wrong shape, naming
+--- the field, and when called in a task of a [`Poll.run`].
 ---
 ---     assert(Server.serve{
 ---       listeners = { Net.tcp("127.0.0.1", 8080) },
