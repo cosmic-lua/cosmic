@@ -1303,3 +1303,23 @@ local function test_a_builtin_bound_is_encoded_and_decoded()
     assert(Types.display(made) == "function<T is " .. name .. ">(T)", Types.display(made))
   end
 end
+
+--- The names a function field's and a method's parameters were declared with are written and read back with the
+--- declaration, and display shows them; the function's type is the same type whatever they are.
+local function test_the_parameter_names_of_a_field_are_kept_and_shown_but_are_no_part_of_its_type()
+  local s = Types.new()
+  local decl = s:declare("record", "m", { "Fs" }, 0)
+  local read = s:fn({ params = { { type = s.string }, { type = s.integer, omittable = true } }, rets = { { items = { s.string } } } })
+  s:define(decl, { tparams = {}, supers = {}, fields = { { name = "read", type = read, params = { "path", "n" } },
+    { name = "write", type = read } }, methods = {}, values = {} })
+  local text = Types.encode_declaration(decl)
+  assert(text:find('(field "read" ', 1, true) ~= nil and text:find('(params "path" "n")', 1, true) ~= nil, text)
+  local second = Types.new(loading_from(s))
+  local there, why = second:decode_declaration(text)
+  local body = assert(assert(there, why).body)
+  same(Types.encode_declaration(assert(there)), text)
+  local params = assert(assert(body.fields[1]).params)
+  assert(params[1] == "path" and params[2] == "n" and assert(body.fields[2]).params == nil)
+  same(Types.display(read, nil, nil, params), "function(path: string, n?: integer): string")
+  same(Types.display(read), "function(string, p2?: integer): string")
+end

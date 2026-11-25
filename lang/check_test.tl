@@ -440,6 +440,15 @@ local CASES <const>: {Case} = {
     msg = "`Fs` has no field `read_file`", fix = "`Fs` has `read: function(string): string`; its other members: walk",
   },
   {
+    -- Parameters are shown with the names their declaration gives them: a field's function type, and a function statement.
+    code = "field_unknown", source = "local Fs = require(\"cosmic.fs\")\nlocal r = Fs.read_file\n",
+    modules = { ["cosmic.fs"] = "local record Fs\n  read: function(path: string, string, mode?: integer): string\n" ..
+      "  readlink: function(string): string\nend\nfunction Fs.reads(path: string, n?: integer): string return path end\n" ..
+      "return Fs\n" },
+    msg = "`Fs` has no field `read_file`", fix = "`Fs` has `read: function(path: string, string, " ..
+      "mode?: integer): string`; its other members: readlink, reads",
+  },
+  {
     code = "require_unknown", source = "local x = require(\"cosmic.io\")\n",
     msg = "cosmic has no module `cosmic.io`", fix = "`cosmic docs` lists the modules cosmic holds",
   },

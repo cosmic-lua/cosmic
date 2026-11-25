@@ -51,7 +51,8 @@
 --- it stands. `open` says how many binders outside a type it reaches.
 ---
 --- **Functions.** A function type holds no parameter names: they are in the syntax tree, and
---- a signature is the same type whatever its parameters were called. Its returns are a set
+--- a signature is the same type whatever its parameters were called. A field or method keeps the
+--- names it was declared with beside its type ([`Field.params`]), for a message to show. Its returns are a set
 --- of alternatives, kept without repeats and in digest order. A narrowing declaration is an
 --- alternative with `narrows`, and the only one, since the grammar makes it the whole return
 --- list. Display names a parameter `p<position>` where a spelling needs a name: an
@@ -1936,7 +1937,8 @@ local function normal_body(store: Store, decl: Decl, body: Body): Body
     owned(store, field.type)
     local omittable = field.omittable == true
     local t = if omittable then store:optional(field.type) else field.type end
-    made.fields[#made.fields + 1] = { name = field.name, type = t, mut = field.mut == true, omittable = omittable }
+    made.fields[#made.fields + 1] = { name = field.name, type = t, mut = field.mut == true, omittable = omittable,
+      params = field.params }
     roots[#roots + 1] = t
   end
   local array = body.array
@@ -1953,7 +1955,7 @@ local function normal_body(store: Store, decl: Decl, body: Body): Body
     if not is_name(method.name) then
       error("types: a method's name is a name the lexer reads, not " .. string.format("%q", method.name), 3)
     end
-    made.methods[#made.methods + 1] = { name = method.name, type = method.type }
+    made.methods[#made.methods + 1] = { name = method.name, type = method.type, params = method.params }
     roots[#roots + 1] = method.type
   end
   local named = body.alias

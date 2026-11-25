@@ -2930,7 +2930,7 @@ function Declarations.inherited(store: Store, judge: Relation.Judge, decl: Types
           local made = Relation.as_listed(store, x, f.type, self_type)
           if made ~= nil and Relation.brought_in(store, decl, f, made, self_type) then
             held[f.name] = true
-            out[#out + 1] = { name = f.name, type = made, mut = f.mut, omittable = f.omittable }
+            out[#out + 1] = { name = f.name, type = made, mut = f.mut, omittable = f.omittable, params = f.params }
           end
         end
       end
