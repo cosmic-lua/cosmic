@@ -285,6 +285,17 @@ local CASES <const>: {Case} = {
     msg = "`n` is `integer` and `\"a\"` is `string`, which share no value: the test is never true",
     fix = "compare values of one type, or remove the test",
   },
+  -- A cursor made of a value that runs out to nil is declared optional where it is made.
+  {
+    code = "compare_disjoint", source = "local p = 1\nwhile p ~= nil do\nend\n",
+    msg = "`p` is `integer` and `nil` is `nil`, which share no value: the test is never false",
+    fix = "declare `p` `integer?` where it is declared (`local p: integer? = ...`), so it may be nil, or remove the test",
+  },
+  {
+    code = "nil_not_allowed", source = "local p = 1\np = nil\n", at = { line = 2, column = 5 },
+    msg = "nil is given in the assignment to `p`, where `integer` is wanted",
+    fix = "declare `p` `integer?` where it is declared (`local p: integer? = ...`), so it may be nil, or give a value",
+  },
   {
     code = "generic_op", source = "local function lt<T>(a: T, b: T): boolean\n  return a < b\nend\n",
     msg = "`a` is the type parameter `T`, which ranges over every type, and `<` takes numbers or strings",

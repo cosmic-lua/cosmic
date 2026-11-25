@@ -1280,8 +1280,12 @@ local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relat
   local e = peel(node)
   if code == "nil" then
     if got.tag == "nil" then
+      -- A local made of a value and set to nil later (a cursor that runs out) is declared optional where it is made.
+      local held = where:match("^ in the assignment to `([%a_][%w_]*)`$")
       report(ctx, "nil_not_allowed", node, "nil is given" .. where .. ", where " .. quoted(w) .. " is wanted",
-        "give a value, or declare what takes it `" .. w .. "?` (a parameter or field `name?: T`)", shown)
+        if held ~= nil then "declare `" .. held .. "` `" .. w .. "?` where it is declared (`local " .. held .. ": " .. w ..
+            "? = ...`), so it may be nil, or give a value" else
+          "give a value, or declare what takes it `" .. w .. "?` (a parameter or field `name?: T`)" end, shown)
     elseif (e.kind == "Index") then
       report(ctx, "index_may_be_nil", node, s .. " is " .. quoted(g) .. " (an index read may be nil), where " ..
           quoted(w) .. " is wanted" .. where,
@@ -4938,13 +4942,25 @@ end
 local record Operators
 end
 
+--- For a test of a local against nil (`p ~= nil`) where the local's type has no nil: it is to be declared optional
+--- where it is made, as a cursor that runs out is (`local p: integer? = 1`). Nil for any other test.
+local function optional_fix(ctx: Ctx, node: Ast.Binary, left: Type, right: Type): string?
+  local name, other, t = peel(node.left), peel(node.right), left
+  if (name.kind ~= "Name") then name, other, t = other, name, right end
+  if not ((name.kind == "Name") and (other.kind == "Nil")) or t.tag == "nil" then return nil end
+  local shown = Types.display(t, ctx.binders, ctx.fn_names)
+  return "declare `" .. name.text .. "` `" .. shown .. "?` where it is declared (`local " .. name.text .. ": " .. shown ..
+    "? = ...`), so it may be nil, or remove the test"
+end
+
 --- `a == b` and `a ~= b`: both sides overlap, else the test is dead.
 function Operators.equality(ctx: Ctx, node: Ast.Binary, left: Type, right: Type)
   if not Operands.overlaps(ctx, left, right) then
     report(ctx, "compare_disjoint", node, subject(ctx, node.left) .. " is " .. tq(ctx, left) .. " and " ..
         subject(ctx, node.right) .. " is " .. tq(ctx, right) .. ", which share no value: the test is never " ..
         (if node.op == "==" then "true" else "false" end),
-      "compare values of one type, or remove the test", { show(ctx, left), show(ctx, right) })
+      optional_fix(ctx, node, left, right) or "compare values of one type, or remove the test",
+      { show(ctx, left), show(ctx, right) })
   end
 end
 
