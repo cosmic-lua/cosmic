@@ -169,15 +169,15 @@ function host_names.class(name: string): host_names.Class?, string
 end
 
 --- The requirements a run's leg promises, as the variable
---- COSMIC_TEST_PROMISES writes them: names separated by commas, each one
---- [`parse`] accepts (a `path:` with a comma in it cannot be promised).
---- An empty text promises nothing. A name whose base the table does not
---- have is left out and returned apart: a leg may promise a name newer
---- than the cosmic it starts, which no module of that cosmic's tree can
---- require. A name of a known base that breaks its rule, an empty one
---- and one written twice are refused.
+--- COSMIC_TEST_PROMISES writes them: names separated by commas (a `path:`
+--- with a comma in it cannot be promised). An empty text promises
+--- nothing. A name whose base is shaped as the table's are (lower case,
+--- digits and `_`) but is not one of them is left out and returned apart:
+--- a leg may promise a name newer than the cosmic it starts, which no
+--- module of that cosmic's tree can require. Any other name [`parse`]
+--- refuses, and one written twice, is refused.
 --- @param text the variable's value
---- @return the names, or nil and the rule one breaks
+--- @return the names the table knows and those left out, or nil and the rule one breaks
 function host_names.read_promises(text: string): host_names.Promises?, string
   local out: mut {string} = {}
   local unknown: mut {string} = {}
@@ -186,8 +186,9 @@ function host_names.read_promises(text: string): host_names.Promises?, string
   for name in (text .. ","):gmatch("([^,]*),") do
     if seen[name] == true then return nil, string.format("%q is promised twice", name) end
     seen[name] = true
-    local base = name:match("^([^:]*)") or name
-    if name ~= "" and shapes[base] == nil then
+    local base = name:match("^([a-z][a-z0-9_]*)") or ""
+    local rest = name:sub(#base + 1)
+    if base ~= "" and shapes[base] == nil and (rest == "" or rest:sub(1, 1) == ":") then
       unknown[#unknown + 1] = name
     else
       local spec, why = host_names.parse(name)

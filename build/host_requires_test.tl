@@ -518,7 +518,8 @@ local function test_promises_are_read_and_matched_by_name()
   local mixed = assert(host_names.read_promises("sandbox,nope,newer:arg"), "a name of an unknown base was refused")
   assert(#mixed.names == 1 and mixed.names[1] == "sandbox")
   assert(#mixed.unknown == 2 and mixed.unknown[1] == "nope" and mixed.unknown[2] == "newer:arg")
-  for _, bad in ipairs({ "sandbox,sandbox", "nope,nope", "sandbox,", "path:rel", "landlock:0" }) do
+  for _, bad in ipairs({ "sandbox,sandbox", "nope,nope", "sandbox,", "path:rel", "landlock:0", " unix_socket ",
+      "Sandbox", ":foo", "new-name" }) do
     local found, why = host_names.read_promises(bad)
     assert(found == nil and why ~= nil, bad) -- checked: compare_disjoint
   end
