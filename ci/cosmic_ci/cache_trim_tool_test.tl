@@ -39,7 +39,7 @@ error("the original signal was swallowed")
   local deadline = Clock.monotonic_ns() + Clock.seconds(30)
   local said, _ = Fs.read(ready)
   while said == nil and Clock.monotonic_ns() < deadline do
-    Clock.sleep_ns(Clock.ms(10))
+    assert(Clock.sleep(Clock.ms(10)))
     said, _ = Fs.read(ready)
   end
   assert(said ~= nil, "maintenance child did not enter its guarded wait")

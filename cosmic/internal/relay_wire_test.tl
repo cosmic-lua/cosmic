@@ -78,9 +78,9 @@ local PYTHON <const> = Fixture.bytes(
 --- The status and every field [`connect_head`] answers, as one line, so
 --- that two answers compare and a failure shows both.
 local function shown_connect(r: Wire.Connect): string
-  return ("%s consumed=%d http=%s host=%s kind=%s port=%s auth=%s reason=%s"):format(r.status, r.consumed,
+  return ("%s consumed=%d http=%s host=%s kind=%s port=%s auth=%s reason=%s forward=%q"):format(r.status, r.consumed,
     tostring(r.http_status), tostring(r.host), tostring(r.kind), tostring(r.port), tostring(r.authorization),
-    tostring(r.reason))
+    tostring(r.reason), tostring(r.forward))
 end
 
 --- Whether [`connect_head`] reads every prefix of `input` as more, or as the
@@ -188,11 +188,19 @@ end
 local function test_connect_refuses_what_is_not_a_clean_connect()
   local long_label = ("a"):rep(64)
   local cases: {{string}} = {
-    { "GET http://example.com/ HTTP/1.1\r\n\r\n", "plain HTTP is not relayed", "405" },
-    { "get example.com:80 HTTP/1.1\r\n\r\n", "plain HTTP is not relayed", "405" },
-    { "connect example.com:80 HTTP/1.1\r\n\r\n", "plain HTTP is not relayed", "405" },
-    { "POST / HTTP/1.1\r\n\r\n", "plain HTTP is not relayed", "405" },
-    { "\r\n", "plain HTTP is not relayed", "405" },
+    { "GET https://example.com/ HTTP/1.1\r\n\r\n", "plain HTTP is relayed only", "405" },
+    { "get example.com:80 HTTP/1.1\r\n\r\n", "plain HTTP is relayed only", "405" },
+    { "connect example.com:80 HTTP/1.1\r\n\r\n", "plain HTTP is relayed only", "405" },
+    { "POST / HTTP/1.1\r\n\r\n", "plain HTTP is relayed only", "405" },
+    { "\r\n", "plain HTTP is relayed only", "405" },
+    { "GET  http://example.com/ HTTP/1.1\r\n\r\n", "plain HTTP is relayed only", "405" },
+    { "G(T http://example.com/ HTTP/1.1\r\n\r\n", "plain HTTP is relayed only", "405" },
+    { "GET http://example.com/ HTTP/2.0\r\n\r\n", "unsupported HTTP version", "505" },
+    { "GET http://example.com/#top HTTP/1.1\r\n\r\n", "fragment", "400" },
+    { "GET http://user@example.com/ HTTP/1.1\r\n\r\n", "userinfo", "400" },
+    { "GET http://example.com:0/ HTTP/1.1\r\n\r\n", "port is not a decimal", "400" },
+    { "GET http://a_b.example/ HTTP/1.1\r\n\r\n", "letters, digits and inner hyphens", "400" },
+    { "GET http:///x HTTP/1.1\r\n\r\n", "empty host name", "400" },
     { "CONNECT example.com:80 HTTP/2.0\r\n\r\n", "unsupported HTTP version", "505" },
     { "CONNECT example.com:80 http/1.1\r\n\r\n", "unsupported HTTP version", "505" },
     { "CONNECT example.com:80 HTTP/0.9\r\n\r\n", "unsupported HTTP version", "505" },
@@ -1014,4 +1022,64 @@ local function test_an_encrypted_server_name_extension_is_its_own_answer()
   assert(sni_of(Fixture.records(Fixture.hello({ name = "plain.example", extra = { Fixture.extension(0xfe0c, "") } }))) == "plain.example")
   local broken = client_hello(Fixture.records(Fixture.hello({ name = "bad_name.example", extra = { Fixture.extension(0xfe0d, "") } })))
   assert(broken.status == "malformed", broken.status)
+end
+
+--- A plain request to an absolute http:// URL, as a proxy client sends one, is read to its target and answered with
+--- the head the origin is sent: the path on the request line, the URL's host as Host, the client's headers but the
+--- proxy's and hop-by-hop ones, and Connection: close.
+local function test_connect_reads_a_plain_request_to_an_absolute_url()
+  local cases: {{string}} = {
+    { "GET http://Example.COM/a/b?c=1 HTTP/1.1\r\nHost: other.example\r\nAccept: */*\r\n" ..
+        "Proxy-Connection: keep-alive\r\nProxy-Authorization: Basic dTpw\r\nConnection: keep-alive\r\n" ..
+        "X-Kept: yes\r\n\r\n", "example.com", "name", "80",
+      "GET /a/b?c=1 HTTP/1.1\r\nHost: example.com\r\nAccept: */*\r\nX-Kept: yes\r\nConnection: close\r\n\r\n" },
+    { "POST HTTP://127.0.0.1:8123 HTTP/1.0\r\nContent-Length: 2\r\n\r\n", "127.0.0.1", "ipv4", "8123",
+      "POST / HTTP/1.0\r\nHost: 127.0.0.1:8123\r\nContent-Length: 2\r\nConnection: close\r\n\r\n" },
+    { "GET http://[::1]:8080?q HTTP/1.1\r\n\r\n", "::1", "ipv6", "8080",
+      "GET /?q HTTP/1.1\r\nHost: [::1]:8080\r\nConnection: close\r\n\r\n" },
+    { "GET http://[::1]/ HTTP/1.1\r\nUpgrade: h2c\r\nTE: trailers\r\n\r\n", "::1", "ipv6", "80",
+      "GET / HTTP/1.1\r\nHost: [::1]\r\nConnection: close\r\n\r\n" },
+  }
+  for _, case in ipairs(cases) do
+    local request, host, kind, port, forward = case[1], case[2], case[3], case[4], case[5]
+    assert(request and host and kind and port and forward, "a case is a request, its target and its forward")
+    local r = connect_head(request)
+    assert(r.status == "done" and r.consumed == #request, ("%q: %s"):format(request, shown_connect(r)))
+    assert(r.host == host and r.kind == kind and r.port == math.tointeger(tonumber(port)),
+      ("%q: %s"):format(request, shown_connect(r)))
+    assert(r.forward == forward, ("%q: forward %q"):format(request, tostring(r.forward)))
+    connect_splits_agree(request)
+  end
+  local auth = connect_head("GET http://a.example/ HTTP/1.1\r\nProxy-Authorization: Basic dTpw\r\n\r\n")
+  assert(auth.authorization == "Basic dTpw", shown_connect(auth))
+  local connect = connect_head(Fixture.connect("a.example:1", { "Host: x" }))
+  assert(connect.status == "done" and connect.forward == nil, shown_connect(connect))
+end
+
+--- An origin's final response head is told to close, however it is split, and interim heads and the body pass as
+--- they came; an answer that is no HTTP response is refused.
+local function test_a_plain_requests_response_is_told_to_close()
+  local response = "HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 200 OK\r\nConnection: keep-alive\r\n" ..
+    "Keep-Alive: timeout=5\r\nContent-Length: 4\r\n\r\nbody"
+  local want = "HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\nbody"
+  for size = 1, #response do
+    local closer = Wire.response_closer()
+    local out: mut {string} = {}
+    for at = 1, #response, size do
+      local got, why = closer:feed(response:sub(at, at + size - 1))
+      assert(got ~= nil, why)
+      out[#out + 1] = got
+    end
+    assert(table.concat(out) == want, ("fed %d at a time: %q"):format(size, table.concat(out)))
+  end
+  local after = Wire.response_closer()
+  assert(after:feed("HTTP/1.0 404 Not Found\r\n\r\n") == "HTTP/1.0 404 Not Found\r\nConnection: close\r\n\r\n")
+  assert(after:feed("HTTP/1.1 200 OK\r\nConnection: keep-alive\r\n\r\n") ==
+      "HTTP/1.1 200 OK\r\nConnection: keep-alive\r\n\r\n", "past the final head, bytes pass untouched")
+  local bad = Wire.response_closer()
+  local none, why = bad:feed("SSH-2.0-x\r\n\r\n")
+  assert(none == nil and why:find("not an HTTP/1 response", 1, true) ~= nil, why)
+  local long = Wire.response_closer()
+  local over, too = long:feed("HTTP/1.1 200 OK\r\nX: " .. ("v"):rep(16384))
+  assert(over == nil and too:find("longer than", 1, true) ~= nil, too)
 end

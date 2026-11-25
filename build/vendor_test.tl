@@ -356,7 +356,7 @@ local function test_fetch_holds_the_download_to_every_digest_the_pin_gives(dir: 
   Http.download = real -- checked: field_fixed
   assert(fetched == nil and trouble == "stop here", tostring(trouble))
   local options = assert(seen.options)
-  assert(options.sha256 == "aa", "the download is not held to the sha256")
-  assert(options.sha3_256 == "bb", "the download is not held to the sha3-256")
+  assert(assert(options.digests)["sha256"] == "aa", "the download is not held to the sha256")
+  assert(assert(options.digests)["sha3-256"] == "bb", "the download is not held to the sha3-256")
   assert(options.roots == "mozilla")
 end

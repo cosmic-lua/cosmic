@@ -464,11 +464,11 @@ local function test_boot_lock_classifies_the_begin_result_not_its_reason(tmp: st
   sys.flock_kind = function(_fd: integer): string?, string, integer -- checked: field_fixed
     return "apart", "", 0
   end
-  local outcomes: {Sqlite.ExecResult} = {
-    { code = Sqlite.BUSY, extended_code = Sqlite.BUSY, reason = "another connection owns it" },
-    { code = 6, extended_code = 6, reason = "database table is locked" },
-    { code = 1, extended_code = 1, reason = "busy appears in this unrelated failure" },
-    { code = Sqlite.BUSY, extended_code = Sqlite.BUSY, reason = "interrupted", cancelled = true },
+  local outcomes: {Failure} = {
+    Failure.coded("another connection owns it", Sqlite.BUSY, Sqlite.BUSY),
+    Failure.coded("database table is locked", 6, 6),
+    Failure.coded("busy appears in this unrelated failure", 1, 1),
+    Failure.coded("interrupted", Sqlite.BUSY, Sqlite.BUSY, "cancelled"),
   }
   local statuses, attempts, closures: mut {integer}, mut {integer}, mut {integer} = {}, {}, {}
   -- A handle is a userdata whose methods live in its metatable's `__index`,
@@ -476,20 +476,20 @@ local function test_boot_lock_classifies_the_begin_result_not_its_reason(tmp: st
   -- three methods it calls answer what the outcome says for this test alone.
   local sample = assert(Sqlite.memory())
   local methods = (assert(getmetatable(sample)) as {string:any}).__index as {string:any} -- checked: cast_refused*2
-  local real_busy, real_exec, real_close = methods.busy_timeout, methods.exec_result, methods.close
+  local real_busy, real_exec, real_close = methods.busy_timeout, methods.exec, methods.close
   local calls = 0
   local closes = 0
-  local outcome: Sqlite.ExecResult?
+  local outcome: Failure?
   methods.busy_timeout = function(_self: any, ns: integer) assert(ns >= 0) end
-  methods.exec_result = function(_self: any, sql: string): Sqlite.ExecResult
+  methods.exec = function(_self: any, sql: string): (true) | (false, Failure)
     assert(sql == "BEGIN IMMEDIATE")
     calls = calls + 1
     if calls == 1 then
       local first = outcome
       assert(first ~= nil, "the loop sets the outcome before it takes the lock")
-      return first
+      return false, first
     end
-    return { code = Sqlite.OK, extended_code = Sqlite.OK, reason = "" }
+    return true
   end
   methods.close = function(self: any): boolean, string
     closes = closes + 1
@@ -507,7 +507,7 @@ local function test_boot_lock_classifies_the_begin_result_not_its_reason(tmp: st
     attempts[#attempts + 1] = calls
     closures[#closures + 1] = closes
   end
-  methods.busy_timeout, methods.exec_result, methods.close = real_busy, real_exec, real_close
+  methods.busy_timeout, methods.exec, methods.close = real_busy, real_exec, real_close
   assert(sample:close())
   Sqlite.open, sys.flock_kind = real_open, real_kind -- checked: field_fixed*2
   assert(statuses[1] == 7 and attempts[1] == 2)

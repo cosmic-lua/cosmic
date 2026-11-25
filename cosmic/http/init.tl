@@ -24,14 +24,12 @@
 --- checksum while it goes.
 ---
 --- A proxy that the environment names (`http_proxy`, `https_proxy`,
---- `all_proxy`, `no_proxy`) is used as curl uses it, with two exceptions.
+--- `all_proxy`, `no_proxy`) is used as curl uses it, with one exception.
 --- A request to this machine (127/8, ::1, localhost and the names under
 --- it) skips a proxy that is not on this machine, so the request and a
 --- token in its headers do not leave the machine. With `follow`, the
 --- redirects after it go direct too. A proxy on loopback, such as a
---- sandbox's relay, is kept. And an http request through a proxy on
---- loopback goes as a CONNECT tunnel, as https does, since a relay may
---- take nothing else; a proxy elsewhere gets it in the plain form.
+--- sandbox's relay, is kept.
 ---
 --- To call a rate-limited API in a loop, with [`Http.Options.retry`] and
 --- [`Http.Options.pace`], see [the rate-limit guide](../../doc/guides/http-pacing.md).
@@ -270,9 +268,9 @@ local record Http
   --- it ([`Http.FOREVER`] for no bound): one without it raises. The
   --- transfer counts them in milliseconds, and `low_speed_ns` in whole
   --- seconds, each rounded up, so no span but 0 is read as none.
-  --- `digests`, `sha256`, `sha512` and `sha3_256` are read only by
-  --- [`Http.download_result`] and [`Http.download`], and so is `cancelled`
-  --- but for the waits of `retry`, which it ends too.
+  --- `digests` is read only by [`Http.download_result`] and
+  --- [`Http.download`], and so is `cancelled` but for the waits of
+  --- `retry`, which it ends too.
   ---
   --- `via`, a unix address ([`Net.unix`]), sends the request over the
   --- socket file at its path instead of the network. The URL still gives
@@ -444,17 +442,6 @@ local record Http
     --- algorithm, the digest wanted and the one got, leaving no file. An
     --- empty digest raises.
     digests?: {Hash.Algorithm:string}
-    -- TODO: once ci/cosmic-driver.pin names a release with `digests`, move
-    -- build/vendor.tl, build/zig_fetch.tl and build/seeded_boot.tl to it and
-    -- delete `sha256`, `sha512` and `sha3_256`, which they set on the pinned
-    -- release.
-    --- Download only: `digests["sha256"]`, but an empty one is no check.
-    --- Giving it and a different `digests["sha256"]` raises.
-    sha256?: string
-    --- Download only: `digests["sha512"]`, as `sha256` is.
-    sha512?: string
-    --- Download only: `digests["sha3-256"]`, as `sha256` is.
-    sha3_256?: string
     --- Download only: asked before each chunk is read and once
     --- more when the body is complete, before it is renamed into place;
     --- when it answers true the download stops, removes its temporary
@@ -1414,24 +1401,15 @@ local DIGESTS_CALLER <const> = 4
 
 --- Every [`Hash.Algorithm`], ranked in the order a download checks
 --- them, so the first mismatch reported is the same each time: sha256,
---- sha512 and sha3-256 first, as when they were the only three.
+--- sha512 and sha3-256 first.
 local DIGEST_RANKS <const>: {string:integer} = {
   ["sha256"] = 1, ["sha512"] = 2, ["sha3-256"] = 3, ["md5"] = 4, ["sha1"] = 5,
   ["sha224"] = 6, ["sha384"] = 7, ["sha3-224"] = 8, ["sha3-384"] = 9, ["sha3-512"] = 10,
 }
 
---- One of the single digest fields that `digests` replaces.
-local record Single
-  field: string
-  algorithm: Hash.Algorithm
-  value: string?
-end
-
---- The digests a download is held to, from `opts.digests` and the
---- three single fields, in [`DIGEST_RANKS`]' order. Raises, blaming the
---- public entry point's caller, on an empty digest, an algorithm
---- [`Hash`] does not know, or a single field and a `digests` entry that
---- differ.
+--- The digests a download is held to, from `opts.digests`, in
+--- [`DIGEST_RANKS`]' order. Raises, blaming the public entry point's
+--- caller, on an empty digest or an algorithm [`Hash`] does not know.
 local function wanted_digests(opts: Http.Options): {Given}
   local by: mut {Hash.Algorithm:string} = {}
   for algorithm, hex in pairs(opts.digests or {}) do
@@ -1442,23 +1420,6 @@ local function wanted_digests(opts: Http.Options): {Given}
       error(("http: opts.digests[%q] must be a digest in hex, not empty"):format(algorithm), DIGESTS_CALLER)
     end
     by[algorithm] = hex:lower()
-  end
-  local singles: {Single} = {
-    { field = "sha256", algorithm = "sha256", value = opts.sha256 },
-    { field = "sha512", algorithm = "sha512", value = opts.sha512 },
-    { field = "sha3_256", algorithm = "sha3-256", value = opts.sha3_256 },
-  }
-  for _, single in ipairs(singles) do
-    local value = single.value
-    if value ~= nil and value ~= "" then
-      local hex = value:lower()
-      local already = by[single.algorithm]
-      if already ~= nil and already ~= hex then
-        error(("http: opts.%s and opts.digests[%q] differ; give one"):format(single.field, single.algorithm),
-          DIGESTS_CALLER)
-      end
-      by[single.algorithm] = hex
-    end
   end
   local out: mut {Given} = {}
   for algorithm, hex in pairs(by) do out[#out + 1] = { algorithm = algorithm, wanted = hex } end

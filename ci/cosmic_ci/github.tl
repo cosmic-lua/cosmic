@@ -105,7 +105,7 @@ function Github.live(env: {string:string}, test?: GithubApi.Live): Github.Host
     delete = over.delete,
     now = function(): integer return Clock.now_ns() // 1000000000 end,
     sleep = function(seconds: integer)
-      local _, _ = Clock.sleep_ns(Clock.seconds(seconds))
+      local _, _ = Clock.sleep(Clock.seconds(seconds))
     end,
     -- $GITHUB_OUTPUT, standard output for a run by hand.
     output = function(text: string)

@@ -15,7 +15,7 @@ local function memo_in_wal(path: string, used: {integer})
   assert(db:exec("PRAGMA wal_autocheckpoint = 0"))
   assert(db:exec(CREATE))
   for i, seconds in ipairs(used) do
-    assert(Sqlite.run(db, "INSERT INTO check_memo_v1 VALUES ('c', 'checked', ?1, 'v', ?2)",
+    assert(db:run("INSERT INTO check_memo_v1 VALUES ('c', 'checked', ?1, 'v', ?2)",
       { { text = "k" .. tostring(i) }, { integer = seconds * 1000000000 } }))
   end
   assert(Fs.write(path, (assert(Fs.read(live)))))
@@ -26,7 +26,7 @@ end
 local function keys(path: string): string
   local db = assert(Sqlite.open(path))
   local out: mut {string} = {}
-  for _, row in ipairs((assert(Sqlite.text_rows(db, "SELECT key FROM check_memo_v1 ORDER BY key")))) do
+  for _, row in ipairs((assert(db:text_rows("SELECT key FROM check_memo_v1 ORDER BY key")))) do
     out[#out + 1] = row:text(1)
   end
   assert(db:close())

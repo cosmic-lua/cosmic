@@ -297,7 +297,7 @@ local function live(guard: Signal.Guard): Review.Host
     end,
     now = Clock.monotonic_ns,
     sleep = function(ns: integer)
-      local _, _ = Clock.sleep_ns(ns)
+      local _, _ = Clock.sleep(ns)
     end,
     cancelled = function(): integer
       return guard:cancelled()

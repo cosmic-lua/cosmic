@@ -662,7 +662,7 @@ local function test_driver_records_success_failures_timeout_and_interruption(tmp
     stdout = fd, stderr = fd, process_group = true }))
   for _ = 1, driver_timeout // Clock.ms(20) do
     if assert(Fs.status(ready)).exists then break end
-    Clock.sleep_ns(10 * 1000 * 1000)
+    assert(Clock.sleep(10 * 1000 * 1000))
   end
   assert(assert(Fs.status(ready)).exists, "interrupted operation never started")
   assert(child:stop())

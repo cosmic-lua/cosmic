@@ -7,6 +7,8 @@ local record RunTextData
   record Text
     --- How many KB of a program's output are shown at its start and at its end.
     kb: integer
+    --- What sessions.db holds, for Host.history.
+    tables: string
   end
 end
 
