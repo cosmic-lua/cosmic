@@ -185,6 +185,7 @@ local record Host
   type Transport = function(name: string, args: Json.Value): (Json.Value) | (nil, Failure)
 
   --- A change Host.edit or Host.write made to the file `path`: the replacements of an edit, or the lines a write wrote.
+  --- It is for a person to see what a snippet changed, not a record of every write: a snippet writes with Fs too.
   record Change
     --- The file, as the snippet named it.
     path: string
@@ -570,7 +571,12 @@ function Host.edit(path: string, edits: {Host.Replacement}): integer
   local ok, write_why = Fs.write(file, edited)
   if not ok then error("host: edit: " .. tostring(write_why), 2) end
   local hears = noted
-  if hears ~= nil then hears({ path = path, edits = edits }) end
+  if hears ~= nil then
+    -- A copy, so a list the snippet changes after the call shows what was written.
+    local copy: mut {Host.Replacement} = {}
+    for _, r in ipairs(edits) do copy[#copy + 1] = { old = r.old, new = r.new } end
+    hears({ path = path, edits = copy })
+  end
   return made
 end
 

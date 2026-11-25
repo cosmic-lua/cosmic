@@ -57,11 +57,12 @@ local record Tools
     --- sessions database keeps, and the model is told its id.
     mut raw?: string
     --- The files a snippet of run changed through Host.edit and Host.write, in order, for a person to see: the model
-    --- reads none of it.
+    --- reads none of it. A snippet stopped, or past its time, answers none.
     mut changes?: {Change}
   end
 
-  --- A file a snippet changed: an edit's replacements (each text cut to 4KB), or the lines a write wrote.
+  --- A file a snippet changed: an edit's replacements (the lines they change, with one of context, each cut to 4KB), or
+  --- the lines a write wrote. It is for a person to see, not a record of every write.
   record Change
     --- The file, as the snippet named it.
     path: string
@@ -69,6 +70,8 @@ local record Tools
     edits?: {AgentEdit.Replacement}
     --- How many lines a write wrote; nil for an edit.
     lines?: integer
+    --- How many changes more the answer had no room for, in a last Change of no path.
+    more?: integer
   end
 
   --- Where a tool runs: the working directory, the database of the
@@ -584,7 +587,10 @@ local function changes_in(given?: Json.Value): {Tools.Change}?
   for _, item in ipairs(list) do
     local c, _ = Json.to_object(item)
     local path = c and c["path"]
-    if c ~= nil and path is string then
+    local more = c and c["more"]
+    if more is integer then
+      out[#out + 1] = { path = "", more = more }
+    elseif c ~= nil and path is string then
       local edits, _ = Json.to_array(c["edits"])
       if edits ~= nil then
         local made: mut {AgentEdit.Replacement} = {}

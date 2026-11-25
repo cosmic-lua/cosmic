@@ -576,8 +576,10 @@ local function afterward(s: Agent.Session, call: Agent.Call, result: Tools.Resul
   if after == nil then return result end
   local ran, made = pcall(after, call, result)
   if not ran then
-    return { text = "The agent's after hook failed: " .. told(made), is_error = true }
+    return { text = "The agent's after hook failed: " .. told(made), is_error = true, changes = result.changes }
   end
+  -- What the snippet changed is shown whatever the hook made of what the model reads.
+  if made ~= nil and made.changes == nil then made.changes = result.changes end
   return made or result
 end
 

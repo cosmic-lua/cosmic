@@ -239,8 +239,14 @@ function Show.text(out: function(line: string), err: function(line: string), lay
       end
       -- What a snippet changed shows after what it printed, as the edit and write tools of older sessions showed.
       for _, c in ipairs(e.result.changes or {}) do
-        local made = c.edits
-        if made ~= nil then edited(err, c.path, made) else err(written(c.path, c.lines or 0)) end
+        local made, more = c.edits, c.more
+        if more ~= nil then
+          err("... " .. String.counted(more, "more change") .. " not shown")
+        elseif made ~= nil then
+          edited(err, c.path, made)
+        else
+          err(written(c.path, c.lines or 0))
+        end
       end
     end
   end

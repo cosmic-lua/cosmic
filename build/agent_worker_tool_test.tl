@@ -906,5 +906,23 @@ local function test_a_snippet_edits_a_file_and_a_miss_says_which_edit()
   local missed = tools_run("run", { code = "Host.edit(\"a.md\", { { old = \"zzz\", new = \"y\" } })\n" }, context)
   assert(missed.is_error and missed.text:find("Could not find edits[1] in a.md", 1, true) ~= nil, missed.text)
   assert(missed.changes == nil, missed.text)
+  -- A snippet that changes a file and then raises still shows the change.
+  local raised = tools_run("run", { code = "Host.write(\"d.md\", \"q\")\nerror(\"after\")\n" }, context)
+  assert(raised.is_error and #assert(raised.changes) == 1, raised.text)
+  -- An edit of a long text carries the lines it changes, with one of context, not the first 4KB of each side.
+  local long = string.rep("same line\n", 1000)
+  assert(Fs.write(dir .. "/e.md", long .. "old tail\n"))
+  local far = tools_run("run", { code = "local text = Host.read(\"e.md\")\n" ..
+      "Host.edit(\"e.md\", { { old = text, new = text:gsub(\"old tail\", \"new tail\") } })\n" }, context)
+  local shown_edit = assert(assert(assert(far.changes)[1]).edits)
+  local first_edit = assert(shown_edit[1])
+  assert(first_edit.old == "same line\nold tail\n" and first_edit.new == "same line\nnew tail\n", far.text)
+  -- Past the answer's budget a change is only counted.
+  local many = tools_run("run", { code = "for i = 1, 40 do Host.write(\"m\" .. tostring(i) .. \".md\", " ..
+      "string.rep(\"x\", 10)) end\nfor i = 1, 20 do Host.write(\"n.md\", \"y\") " ..
+      "Host.edit(\"n.md\", { { old = \"y\", new = string.rep(\"z\", 4000) .. tostring(i) } }) end\n" }, context)
+  local listed = assert(many.changes)
+  local last = assert(listed[#listed])
+  assert(last.more ~= nil and last.more > 0 and #listed < 80, many.text)
   worker_close(w)
 end
