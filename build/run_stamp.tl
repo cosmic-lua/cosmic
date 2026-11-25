@@ -70,12 +70,10 @@ end
 local function signature_of(path: string): string?
   local db, _ = Sqlite.open(path)
   if db == nil then return nil end
-  local rows, _ = db:text_rows("SELECT value FROM meta WHERE key = 'projected'")
+  local row, _ = db:one("SELECT value FROM meta WHERE key = 'projected'")
   local _, _ = db:close()
-  if rows == nil then return nil end
-  local row = rows[1]
   if row == nil then return nil end
-  return row:text(1)
+  return row:as_text(1)
 end
 
 function run_stamp.own_tool(): string
@@ -84,9 +82,7 @@ end
 
 function run_stamp.key(db: Database, root: string, own: boolean, tool: string, target: string,
                        links?: string): string?
-  local rows, _ = db:text_rows(inputs_sql)
-  if rows == nil then return nil end
-  local row = rows[1]
+  local row, _ = db:one(inputs_sql)
   if row == nil then return nil end
   -- What the links found, the disk's results among them, with the library they may name as the writer gives it.
   local digest = links
