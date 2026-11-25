@@ -592,8 +592,10 @@ local CACHE_LIST <const> = Shape.record_of("CacheList")
 --- again where the same pull request is queued again on the same commit
 --- of main, and a run restores its own ref's caches before main's. So a
 --- cache there was saved by code the queue ran, perhaps an earlier head
---- that never merged, and whatever its rows say could stand in this run
---- and, through its verdicts, in main's. 1 where the ref holds one or
+--- that never merged, which chose what its archive holds, and a restore
+--- extracts that over the job's checkout. ci.yml's `queue-ref` job runs
+--- this and restores nothing, and every job that restores a cache waits
+--- on it. 1 where the ref holds one or
 --- GitHub does not say, 2 where the step names no queue ref or
 --- repository, else 0.
 function QueueVerdicts.ref_caches(env: {string:string}, host: Github.Host): integer

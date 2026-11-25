@@ -88,7 +88,34 @@
     # macOS's caches for the queue (only a part `suite` job's boot builds
     # what the zig saves keep there); the daily scheduled run and a
     # manual run run all four whole, macOS among them.
+    # A cache of a merge-queue ref is one code the queue ran saved, as no
+    # queue run saves any, and a job restores its own ref's caches before
+    # main's, extracting what their archives hold over its checkout. So
+    # every job that restores a cache waits on this one, which restores
+    # none, and a merge-queue run whose ref holds a cache runs none of
+    # them (cosmic_ci/queue_verdicts.tl's `ref_caches`).
+    "queue-ref": {
+      if: "github.event_name == 'merge_group'",
+      name: "merge-queue ref",
+      defaults: {run: {"working-directory": "ci", shell: "sh"}},
+      "runs-on": "ubuntu-24.04",
+      permissions: {contents: "read", actions: "read"},
+      "timeout-minutes": 10,
+      steps: [
+        {uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"}, # v6
+        # The pinned driver, fetched and checked against its pin; the
+        # cosmic-driver action would restore a cache first.
+        {name: "fetch the pinned CI driver", run: "sh ../.github/scripts/cosmic-driver.sh"},
+        {
+          name: "refuse a cache the merge-queue ref saved",
+          env: {GH_TOKEN: "${{ github.token }}"},
+          run: "cosmic-driver cosmic_ci/driver.tl queue-ref-caches",
+        },
+      ],
+    },
     platform: {
+      needs: ["queue-ref"],
+      if: "!cancelled() && needs.queue-ref.result != 'failure'",
       name: "${{ matrix.name }}",
       defaults: {run: {"working-directory": "ci", shell: "${{ matrix.image && 'leg-shell {0}' || 'sh' }}"}},
       strategy: {
@@ -247,18 +274,6 @@
           id: "driver",
           uses: "./.github/actions/cosmic-driver",
           with: {"zig-cache": true, shell: "${{ matrix.image && 'leg-shell {0}' || 'sh' }}"},
-        },
-        # A cache of a merge-queue ref is one code the queue ran saved, as no
-        # queue run saves any (cosmic_ci/queue_verdicts.tl's `ref_caches`),
-        # and the restores below would take it before main's: such a run
-        # fails here, before it restores one.
-        {
-          name: "refuse a cache the merge-queue ref saved",
-          id: "ref-caches",
-          if: "github.event_name == 'merge_group'",
-          shell: "sh",
-          env: {GH_TOKEN: "${{ github.token }}"},
-          run: "cosmic-driver cosmic_ci/driver.tl queue-ref-caches",
         },
         # What of the host every declared-key verdict's key holds
         # (COSMIC_HOST_ID), and the verdict cache's name.
@@ -616,7 +631,7 @@
         # used.
         {
           name: "upload what this failed try in the merge queue reached",
-          if: "always() && github.event_name == 'merge_group' && job.status == 'failure' && steps.ref-caches.outcome == 'success' && steps.verdicts-trim.outputs.digest != ''",
+          if: "always() && github.event_name == 'merge_group' && job.status == 'failure' && steps.verdicts-trim.outputs.digest != ''",
           "continue-on-error": true,
           uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
           with: {
@@ -833,7 +848,8 @@
     # (`performance`) runs in the third. Elsewhere it is one job, whose
     # run checks the C functions too, which a share cannot.
     checked: {
-      if: "github.event_name != 'pull_request'",
+      needs: ["queue-ref"],
+      if: "!cancelled() && needs.queue-ref.result != 'failure' && github.event_name != 'pull_request'",
       name: "${{ matrix.name }}",
       strategy: {
         "fail-fast": false,
@@ -1080,7 +1096,8 @@
     # a pull request. Its verdicts stand apart (`narrowing.db`), under a
     # cache name of its own.
     narrowing: {
-      if: "github.event_name != 'pull_request'",
+      needs: ["queue-ref"],
+      if: "!cancelled() && needs.queue-ref.result != 'failure' && github.event_name != 'pull_request'",
       name: "linux-x86_64-checked-narrowing",
       defaults: {run: {"working-directory": "ci", shell: "leg-shell {0}"}},
       "runs-on": "ubuntu-24.04",
@@ -1311,7 +1328,8 @@
     # grants), or where the paths changed are not known. The other runs
     # check it on each leg ("check the pinned CI driver" above).
     driver: {
-      if: "github.event_name == 'merge_group'",
+      needs: ["queue-ref"],
+      if: "!cancelled() && needs.queue-ref.result != 'failure' && github.event_name == 'merge_group'",
       name: "linux-x86_64-driver",
       defaults: {run: {"working-directory": "ci", shell: "leg-shell {0}"}},
       "runs-on": "ubuntu-24.04",

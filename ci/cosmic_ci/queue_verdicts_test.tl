@@ -370,7 +370,7 @@ end
 local function test_a_queue_ref_that_holds_a_cache_fails_the_run()
   local ref = "refs/heads/gh-readonly-queue/main/pr-41-" .. SHA
   local listing = "repos/o/r/actions/caches?ref=" .. ref .. "&per_page=1"
-  local answers: {string:integer} = { ['{"total_count":0,"actions_caches":[]}'] = 0, ['{"total_count":2}'] = 1,
+  local answers: {string:integer} = { ['{"total_count":0,"actions_caches":[]}'] = 0, ['{"total_count":1}'] = 1, ['{"total_count":2}'] = 1,
     ['{"actions_caches":[]}'] = 1, [""] = 1 }
   for answer, code in pairs(answers) do
     local fake = GithubFake.new(function(path: string, _nth: integer): string?
