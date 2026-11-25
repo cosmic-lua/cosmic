@@ -850,7 +850,6 @@ local function note_stages(stages: mut {string: string}, stage: string, list: {D
   end
 end
 
---- What a build holding `module`, the file `file`, lowered made of it ([`Pipeline.Alone`]).
 --- The modules of `nearby` that `text`, the file `file`, requires, directly or through another of them, sorted.
 local function reached(nearby: {string: Pipeline.Nearby}, file: string, text: string): {string}
   local seen: mut {string: boolean} = {}
@@ -872,6 +871,7 @@ local function reached(nearby: {string: Pipeline.Nearby}, file: string, text: st
   return names
 end
 
+--- What a build holding `module`, the file `file`, lowered made of it ([`Pipeline.Alone`]).
 local function alone_of(build: Driver.Build, module: string, file: string, options: Pipeline.Options,
                         declared_return?: boolean): Pipeline.Alone
   local result = build:result(module, true)
@@ -923,7 +923,7 @@ local function alone_of(build: Driver.Build, module: string, file: string, optio
         end
         -- What a run of the tree holds the module to besides: the error-slot discipline, and a project's refusals.
         local subject = Report.of(build.program, near)
-        if subject ~= nil then
+        if subject ~= nil and SyntaxContracts.applies(near.source.filename) then
           for _, p in ipairs(SyntaxContracts.check(subject).problems) do
             told[#told + 1] = p
           end

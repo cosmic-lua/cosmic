@@ -147,7 +147,9 @@ local function sweep(dir: string)
   end
 end
 
---- The Lua of a `require` that returns each of `modules` by its name, and asks `load_module` for any other.
+--- The Lua of a `require` that returns each of `modules` by its name, runs each of `nearby` at its first `require` (again
+--- after one that raised, as Lua's does), and asks `load_module` for any other. With `allowed`, it loads only the names
+--- `allowed` lets, and `env` has no `load`, `loadfile` or `dofile` that loads code.
 local OWN_REQUIRE <const> = "local modules, load_module, nearby, allowed, env = ... local loaded = {} " ..
   "if allowed ~= nil then for _, n in ipairs({'load', 'loadfile', 'dofile'}) do env[n] = function() " ..
   "error(n .. ': this chunk loads no code but the modules it may require', 2) end end end " ..
@@ -155,7 +157,8 @@ local OWN_REQUIRE <const> = "local modules, load_module, nearby, allowed, env = 
   "if allowed ~= nil and not allowed(name) then error('require(\"' .. tostring(name) .. '\"): " ..
   "this chunk may not load that module', 2) end " ..
   "local near = nearby[name] if near == nil then return load_module(name) end " ..
-  "if loaded[name] == nil then loaded[name] = true local value = near(name) if value ~= nil then loaded[name] = value end end " ..
+  "if loaded[name] == nil then loaded[name] = true local ok, value = pcall(near, name) " ..
+  "if not ok then loaded[name] = nil error(value, 0) end if value ~= nil then loaded[name] = value end end " ..
   "return loaded[name] end"
 
 --- `code`, Lua the checker wrote of `file`, loaded as `file`'s chunk, its globals `env`.

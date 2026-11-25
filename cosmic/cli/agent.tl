@@ -95,7 +95,9 @@
 ---   as a file at its root does (`.`, the working directory, by default;
 ---   another needs a `--grant`). `--modules none` loads no code but Host
 ---   and the MCP servers' modules. A snippet has no `load`, `loadfile`
----   or `dofile` in any case. The default is `cosmic,.`.
+---   or `dofile` in any case. The default is `cosmic,.`. This holds the
+---   snippets' own code; a program `--commands` lets run (`cosmic -e`
+---   too) loads what the sandbox lets it.
 --- - `--sandbox read` lets them change nothing.
 --- - `--sandbox off` runs them with your user's rights and environment,
 ---   your API key included.

@@ -985,6 +985,6 @@ local function test_a_snippet_loads_no_code_its_modules_do_not_name()
   local missing = under({ "." }, "local M = require(\"util_test\")\nreturn { m = M ~= nil }\n")
   local gone = Json.to_array(missing["refused"])!
   assert(tostring(gone[1]):find("require(\"util_test\"): no module of that name: neither util_test.tl nor " ..
-    "util_test/init.tl is in the working directory", 1, true) ~= nil, shown(missing))
+      "util_test/init.tl is in the working directory", 1, true) ~= nil, shown(missing))
   worker_close(w)
 end

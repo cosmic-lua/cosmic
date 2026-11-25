@@ -141,6 +141,7 @@ function Prompt.build(cwd: string, contexts: {Prompt.Context}, options?: Prompt.
     commands = run and options ~= nil and options.commands == true,
     run = run,
     tree = run and tree,
+    cosmic = cosmic,
     instructions = if #instructions > 0 then instructions else nil end,
     modules = modules,
   })

@@ -388,7 +388,8 @@ local function prelude_of(code: string, whole?: boolean, cosmic?: boolean): stri
   for _, entry in ipairs(PRELUDE) do
     local name, module = entry[1] or "", entry[2] or ""
     -- Host is the agent's own; the others are the standard library's, which a snippet may be let load none of.
-    if (cosmic ~= false or name == "Host") and code:find("%f[%w_]" .. name .. "%s*[%.:]") ~= nil and (whole == true or not binds(code, name)) then
+    local let = cosmic ~= false or name == "Host"
+    if let and code:find("%f[%w_]" .. name .. "%s*[%.:]") ~= nil and (whole == true or not binds(code, name)) then
       bound[#bound + 1] = "local " .. name .. " = require(\"" .. module .. "\") "
     end
   end

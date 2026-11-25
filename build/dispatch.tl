@@ -774,7 +774,7 @@ local function evaluate(argv: {string}, name?: string): integer
   -- A chunk that requires a module of the working directory's tree is checked as a file at its root is.
   local loaded: standalone_type.Main?
   local trouble = ""
-  if require("build.nearby").required({ "." }, name or "-e", chunk) then
+  if require("build.nearby").required({ "." }, chunk) then
     loaded, trouble = require("build.standalone").compile_nearby(name or "-e", chunk, outcome)
   else
     loaded, trouble = require("build.standalone").compile(name or "-e", chunk, nil, true, outcome)

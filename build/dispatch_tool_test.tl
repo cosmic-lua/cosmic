@@ -103,6 +103,11 @@ local function test_e_requires_a_module_of_the_working_directory(tmp: string)
   assert(Fs.write(tmp .. "/util.tl", "local record U\nend\nfunction U.twice(n: integer): integer return \"x\" end\nreturn U\n"))
   local broken = evaluate(tmp, 'local U = require("util") print(U.twice(21))')
   assert(broken.code == 4 and says(broken, "util.tl:3:"), tostring(broken.stderr))
+  -- A module the binary carries is the binary's, whatever file of its name the tree has.
+  assert(Fs.mkdirs(tmp .. "/build"))
+  assert(Fs.write(tmp .. "/build/exit_status.tl", "local record E\nend\nreturn E\n"))
+  local own = evaluate(tmp, 'local E = require("build.exit_status") print(E.uncompiled)')
+  assert(own.ok and own.stdout == "4\n", tostring(own.stdout) .. tostring(own.stderr))
 end
 
 --- The words after the chunk are its `...`, and what it returns is the exit code.

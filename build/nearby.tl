@@ -1,13 +1,15 @@
 --- The modules of a tree on disk that a chunk of `cosmic -e` or a snippet of cosmic agent may require, as a file at the
 --- tree's root requires them: `require("summarize")` reads `summarize.tl` (or `summarize/init.tl`) under the root, and
---- the checker checks it with the chunk ([`Pipeline.Options.nearby`]). A `cosmic.*` name is the binary's, never a tree's.
+--- the checker checks it with the chunk ([`Pipeline.Options.nearby`]). A `cosmic.*` name, and any module the binary
+--- carries (in cosmic's own checkout, `build.*` and `lang.*` too), is the binary's, never a tree's.
 ---
 ---     local found: {string: Pipeline.Nearby} = {}
 ---     local provide = Nearby.provider({ "." }, found)
 ---     print(provide("cosmic.fs") == nil) -- true
 
-local Driver = require("build.driver")
+local type Driver = require("build.driver")
 local Fs = require("cosmic.fs")
+local Store = require("cosmic.store")
 local type Pipeline = require("build.pipeline")
 
 local record Nearby
@@ -15,9 +17,13 @@ end
 
 --- The file of module `name` in the first of `roots` that has one, and its text: `<name>.tl` or `<name>/init.tl`
 --- under the root, the name's dots as slashes, its path the root's and the file's joined (`./util.tl`). nil for a
---- `cosmic.*` name and a name with no file.
+--- `cosmic.*` name, a module the binary carries, and a name with no file.
 function Nearby.find(roots: {string}, name: string): Pipeline.Nearby?
   if name == "cosmic" or name:sub(1, 7) == "cosmic." or name:find("^[%w_]+[%w_.]*$") == nil then
+    return nil
+  end
+  local carried, _ = Store.source(name)
+  if carried ~= nil then
     return nil
   end
   local stem = name:gsub("%.", "/")
@@ -42,7 +48,7 @@ function Nearby.provider(roots: {string}, found: mut {string: Pipeline.Nearby}):
       return nil
     end
     found[name] = near
-    return Driver.source(name, near.file, near.text, "tl")
+    return require("build.driver").source(name, near.file, near.text, "tl")
   end
 end
 
@@ -58,10 +64,11 @@ function Nearby.moved(roots: {string}, found: {string: Pipeline.Nearby}): boolea
   return false
 end
 
---- Whether `text`, the file `file`, requires by a literal name a module the trees at `roots` have a file of.
-function Nearby.required(roots: {string}, file: string, text: string): boolean
-  local required, _ = require("build.pipeline").requires(file, text)
-  for _, name in ipairs(required or {}) do
+--- Whether `text` calls `require` with a literal name, as `require("m")` or `require "m"`, of a module the trees at
+--- `roots` have a file of. It reads the text, not its syntax, so that a chunk that requires none is told so without
+--- loading the checker: a match in a comment or a string only sends the chunk to the slower path that checks it.
+function Nearby.required(roots: {string}, text: string): boolean
+  for name in text:gmatch("%f[%w_.]require%s*%(?%s*[\"']([%w_.]+)[\"']") do
     if Nearby.find(roots, name) ~= nil then
       return true
     end
