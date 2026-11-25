@@ -1,8 +1,9 @@
 --- [`Child.start`]'s `policy` and the user its child runs as for a root
 --- caller (cosmic/child.tl): a user of a range of its own, never root, the
 --- files it cannot use mounted idmapped or refused. The kernel's own verdict
---- on live children: the child is a fake ([`cosmic.fake`]), a static
---- program that does what its script says.
+--- on live children: the child is a fake built from
+--- build/child_policy_fake.tl, a static program that runs the case its
+--- args name.
 ---
 --- A root caller's paths need a root that holds CAP_SETUID, CAP_SETGID,
 --- CAP_SETFCAP and CAP_SYS_ADMIN and a user namespace mapping the ids a
@@ -79,7 +80,7 @@ local function test_a_root_caller_runs_its_child_as_a_user_of_a_range_of_its_own
   local first, last = pool()
   for _, isolate in ipairs({ { "proc" }, { "file" } }) do
     local ran = ChildPolicy.under(at.probe, { isolate = isolate, grants = { { path = at.probe, letters = "rx" }, -- checked: not_assignable
-      { path = at.work, letters = "r" } } }, at.work, "status-field Uid; status-field Gid")
+      { path = at.work, letters = "r" } } }, at.work, { "status-field", "Uid", "Gid" })
     assert(ran.code == 0, ran.said)
     local ids = uids(ran.said)
     assert(#ids == 8, ran.said)
@@ -99,8 +100,7 @@ local function test_a_root_caller_s_policy_with_no_namespace_drops_to_a_pool_use
   local at = ChildPolicy.placed(tmp)
   searchable.share(at.work)
   local first, last = pool()
-  local result, why = Child.run({ at.probe,
-    "status-field Uid; status-field Gid; cat /proc/self/uid_map; create made x" },
+  local result, why = Child.run({ at.probe, "ids-and-create" },
     { timeout_ns = Child.FOREVER, policy = { grants = { { path = at.probe, letters = "rx" }, { path = at.work, letters = "rwc" },
       { path = "/proc", letters = "r" } } },
       cwd = at.work, stdout = "capture", stderr = "stdout" })
@@ -142,9 +142,8 @@ local function test_a_root_caller_s_named_user_owns_its_files_from_start_to_star
   local policy: Sandbox.Policy = { user = named, grants = { { path = at.probe, letters = "rx" },
     { path = dir, letters = "rwc" }, { path = "/proc", letters = "r" } } }
   for round = 1, 2 do
-    local result, why = Child.run({ at.probe, "status-field Uid; cat " .. dir .. "/inside; " ..
-        "append " .. dir .. "/made " .. tostring(round) }, { timeout_ns = Child.FOREVER, policy = policy, cwd = at.work, stdout = "capture",
-          stderr = "stdout" })
+    local result, why = Child.run({ at.probe, "uid-read-append", dir, tostring(round) }, { timeout_ns = Child.FOREVER, policy = policy, cwd = at.work, stdout = "capture",
+      stderr = "stdout" })
     assert(result ~= nil, "the start was refused: " .. tostring(why))
     local said = result.stdout or ""
     assert(result.code == 0, said)
@@ -172,7 +171,7 @@ local function test_a_root_caller_s_named_user_and_group_hold_under_isolation(tm
   local at = ChildPolicy.placed(tmp)
   local ran = ChildPolicy.under(at.probe, { isolate = { "proc" }, user = 4242, group = 4343, grants = {
     { path = at.probe, letters = "rx" }, { path = at.work, letters = "r" } } }, at.work,
-    "status-field Uid; status-field Gid")
+    { "status-field", "Uid", "Gid" })
   assert(ran.code == 0, ran.said)
   local ids = uids(ran.said)
   assert(#ids == 8 and ids[1] == 4242 and ids[4] == 4242 and ids[5] == 4343 and ids[8] == 4343,
@@ -186,7 +185,7 @@ local function test_a_root_caller_s_concurrent_sandboxes_run_as_different_users(
     { path = at.work, letters = "r" } } }
   local running: mut {Child.Handle} = {}
   for i = 1, 3 do
-    local handle, why = Child.start({ at.probe, "status-field Uid; sleep 300" },
+    local handle, why = Child.start({ at.probe, "uid-then-sleep", "300" },
       { timeout_ns = Child.FOREVER, policy = policy, cwd = at.work, stdout = "capture", stderr = "stdout" })
     if handle == nil then
       Test.skip(tostring(why))
@@ -208,7 +207,7 @@ local function test_a_root_caller_s_tmp_is_its_child_s_to_write(tmp: string)
   local at = ChildPolicy.placed(tmp)
   local ran = ChildPolicy.under(at.probe, { isolate = { "proc" }, tmp = true, grants = {
     { path = at.probe, letters = "rx" }, { path = at.work, letters = "r" } } }, at.work,
-    "create $TMPDIR/made x && cat $TMPDIR/made")
+    { "tmp-create-and-cat" })
   assert(ran.code == 0 and ran.said == "x\n", tostring(ran.code) .. ": " .. ran.said)
 end
 
@@ -218,7 +217,7 @@ local function test_a_root_caller_s_grant_open_to_everyone_is_used_as_it_is(tmp:
   assert(Fs.write(at.work .. "/data", "open\n"))
   assert(sys.chmod(at.work .. "/data", octal("644")))
   local ran = ChildPolicy.under(at.probe, { isolate = { "proc" }, grants = { { path = at.probe, letters = "rx" },
-    { path = at.work, letters = "r" } } }, at.work, "cat data")
+    { path = at.work, letters = "r" } } }, at.work, { "cat", "data" })
   assert(ran.code == 0 and ran.said == "open\n", ran.said)
 end
 
@@ -254,17 +253,16 @@ local function test_a_root_caller_s_named_user_meets_its_own_files_as_the_owner_
   local policy: Sandbox.Policy = { isolate = { "file" }, user = 4242, grants = {
     { path = at.probe, letters = "rx" }, { path = at.work, letters = "r" },
     { path = dir, letters = "rw" } } }
-  local ran = ChildPolicy.under(at.probe, policy, at.work, "cat " .. dir .. "/inside; append " .. dir ..
-      "/open more; cat " .. dir .. "/open; cat " .. dir .. "/third")
+  local ran = ChildPolicy.under(at.probe, policy, at.work, { "read-append-read", dir })
   assert(ran.code == 0 and ran.said == "secret\nopen\nmore\nthird\n", tostring(ran.code) .. ": " .. ran.said)
   local open = assert(sys.stat(dir .. "/open"))
   assert(open.uid == 4242 and open.gid == 4242, "open is " .. tostring(open.uid) .. ":" .. tostring(open.gid))
-  local shut = ChildPolicy.under(at.probe, policy, at.work, "cat " .. dir .. "/shut")
+  local shut = ChildPolicy.under(at.probe, policy, at.work, { "cat", dir .. "/shut" })
   assert(shut ~= nil and shut.code ~= 0 and shut.said:find("Permission denied", 1, true) ~= nil, shut.said) -- checked: compare_disjoint
-  local grouped = ChildPolicy.under(at.probe, policy, at.work, "cat " .. dir .. "/grouped")
+  local grouped = ChildPolicy.under(at.probe, policy, at.work, { "cat", dir .. "/grouped" })
   assert(grouped ~= nil and grouped.code ~= 0 and grouped.said:find("Permission denied", 1, true) ~= nil, -- checked: compare_disjoint
     grouped.said)
-  local third = ChildPolicy.under(at.probe, policy, at.work, "append " .. dir .. "/third more")
+  local third = ChildPolicy.under(at.probe, policy, at.work, { "append", dir .. "/third", "more" })
   assert(third ~= nil and third.code ~= 0 and third.said:find("Permission denied", 1, true) ~= nil, third.said) -- checked: compare_disjoint
 end
 
@@ -276,7 +274,7 @@ local function test_a_root_caller_s_closed_grant_is_idmapped_under_isolate_file(
   local ran = ChildPolicy.under(at.probe, { isolate = { "file" }, grants = {
     { path = at.probe, letters = "rx" }, { path = at.work, letters = "r" },
     { path = dir, letters = "rwc" } } }, at.work,
-    "cat " .. dir .. "/inside; create " .. dir .. "/made y; cat " .. dir .. "/made")
+    { "read-create", dir, "again" })
   assert(ran.code == 0 and ran.said == "secret\ny\n", tostring(ran.code) .. ": " .. ran.said)
   -- What it made is the owner's on the host, not the sandbox's user's.
   local made = assert(sys.stat(dir .. "/made"))
@@ -292,7 +290,7 @@ local function test_a_root_caller_s_closed_read_only_grant_is_idmapped_and_stays
   local ran = ChildPolicy.under(at.probe, { isolate = { "file" }, grants = {
     { path = at.probe, letters = "rx" }, { path = at.work, letters = "r" },
     { path = dir, letters = "r" } } }, at.work,
-    "cat " .. dir .. "/inside; create " .. dir .. "/made y")
+    { "read-create", dir })
   assert(ran.code == 1 and ran.said:find("secret", 1, true) ~= nil, tostring(ran.code) .. ": " .. ran.said)
   assert(not assert(Fs.status(dir .. "/made")).exists)
 end
@@ -339,7 +337,7 @@ local function test_a_root_caller_s_directory_above_a_grant_it_cannot_search_fai
   -- Under isolate file the root holds the grant without walking to it.
   local ran = ChildPolicy.under(at.probe, { isolate = { "file" }, grants = {
     { path = at.probe, letters = "rx" }, { path = at.work, letters = "r" },
-    { path = shut .. "/in", letters = "r" } } }, at.work, "ls " .. shut .. "/in")
+    { path = shut .. "/in", letters = "r" } } }, at.work, { "ls", shut .. "/in" })
   assert(ran.code == 0, ran.said)
 end
 
@@ -355,6 +353,6 @@ local function test_a_root_caller_s_tmp_beneath_a_directory_it_cannot_search_fai
       why:find(tmpdir, 1, true) and why:find("isolate", 1, true), why)
   -- Under isolate file /tmp is the sandbox's own tmpfs, whatever TMPDIR is.
   local ran = ChildPolicy.under(at.probe, { isolate = { "file" }, tmp = true, grants = grants }, at.work,
-    "create /tmp/made z")
+    { "create", "/tmp/made", "z" })
   assert(ran.code == 0, ran.said)
 end

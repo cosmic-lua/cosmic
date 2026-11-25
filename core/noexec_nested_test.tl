@@ -57,14 +57,14 @@ test_child.register("nested bind", function(args: {string}): integer
   assert(testing.mount(noexec, alias, nil, 4096))
   local cleared, _, refused_errno = testing.mount(nil, alias, nil, 32 | 4096)
   print("remount=" .. (if cleared then "ok" else tostring(refused_errno) end))
-  local _, _, refused = sys.execve(alias .. "/program", { alias .. "/program", "exit 97" }, {})
+  local _, _, refused = sys.execve(alias .. "/program", { alias .. "/program" }, {})
   print("exec=" .. tostring(refused))
   return 0
 end)
 
 local function test_nested_bind_preserves_noexec_and_cannot_clear_it(tmp: string)
   local ordinary = tmp .. "/ordinary"
-  assert(Fake.place(assert(Fake.build(tmp .. "/fake")), ordinary))
+  assert(Fake.place(assert(Fake.build(tmp .. "/fake", Fake.REPLY)), ordinary))
   local noexec = assert(Env.get("COSMIC_TEST_NOEXEC"))
   assert(noexec == "/noexec" and noexec ~= Env.get("TMPDIR"))
   local path = noexec .. "/program"
@@ -92,6 +92,6 @@ local function test_nested_bind_preserves_noexec_and_cannot_clear_it(tmp: string
   -- The remount is refused, not merely a no-op, and the bind runs nothing.
   assert(got["remount"] ~= nil and got["remount"] ~= "ok", "nested bind cleared noexec: " .. said)
   assert(got["exec"] == tostring(sys.EACCES), "nested alias: " .. said)
-  local ok, why, errno = sys.execve(path, { path, "exit 97" }, {})
+  local ok, why, errno = sys.execve(path, { path }, {})
   assert(not ok and errno == sys.EACCES, why)
 end

@@ -2,8 +2,8 @@
 --- processes it may start (cosmic/child.tl): a caller that is not root meets
 --- one user, itself, and `limits.processes` is the count of the sandbox's
 --- user namespace. The kernel's own verdict on live children: the child is a
---- fake ([`cosmic.fake`]), a static program that does what its script
---- says. They need a sandbox that nests (`requires`): where the platform has
+--- fake built from build/child_policy_fake.tl, a static program that
+--- runs the case its args name. They need a sandbox that nests (`requires`): where the platform has
 --- none they are not applicable, and where this host gives no user
 --- namespace, Landlock or seccomp each skips itself (Test.skip). The tests
 --- of a root caller are in cosmic/child_policy_root_user_test.tl; the
@@ -42,7 +42,7 @@ local function test_a_caller_that_is_not_root_runs_its_child_as_itself(tmp: stri
   local at = ChildPolicy.placed(tmp)
   local ran = ChildPolicy.under(at.probe, { isolate = { "proc" },
     grants = { { path = at.probe, letters = "rx" }, { path = at.work, letters = "r" } } },
-    at.work, "status-field Uid")
+    at.work, { "status-field", "Uid" })
   assert(ran.code == 0, ran.said)
   local ids = uids(ran.said)
   assert(#ids == 4 and ids[1] == sys.getuid() and ids[2] == sys.getuid(), ran.said)
@@ -55,12 +55,12 @@ local function test_a_caller_that_is_not_root_may_name_only_itself(tmp: string)
   end
   local at = ChildPolicy.placed(tmp)
   local grants: {Sandbox.Grant} = { { path = at.probe, letters = "rx" }, { path = "/proc", letters = "r" } }
-  local ran = ChildPolicy.under(at.probe, { user = sys.getuid(), grants = grants }, at.work, "status-field Uid")
+  local ran = ChildPolicy.under(at.probe, { user = sys.getuid(), grants = grants }, at.work, { "status-field", "Uid" })
   assert(ran.code == 0, ran.said)
   local ids = uids(ran.said)
   assert(#ids == 4 and ids[1] == sys.getuid(), ran.said)
   local mine = ChildPolicy.under(at.probe, { user = sys.getuid(), group = sys.getgid(), grants = grants },
-    at.work, "status-field Uid")
+    at.work, { "status-field", "Uid" })
   assert(mine.code == 0, mine.said)
   local why = ChildPolicy.refused(at.probe, { user = sys.getuid() + 1, grants = grants }, at.work)
   assert(why:find("^child: start: sandbox: user ") and why:find("only a root caller", 1, true), why)
@@ -81,7 +81,7 @@ local function started_under(at: ChildPolicy.Place, limit: integer, wanted: inte
   local ran = ChildPolicy.under(at.probe, { isolate = { "proc" },
     grants = { { path = at.probe, letters = "rx" }, { path = at.work, letters = "r" }, { calls = "fork" } },
     limits = { processes = limit } }, at.work,
-    "start-count " .. tostring(wanted) .. " " .. at.probe .. " sleep-forever")
+    { "start-count", tostring(wanted), at.probe, "sleep-forever" })
   assert(ran.code == 0, ran.said)
   local count, rest = ran.said:match("^started (%d+)(.*)\n$")
   assert(count ~= nil and rest ~= nil, ran.said)
@@ -102,7 +102,7 @@ end
 local function test_isolate_brings_a_default_count_of_4096_and_a_policy_s_own_is_exact(tmp: string)
   local at = ChildPolicy.placed(tmp)
   local grants: {Sandbox.Grant} = { { path = at.probe, letters = "rx" }, { path = at.work, letters = "r" } }
-  local ran = ChildPolicy.under(at.probe, { isolate = { "proc" }, grants = grants }, at.work, "rlimit nproc")
+  local ran = ChildPolicy.under(at.probe, { isolate = { "proc" }, grants = grants }, at.work, { "rlimit", "nproc" })
   assert(ran.code == 0, ran.said)
   local hard = assert(sys.getrlimit(sys.RLIMIT_NPROC)).hard
   local soft, limit = ran.said:match("^nproc (%d+) (%d+)\n$")
@@ -115,12 +115,12 @@ local function test_isolate_brings_a_default_count_of_4096_and_a_policy_s_own_is
     assert(tonumber(soft) == assert(sys.getrlimit(sys.RLIMIT_NPROC)).soft, ran.said)
   end
   local given = ChildPolicy.under(at.probe, { isolate = { "file" }, grants = grants, limits = { processes = 77 } },
-    at.work, "rlimit nproc")
+    at.work, { "rlimit", "nproc" })
   if kernel_counts() then
     assert(given.code == 0 and given.said == "nproc 77 77\n", given.said)
   end
   -- None without isolation: the caller's own.
-  local none = ChildPolicy.under(at.probe, { grants = grants }, at.work, "rlimit nproc")
+  local none = ChildPolicy.under(at.probe, { grants = grants }, at.work, { "rlimit", "nproc" })
   assert(none.code == 0 and tonumber(none.said:match("^nproc (%d+)")) == assert(sys.getrlimit(sys.RLIMIT_NPROC)).soft,
     none.said)
 end
