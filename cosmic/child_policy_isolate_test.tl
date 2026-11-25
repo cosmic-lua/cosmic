@@ -497,8 +497,8 @@ end
 --- A program reached by a link (a virtual environment's interpreter) is
 --- run by the link's name where the root shows the same file there, as a
 --- script's `$0` says: a link in a granted directory, by a relative
---- target. One the root has not, in a directory no grant names, is run
---- by its real path.
+--- target, or beneath a grant whose name is a link. One the root has
+--- not, in a directory no grant names, is run by its real path.
 local function test_a_link_the_root_shows_is_run_by_its_name_under_isolate_file(tmp: string)
   searchable.open(tmp)
   assert(Fs.mkdirs(tmp .. "/real"))
@@ -515,6 +515,13 @@ local function test_a_link_the_root_shows_is_run_by_its_name_under_isolate_file(
     grants = { { path = tmp .. "/venv", letters = "r" }, { path = tmp .. "/real", letters = "r" } } }
   local named = ChildPolicy.under(link, policy, tmp .. "/real", "")
   assert(named.code == 0 and named.said == link .. "\n", named.said)
+  -- A grant whose name is a link: the root makes that link to its real path.
+  local alias = tmp .. "/alias"
+  assert(sys.symlink(tmp .. "/venv", alias))
+  local by_alias: Sandbox.Policy = { isolate = { "file" }, profiles = { "system" },
+    grants = { { path = alias, letters = "r" }, { path = tmp .. "/real", letters = "r" } } }
+  local through = ChildPolicy.under(alias .. "/bin/python", by_alias, tmp .. "/real", "")
+  assert(through.code == 0 and through.said == alias .. "/bin/python\n", through.said)
   local real = ChildPolicy.under(lone, policy, tmp .. "/real", "")
   local real_path = assert(sys.realpath(script))
   assert(real.code == 0 and real.said == real_path .. "\n", real.said)

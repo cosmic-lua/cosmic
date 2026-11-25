@@ -2639,22 +2639,26 @@ local function root_shows(root: raw_process.Unveil, name: string, real: string):
       if bound ~= bind.path then links[bind.path] = bound end
     end
   end
+  -- The place a path is in is the longest holding it; of two at one
+  -- name, the later, which the root mounts over the other.
   local function shown(at: string): boolean?
     local longest = -1
     local host: boolean?
     for _, place in ipairs(placed) do
-      if beneath(at, place.at) and #place.at > longest then
+      if beneath(at, place.at) and #place.at >= longest then
         longest, host = #place.at, place.host
       end
     end
     return host
   end
+  -- Whether a placed path or a link is strictly beneath `at`, which the
+  -- root then makes a directory.
   local function above(at: string): boolean
     for _, place in ipairs(placed) do
-      if beneath(place.at, at) then return true end
+      if place.at ~= at and beneath(place.at, at) then return true end
     end
     for link, _ in pairs(links) do
-      if beneath(link, at) then return true end
+      if link ~= at and beneath(link, at) then return true end
     end
     return false
   end
@@ -2679,7 +2683,10 @@ local function root_shows(root: raw_process.Unveil, name: string, real: string):
           if read == nil then return false end
           points = read
         end
-      elseif links[here] ~= nil then
+      elseif links[here] ~= nil and not above(here) then
+        -- A name another placed path is beneath is a directory the root
+        -- makes for it, where no link is made (core/sandbox_root.c's
+        -- make_link).
         points = links[here]
       elseif not above(here) then
         return false
