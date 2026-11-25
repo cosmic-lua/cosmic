@@ -597,12 +597,13 @@ static void install_load (lua_State *L) {
 LUA_API int lua_setinert (lua_State *L, int idx);
 
 /* Names to the VM each C function of the standard library the checker
- * counts as running no code of the program (lang/check.tl's
+ * counts as running no code of the program (lang/check/tests.tl's
  * [`Tests.inert_callee`] and [`Tests.quiet_callee`]), so a Lua function's
  * call of one runs no pending finalizer, which a call of any other C
  * function does (patch/lua/31-finalizers-at-c-calls-run-call.txt). Every
  * function of `string`, `math` and `utf8`; `table.concat` and
- * `table.unpack`; and the base functions below. `math.random` and
+ * `table.unpack`; the base functions below; and `print`, which writes
+ * the strings of plain values (surface_print). `math.random` and
  * `math.randomseed` are closures, named by their C function. False when the VM's
  * list is full, which a new function of one of those libraries could
  * make it. */
@@ -639,6 +640,9 @@ static bool mark_inert (lua_State *L) {
     full |= !lua_setinert(L, -1);
     lua_pop(L, 1);
   }
+  lua_pop(L, 1);
+  lua_pushcfunction(L, surface_print);
+  full |= !lua_setinert(L, -1);
   lua_pop(L, 1);
   return !full;
 }

@@ -91,10 +91,11 @@ local function index_fix(ctx: Ctx, e: Ast.Index, t: Type): string
   if object.kind == "Name" and at.kind == "Name" then
     parts = parts .. "count the keys with `for " .. key .. " = 1, #" .. xs .. " do` or test the index with `if " .. key ..
       " >= 1 and " .. key .. " <= #" .. xs .. " then`, which read " .. quoted(read) .. " as a value only where nothing " ..
-      "in the body, before the read or after it, calls a function or method (`print`, `tostring`, `assert` and " ..
-      "`s:upper()` count; `math` of the index, literals or arithmetic does not), compares two locals with `<`, `<=`, " ..
-      "`>` or `>=` (`v > best` counts; `v > 0` does not), loops with `for ... in`, or assigns " .. quoted(xs) ..
-      " or " .. quoted(key) .. "; else "
+      "in the body, before the read or after it, calls a function that may run code of the program: one it declares, " ..
+      "one of the library that may (`table.insert`, `pcall`, `ipairs`), or one given a function or a class value " ..
+      "(`print`, `tostring`, `string.*`, `math.*` and a string's methods, given strings, numbers or arrays of them, do " ..
+      "not count), compares two locals with `<`, `<=`, `>` or `>=` (`v > best` counts; `v > 0` does not), loops " ..
+      "with `for ... in`, or assigns " .. quoted(xs) .. " or " .. quoted(key) .. "; else "
   end
   return parts .. "read it with `Array.at(" .. xs .. ", " .. key .. ")` (`cosmic.array`: raises when missing)" ..
     (if flag then ", " .. named else " or `" .. read .. "!`" end) .. ", or test it (`local v = " .. read .. " if v ~= nil then ... end`); `or <default>` turns an out-of-range " ..

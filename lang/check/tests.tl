@@ -69,7 +69,7 @@ local record Tests
   --- and arrays and maps of them. A class value may have a `__tostring`, which `tostring` and `string.format` run.
   plain: function(ctx: Ctx, t: Type): boolean
   --- Whether the call of `callee` (nil for a method call) names a function of the standard library that runs code of the
-  --- program only through a value or a function it is given: `tostring`, `tonumber`, `select`, `rawlen`, `string.*`,
+  --- program only through a value or a function it is given: `tostring`, `tonumber`, `select`, `rawlen`, `print`, `string.*`,
   --- `math.*`, `utf8.*`, `table.concat` and `table.unpack`. A name a program declares is never one.
   inert_callee: function(callee: Ast.Exp?): boolean
   --- Whether the code of `node` holds a call that is not inert (the `inert` of the context, set where the call is checked).
@@ -559,7 +559,8 @@ function Tests.inert_callee(callee: Ast.Exp?): boolean
     return true
   elseif (callee.kind == "Name") then
     local name = callee.text
-    return callee.binding == nil and (name == "tostring" or name == "tonumber" or name == "select" or name == "rawlen")
+    return callee.binding == nil and (name == "tostring" or name == "tonumber" or name == "select" or name == "rawlen" or
+      name == "print")
   elseif (callee.kind == "Field") and (callee.object.kind == "Name") and callee.object.binding == nil then
     local library = callee.object.text
     return library == "string" or library == "math" or library == "utf8" or
