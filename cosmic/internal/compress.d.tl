@@ -5,25 +5,8 @@
 --- @kind binding
 
 local record compress
-  -- The incremental transform [`cosmic.stream`] names Stream.Transform,
-  -- declared here because a declaration may require only declarations,
-  -- and Teal's interface conformance is nominal: the Stream below must
-  -- say `is Transform` where it is declared. cosmic/stream.tl documents
-  -- the contract.
-  interface Transform
-    -- Feeds a chunk; the output that is ready, possibly "".
-    update: function(Transform, chunk: string): string?, string
-    -- Ends the input; what is left, or nil and why.
-    finish: function(Transform): string?, string
-    -- Present only on a Transform that can hold output back: whether
-    -- `update("")` has more to give.
-    -- TODO: declare it `pending?` once the Readers' and Transform's declarations change together (the TODO in
-    -- cosmic/stream.tl): a record that lists this interface repeats an omittable field exactly, so a record that lists it
-    -- declares `pending` and returns false.
-    pending: function(Transform): boolean
-  end
-
-  record Stream is Transform
+  -- A codec, which cosmic.compress wraps as a Stream.Transform.
+  record Stream
     userdata
 
     -- Feeds a chunk, returning at most `max_bytes` bytes of output (a
@@ -31,7 +14,7 @@ local record compress
     -- error on corrupt data; the stream is finished after an error, and
     -- after a raise inside the call (out of memory). Raises when
     -- `max_bytes` is not positive, and on a finished stream.
-    update: function(Stream, chunk: string, max_bytes?: integer): string?, string -- declared: interface_disagrees
+    update: function(Stream, chunk: string, max_bytes?: integer): string?, string
     -- No more input: returns the remaining output, which for a decoder
     -- is only what follows its drained output (in practice ""). Raises
     -- while [`pending()`] is true, and on a finished stream. For a

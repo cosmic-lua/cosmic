@@ -126,9 +126,9 @@ local function build(fields: {string}, outside: string): string?
   if format == "tar.gz" then
     local enc, _ = Compress.encoder("gzip")
     if enc == nil then return nil end
-    local head = enc:update(archive) as string -- checked: cast_refused
-    local tail = enc:finish()
-    if tail == nil then return nil end
+    local head, _ = enc:update(archive)
+    local tail, _ = enc:finish()
+    if head == nil or tail == nil then return nil end
     archive = head .. tail
   end
   return archive
@@ -374,9 +374,9 @@ local function test_open_of_a_stream_answers_as_open_does_for_the_same_bytes(tmp
         if src:int(0, 1) == 1 then
           local enc, _ = Compress.encoder("gzip")
           if enc ~= nil then
-            local head = enc:update(sample) as string -- checked: cast_refused
-            local tail = enc:finish()
-            if tail ~= nil then sample = head .. tail end
+            local head, _ = enc:update(sample)
+            local tail, _ = enc:finish()
+            if head ~= nil and tail ~= nil then sample = head .. tail end
           end
         end
         body = Fuzz.mutate(src, sample, 3)
@@ -549,9 +549,9 @@ local function build_capped(fields: {string}): string?, {integer}
   if fields[1] == "tar.gz" then
     local enc, _ = Compress.encoder("gzip")
     if enc == nil then return nil, sizes end
-    local head = enc:update(archive) as string -- checked: cast_refused
-    local tail = enc:finish()
-    if tail == nil then return nil, sizes end
+    local head, _ = enc:update(archive)
+    local tail, _ = enc:finish()
+    if head == nil or tail == nil then return nil, sizes end
     archive = head .. tail
   end
   return archive, sizes

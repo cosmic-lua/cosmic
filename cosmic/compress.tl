@@ -17,10 +17,49 @@ local Stream = require("cosmic.stream")
 
 local raw = require("cosmic.internal.compress")
 
---- A failure's text under the module's name, which a public function's
---- [`Failure`] carries.
-local function refuse(why: string): nil, string
-  return nil, "compress: " .. why
+-- A codec of the core as a Stream.Transform: the core's text failures
+-- become Failures here, and the rest passes through.
+local class Coder is Stream.Transform
+  --- The core's codec this one stands over.
+  raw: raw_compress.Stream
+
+  --- Feeds `chunk`; the output that is ready, at most `max_bytes` of
+  --- it for a decoder (1 MiB when not given).
+  function update(self, chunk: string, max_bytes?: integer): (string) | (nil, Failure)
+    local out, why = self.raw:update(chunk, max_bytes)
+    if out == nil then return nil, Failure.new(why) end
+    return out
+  end
+
+  --- No more input: what is left. It raises while `pending` is true.
+  function finish(self): (string) | (nil, Failure)
+    local out, why = self.raw:finish()
+    if out == nil then return nil, Failure.new(why) end
+    return out
+  end
+
+  --- Whether a decoder holds output that `update("")` gives out.
+  function pending(self): boolean
+    return self.raw:pending()
+  end
+
+  --- Whether a decoder has seen the end of the compressed data.
+  function done(self): boolean
+    return self.raw:done()
+  end
+
+  --- The input fed after the end of the compressed data, "" if none.
+  function rest(self): string
+    return self.raw:rest()
+  end
+
+  function __close(self, _: any)
+    local _held <close> = self.raw
+  end
+end
+
+local function coder(raw_stream: raw_compress.Stream): Coder
+  return { raw = raw_stream }
 end
 
 local record Compress
@@ -39,25 +78,24 @@ local record Compress
   --- One incremental transform, a chunk at a time: a
   --- [`Stream.Transform`], so [`Stream.transform`],
   --- [`Stream.transform_writer`] and [`Stream.run`] drive it. Every
-  --- method that can fail returns `value, ""` on success and
-  --- `nil, error` on failure; the constructors return the stream, or
+  --- method that can fail, and each constructor, returns its value or
   --- nil and a [`Failure`].
   ---
   --- `update(chunk, max_bytes?)` feeds `chunk` and returns output,
   --- possibly "". A decoder returns at most `max_bytes` bytes per
   --- call (default 1 MiB), however far a small input expands: input it
-  --- has not got to yet stays inside the stream, and `pending()` turns
+  --- has not got to yet stays inside the stream, and [`pending()`] turns
   --- true.
-  --- While `pending()` is true, `update("")` returns the next piece
+  --- While [`pending()`] is true, `update("")` returns the next piece
   --- without new input (it may return "" once, when the limit fell
   --- exactly at the end). An encoder returns all of its output and
-  --- is never pending. On corrupt data `update` returns nil and an
-  --- error, and the stream is finished.
+  --- is never pending. On corrupt data `update` returns nil and a
+  --- Failure, and the stream is finished.
   ---
-  --- `finish()` says no more input follows and returns what is left:
+  --- [`finish()`] says no more input follows and returns what is left:
   --- an encoder's last block and trailer, and for a decoder only what
   --- follows its drained output (in practice ""). It raises while
-  --- `pending()` is true, so its output is bounded too; drain first:
+  --- [`pending()`] is true, so its output is bounded too; drain first:
   ---
   ---     local out = assert(s:update(chunk))   -- use out
   ---     while s:pending() do
@@ -66,29 +104,29 @@ local record Compress
   ---     ...                                   -- at end of input:
   ---     local last = assert(s:finish())       -- a small tail at most
   ---
-  --- A decoder's `finish` errors when the compressed data stopped
+  --- A decoder's `finish` fails when the compressed data stopped
   --- early ("truncated ... stream"). After `finish`, after an error,
   --- after a raise inside `update` or `finish` (out of memory: the
   --- codec may have taken input it can no longer account for), or
   --- once closed, `update` and `finish` throw. A stream is closeable:
   --- `local s <close> = assert(Compress.decoder("gzip"))` frees its
-  --- codec at the end of the scope; `rest()` still works after.
+  --- codec at the end of the scope; [`rest()`] still works after.
   ---
-  --- `done()` turns true once a decoder has seen the end of the
-  --- compressed data, and `rest()` returns the input bytes fed after
+  --- [`done()`] turns true once a decoder has seen the end of the
+  --- compressed data, and [`rest()`] returns the input bytes fed after
   --- that end ("" if none). Raw deflate and zlib hold exactly one
   --- stream, so both end the moment it does. gzip, xz, bzip2 and zstd
   --- allow one member (for zstd, a frame or a skippable frame) after
   --- another, so after a member ends the decoder
   --- waits for the next input: bytes that begin that format's magic
   --- start another member, and anything else ends the data there and
-  --- goes, in full, to `rest()` -- however the input was split into
-  --- chunks. Until such a byte (or `finish`) arrives, `done()` stays
+  --- goes, in full, to [`rest()`] -- however the input was split into
+  --- chunks. Until such a byte (or `finish`) arrives, [`done()`] stays
   --- false. At `finish`, a partial magic after at least one member is
   --- trailing bytes, not truncation. xz stream padding (NUL bytes in
   --- multiples of four between and after streams) is skipped; NULs
   --- that are not a whole multiple of four are trailing bytes.
-  type Stream = raw_compress.Stream
+  type Stream = Coder
 
   --- How [`Compress.encode`] and [`Compress.encoder`] compress. An option
   --- the format does not read raises.
@@ -187,7 +225,7 @@ end
 
 -- Compress.encoder, its failure in words. `size`, when given, is the
 -- whole input's length, which a zstd frame then declares.
-local function encoder_text(format: Compress.Format, opts?: Compress.EncodeOptions, size?: integer): Compress.Stream?, string
+local function encoder_text(format: Compress.Format, opts?: Compress.EncodeOptions, size?: integer): raw_compress.Stream?, string
   local level = if opts ~= nil then opts.level else nil end
   local extreme = if opts ~= nil then opts.extreme else nil end
   if deflate_family(format) then return raw.deflater(format, level) end
@@ -197,7 +235,7 @@ local function encoder_text(format: Compress.Format, opts?: Compress.EncodeOptio
 end
 
 -- Compress.decoder, its failure in words.
-local function decoder_text(format: Compress.Format, opts?: Compress.DecodeOptions): Compress.Stream?, string
+local function decoder_text(format: Compress.Format, opts?: Compress.DecodeOptions): raw_compress.Stream?, string
   local max_memory = if opts ~= nil then opts.max_memory else nil end
   local max_window = if opts ~= nil then opts.max_window else nil end
   if deflate_family(format) then return raw.inflater(format) end
@@ -235,7 +273,7 @@ function Compress.encoder(format: Compress.Format, opts?: Compress.EncodeOptions
   check_encode(format, opts)
   local value, why = encoder_text(format, opts)
   if value == nil then return nil, Failure.new(why) end
-  return value
+  return coder(value)
 end
 
 --- A streaming decoder for `format`, held to `opts` ([`Compress.DecodeOptions`]).
@@ -256,16 +294,7 @@ function Compress.decoder(format: Compress.Format, opts?: Compress.DecodeOptions
   check_decode(format, opts)
   local value, why = decoder_text(format, opts)
   if value == nil then return nil, Failure.new(why) end
-  return value
-end
-
--- Compress.encode, its failure in words.
-local function encode_text(format: Compress.Format, data: string, opts?: Compress.EncodeOptions): string?, string
-  local encoder, trouble = encoder_text(format, opts, #data)
-  if encoder == nil then return nil, trouble end
-  local packed, run_trouble = Stream.run(encoder, data)
-  if packed == nil then return nil, tostring(run_trouble) end
-  return packed, ""
+  return coder(value)
 end
 
 --- `data` compressed whole in `format`, as [`Compress.encoder`] writes
@@ -277,22 +306,9 @@ end
 ---     local packed = assert(Compress.encode("gzip", page))
 function Compress.encode(format: Compress.Format, data: string, opts?: Compress.EncodeOptions): (string) | (nil, Failure)
   check_encode(format, opts)
-  local value, why = encode_text(format, data, opts)
-  if value == nil then return nil, Failure.new(why) end
-  return value
-end
-
--- Compress.decode, its failure in words.
-local function decode_text(format: Compress.Format, data: string, opts?: Compress.DecodeOptions): string?, string
-  local decoder, trouble = decoder_text(format, opts)
-  if decoder == nil then return nil, trouble end
-  local max_bytes = if opts ~= nil then opts.max_bytes else nil end
-  local out, run_trouble = Stream.run(decoder, data, max_bytes)
-  if out == nil then return nil, tostring(run_trouble) end
-  if decoder:rest() ~= "" then
-    return refuse("trailing bytes after the compressed data")
-  end
-  return out, ""
+  local encoder, why = encoder_text(format, opts, #data)
+  if encoder == nil then return nil, Failure.new(why) end
+  return Stream.run(coder(encoder), data)
 end
 
 --- `data` expanded whole from `format`, as [`Compress.decoder`] reads
@@ -305,9 +321,16 @@ function Compress.decode(format: Compress.Format, data: string, opts?: Compress.
     error("compress: max_bytes must be at least 0", 2)
   end
   check_decode(format, opts)
-  local value, why = decode_text(format, data, opts)
-  if value == nil then return nil, Failure.new(why) end
-  return value
+  local raw_decoder, why = decoder_text(format, opts)
+  if raw_decoder == nil then return nil, Failure.new(why) end
+  local decoder = coder(raw_decoder)
+  local max_bytes = if opts ~= nil then opts.max_bytes else nil end
+  local out, trouble = Stream.run(decoder, data, max_bytes)
+  if out == nil then return nil, trouble end
+  if decoder:rest() ~= "" then
+    return nil, Failure.new("compress: trailing bytes after the compressed data")
+  end
+  return out
 end
 
 return Compress

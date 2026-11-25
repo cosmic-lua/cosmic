@@ -34,12 +34,12 @@ local function run_cut(coder: codec.Coder, input: string, cuts: string): string?
     local size = (if k <= #cuts then cuts:byte(k) else nil end) or 1
     if size == 0 then empty = true end
     local part, why = coder:update(input:sub(at, at + size - 1))
-    if part == nil then return nil, why, empty end
+    if part == nil then return nil, tostring(why), empty end
     out[#out + 1] = part
     at = at + size
   end
   local last, why = coder:finish()
-  if last == nil then return nil, why, empty end
+  if last == nil then return nil, tostring(why), empty end
   out[#out + 1] = last
   return table.concat(out), "", empty
 end
