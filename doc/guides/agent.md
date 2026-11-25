@@ -15,7 +15,7 @@ What it gives you:
   and the refusal says how to fix it.
 - **No shell by default.** A program reads, edits and writes files
   through `Host` and cosmic's modules. On Linux, under the sandbox, it
-  runs no other program. `Host.bash` runs one only with `--commands`.
+  runs no other program. [`Host.bash`] runs one only with `--commands`.
 - **A sandbox the kernel holds.** The tools change only the working
   directory and a home of their own. They get no network, and none of
   your environment but `LANG`, `LC_ALL` and `TERM`, so not your API
@@ -499,6 +499,7 @@ $ cosmic agent sessions
 [`cosmic.agent.show`]: ../../cosmic/agent/show.tl
 [`cosmic.agent`]: ../../cosmic/agent/init.tl
 [`cosmic.compress`]: ../../cosmic/compress.tl
+[`Host.bash`]: ../../cosmic/agent/host.tl
 [`Host.edit`]: ../../cosmic/agent/host.tl
 [`Host.exists`]: ../../cosmic/agent/host.tl
 [`Host.lines`]: ../../cosmic/agent/host.tl
