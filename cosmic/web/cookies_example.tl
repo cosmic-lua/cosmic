@@ -20,9 +20,9 @@ function Example.format()
   print(line)
   assert(line == "theme=dark; Path=/; Max-Age=86400; HttpOnly; SameSite=Lax")
   local refused, why = Cookies.format("__Host-sid", "abc")
-  print(why)
+  print(tostring(why))
   assert(refused == nil)
-  assert(why:find("__Host-", 1, true))
+  assert(tostring(why):find("__Host-", 1, true))
 end
 
 --- Deleting a cookie: the attributes must be the ones it was set with.

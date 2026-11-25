@@ -66,7 +66,7 @@ local function test_what_format_writes_is_read_back_by_both_parsers(tmp: string)
       local name = assert(fields[1], "the generator packs a name")
       local value = assert(fields[2], "the generator packs a value")
       local bits = math.tointeger(tonumber(fields[3])) or 0
-      local line = Cookies.format(name, value, {
+      local line, _ = Cookies.format(name, value, {
         secure = bits & 1 ~= 0, http_only = bits & 2 ~= 0, max_age = if bits & 4 ~= 0 then 30 else nil end,
         same_site = if bits & 1 ~= 0 then "None" else "Lax" end, path = "/",
       })
@@ -76,7 +76,7 @@ local function test_what_format_writes_is_read_back_by_both_parsers(tmp: string)
       end
       Fuzz.label("written")
       if #line > 4096 then return false, "a line over 4096 bytes was written" end
-      local parsed = Cookies.parse_set_cookie(line)
+      local parsed, _ = Cookies.parse_set_cookie(line)
       if parsed == nil or parsed.name ~= name or parsed.value ~= value then
         return false, ("%q is not read back as %s=%s"):format(line, name, value)
       end
@@ -96,7 +96,7 @@ local function test_parse_set_cookie_never_raises(tmp: string)
     requires = { "parsed", "refused" },
     shares = { parsed = 0.1, refused = 0.1 },
     check = function(input: string): boolean, string
-      local parsed = Cookies.parse_set_cookie(input)
+      local parsed, _ = Cookies.parse_set_cookie(input)
       if parsed == nil then
         Fuzz.label("refused")
         return true, ""
