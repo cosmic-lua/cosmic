@@ -145,7 +145,7 @@ local function test_a_tool_for_code_is_called_from_a_snippet_alone()
     { content = { { type = "text", text = "done" } }, stop_reason = "end_turn" } })
   local w = Worker.new()
   local s = Agent.new({ sign = agent_fixture.keyed("k"), cwd = dir, base_url = "https://api.test", send = a.send,
-    system = "", worker = w, tools = { (assert(Tools.find(Tools.all(), "run"))), (assert(Tools.find(Tools.all(), "read"))), stamp },
+    system = "", worker = w, tools = { (assert(Tools.find(Tools.all(), "run"))), stamp },
     sandbox = { (assert(Policy.of(dir, { mode = "write", network = false, grants = {} }))) } })
   local calls: mut {string} = {}
   s.before = function(call: Agent.Call): string?
