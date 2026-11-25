@@ -23,8 +23,8 @@ default and is dropped from what to change.
    waits on.
 2. Implement in a fresh worktree and branch, check, and commit, per the
    guide.
-3. Start a separate read-only agent with a fresh context and the prompt
-   below. Fix every BLOCKING finding and each cheap, plainly right nit;
+3. Start a separate read-only agent on Sonnet (`model: sonnet`), with a
+   fresh context and the prompt below. Fix every BLOCKING finding and each cheap, plainly right nit;
    say in the PR description why any are left. Review again after a
    large fix.
 4. Take the TODO list from `bin/cosmic todos` (again after merging a
@@ -50,6 +50,25 @@ does not show bumps `epoch` in [`build/harness_epoch.tl`], as
 [`doc/testing.md`] says. Both are found by
 `bin/cosmic fix --check .` and the tests, run as step 2 and the guide's
 "check before pushing" say.
+
+## Token use
+
+Each tool call reads the whole context again, and every output read
+stays in it, so fewer calls and shorter outputs cut cost most.
+
+- Run a long command (`bin/cosmic test`, `fix --check .`, a boot) with
+  its output sent to a file, in the background. Chain the checks run
+  before a handoff into one command, so they end in one notice.
+- Read the end of such a file and its failed lines
+  (`grep -E '^(test|fix): (FAIL|ERROR)'`), never all of it. Pipe a
+  check through `tail` only under `set -o pipefail`, or its exit
+  status is lost.
+- For a failed CI run, read the check run's annotations first: they
+  hold the failed lines ([`ci/cosmic_ci/failures.tl`]). Fetch a job log
+  only when they do not say enough, and then only its last 60 lines.
+- Read a large file in parts (`grep -n`, then a range), not whole.
+- Make calls that do not depend on each other in one turn. Do not
+  poll: wait for the notice.
 
 ## Several changes at once, through subagents
 
@@ -110,14 +129,17 @@ Check, against the code rather than the diff's story:
 - A deleted test: name the test that still checks what it checked, or
   call the deletion BLOCKING. Where copies were replaced by a shared
   helper, diff each copy against it.
-- Run `bin/cosmic fix --check .` and report its result.
+- Run only the tests the change touches. The author runs the full
+  suite and `bin/cosmic fix --check .`; do not run them again.
 
-Report one line per finding, most severe first:
+Report one line per finding, most severe first, and nothing else:
 BLOCKING|nit <file>:<line> <claim> -- <evidence: command run, output>
-Before saying "no findings", list what you checked.
+End with one line that lists what you checked. Do not describe what
+is correct. Keep the report under 40 lines.
 ```
 
 [`AGENTS.md`]: ../../../AGENTS.md
 [`build/harness_epoch.tl`]: ../../../build/harness_epoch.tl
+[`ci/cosmic_ci/failures.tl`]: ../../../ci/cosmic_ci/failures.tl
 [`doc/contributing.md`]: ../../../doc/contributing.md
 [`doc/testing.md`]: ../../../doc/testing.md
