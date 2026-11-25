@@ -577,7 +577,8 @@ local function run(argv: {string}): integer
   end
   local binary, hold_trouble = Sqlite.hold(carried, build_schema.Build)
   if binary == nil then
-    log:complain("bom: the running artifact's database: " .. tostring(hold_trouble))
+    log:complain("bom: the running artifact's database is not of this code's schema, so its rows are not read; " ..
+        "run bin/zig build boot to build the tool again (" .. tostring(hold_trouble) .. ")")
     return 1
   end
   local rows, trouble = bom.rows(binary)
