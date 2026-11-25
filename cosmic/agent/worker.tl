@@ -14,7 +14,7 @@
 --- the request's `id` and one of: `refused`, the checker's lines, for a snippet that did not run; `ok` true and `value`
 --- (the JSON of what it returned, where it returned one, at most 64KB); `ok` false and `error`, for one that raised; or
 --- `error` alone, for a request it could not read. One of a snippet that ran may hold `changes`, the files it changed
---- through Host.edit and Host.write (build/agent_worker.tl). What a snippet writes to standard output and standard error goes to
+--- through Host.edit and Host.write, for a person to see. What a snippet writes to standard output and standard error goes to
 --- the worker's standard error, a pipe this module reads while the snippet runs, between the request's marks
 --- ([`Worker.mark`]): a response line of `ok` gains `output`, all of it as UTF-8 where it is 64KB or less, else its first
 --- 16KB and its last 48KB with a line between them of how many bytes were cut, `cut` true then, and `head_bytes` and
