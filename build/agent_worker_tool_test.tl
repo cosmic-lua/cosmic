@@ -401,6 +401,10 @@ print(tostring(long))
   assert(not bare.is_error and bare.text:find("^3\t\"x\"\tb\n") ~= nil, bare.text)
   local own = Tools.run("run", { code = "local Host = 7\nprint(Host + 1)" }, context)
   assert(not own.is_error and own.text:find("^8\n") ~= nil, own.text)
+  -- A snippet that requires one of the prelude's modules itself still has the others.
+  local mixed = Tools.run("run", { code = "local Json = require(\"cosmic.json\")\nprint(Json.encode({ Host.cat(\"one.tl\") })!)" },
+    context)
+  assert(not mixed.is_error and mixed.text:find('^%["x') ~= nil, mixed.text)
   local wrong = Tools.run("run", { code = "print(Host.find(\".\"))\nlocal n: integer = \"x\"\nprint(n)" }, context)
   assert(wrong.is_error and wrong.text:find(":2:", 1, true) ~= nil, wrong.text)
   -- A name in a string or a comment, a binding of the name, and a first line that begins with `(` all run.

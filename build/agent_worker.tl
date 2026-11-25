@@ -286,12 +286,21 @@ end
 --- stay the snippet's own.
 local PRELUDE <const>: {{string}} = { { "Host", "cosmic.agent.host" }, { "Fs", "cosmic.fs" }, { "Json", "cosmic.json" } }
 
---- The requires of each [`PRELUDE`] module `code` reads a field of, on one line: "" where it reads none.
+--- Whether `code` binds `name` itself, as a local (`local Json = ...`, `local A, Json = ...`) or a local function.
+local function binds(code: string, name: string): boolean
+  for names in code:gmatch("%f[%w_]local%s+([%w_,%s]-)%s*[=<\n]") do
+    if (", " .. names .. ","):find("[,%s]" .. name .. "%s*,") ~= nil then return true end
+  end
+  return code:find("%f[%w_]local%s+function%s+" .. name .. "%f[^%w_]") ~= nil
+end
+
+--- The requires of each [`PRELUDE`] module `code` reads a field of and does not bind itself, on one line: "" where
+--- it reads none.
 local function prelude_of(code: string): string
   local bound: mut {string} = {}
   for _, entry in ipairs(PRELUDE) do
     local name, module = entry[1] or "", entry[2] or ""
-    if code:find("%f[%w_]" .. name .. "%s*[%.:]") ~= nil then
+    if code:find("%f[%w_]" .. name .. "%s*[%.:]") ~= nil and not binds(code, name) then
       bound[#bound + 1] = "local " .. name .. " = require(\"" .. module .. "\") "
     end
   end
