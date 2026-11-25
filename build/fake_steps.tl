@@ -305,11 +305,6 @@ function Steps.pid_in(path: string): integer?
   return pid
 end
 
---- `text` and a newline, to stderr.
-function Steps.eprint(text: string): integer?
-  return Steps.put(2, text .. "\n")
-end
-
 --- `text` and a newline, at the end of file `path`, which it makes
 --- where it is not there.
 function Steps.append(path: string, text: string): integer?
