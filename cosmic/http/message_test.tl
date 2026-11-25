@@ -610,6 +610,22 @@ local function test_a_reader_of_either_kind_reads_requests_and_responses()
   assert(Message.reader():finish().status == "empty")
 end
 
+--- The bytes [`Message.format_request`] writes of `parts`; fails the
+--- test where it refuses them.
+local function written_request(parts: Message.RequestParts): string
+  local text, why = Message.format_request(parts)
+  assert(text ~= nil, tostring(why))
+  return text
+end
+
+--- The bytes [`Message.format_response`] writes of `parts`; fails the
+--- test where it refuses them.
+local function written_response(parts: Message.ResponseParts): string
+  local text, why = Message.format_response(parts)
+  assert(text ~= nil, tostring(why))
+  return text
+end
+
 local function test_a_request_is_written_from_its_parts()
   local text = assert(Message.format_request({
     method = "POST", target = "/a?b",
@@ -617,9 +633,9 @@ local function test_a_request_is_written_from_its_parts()
   }))
   assert(text == "POST /a?b HTTP/1.1\r\nAccept: */*\r\nHost: h.test\r\nX-List: 1\r\nX-List: 2\r\n" ..
       "Content-Length: 5\r\n\r\nhello", text)
-  assert(Message.format_request({ method = "GET", target = "/" }) == "GET / HTTP/1.1\r\n\r\n")
+  assert(written_request({ method = "GET", target = "/" }) == "GET / HTTP/1.1\r\n\r\n")
   -- An empty body is written as one, with its length; nil writes none.
-  assert(Message.format_request({ method = "POST", target = "/", body = "" }) ==
+  assert(written_request({ method = "POST", target = "/", body = "" }) ==
       "POST / HTTP/1.1\r\nContent-Length: 0\r\n\r\n")
   local given = assert(Message.format_request({ method = "PUT", target = "/", body = "ab",
     headers = { ["content-length"] = "2" } }))
@@ -656,7 +672,7 @@ local function test_fields_are_written_in_the_order_given()
   local function why(parts: Message.RequestParts): string
     local text, reason = Message.format_request(parts)
     assert(text == nil, "written: " .. tostring(text))
-    return reason
+    return tostring(reason)
   end
   local length: Message.Field = { name = "Content-Length", value = "2" }
   assert(why({ method = "PUT", target = "/", body = "abc", fields = { length } }) ==
@@ -677,11 +693,11 @@ local function test_a_response_is_written_from_its_parts()
   local text = assert(Message.format_response({ status = 404, headers = { ["Content-Type"] = "text/plain" },
     body = "no\n" }))
   assert(text == "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: 3\r\n\r\nno\n", text)
-  assert(Message.format_response({ status = 204 }) == "HTTP/1.1 204 No Content\r\n\r\n")
-  assert(Message.format_response({ status = 204, body = "" }) == "HTTP/1.1 204 No Content\r\n\r\n")
-  assert(Message.format_response({ status = 200, body = "" }) == "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
-  assert(Message.format_response({ status = 299, reason = "Fine" }) == "HTTP/1.1 299 Fine\r\n\r\n")
-  assert(Message.format_response({ status = 299 }) == "HTTP/1.1 299 \r\n\r\n")
+  assert(written_response({ status = 204 }) == "HTTP/1.1 204 No Content\r\n\r\n")
+  assert(written_response({ status = 204, body = "" }) == "HTTP/1.1 204 No Content\r\n\r\n")
+  assert(written_response({ status = 200, body = "" }) == "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
+  assert(written_response({ status = 299, reason = "Fine" }) == "HTTP/1.1 299 Fine\r\n\r\n")
+  assert(written_response({ status = 299 }) == "HTTP/1.1 299 \r\n\r\n")
   local rtsp = assert(Message.format_response({ status = 200, protocol = "RTSP/1.0", headers = { CSeq = "4" } }))
   assert(rtsp == "RTSP/1.0 200 OK\r\nCSeq: 4\r\n\r\n", rtsp)
   -- A HEAD's reply names the size of a body it does not carry.
@@ -694,12 +710,12 @@ local function test_parts_a_reader_would_refuse_are_not_written()
   local function request_why(parts: Message.RequestParts): string
     local text, why = Message.format_request(parts)
     assert(text == nil, "written: " .. tostring(text))
-    return why
+    return tostring(why)
   end
   local function response_why(parts: Message.ResponseParts): string
     local text, why = Message.format_response(parts)
     assert(text == nil, "written: " .. tostring(text))
-    return why
+    return tostring(why)
   end
   assert(request_why({ method = "G T", target = "/" }) == "the method is no token")
   assert(request_why({ method = "", target = "/" }) == "the method is no token")
@@ -750,7 +766,7 @@ local function test_a_bodiless_status_takes_an_empty_body_as_none()
   local headers: {string: string | {string}} = { ["Content-Length"] = "5" }
   local none = assert(Message.format_response({ status = 304, headers = headers }))
   assert(none == "HTTP/1.1 304 Not Modified\r\nContent-Length: 5\r\n\r\n", none)
-  assert(Message.format_response({ status = 304, headers = headers, body = "" }) == none)
+  assert(written_response({ status = 304, headers = headers, body = "" }) == none)
 end
 
 --- A request with a Transfer-Encoding header and no body is the head of
