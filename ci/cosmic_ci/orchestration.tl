@@ -2154,7 +2154,9 @@ local function phase_fixtures(p: PlatformContext): integer
   -- COSMIC_CI_SELF_REBUILD=only, and the leg's product or regressions
   -- job `skip`; every other run sets `run`. A run by hand (ci/run-local)
   -- may skip it too.
-  local self_rebuild = Env.get("COSMIC_CI_SELF_REBUILD")
+  local self_rebuild = named("COSMIC_CI_SELF_REBUILD") or "run"
+  assert(self_rebuild == "run" or self_rebuild == "skip" or self_rebuild == "only",
+    "COSMIC_CI_SELF_REBUILD must be run, skip or only, not " .. self_rebuild)
   if self_rebuild == "skip" then
     local _, _ = Fs.put(Fs.stderr, "fixture: self-rebuild-regression: skipped on this leg " ..
         "(COSMIC_CI_SELF_REBUILD=skip)\n")
