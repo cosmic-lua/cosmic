@@ -238,9 +238,11 @@ fixtures and its checked regressions run in main's daily scheduled run
 alone, so a failure only they show turns main's next prerelease red after
 the change lands; fix it, or revert the change, at once. a change macOS may
 handle otherwise there (the core's C, the launcher, the product or its
-fixtures) runs CI on its branch first: a
-manual run (`workflow_dispatch` on the branch, from the Actions tab or
-`gh workflow run ci.yml --ref <branch>`) runs what main's run does.
+fixtures) runs CI on its branch first, with macOS: a manual run
+(`workflow_dispatch` on the branch, from the Actions tab or
+`gh workflow run ci.yml --ref <branch> -f macos=true`) runs what main's
+daily run does. without `macos` a branch's manual run leaves macOS to the
+queue, whose macOS jobs would otherwise wait for its few runners.
 
 a queue run tests the change merged with every entry ahead of it, so it
 can fail where the branch's checks passed. when it fails building, on a

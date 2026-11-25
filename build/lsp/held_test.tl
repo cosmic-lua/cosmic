@@ -404,8 +404,7 @@ end
 local function test_a_docs_database_written_in_place_checks_the_document_again()
   local root = helped()
   local path = root .. "/docs.db"
-  local writer = assert(Sqlite.open(path, { writable = true }))
-  for _, statement in ipairs(schema.create("")) do assert(writer:exec(statement)) end
+  local writer = assert(schema.hold(assert(Sqlite.open(path, { writable = true }))))
   documented(writer, "cosmic.fs", "Fs.read")
   local reader = assert(Sqlite.open(path))
   local checker = check.new(root, function(_line: string) end, function(): check.Hinted
@@ -434,8 +433,7 @@ end
 local function test_a_docs_database_written_during_a_check_checks_the_document_again()
   local root = helped()
   local path = root .. "/docs.db"
-  local writer = assert(Sqlite.open(path, { writable = true }))
-  for _, statement in ipairs(schema.create("")) do assert(writer:exec(statement)) end
+  local writer = assert(schema.hold(assert(Sqlite.open(path, { writable = true }))))
   documented(writer, "cosmic.fs", "Fs.read")
   local reader = assert(Sqlite.open(path))
   local asked = 0

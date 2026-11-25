@@ -14,7 +14,9 @@
 --- exit code, as a built program's is: nothing is 0, a whole number
 --- from 0 to 255, or text naming one, is itself, a table (or Json.null) is printed as
 --- JSON and exits 0, and anything else is complained about and exits 2. `cosmic eval '<chunk>' [args...]` is the
---- same.
+--- same. `cosmic - [args...]` (or `cosmic run -`) runs the chunk standard
+--- input holds the same way, named `stdin` in messages: `echo 'print(1)' |
+--- cosmic -`. Standard input that is a terminal is refused, exit 5.
 --- @public
 
 local Flags = require("cosmic.flags")

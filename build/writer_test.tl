@@ -354,9 +354,7 @@ end
 --- rows go even so.
 local function test_the_carried_docs_are_the_public_standard_library_s(tmp: string)
   local whole = tmp .. "/whole.db"
-  local db = assert(Sqlite.open(whole, { writable = true }))
-  for _, statement in ipairs(schema.settings("")) do assert(db:exec(statement)) end
-  for _, statement in ipairs(schema.create("")) do assert(db:exec(statement)) end
+  local db = assert(schema.hold(assert(Sqlite.open(whole, { writable = true }))))
   for _, statement in ipairs({
       "INSERT INTO modules (path, file, kind, source_hash, key, bytecode, tests, source) " ..
         "VALUES ('cosmic.fs', 'cosmic/fs.tl', 'module', '', '', '', '', ''), " ..
@@ -446,9 +444,7 @@ end
 --- are to ask about.
 local function test_the_carried_internal_types_are_the_ones_a_public_signature_names(tmp: string)
   local whole = tmp .. "/whole.db"
-  local db = assert(Sqlite.open(whole, { writable = true }))
-  for _, statement in ipairs(schema.settings("")) do assert(db:exec(statement)) end
-  for _, statement in ipairs(schema.create("")) do assert(db:exec(statement)) end
+  local db = assert(schema.hold(assert(Sqlite.open(whole, { writable = true }))))
   local function internal(module: string, type_name: string): string
     return "('" .. module .. "', '" .. type_name .. "', 'raw." .. type_name ..
       "', 1, 'record', '', 'A type.', 'f', 1)"
@@ -515,9 +511,7 @@ end
 --- a guide under `doc/guides/internal/` is left to the tree.
 local function test_the_carried_docs_hold_the_user_guides_prose(tmp: string)
   local whole = tmp .. "/whole.db"
-  local db = assert(Sqlite.open(whole, { writable = true }))
-  for _, statement in ipairs(schema.settings("")) do assert(db:exec(statement)) end
-  for _, statement in ipairs(schema.create("")) do assert(db:exec(statement)) end
+  local db = assert(schema.hold(assert(Sqlite.open(whole, { writable = true }))))
   for _, statement in ipairs({
       "INSERT INTO modules (path, file, kind, source_hash, key, bytecode, tests, source) " ..
         "VALUES ('doc.guides.quickstart', 'doc/guides/quickstart.md', 'test', '', '', '', '', ''), " ..

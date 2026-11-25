@@ -28,9 +28,6 @@ local record Seatbelt
   record Options
     --- Each requested path's resolved host path and directory kind.
     paths: {string:Path}
-    --- The name of this program for the "cosmic" profile, with its
-    --- resolved path and kind in `paths` like an explicit grant.
-    executable?: string
     --- The name of the core a start of this program runs (past the
     --- launcher, which unpacks a core into a cache no profile grants), in
     --- `paths` like an explicit grant: granted `rx`. Required with the
@@ -66,10 +63,9 @@ local record Seatbelt
     --- sets it.
     mut serves_relay?: integer
     --- Whether the core applies the profile itself at boot (a cosmic
-    --- child, past the start): `core` and the "cosmic" profile's
-    --- `executable` are then granted `r`, not `rx`, since the core runs
-    --- already, and so the program cannot run its core, or this program,
-    --- again unless a grant of the policy gives it `x`.
+    --- child, past the start): `core` is then granted `r`, not `rx`, since
+    --- the core runs already, and so the program cannot run its core, or
+    --- this program, again unless a grant of the policy gives it `x`.
     mut booted?: boolean
   end
 
@@ -172,10 +168,9 @@ end
 --- enforcement caller. A file uses `literal`, a directory `subpath`.
 --- Every path value is a parameter, including profile and socket paths;
 --- none is interpolated into SBPL. The "system" profile is macOS's even
---- when compiling on another host; "cosmic" names `options.executable`,
---- unless the policy has a `database`: the program is then that core and
---- file alone, `options.core` (`rx`, or `r` where `options.booted`) and `options.database` (`r`), which the
---- policy's own `database` must be. A policy's `tmp` is granted `rwc` through
+--- when compiling on another host. A start of this program names
+--- `options.core` (`rx`, or `r` where `options.booted`), and with the policy's `database` that core and
+--- `options.database` (`r`) are the program alone, which the policy's own `database` must be. A policy's `tmp` is granted `rwc` through
 --- the parameter [`Seatbelt.Profile`]'s `tmp` names, which the caller sets.
 --- A policy's `connect` is reached through the network relay alone, at
 --- [`Seatbelt.Options.relay_port`] of the host's loopback.
@@ -229,13 +224,6 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
           if trouble ~= "" then return refuse(trouble) end
         end
       end
-    elseif name == "cosmic" and policy.database == nil then
-      local executable = options and options.executable
-      if executable == nil then
-        return refuse("profile cosmic needs this program's executable")
-      end
-      trouble = add(executable, if options ~= nil and options.booted == true then "r" else "rx" end)
-      if trouble ~= "" then return refuse(trouble) end
     end
   end
   local database = policy.database
@@ -409,13 +397,12 @@ end
 --- What [`Seatbelt.compile`] needs of the host for `policy`: each grant's
 --- real path and kind, keyed as the policy gives the path, and, for the
 --- "system" profile, each path of it this host has. A relative grant is
---- from `base`, where given. `executable` is this program's own path, for
---- the "cosmic" profile, resolved like a grant; `core` and `database` are
---- the file a start of this program runs and the one it runs on, likewise.
+--- from `base`, where given. `core` and `database` are the file a start of
+--- this program runs and the one it runs on, resolved like a grant.
 --- `terminal` is the pty slave's path, resolved through links for
 --- [`Seatbelt.Options.terminal`]. Nil and why where a grant's path is not there.
-function Seatbelt.resolve(policy: rules.Policy, base?: string, executable?: string,
-                          core?: string, database?: string, terminal?: string): Seatbelt.Options?, string
+function Seatbelt.resolve(policy: rules.Policy, base?: string, core?: string, database?: string,
+                          terminal?: string): Seatbelt.Options?, string
   local paths: mut {string:Seatbelt.Path} = {}
   -- "" where `at` was resolved, or why not.
   local function look(name: string, at: string): string
@@ -443,12 +430,6 @@ function Seatbelt.resolve(policy: rules.Policy, base?: string, executable?: stri
       return refuse("grant " .. string.format("%q", grant.path) .. ": " .. trouble)
     end
   end
-  if executable ~= nil then
-    local trouble = look(executable, executable)
-    if trouble ~= "" then
-      return refuse("executable " .. string.format("%q", executable) .. ": " .. trouble)
-    end
-  end
   local policy_database = policy.database
   for _, name in ipairs({ core or "", database or "", policy_database and policy_database.path or "" }) do
     if name ~= "" then
@@ -464,7 +445,7 @@ function Seatbelt.resolve(policy: rules.Policy, base?: string, executable?: stri
     end
     real_terminal = real
   end
-  return { paths = paths, executable = executable, core = core, database = database,
+  return { paths = paths, core = core, database = database,
     terminal = real_terminal }, ""
 end
 

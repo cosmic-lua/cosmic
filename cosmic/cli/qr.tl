@@ -71,7 +71,7 @@ local command: Flags.Command = {
         ["--invert"] = { about = "draw the dark modules, for a light terminal or paper" },
         ["--ascii"] = { about = "draw with `##` and spaces, not block characters" },
         ["--color"] = { about = "paint it black on white with ANSI escapes, clear on a terminal of either theme" },
-        ["--svg"] = { value = "file|-", about = "write an SVG image to the file, or print it" },
+        ["--svg"] = { value = "file", about = "write an SVG image to the file", dash = "output" },
         ["--scale"] = { value = "n", about = "svg: pixels a module, 1 to 1000 (default 8)" },
         ["--title"] = { value = "text", about = "svg: what it shows, for a screen reader" },
         ["--read"] = { moved = "`cosmic qr read [file|-]` reads a code back" },
