@@ -97,10 +97,9 @@ local function test_a_database_policy_refuses_another_program_and_this_ones_own_
   local above, above_why = Child.start({ executable, "x" }, { timeout_ns = Child.FOREVER, policy = { database = { path = path },
     grants = { { path = assert(executable:match("^(.*)/[^/]+$")), letters = "r" } } } })
   assert(above == nil and above_why.message:find("own file", 1, true) ~= nil, tostring(above_why))
-  -- The profile that grants the program's file is left out beside a
-  -- database, so it refuses nothing.
+  -- With no grant of the program's file, a start on a database refuses nothing.
   local profiled, profile_why = Child.run({ executable, executable },
-    { policy = { database = { path = path }, profiles = { "cosmic" } }, stdout = "capture",
+    { policy = { database = { path = path } }, stdout = "capture",
       stderr = "capture", timeout_ns = Clock.seconds(30) })
   if profiled == nil then
     assert(ChildPolicy.unsandboxable(tostring(profile_why)), tostring(profile_why))

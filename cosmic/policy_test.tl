@@ -151,7 +151,7 @@ local function test_encode_decode_encode_is_the_identity()
       connect = { "h:1", "*:*" }, loopback = { "127.9.9.9" }, env = { "A", "B" },
       set_env = { K = "v", E = "" }, limits = { open_files = 3, file_bytes = 0, cpu_seconds = 1, processes = 2 },
       tmp = true },
-    { profiles = { "cosmic" }, set_env_digests = { X = string.rep("a", 64) } },
+    { set_env_digests = { X = string.rep("a", 64) } },
   }
   for i, p in ipairs(policies) do
     local text = PolicyJson.encode(PolicyMerge.merged(p))

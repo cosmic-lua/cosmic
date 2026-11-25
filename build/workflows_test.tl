@@ -342,8 +342,9 @@ local SUITE_PART <const> = "(matrix.part == 'all' || matrix.part == 'suite')"
 local PRODUCT_PART <const> = "(matrix.part == 'all' || matrix.part == 'product' || matrix.part == 'portable')"
 --- The steps every part that makes or checks the product runs: assemble, and the regressions (not `portable`'s).
 local ASSEMBLE_PART <const> = "(matrix.part == 'all' || matrix.part == 'product' || matrix.part == 'portable' || " ..
-  "matrix.part == 'regressions')"
-local REGRESSIONS_PART <const> = "(matrix.part == 'all' || matrix.part == 'product' || matrix.part == 'regressions')"
+  "matrix.part == 'regressions' || matrix.part == 'rebuild')"
+local REGRESSIONS_PART <const> = "(matrix.part == 'all' || matrix.part == 'product' || matrix.part == 'regressions' || " ..
+  "matrix.part == 'rebuild')"
 local FORMAT_PART <const> = "(matrix.part == 'all' || matrix.part == 'format')"
 --- A leg's native suite and what follows it on its host, which every
 --- run but a pull request's runs, in the queue in its `suite` job.
@@ -1505,19 +1506,30 @@ local function test_each_kind_of_run_has_its_legs()
   assert(names_of(pr) == "linux-x86_64", "a pull request's legs: " .. names_of(pr))
   -- The queue runs a push's legs, each as its suite and its product at once, linux-x86_64's format check beside, and
   -- macOS's suite, which a push does not run: only the daily run met its failures, and they held up the prerelease.
-  assert(names_of(queue) == "alpine-x86_64 alpine-x86_64-portable alpine-x86_64-regressions linux-aarch64 " ..
-      "linux-aarch64-product linux-x86_64 linux-x86_64-format linux-x86_64-product macos-aarch64",
+  assert(names_of(queue) == "alpine-x86_64 alpine-x86_64-portable alpine-x86_64-rebuild alpine-x86_64-regressions " ..
+      "linux-aarch64 linux-aarch64-product linux-aarch64-rebuild linux-x86_64 linux-x86_64-format linux-x86_64-product " ..
+      "linux-x86_64-rebuild macos-aarch64",
     "the queue's legs: " .. names_of(queue))
   local mac, full_mac = assert(queue["macos-aarch64"]), assert(full["macos-aarch64"])
   assert(mac["part"] == "suite" and mac["leg"] == "macos-aarch64", "the queue runs macOS otherwise")
   for _, key in ipairs({ "runner", "target", "image" }) do
     assert(mac[key] == full_mac[key], "the queue runs macOS on another host: " .. key)
   end
+  -- Each Linux leg's self-rebuild regression is a job of its own (`rebuild`), which the leg's product or regressions
+  -- job skips; every other run runs it in the leg's own job.
+  assert(map_of(job_of(ci_workflow().jobs, "platform").env)["COSMIC_CI_SELF_REBUILD"] ==
+      "${{ matrix.part == 'rebuild' && 'only' || (matrix.part == 'product' || matrix.part == 'regressions') && 'skip' " ..
+      "|| 'run' }}", "the self-rebuild regression runs in some job other than its own, or in none")
+  -- The product's boot of its own tree (the self-driven fixture's) proves the next pin: main's push and the daily run
+  -- run it, the queue does not.
+  assert(map_of(job_of(ci_workflow().jobs, "platform").env)["COSMIC_CI_SELF_BOOT"] ==
+      "${{ github.event_name == 'merge_group' && 'skip' || 'run' }}", "the queue runs the product's self-boot, or main does not")
   -- alpine-x86_64's product, the longest, is two jobs: its portable suite and its regressions. macOS's suite, of a
   -- push too, is pinned above.
   for name, leg in pairs(push) do
     if name == "macos-aarch64" then continue end
-    local parts: {string} = if name == "alpine-x86_64" then { "suite", "portable", "regressions" } else { "suite", "product" } end
+    local parts: {string} = if name == "alpine-x86_64" then { "suite", "portable", "regressions", "rebuild" } else
+      { "suite", "product", "rebuild" } end
     for _, part in ipairs(parts) do
       local job = assert(queue[if part == "suite" then name else name .. "-" .. part end], name .. " has no " .. part)
       assert(job["part"] == part and job["leg"] == name, "the queue's jobs split " .. name .. " otherwise")
@@ -1637,6 +1649,7 @@ local function test_the_merge_queue_runs_what_mains_push_runs()
     product = "boot assemble fixtures portable attest",
     portable = "boot assemble portable attest",
     regressions = "boot assemble fixtures",
+    rebuild = "boot assemble fixtures",
     format = "boot format",
   }
   for name, leg in pairs(platform_legs("queue")) do
@@ -1671,18 +1684,31 @@ end
 --- commit the queue just checked: it repeats neither the format check nor
 --- the pinned driver's, which the daily, weekly and a manual run make on
 --- every leg. The queue checks the pinned driver in a job of its own
---- (`driver`), which boots nothing, beside its legs' jobs, and
---- only where what the commit changed reaches what its tests read (ci/ and
---- .github/), or where the paths changed are not known.
+--- (`driver`), which boots nothing, beside its legs' jobs, and on the
+--- macOS leg, whose host keeps its programs elsewhere (/sbin), each
+--- only where what the commit changed reaches what its tests read (ci/
+--- and .github/: changed_paths.tl writes `driver=skip` where it does
+--- not), or where the paths changed are not known.
 local function test_mains_push_repeats_nothing_the_queue_checked()
   local jobs = ci_workflow().jobs
   local steps = job_of(jobs, "platform").steps
+  local macos_queue <const> = "(matrix.leg == 'macos-aarch64' && github.event_name == 'merge_group')"
   local base = step_named(steps, "find the base the markers are held to")
-  assert(base["if"] == FORMAT_RUNS, "the markers' base is found on main's push: " .. tostring(base["if"]))
-  local check = step_running(steps, "cosmic-driver test cosmic_ci")
-  assert(check["if"] == "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'" and
+  assert(base["if"] == "(" .. FORMAT_RUNS .. ") || " .. macos_queue,
+    "the markers' base is found on main's push: " .. tostring(base["if"]))
+  assert(step_named(steps, "name the base the ceilings are held to")["if"] ==
+      "matrix.leg == 'linux-x86_64' && steps.ceilings-base.outputs.sha != ''",
+    "a leg but linux-x86_64 holds the ceilings to a base")
+  local leg_changed, leg_changed_at = step_with_id(steps, "changed")
+  assert(leg_changed["run"] == "cosmic-driver cosmic_ci/driver.tl changed-paths" and
+      (leg_changed["if"] or ""):find(macos_queue, 1, true) ~= nil,
+    "the macOS leg names no paths changed in the queue: " .. tostring(leg_changed["if"]))
+  local check, leg_check_at = step_running(steps, "cosmic-driver test cosmic_ci")
+  assert(check["if"] == "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || " ..
+      "(github.event_name == 'merge_group' && matrix.leg == 'macos-aarch64' && steps.changed.outputs.driver != 'skip')" and
       map_of(check.env)["COSMIC_TEST_SANDBOX"] == "0",
     "the legs check the pinned driver on other runs: " .. tostring(check["if"]))
+  assert(leg_changed_at < leg_check_at, "the macOS leg asks of the paths changed after its check")
   local driver = job_of(jobs, "driver")
   assert(driver["if"] == QUEUE_REF .. " && github.event_name == 'merge_group'" and
       table.concat(needs_of(driver), ",") == "queue-ref",
@@ -1698,9 +1724,8 @@ local function test_mains_push_repeats_nothing_the_queue_checked()
     assert((s.run or ""):find("platform boot", 1, true) == nil, "the driver's job boots the tree")
   end
   local queued = step_running(own, "cosmic-driver test cosmic_ci")
-  assert(queued["if"] == "steps.reach.outputs.driver == 'run'" and map_of(queued.env)["COSMIC_TEST_SANDBOX"] == "0",
+  assert(queued["if"] == "steps.changed.outputs.driver != 'skip'" and map_of(queued.env)["COSMIC_TEST_SANDBOX"] == "0",
     "the queue checks the pinned driver otherwise: " .. tostring(queued["if"]))
-  local reach, at = step_with_id(own, "reach")
   local _, check_at = step_named(own, "check the pinned CI driver")
   local _, placed_at = step_named(own, "move the tree to a path of its own")
   local _, back_at = step_named(own, "move the tree back to where it was checked out")
@@ -1709,16 +1734,11 @@ local function test_mains_push_repeats_nothing_the_queue_checked()
     "the driver's job checks the tree where it was checked out")
   assert(step_with_id(own, "ceilings-base")["continue-on-error"] == true,
     "the driver's job fails where it finds no base, rather than check every test")
-  assert(changed_at < at and at < check_at, "the driver's check is asked of the paths changed out of order")
   assert(changed["run"] == "cosmic-driver cosmic_ci/driver.tl changed-paths" and
       changed["if"] == "steps.ceilings-base.outputs.sha != ''",
     "the driver's job names the paths changed otherwise")
-  assert(reach["if"] == nil and
-      map_of(reach.env)["PATHS"] == "${{ steps.changed.outputs.paths }}" and
-      (reach.run or ""):find("[ -z \"$PATHS\" ] || grep -qE '^(ci|\\.github)/' \"$PATHS\"", 1, true) ~= nil,
-    "the queue asks otherwise whether the change reaches the driver's tests")
-  for _, s in ipairs(steps) do
-    assert(s["id"] ~= "reach", "a leg still asks whether the change reaches the driver's tests")
+  for _, s in ipairs(own) do
+    assert(s["id"] ~= "reach", "the driver's job asks in a shell whether the change reaches its tests")
   end
   local islands = step_named(steps, "type-check the bootstrap's scripts on the pinned driver")
   assert(islands["if"] == "matrix.leg == 'linux-x86_64' && " .. FORMAT_PART .. " && github.event_name != 'push'",
@@ -2306,14 +2326,15 @@ local function test_a_pull_request_runs_the_light_check_alone()
   local _, at_assemble = step_running(steps, "driver.tl platform assemble")
   assert(at_changed < at_assemble, "the fixtures' gate is read before the step that names the paths changed")
   local changed = step_named(steps, "name the paths the commit changed")
-  assert(changed["if"] == "matrix.leg == 'linux-x86_64' && " .. FORMAT_PART .. " && (github.event_name == 'merge_group' || " ..
-      "github.event_name == 'pull_request') && " ..
+  assert(changed["if"] == "((matrix.leg == 'linux-x86_64' && " .. FORMAT_PART .. " && (github.event_name == 'merge_group' || " ..
+      "github.event_name == 'pull_request')) || (matrix.leg == 'macos-aarch64' && github.event_name == 'merge_group')) && " ..
       "steps.ceilings-base.outputs.sha != ''" and map_of(changed.env)["BASE"] == "${{ steps.ceilings-base.outputs.sha }}" and
       (changed.run or ""):find("driver.tl changed-paths", 1, true) ~= nil, "the paths changed are named otherwise")
   assert(map_of(step_named(steps, "check the tree's format").env)["COSMIC_CI_FORMAT_CHANGED"] ==
       "${{ steps.changed.outputs.paths }}", "the check is not given the paths changed")
   local base = step_named(steps, "find the base the markers are held to")
-  assert(base["if"] == FORMAT_RUNS, "the markers are held to no base on a pull request")
+  assert(base["if"] == "(" .. FORMAT_RUNS .. ") || (matrix.leg == 'macos-aarch64' && github.event_name == 'merge_group')",
+    "the markers are held to no base on a pull request")
   -- The step fails the job where it finds no base, as the check would minutes later: a failure it tolerated would only
   -- be met there. A pull request for main reads its base from the checkout, so the step is told the branch.
   assert(base["continue-on-error"] == nil, "a run that finds no base goes on to the format check")

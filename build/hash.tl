@@ -257,6 +257,15 @@ local function arguments(argv: {string}): Request?, string
   end
   request.key = literal
   request.key_file = key_file
+  if key_file == "-" then
+    local reads: mut {string:string} = { ["--hmac-file"] = key_file }
+    if request.check == "-" then reads["the sums file"] = "-" end
+    for _, name in ipairs(request.files) do
+      if name == "-" then reads["the input"] = name end
+    end
+    local refusal = Flags.one_stdin(reads, { "--hmac-file", "the input", "the sums file" })
+    if refusal ~= "" then return nil, refusal end
+  end
   for _, name in ipairs(request.files) do
     if name == "" then return nil, bare.empty_file end
   end
@@ -266,7 +275,7 @@ end
 --- The Reader over standard input, refusing a terminal, where nothing
 --- would ever end the bytes.
 local function open_stdin(): Stream.Reader?, string
-  return bare.stdin_reader("no file given and standard input is a terminal; give a file, or pipe bytes in")
+  return bare.stdin_reader("standard input is a terminal; give a file, or pipe bytes in")
 end
 
 local standard: verb.Io = {
@@ -319,9 +328,21 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   end
   local key_file = request.key_file
   if key_file ~= nil then
-    local text, why = Fs.read(key_file)
+    local text, why: string?, string = nil, ""
+    if key_file == "-" then
+      local reader, open_why = to.stdin()
+      if reader ~= nil then
+        local whole, read_why = Stream.read_all(reader)
+        text, why = whole, if whole == nil then "standard input: " .. tostring(read_why) else "" end
+      else
+        why = open_why
+      end
+    else
+      local read, read_why = Flags.read(key_file)
+      text, why = read, read_why or ""
+    end
     if text == nil then
-      complain("--hmac-file: " .. tostring(why))
+      complain("--hmac-file: " .. why)
       return bare.undone
     end
     request.key = text
@@ -408,6 +429,8 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     local shown = (if changed then "\\" else "" end) .. listed
     if entry.name == "-" and sums_name == "-" then
       why = "-: standard input holds the sums file"
+    elseif entry.name == "-" and request.key_file == "-" then
+      why = "-: standard input holds the key"
     elseif entry.name ~= "-" and not is_regular(entry.name) then
       why = entry.name .. ": not a regular file, or not there"
     else

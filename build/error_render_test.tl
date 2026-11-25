@@ -152,10 +152,7 @@ end
 
 --- A shipped database with a documented [`Fs.read`] and the worked examples the diagnostics point to.
 local function hinted(): ErrorRender.Hints, Sqlite.Handle
-  local db = assert(Sqlite.memory())
-  for _, statement in ipairs(schema.create("")) do
-    assert(db:exec(statement))
-  end
+  local db = assert(schema.hold(assert(Sqlite.memory())))
   assert(db:run(
     "INSERT INTO modules (path, file, kind, source_hash, key, source, bytecode, tests) " ..
       "VALUES ('cosmic.fs', 'cosmic/fs.tl', 'module', '', '', '', '', '')"))
@@ -200,10 +197,7 @@ local function test_a_call_or_a_field_the_checker_refused_points_at_the_example_
   assert(#removed == 1 and at(removed, 1):find("os.getenv is not available: ", 1, true) ~= nil, at(removed, 1))
   assert(at(removed, 1):find("see also", 1, true) == nil, at(removed, 1))
   -- an example the databases lack is not advertised
-  local bare = assert(Sqlite.memory())
-  for _, statement in ipairs(schema.create("")) do
-    assert(bare:exec(statement))
-  end
+  local bare = assert(schema.hold(assert(Sqlite.memory())))
   local none = ErrorRender.lines(result_of("local o: Opts = { n = 1 }\nprint(o.zzz)\n"), function(): {Sqlite.Handle}, {boolean}
     return { bare }, { false }
   end)

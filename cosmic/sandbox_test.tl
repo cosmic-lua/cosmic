@@ -1,6 +1,5 @@
 local Array = require("cosmic.array")
 local Fs = require("cosmic.fs")
-local Proc = require("cosmic.proc")
 local Sandbox = require("cosmic.sandbox")
 local String = require("cosmic.string")
 local Test = require("cosmic.test")
@@ -212,12 +211,13 @@ local function test_merge_takes_letters_in_any_order_where_decode_does_not()
 end
 
 local function test_merge_resolves_profiles_away()
-  local out = PolicyMerge.merged({ profiles = { "cosmic" }, grants = { { path = "/data", letters = "r" } } })
+  local system = assert(Sandbox.profile("system"))
+  local first = Array.at(Sandbox.paths(system), 1)
+  local out = PolicyMerge.merged({ profiles = { "system" }, grants = { { path = "/data", letters = "r" } } })
   assert(out.profiles == nil)
-  local executable = assert(Proc.executable())
   local found, data = false, false
   for _, grant in ipairs(Sandbox.paths(out)) do
-    if grant.path == executable and grant.letters == "rx" then found = true end
+    if grant.path == first.path then found = true end
     if grant.path == "/data" then data = true end
   end
   assert(found and data)
@@ -225,14 +225,24 @@ local function test_merge_resolves_profiles_away()
   assert(none == nil and why:find("$.profiles[0]", 1, true) ~= nil and why:find("known", 1, true) ~= nil, why)
 end
 
+--- "cosmic" is a profile no more: a start of this program needs no grant of it, and the refusal says so.
+local function test_the_cosmic_profile_is_refused_saying_what_to_write()
+  local none, why = Sandbox.union({ profiles = { "cosmic" } })
+  assert(none == nil and why:find("$.profiles[0]", 1, true) ~= nil and why:find("grants its file by name", 1, true) ~= nil,
+    why)
+  local profile, profile_why = Sandbox.profile("cosmic")
+  assert(profile == nil and profile_why:find("no grant", 1, true) ~= nil, profile_why)
+end
+
 local function test_a_profile_joins_with_the_policys_own_grant_of_the_same_path()
-  local executable = assert(Proc.executable())
-  local out = PolicyMerge.merged({ profiles = { "cosmic" }, grants = { { path = executable, letters = "w" } } })
+  local system = assert(Sandbox.profile("system"))
+  local first = Array.at(Sandbox.paths(system), 1)
+  local out = PolicyMerge.merged({ profiles = { "system" }, grants = { { path = first.path, letters = "w" } } })
   local count = 0
   for _, grant in ipairs(Sandbox.paths(out)) do
-    if grant.path == executable then
+    if grant.path == first.path then
       count = count + 1
-      assert(grant.letters == "rwx", grant.letters)
+      assert(grant.letters == "rw", grant.letters)
     end
   end
   assert(count == 1)
@@ -243,9 +253,6 @@ local function test_profile_names_what_it_holds_and_refuses_what_it_has_not()
   -- host that has them (cosmic/child_policy_system_test.tl).
   local system = assert(Sandbox.profile("system"))
   assert(system.profiles == nil and system.grants ~= nil)
-  local cosmic = assert(Sandbox.profile("cosmic"))
-  assert(#assert(cosmic.grants) == 1 and Array.at(Sandbox.paths(cosmic), 1).path == assert(Proc.executable()))
-  assert(Array.at(Sandbox.paths(cosmic), 1).letters == "rx")
   local none, why = Sandbox.profile("bogus")
   assert(none == nil and why:find("unknown profile \"bogus\"", 1, true) ~= nil, why)
 end
@@ -569,26 +576,6 @@ local function test_merge_carries_a_database_and_refuses_two(tmp: string)
   assert(PolicyMerge.merged({}).database == nil)
 end
 
---- The "cosmic" profile grants this program's own file, which a program
---- on a database is not given: beside one it adds nothing.
-local function test_a_database_beside_the_cosmic_profile_leaves_the_programs_file_out(tmp: string)
-  local path = database_file(tmp)
-  local executable = assert(Proc.executable())
-  local plain = PolicyMerge.merged({ profiles = { "cosmic" } })
-  local found = false
-  for _, grant in ipairs(Sandbox.paths(plain)) do
-    if grant.path == executable then found = true end
-  end
-  assert(found, "the profile no longer grants the program")
-  local out = PolicyMerge.merged({ profiles = { "cosmic" }, database = { path = path } })
-  assert(#assert(out.grants) == 0 and assert(out.database).path == path)
-  -- In either order of the two.
-  out = PolicyMerge.merged({ database = { path = path } }, { profiles = { "cosmic", "system" } })
-  for _, grant in ipairs(Sandbox.paths(out)) do
-    assert(grant.path ~= executable, "the profile's grant stayed")
-  end
-end
-
 local function test_restrict_refuses_a_database_before_it_holds_anything(tmp: string)
   local path = database_file(tmp)
   local ok, why = Sandbox.restrict({ database = { path = path } })
@@ -761,19 +748,15 @@ local function test_permits_asks_each_action_of_the_path_or_its_directory(tmp: s
   assert(unknown:find("is no action", 1, true) ~= nil, unknown)
 end
 
---- Profiles count, as a merge reads them; a relative grant is read from
---- `cwd`; a grant with `from`, or "/tmp" itself where the policy
+--- A relative grant is read from `cwd`; a grant with `from`, or "/tmp" itself where the policy
 --- isolates files with a `tmp` of its own, names another file inside the
 --- sandbox, so it permits nothing outside, and the refusal says so,
 --- while a grant beneath /tmp is bound in and counts; /proc is refused whatever is granted; a
 --- policy that does not merge permits nothing, and says why; the root is
 --- checked as "/".
-local function test_permits_reads_profiles_and_refuses_from_grants_and_proc(tmp: string)
+local function test_permits_refuses_from_grants_and_proc(tmp: string)
   local base = assert(Fs.absolute(tmp))
   assert(Fs.mkdirs(base .. "/rel"))
-  local cosmic: Sandbox.Policy = { profiles = { "cosmic" } }
-  local own = assert(Fs.absolute(assert(Proc.executable())))
-  assert(permitted(cosmic, own, "read") and not permitted(cosmic, own, "write"))
   local relative: Sandbox.Policy = { grants = { { path = "rel", letters = "r" } } }
   assert(permitted(relative, base .. "/rel/x", "read", base) and not permitted(relative, base .. "/x", "read", base))
   local mapped: Sandbox.Policy = { grants = { { path = "/etc", letters = "r", from = base } } }

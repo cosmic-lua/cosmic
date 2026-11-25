@@ -183,8 +183,8 @@ local record McpServer
     --- The program and its arguments. It reads the call's arguments, a JSON object, on stdin.
     argv: {string}
     --- What the program is held to ([`Child.Options.policy`]): what it does not grant, the program cannot reach,
-    --- the server's own files, sockets and environment among them. Required: a tool that needs nothing still names
-    --- the program it runs (`profiles = { "cosmic" }` for this program, or `"system"`).
+    --- the server's own files, sockets and environment among them. Required: a tool that needs nothing gives `{}`
+    --- (this program starts with no grant of its own), or `profiles = { "system" }` for a host program.
     policy: Sandbox.Policy
     --- How long one call may run (60 seconds); one that runs past it is ended and gets an error response.
     timeout_ns?: integer

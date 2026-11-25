@@ -800,7 +800,7 @@ local function laid_out(system: Agent.System, given: {Agent.Server}, tool: Agent
     system.put(own .. "/data.tsv", server.data)
     local entry: mut {string: Json.Value} = {
       command = Json.array({ tool.path, "--standalone", own .. "/server.tl", own .. "/data.tsv" }),
-      policy = { profiles = Json.array({ "cosmic" }), grants = Json.array({ { path = own, letters = "r" } }) },
+      policy = { grants = Json.array({ { path = own, letters = "r" } }) },
     }
     local about = server.about
     if about ~= nil then entry["description"] = about end
