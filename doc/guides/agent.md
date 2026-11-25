@@ -488,6 +488,10 @@ $ cosmic agent sessions
 
 ## other ways in
 
+- A word `-` in `ask`'s prompt stands for all of standard input, and
+  `ask` with no words reads its whole prompt there:
+  `cosmic agent ask 'summarize this:' - < notes.txt`, or
+  `(echo 'read this:'; cat notes.txt) | cosmic agent ask -`.
 - `cosmic agent chat` takes one prompt a line until `/exit`. A line
   typed while the model works steers it.
 - `cosmic agent ask --json` prints each event as a line of JSON, with

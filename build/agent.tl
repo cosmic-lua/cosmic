@@ -724,8 +724,29 @@ local function prompting(text: string): Go
 end
 
 local function ask(r: Run, got: Flags.Parsed): integer
-  local text = table.concat(got.words, " ")
-  if text == "" then text = r.io.read_all() end
+  -- A word `-` stands for all of standard input, read once.
+  local wants = #got.words == 0
+  for _, word in ipairs(got.words) do
+    if word == "-" then wants = true end
+  end
+  local input = ""
+  if wants then
+    -- A terminal would wait for an end of input it was never told to give.
+    if r.io.tty() then
+      r.complain("ask: standard input is a terminal: give the prompt as words, or pipe it in")
+      return bare.refused
+    end
+    input = r.io.read_all()
+    if input:match("^%s*$") then
+      r.complain("ask: standard input is empty")
+      return bare.refused
+    end
+  end
+  local words: mut {string} = {}
+  for _, word in ipairs(got.words) do
+    words[#words + 1] = if word == "-" then input else word end
+  end
+  local text = if #got.words == 0 then input else table.concat(words, " ") end
   if text:match("^%s*$") then
     r.complain("ask: give a prompt, as words or on standard input; " .. Flags.usage(Verb, "cosmic agent", { "ask" }))
     return bare.refused
