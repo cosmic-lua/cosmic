@@ -1,7 +1,7 @@
 --- Worked examples for [`cosmic.http`], shown by `cosmic docs` under the
 --- symbol each one demonstrates and run by `cosmic test` like any other
 --- test -- see doc/design.md's `examples` table. A test has no network,
---- so each client one answers from [`Http.Options.script`], a canned
+--- so each client one gets its response from [`Http.Options.script`], a canned
 --- reply; a real call leaves `script` out.
 
 local Clock = require("cosmic.clock")
@@ -11,7 +11,7 @@ local Stream = require("cosmic.stream")
 
 local Example = {} -- checked: literal_needs_type
 
---- A small body fetched whole. A status that is not 2xx is an answer,
+--- A small body fetched whole. A status that is not 2xx is a response,
 --- not a failure: check `status`. `script` is a field for tests only,
 --- standing in for the server here; a real call leaves it out:
 --- `Http.get("https://example.com/status", { timeout_ns = Clock.seconds(30) })`.
@@ -44,9 +44,9 @@ function Example.pace()
 end
 
 --- A status that is not 2xx, checked by hand: the call succeeds, since
---- the server answered, and hands back the body the server sent with
---- its 404. `assert` on the call refuses only a request that got no
---- answer at all. A real call leaves `script` out:
+--- a response came, and hands back the body sent with its 404 (here
+--- `script`'s). `assert` on the call refuses only a request that got no
+--- response at all. A real call leaves `script` out:
 --- `Http.get("https://example.com/missing", { timeout_ns = Clock.seconds(30) })`.
 function Example.status()
   local reply = "HTTP/1.1 404 Not Found\r\nContent-Length: 9\r\n" ..
@@ -76,7 +76,7 @@ end
 
 --- A body sent whole, here a gzip of a string, with the method and
 --- headers it needs; the response is read from the handle `open`
---- answers, and closed by its `<close>` variable. A real call leaves
+--- returns, and closed by its `<close>` variable. A real call leaves
 --- `script` out: `Http.open("https://example.com/upload", { timeout_ns = Clock.seconds(30), method = "PUT", body = gzip })`.
 function Example.open()
   local reply = "HTTP/1.1 201 Created\r\nContent-Length: 0\r\n\r\n"

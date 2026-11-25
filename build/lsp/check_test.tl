@@ -328,7 +328,7 @@ local function test_two_files_of_one_module_are_refused_in_each_document()
 end
 
 --- While the stage is refused every open document of the project is told the build's refusal at its first line, one error, and
---- what it is answered from: the modules as last staged, or, cold, none. The banner changes with the refusal and clears with it,
+--- what it is served from: the modules as last staged, or, cold, none. The banner changes with the refusal and clears with it,
 --- on every document. A document the refusal names is told its own message alone.
 local function test_every_open_document_is_told_the_refusal_while_the_stage_is_refused()
   local record = "local record X\n  n: integer\nend\nreturn X\n"

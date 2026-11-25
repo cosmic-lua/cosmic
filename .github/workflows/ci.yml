@@ -40,8 +40,8 @@
     # Every day, the run that tests macOS and publishes a prerelease
     # (prerelease.yml): every leg and job, on the verdicts main's pushes
     # left. On Sundays (the second line), also every test run whatever
-    # stood (COSMIC_CI_EVENT), and zig's caches built cold: for
-    # what no key answers for (the clock, a flake).
+    # stood (COSMIC_CI_EVENT), and zig's caches built cold: to catch
+    # what no key is responsible for (the clock, a flake).
     # TODO: tell the maintainers of a red scheduled run: GitHub notifies
     # only whoever last edited this cron line. A step that opens (or
     # comments on) an issue when a scheduled run fails would, once one is
@@ -786,7 +786,7 @@
         # where the rows differ from the entry restored. Not the macOS
         # leg's weekly run: its keys hold the tree's path, which that run
         # chooses by the commit (driver.tl place-tree), so its rows would
-        # answer no other run.
+        # match no other run.
         {
           name: "save test verdicts",
           if: "always() && env.COSMIC_CI_SAVES == 'true' && (matrix.leg == 'macos-aarch64' || steps.main-newest.outputs.newest != 'false') && steps.verdicts-trim.outputs.digest != '' && !(github.event.schedule == '41 3 * * 0' && env.COSMIC_CI_DECLARED_KEYS == '1') && steps.verdicts-restore.outputs.cache-matched-key != format('{0}{1}', steps.host-id.outputs.verdicts, steps.verdicts-trim.outputs.digest)",
@@ -1078,7 +1078,7 @@
         # where the rows differ from the entry restored. Not the macOS
         # leg's scheduled runs: its keys hold the tree's path, which such a
         # run chooses by the commit (driver.tl place-tree), so its rows
-        # would answer no other run.
+        # would match no other run.
         {
           name: "save test verdicts",
           if: "always() && steps.verdicts-trim.outputs.digest != '' && !(github.event_name == 'schedule' && env.COSMIC_CI_DECLARED_KEYS == '1') && steps.verdicts-restore.outputs.cache-matched-key != format('{0}{1}', steps.host-id.outputs.verdicts, steps.verdicts-trim.outputs.digest)",
@@ -1309,7 +1309,7 @@
         # where the rows differ from the entry restored. Not the macOS
         # leg's scheduled runs: its keys hold the tree's path, which such a
         # run chooses by the commit (driver.tl place-tree), so its rows
-        # would answer no other run.
+        # would match no other run.
         {
           name: "save test verdicts",
           if: "always() && steps.verdicts-trim.outputs.digest != '' && !(github.event_name == 'schedule' && env.COSMIC_CI_DECLARED_KEYS == '1') && steps.verdicts-restore.outputs.cache-matched-key != format('{0}{1}', steps.host-id.outputs.verdicts, steps.verdicts-trim.outputs.digest)",
@@ -1427,8 +1427,9 @@
     },
 
     # The one check a ruleset requires: it fails when a leg, the checked
-    # suite, the checked narrowing run or the queue's pinned driver check
-    # failed or was cancelled. The checked jobs read as passed on a pull
+    # suite, the checked narrowing run, the queue's pinned driver check or
+    # its check of the queue ref's caches did not pass, or when the queue
+    # ref holds a cache once they have run. The checked jobs read as passed on a pull
     # request, which skips them; the driver job's result is read in the
     # queue alone, where it runs. On every run but a pull request's it is
     # the provenance join too, proving the legs attested identical bytes:
@@ -1444,6 +1445,32 @@
       env: {COSMIC_WORKER: "provenance"},
       steps: [
         {
+          if: "github.event_name != 'pull_request'",
+          uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
+        },
+        # In the merge queue, fetched and checked against its pin with no
+        # cache restored, so the check below runs on what no restore wrote.
+        {
+          name: "fetch the pinned provenance driver",
+          id: "driver-fetch",
+          if: "github.event_name == 'merge_group'",
+          "working-directory": "ci",
+          shell: "sh",
+          run: "sh ../.github/scripts/cosmic-driver.sh",
+        },
+        # The ref's caches again, now every job has restored what it
+        # restores, whether or not it passed: a cache written to the ref
+        # while the run ran (by a runtime token an earlier run of the ref
+        # leaked) fails the run here, so it does not merge.
+        {
+          name: "refuse a cache the merge-queue ref saved, after every job",
+          if: "github.event_name == 'merge_group'",
+          "working-directory": "ci",
+          shell: "sh",
+          env: {GH_TOKEN: "${{ github.token }}"},
+          run: "cosmic-driver cosmic_ci/driver.tl queue-ref-caches",
+        },
+        {
           name: "every job passed",
           env: {
             RESULT: "${{ needs.platform.result }}",
@@ -1454,31 +1481,13 @@
           },
           run: "echo \"merge-queue ref: $QUEUE_REF; legs: $RESULT; checked suite: $CHECKED; checked narrowing: $NARROWING; pinned driver: $DRIVER\"; [ \"$QUEUE_REF\" = success ] && [ \"$RESULT\" = success ] && [ \"$CHECKED\" = success ] && [ \"$NARROWING\" = success ] && [ \"$DRIVER\" = success ]",
         },
-        {
-          if: "github.event_name != 'pull_request'",
-          uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
-        },
         # Fetched and checked against its pin, with no cache restored: in
         # the merge queue, the check below must run on what no restore wrote.
         {
           name: "bootstrap the pinned provenance driver",
           id: "driver",
-          if: "github.event_name != 'pull_request'",
-          "working-directory": "ci",
-          shell: "sh",
-          run: "sh ../.github/scripts/cosmic-driver.sh",
-        },
-        # The ref's caches again, now every job has restored what it
-        # restores: a cache written to the ref while the run ran (by a
-        # runtime token an earlier run of the ref leaked) fails the run
-        # here, so it does not merge.
-        {
-          name: "refuse a cache the merge-queue ref saved, after every job",
-          if: "github.event_name == 'merge_group'",
-          "working-directory": "ci",
-          shell: "sh",
-          env: {GH_TOKEN: "${{ github.token }}"},
-          run: "cosmic-driver cosmic_ci/driver.tl queue-ref-caches",
+          if: "github.event_name != 'pull_request' && github.event_name != 'merge_group'",
+          uses: "./.github/actions/cosmic-driver",
         },
         {
           name: "download the products to compare",
@@ -1509,7 +1518,7 @@
         },
         {
           name: "summarize provenance operations",
-          if: "always() && steps.driver.outcome == 'success'",
+          if: "always() && (steps.driver.outcome == 'success' || steps.driver-fetch.outcome == 'success')",
           "working-directory": "ci",
           run: "cosmic-driver cosmic_ci/driver.tl summarize",
         },

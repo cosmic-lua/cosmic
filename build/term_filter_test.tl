@@ -1,6 +1,7 @@
 local TermFilter = require("build.term_filter")
 
---- What a filter passes and answers for `input` fed whole.
+--- What a filter passes for `input` fed whole, and the replies to its
+--- queries.
 local function whole(input: string): string, string
   local filter = TermFilter.new()
   return filter:feed(input)

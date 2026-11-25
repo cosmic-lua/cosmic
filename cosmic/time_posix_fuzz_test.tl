@@ -1,7 +1,7 @@
 --- Fuzz properties for [`cosmic.time`]'s POSIX TZ string reader, which
 --- reads `TZ` and every TZif file's footer: `local_zone` with a `tz` is
---- total -- whatever text it is handed, it answers a zone or a failure
---- and never raises, and a zone it answers names every moment without
+--- total -- whatever text it is handed, it returns a zone or a failure
+--- and never raises, and a zone it returns names every moment without
 --- raising -- and a string written from drawn offsets and rules reads
 --- back as a zone that is only ever in standard or daylight saving
 --- time, and reads every local time it names back as the moment it came

@@ -558,15 +558,15 @@ local compiler_roots: {string} = {
   "build.analysis_schema", "build.bind", "build.doctest", "build.gen_syscalls", "cosmic.internal.link_text",
   -- The compile's own: the tree the rules hold in and the globals the checker is stripped of.
   "build.tree", "build.withheld",
-  -- What answers the identities a compile and a parse are keyed by from the binary's stamps: a stamp it
-  -- answered wrongly would store a row under another code's key.
+  -- What reads the identities a compile and a parse are keyed by from the binary's stamps: a stamp it
+  -- read wrongly would store a row under another code's key.
   "build.stamp",
   -- The Store lookups the analyzer's walk and the tree checks' memo are handed in the text shape.
   "build.store_lookups",
 }
 
 --- The modules the compiler's identity holds, sorted, as `requires`
---- answers what a module of the tree requires: every one `require`
+--- returns what a module of the tree requires: every one `require`
 --- reaches from `compiler_roots` that is the build's own
 --- (`build.*`) or is the template compiler ([`cosmic.template`] and its
 --- submodules), whose output [`build.derivation`] stores. Every root is
@@ -675,7 +675,7 @@ local writer_left_out <const>: {string:string} = {
 }
 
 --- The modules the writer's identity holds, sorted, as `requires`
---- answers what a module of the tree requires: every one `require`
+--- returns what a module of the tree requires: every one `require`
 --- reaches from `writer_roots`, the standard library's included (down
 --- to the SQLite binding that vacuums a projection and the codec that
 --- decodes the CA roots into it), except what a root itself requires

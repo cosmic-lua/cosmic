@@ -238,7 +238,7 @@ local function read_header(reader: inputs.Reader, path: string): inputs.Header
   end
   if joined:find("__has_include", 1, true) ~= nil then
     -- Where `__has_include` is asked of a literal name, directly or through a macro that wraps it, the names; any other use
-    -- is not read. Asking whether the compiler has it at all is the pinned compiler's answer.
+    -- is not read. Asking whether the compiler has it at all is the pinned compiler's to say.
     local wrappers: mut {string: boolean} = { __has_include = true }
     local wrapper_defines = 0
     for wrapper in joined:gmatch("#%s*define%s+([%a_][%w_]*)%s*%(%s*[%a_][%w_]*%s*%)%s*__has_include%s*%(%s*[%a_][%w_]*%s*%)") do

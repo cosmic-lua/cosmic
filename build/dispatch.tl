@@ -52,7 +52,7 @@ local page_width <const> = 80
 --- the overview of the verb's own module ([`cosmic.cli.run`],
 --- [`cosmic.cli.test`], ...) so this wording is never a second,
 --- hand-kept copy of what `cosmic docs build` (or any verb
---- [`cosmic.cli.order`] names) already answers.
+--- [`cosmic.cli.order`] names) already says.
 --- Falls back to naming the lookup that failed, rather than silently
 --- dropping a verb from its own help, if a verb module's database row
 --- is ever missing.
@@ -492,7 +492,7 @@ local function run_projected(file: string, argv: {string}, tree_root: Root, name
   -- The file's top level, which `require` hands its own name and loader
   -- data as `...`, finds its words in `arg`, as `lua file a b` gives them.
   rawset(_G as {string:any}, "arg", arguments) -- checked: cast_refused, unchecked_binding
-  -- What [`Proc.relaunch`] answers as `script`, so the program can start itself again.
+  -- What [`Proc.relaunch`] takes as `script`, so the program can start itself again.
   local source_run = require("cosmic.internal.source_run")
   source_run.script = tree_root.file
   -- What [`Assets.default`] reads to serve a program's own `cmd/<name>/static/` from disk, as a built one carries it.
@@ -751,11 +751,12 @@ end
 
 --- `cosmic -e <chunk> [args...]`: runs `chunk` as the body of a Teal file, against this binary's own standard
 --- library, with no tree around it. The chunk is parsed, checked as strictly as a tree build checks (a warning
---- is refused with an error) and compiled by [`build.standalone`], which keeps a clean compile as it keeps a file's;
+--- is refused with an error, but an unused name is let pass) and compiled by [`build.standalone`], which keeps a clean compile as it keeps a file's;
 --- a chunk the checker refuses does not run, and exits 4 ([`exit_status.uncompiled`]) with the checker's own messages. It reaches the standard library as a file does, by
 --- `require("cosmic.json")` with a literal name, and may require the tool's own modules too, which are the
 --- tool's one-liner's to use; nothing is bound for it. The words after it are its `...` (each a `string?`); what it
---- returns is the exit code as a file run's is -- see build/exit_status.tl.
+--- returns is the exit code as a file run's is -- see build/exit_status.tl -- except a table or [`Json.null`], which is printed as
+--- JSON and exits 0.
 --- @param argv the whole command line, `-e` at slot 1
 local function evaluate(argv: {string}): integer
   local chunk = argv[2]
@@ -780,7 +781,23 @@ local function evaluate(argv: {string}): integer
     slot = slot + 1
     given = argv[slot]
   end
-  return exit_status.of("-e", (loaded(table.unpack(arguments))))
+  local returned = loaded(table.unpack(arguments))
+  -- A table is an answer, not a status: it is printed as JSON, as an agent's snippet hands back what it returns. A
+  -- status (nothing, a number, text) loads no JSON.
+  if not (returned == nil or returned is number or returned is string) then
+    local Json = require("cosmic.json")
+    if returned is table or returned == Json.null then
+      local Fs = require("cosmic.fs")
+      local text, why = Json.encode_any(returned)
+      if text == nil then
+        log:complain("-e returned a table that is not JSON: " .. tostring(why))
+        return 2
+      end
+      local _, _ = Fs.put(Fs.stdout, text .. "\n")
+      return 0
+    end
+  end
+  return exit_status.of("-e", returned)
 end
 
 --- The ending of each refusal of `help`'s own line, as Flags.dispatch ends every other verb's.
@@ -989,7 +1006,7 @@ local RETIRED_FLAGS <const>: {string: string} = {
   ["--check-format"] = "use `cosmic fix --check`",
 }
 
---- Runs the command line and answers its exit code.
+--- Runs the command line and returns its exit code.
 --- @param argv the command line, the verb at slot 1
 function Dispatch.main(argv: {string}): integer
   local word = argv[1]

@@ -165,7 +165,7 @@ local undeclared_metamethods <const>: {string: boolean} = {
   __index = true, __name = true, __gc = true, __metatable = true,
 }
 
---- What `getmetatable` answers for `value`: `false` for a type that
+--- What `getmetatable` returns for `value`: `false` for a type that
 --- hides its metatable.
 local function metatable_of(value: any): any
   return getmetatable(value) -- checked: any_use
@@ -302,7 +302,7 @@ local makers: {string: function(raw: {string: any}): Made} = {
     -- A TCP listener on the worker's own loopback: a unix one needs a `u`
     -- grant the policy path cannot give below Landlock ABI 9.
     local socket = assert(call(raw["listen"], { kind = "tcp", host = "127.0.0.1", port = 0 }, 1))
-    -- A numeric address answers itself, so the lookup opens nothing.
+    -- A numeric address resolves to itself, so the lookup opens nothing.
     local lookup = assert(call(raw["lookup"], "127.0.0.1", -1))
     return { instances = { Socket = socket, Lookup = lookup },
       release = function()
@@ -339,7 +339,7 @@ local makers: {string: function(raw: {string: any}): Made} = {
 
 --- Every wrapper the store hands a raw module to, and the name of the
 --- raw module's declaration: the four values that steer the process, which
---- `require` never answers by name. The others, and the preloaded ones,
+--- `require` never returns by name. The others, and the preloaded ones,
 --- have no wrapper. Edit it together with core/store.c's `raw_modules`,
 --- which it repeats: [`test_every_raw_module_has_a_declaration`] fails when
 --- the two part.
@@ -355,7 +355,7 @@ local wrappers <const>: {string: string} = {
 
 local type Loader = function(arg1?: string, arg2?: any): any
 
---- What the store's searchers answer for `asked`: the loader of a module and the value beside it, or nil.
+--- What the store's searchers return for `asked`: the loader of a module and the value beside it, or nil.
 local function searched(asked: string): Loader?, any
   for _, searcher in ipairs(package.searchers) do
     local loader, extra = searcher(asked)
@@ -365,7 +365,7 @@ local function searched(asked: string): Loader?, any
 end
 
 --- The raw module a declaration names, as the running core registers it:
---- a plain one is what `require` answers by its name, and the others are
+--- a plain one is what `require` returns by its name, and the others are
 --- what the store hands the first wrapper that takes them.
 local function raw_module(name: string): any
   if preloaded[name] == true then
@@ -416,7 +416,7 @@ end
 
 --- The raw modules among `declarations`, by the kind `binding` the build
 --- gives a declaration ([`build.analysis_schema`]'s `kind_of`, which the
---- `inputs` view of the build's database also answers), and a line for each
+--- `inputs` view of the build's database also yields), and a line for each
 --- declaration that is none. Such a declaration is no raw module for this
 --- test to skip: it is named, with the line that makes it one.
 local function split_bindings(declarations: {Declaration}): {string}, {string}
@@ -476,7 +476,7 @@ end
 --- The entries of the table `table_name` of core/store.c's `source`, each as
 --- its pattern `entry` reads them (two captures); or nil and why when the
 --- table is not all entries of that shape -- a macro, a comment, an entry
---- spelled otherwise -- rather than answer part of it.
+--- spelled otherwise -- rather than return part of it.
 local function table_in(source: string, table_name: string, entry: string, least: integer): {{string}}?, string
   local body = source:match("%} " .. table_name .. "%[%] = {\n(.-)\n};")
   if body == nil then
@@ -511,7 +511,7 @@ local function raw_modules_in(source: string): {string: string}?, string
 end
 
 --- The `raw_values` table of core/store.c's `source`: each raw value by its name, less the `cosmic.internal.` prefix,
---- and whether `require` answers it by that name.
+--- and whether `require` returns it by that name.
 local function raw_values_in(source: string): {string: boolean}?, string
   local rows, why = table_in(source, "raw_values", '{"cosmic%.internal%.([%w_]+)",%s*[%w_]+,%s*(%d)},', 5)
   if rows == nil then return nil, why end
@@ -526,7 +526,7 @@ end
 --- Every wrapper core/store.c hands a raw value to is one this test holds to
 --- a declaration, by the raw module it is handed, and the running core hands
 --- each one its raw value; every raw value it opens has a declaration, and
---- is either handed to a wrapper or answered by `require` by its name.
+--- is either handed to a wrapper or one `require` returns by its name.
 local function test_every_raw_module_has_a_declaration()
   local source = assert(Fs.read("core/store.c"))
   local in_c = assert(raw_modules_in(source))

@@ -14,7 +14,7 @@ Test.policy{ grants = {
 } }
 
 --- Runs `fn` as the handler of a GET or POST to `/` with `headers`, and
---- answers what the client saw.
+--- returns what the client saw.
 local function through(fn: function(Web.Request): Web.Response, headers?: {string:string},
                        method?: string): Web.TestResponse
   local app = Web.app{ routes = { Web.route({ "GET", "POST" }, "/", fn) } }

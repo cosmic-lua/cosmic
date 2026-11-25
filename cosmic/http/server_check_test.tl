@@ -18,7 +18,7 @@ local function test_check_names_what_the_server_would_refuse()
   assert(Server.check({ status = 99 }):find("status", 1, true))
 end
 
---- `value`, as a handler that answers what it likes would.
+--- `value`, as a handler that returns what it likes would.
 local function unchecked(value: any): Server.Reply
   return value as Server.Reply -- checked: cast_refused
 end

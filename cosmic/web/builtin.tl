@@ -1,8 +1,8 @@
 --- The files an app serves itself under `/_web/`: htmx and its SSE
 --- extension, from the bytes the binary carries. A path holds the file's
 --- version, so the content at a path never changes: the reply is
---- immutable. [`StaticFiles`] answers, so the files have its ETag, Range and
---- gzip handling.
+--- immutable. [`StaticFiles`] responds, so the files have its ETag, Range
+--- and gzip handling.
 
 local Assets = require("cosmic.web.assets")
 local Htmx = require("cosmic.web.htmx")
@@ -34,7 +34,7 @@ local function handler(): Types.Handler
   return built
 end
 
---- Answers `req` where it is under `/_web/`, else nil.
+--- The response to `req` where it is under `/_web/`, else nil.
 --- @param req Types.Request The request
 --- @return Types.Response | nil The reply, or nil for a path that is not ours
 function Builtin.handle(req: Types.Request): Types.Response?

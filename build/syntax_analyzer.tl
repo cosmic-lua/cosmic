@@ -1,7 +1,7 @@
 --- The source analyzer on the new syntax tree: what one parse of a module's source tells the importer about it -- its
 --- own test names, whether it returns its own value at the top level and under what name, the failure messages it
 --- catalogs, the symbols it documents, its worked examples, the members of other modules it refers to, and the
---- `policy` a test module declares. It answers the rows of an analysis ([`Analyzer.Analysis`]), read off a tree of
+--- `policy` a test module declares. It gives the rows of an analysis ([`Analyzer.Analysis`]), read off a tree of
 --- [`lang.parser`] ([`lang.ast`]) and the names [`lang.scopes`] resolved.
 ---
 --- A declaration's doc comment is on the node ([`Ast.Binding`], [`Ast.Function`], [`Ast.FieldDecl`], [`Ast.Method`],
@@ -672,7 +672,7 @@ local function docs_of(chunk: Ast.Chunk, lines: {string}): {Entry}, {Entry: bool
 end
 
 --- What the canonical addressing and the reachability make of the entries, kept apart from them: an entry is never
---- changed after it is made, and [`settle`] makes the entries the analysis answers.
+--- changed after it is made, and [`settle`] makes the entries the analysis gives.
 local record Marks
   exported: mut {Entry: boolean}
   symbol: mut {Entry: string}
@@ -931,7 +931,7 @@ local function canonicalize_docs(entries: {Entry}, triple: {Entry: boolean}, mar
   return out
 end
 
---- The entries the analysis answers: `entries` with what `marks` settled, and with `module_signature` for the row of the
+--- The entries the analysis gives: `entries` with what `marks` settled, and with `module_signature` for the row of the
 --- module itself where there is one.
 local function settle(entries: {Entry}, marks: Marks, module_signature: string?): {Entry}
   local out: mut {Entry} = {}

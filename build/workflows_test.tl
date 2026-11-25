@@ -1155,14 +1155,14 @@ end
 --- boolean.
 local type Value = string | boolean
 
---- What `${{ <text> }}` answers on a run of `event` to `ref`, for a leg
+--- What `${{ <text> }}` gives on a run of `event` to `ref`, for a leg
 --- of `leg`'s values, in as much of GitHub's expression syntax as a
 --- leg's switches use: string literals, `matrix.<key>`,
 --- `github.event_name`, `github.ref`, `needs.reuse.outputs.run` (`reuse`,
 --- empty unless given) and any other name `named` holds, `==`, `!=`, `!`, `&&`, `||` and parentheses. As GitHub's docs ("Operators") say, '' and false are
---- falsy, and `a && b` and `a || b` answer an operand, not a boolean.
+--- falsy, and `a && b` and `a || b` give an operand, not a boolean.
 --- It compares two strings ignoring case, as GitHub does, so a
---- literal cased otherwise than the value it names answers as it would
+--- literal cased otherwise than the value it names compares as it would
 --- there; a comparison of a string with a boolean, which GitHub coerces
 --- to numbers, it refuses.
 local function evaluate(text: string, leg: {string: string}, event: string, ref: string, reuse?: string,
@@ -1248,8 +1248,8 @@ local function evaluate(text: string, leg: {string: string}, event: string, ref:
   return v
 end
 
---- [`evaluate`] answers as GitHub does where `&&` and `||` choose
---- between strings, and where a comparison is grouped.
+--- [`evaluate`] returns what GitHub does where `&&` and `||`
+--- choose between strings, and where a comparison is grouped.
 local function test_an_expression_evaluates_as_github_says()
   local leg = { name = "linux-x86_64" }
   local function e(text: string, event: string): Value
@@ -1797,6 +1797,11 @@ local function test_a_queue_try_stands_on_its_pull_requests_last_failed_try()
       "steps.verdicts-trim.outputs.digest != ''" and upload["continue-on-error"] == true and
       param(upload, "name") == name and param(upload, "path") == "${{ runner.temp }}/verdicts/*.db",
     "the tried verdicts' upload: " .. tostring(upload["if"]))
+  -- The lookup reads a tried run's ref checks by these names
+  -- (QueueVerdicts.REF_JOB, GATE_JOB, the key of a job with no name, and RECHECK_STEP).
+  local jobs = ci_workflow().jobs
+  assert(job_of(jobs, "queue-ref").name == "merge-queue ref", "the tried run's ref job is named otherwise")
+  local _ = step_named(job_of(jobs, "ci").steps, "refuse a cache the merge-queue ref saved, after every job")
 end
 
 --- A merge-queue run whose own ref holds a cache runs no job that
@@ -1812,7 +1817,7 @@ local function test_a_queue_run_refuses_its_own_refs_caches()
       "the queue ref's check restores a cache: " .. tostring(step.name))
     if (step.run or ""):find("driver.tl queue-ref-caches", 1, true) ~= nil then
       checked_at = at
-      assert(step["continue-on-error"] == nil and map_of(step.env)["GH_TOKEN"] == "${{ github.token }}",
+      assert(step["if"] == nil and step["continue-on-error"] == nil and map_of(step.env)["GH_TOKEN"] == "${{ github.token }}",
         "the queue ref's check passes a job otherwise")
     end
   end
@@ -1823,7 +1828,8 @@ local function test_a_queue_run_refuses_its_own_refs_caches()
       local uses = step.uses or ""
       restores = restores or uses:find("actions/cache", 1, true) ~= nil or uses:find("cosmic-driver", 1, true) ~= nil
     end
-    if restores then
+    -- The gate restores only outside the merge queue (below).
+    if restores and name ~= "ci" then
       local needs = needs_of(job)
       local waits = false
       for _, each in ipairs(needs) do waits = waits or each == "queue-ref" end
@@ -1835,9 +1841,32 @@ local function test_a_queue_run_refuses_its_own_refs_caches()
     end
   end
   -- The gate, which restores none, lists the ref's caches again once every job has restored its own.
-  local recheck = step_named(job_of(jobs, "ci").steps, "refuse a cache the merge-queue ref saved, after every job")
+  -- It does so before it reads the jobs' results, so a run that failed is checked too, on a driver no restore wrote.
+  local ci = job_of(jobs, "ci")
+  local recheck, recheck_at = step_named(ci.steps, "refuse a cache the merge-queue ref saved, after every job")
+  local fetch, fetch_at = step_with_id(ci.steps, "driver-fetch")
+  local _, passed_at = step_named(ci.steps, "every job passed")
+  local action, action_at = step_with_id(ci.steps, "driver")
   assert(recheck["if"] == "github.event_name == 'merge_group'" and recheck["continue-on-error"] == nil and
-      (recheck.run or ""):find("driver.tl queue-ref-caches", 1, true) ~= nil, "the gate checks the queue ref's caches otherwise")
+      map_of(recheck.env)["GH_TOKEN"] == "${{ github.token }}" and
+      (recheck.run or ""):find("driver.tl queue-ref-caches", 1, true) ~= nil and fetch["if"] == "github.event_name == 'merge_group'" and
+      (fetch.run or ""):find("cosmic-driver.sh", 1, true) ~= nil and fetch_at < recheck_at and recheck_at < passed_at and
+      passed_at < action_at and (action["if"] or ""):find("github.event_name != 'merge_group'", 1, true) ~= nil,
+    "the gate checks the queue ref's caches otherwise")
+  -- In the queue the gate restores nothing: each restore it has runs on other events alone.
+  for _, step in ipairs(ci.steps) do
+    local uses = step.uses or ""
+    if uses:find("actions/cache", 1, true) ~= nil or uses:find("cosmic-driver", 1, true) ~= nil then
+      assert((step["if"] or ""):find("github.event_name != 'merge_group'", 1, true) ~= nil and
+          (step["if"] or ""):find("||", 1, true) == nil, "the gate restores in the merge queue: " .. tostring(step.name))
+    end
+  end
+  local summary = step_named(ci.steps, "summarize provenance operations")
+  assert(summary["if"] == "always() && (steps.driver.outcome == 'success' || steps.driver-fetch.outcome == 'success')",
+    "the gate's summary runs on neither driver: " .. tostring(summary["if"]))
+  -- Both list the ref's caches, which takes actions: read.
+  assert(map_of(gate.permissions)["actions"] == "read" and map_of(ci.permissions)["actions"] == "read",
+    "the queue ref's caches cannot be listed")
 end
 
 local function relay_workflow(): Workflow
@@ -2117,14 +2146,15 @@ local function test_the_gate_needs_every_job_and_compares_the_legs_products()
   local gate = job_of(jobs, "ci")
   assert(table.concat(needs_of(gate), ",") == "queue-ref,platform,checked,narrowing,driver" and gate["if"] == "always()",
     "the gate needs " .. table.concat(needs_of(gate), ","))
-  local env = map_of(assert(gate.steps[1]).env)
+  local passed = step_named(gate.steps, "every job passed")
+  local env = map_of(passed.env)
   assert(env["RESULT"] == "${{ needs.platform.result }}" and
       env["CHECKED"] == "${{ github.event_name == 'pull_request' && 'success' || needs.checked.result }}" and
       env["NARROWING"] == "${{ github.event_name == 'pull_request' && 'success' || needs.narrowing.result }}" and
       env["DRIVER"] == "${{ github.event_name == 'merge_group' && needs.driver.result || 'success' }}" and
       env["QUEUE_REF"] == "${{ github.event_name == 'merge_group' && needs.queue-ref.result || 'success' }}" and
-      (assert(gate.steps[1]).run or ""):find("[ \"$DRIVER\" = success ]", 1, true) ~= nil and
-      (assert(gate.steps[1]).run or ""):find("[ \"$QUEUE_REF\" = success ]", 1, true) ~= nil,
+      (passed.run or ""):find("[ \"$DRIVER\" = success ]", 1, true) ~= nil and
+      (passed.run or ""):find("[ \"$QUEUE_REF\" = success ]", 1, true) ~= nil,
     "the gate reads other results")
   local compare = step_named(gate.steps, "compare the Cosmic bytes executed on every native host")
   assert(compare["if"] == PR_SKIPS and

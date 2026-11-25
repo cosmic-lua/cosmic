@@ -84,7 +84,7 @@ local function test_the_facts_of_a_file_answer_what_a_comment_sees()
   local chunk = assert(Node.parse(source, "f1.tl"))
   local facts = SyntaxLinks.facts(chunk, Node.scope(chunk, "f1.tl"), source)
   assert(facts.known.parsed and #facts.blocks == FUNCTIONS)
-  -- The lazy answer and the settled one agree on every line of every block.
+  -- The lazy result and the settled one agree on every line of every block.
   local lazy = SyntaxLinkText.declarations(chunk, Node.scope(chunk, "f1.tl"))
   for _, block in ipairs(facts.blocks) do
     local settled, waiting = facts.known.at(block.line), lazy.at(block.line)

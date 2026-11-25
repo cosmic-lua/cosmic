@@ -266,8 +266,8 @@ local function test_add_calendar_refuses_a_day_its_month_lacks_by_default()
   assert(none == nil and tostring(why):find("years", 1, true) ~= nil, why)
 end
 
---- `between`'s whole months, in the cases Java's `ChronoUnit.MONTHS.between`
---- answers: the years are their twelves, so a count of months is a
+--- `between`'s whole months, against what Java's `ChronoUnit.MONTHS.between`
+--- returns: the years are their twelves, so a count of months is a
 --- duration's years times 12 plus its months.
 local function test_between_counts_whole_months()
   local record Case
@@ -284,7 +284,7 @@ local function test_between_counts_whole_months()
     { from = "2024-03-15T00:00:00Z", to = "2024-01-16T00:00:00Z", months = -1 },
     { from = "2024-03-15T00:00:00Z", to = "2024-01-15T00:00:00Z", months = -2 },
     { from = "1969-12-31T23:59:59Z", to = "1970-01-31T23:59:59Z", months = 1 },
-    -- Java's own answers, where the time of day and a shorter month meet.
+    -- Java's own results, where the time of day and a shorter month meet.
     { from = "2024-01-31T12:00:00Z", to = "2024-03-01T06:00:00Z", months = 0 },
     { from = "2000-12-29T23:59:59.999Z", to = "2001-03-01T00:00:00Z", months = 1 },
     { from = "2024-02-29T12:00:00Z", to = "2023-02-28T23:59:59.999Z", months = -11 },
@@ -368,8 +368,8 @@ local function test_a_text_that_stops_says_where_and_what_it_wanted()
   assert(why(Time.parse_date, "2026-09-25x") == "unexpected text at byte 11")
 end
 
---- Every failure this module answers opens `time: `, once: a moment out
---- of range, a field, a calendar rule, a parser's, a duration's.
+--- Every failure this module's functions return opens `time: `, once: a
+--- moment out of range, a field, a calendar rule, a parser's, a duration's.
 local function test_a_returned_failure_names_the_module_once()
   local function named(why: string?, rest: string)
     assert(why ~= nil and why:sub(1, 6) == "time: ", tostring(why))

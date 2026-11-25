@@ -449,7 +449,7 @@ Before the agent starts, it lets unprivileged user namespaces be made
 and runs `gh auth setup-git`. While the agent runs, it writes a fresh
 GitHub OIDC token every 4 minutes, for the agent to trade for a Claude
 token. It ends the agent at 130 minutes or on a signal. The job's log
-gets the agent's answer and its `cosmic:` complaints, not the agent's
+gets the agent's reply and its `cosmic:` complaints, not the agent's
 tool calls. The header of review.yml says when it runs and what the
 agent may do; [`cosmic_ci/review.tl`] says why the token is refreshed
 and the tool calls are kept out of the log. [`cosmic_ci/review_test.tl`]
@@ -552,7 +552,18 @@ relay the next queue entry stood on main's last save, a commit or more
 behind, and ran its whole native suite where that commit moved a key. A
 row stands only for a test whose key is the same, so the relay decides how
 many tests stand, never whether one is right, and no step of it fails a
-job. A queue leg that failed uploads the rows it used too
+job. No queue run saves a cache, but a queue ref's name comes again
+where a pull request is queued again on the same commit of main, and a
+run restores its own ref's caches before main's; a cache there was saved
+by code the queue ran, perhaps an earlier head that never merged, whose
+archive a restore extracts over the checkout. So every job that restores
+a cache waits on the `queue-ref` job, which restores none and fails a
+queue run whose ref holds one (`driver.tl queue-ref-caches`), and the
+`ci` gate lists them again once every job has run, for a cache written
+while the run ran. A cache GitHub evicted before the second listing goes
+unseen.
+
+A queue leg that failed uploads the rows it used too
 (`queue-tried-verdicts-<job>`, kept a day), and the next try of the same
 pull request finds the newest failed run that has ended and holds that
 job's artifact (`driver.tl queue-tried-run`) and merges it in before its
@@ -563,16 +574,8 @@ try's change: the commit its entry was put on is on main (a queue commit
 holds the entries ahead of it too, and one dropped from the queue never
 merges), and its commit changes the same files, by name, name before and
 content, as this try's does (an earlier head of the pull request never
-merges either). No queue run saves a cache, but a queue ref's name comes
-again where a pull request is queued again on the same commit of main,
-and a run restores its own ref's caches before main's; a cache there was
-saved by code the queue ran, whose archive a restore extracts over the
-checkout. So every job that restores a cache waits on the `queue-ref`
-job, which restores none and fails a queue run whose ref holds one
-(`driver.tl queue-ref-caches`); the `ci` gate lists them again once
-every job has run, for a cache written while the run ran, and a failed
-try is taken only from a run whose ref holds none. A cache GitHub
-evicted before the second listing goes unseen.
+merges either). The run's `queue-ref` job and the gate's second listing
+must both have passed, and its ref must hold no cache now.
 The queue's format job, where its check passed, seals the memo of the
 tree checks (the shared rows of `build/check_memo.tl`, in the cache
 directory: `driver.tl checks-seal` keeps the rows the run used, in one
@@ -580,7 +583,7 @@ file with no write-ahead log) and uploads it (`queue-checks-linux-x86_64`);
 the relay downloads it, holds it to a memo with rows, and saves it
 (`checks-linux-x86_64-<sha>`, [`cosmic_ci/checks_seal.tl`]). The format
 check of a pull request or a queue entry restores the newest, so the tree
-checks check again only the files its rows do not answer: from cold they
+checks check again only the files its rows do not cover: from cold they
 take some 3.5 minutes. Each queue leg also uploads the compiles and
 parses it trimmed (`queue-compiles-<leg>`); the relay, a job a leg, saves
 them (`compiles-<leg>-queue-<sha>`), and main's push boots on them in

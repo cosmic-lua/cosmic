@@ -1,7 +1,7 @@
 local Array = require("cosmic.array")
 --- Proves the digests and HMAC the core exposes against published
 --- test vectors, in Teal and in SQL alike, and that an algorithm
---- nobody has heard of is refused rather than answered.
+--- nobody has heard of is refused rather than hashed.
 
 local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
@@ -263,7 +263,7 @@ local function test_an_incremental_hmac_revived_by_a_finalizer_is_finished()
 end
 
 --- Two incremental HMACs under different keys, fed alternately, do not
---- share state: each answers what a one-shot HMAC under its own key does.
+--- share state: each returns what a one-shot HMAC under its own key does.
 local function test_incremental_hmacs_are_independent()
   local one = assert(Hash.hmac_hasher("sha256", "one"))
   local two = assert(Hash.hmac_hasher("sha256", "two"))

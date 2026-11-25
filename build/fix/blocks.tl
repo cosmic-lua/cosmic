@@ -84,8 +84,8 @@ function Blocks.of(chunk: Ast.Chunk): Blocks.Levels
     end)
     local last_kid = kids[#kids]
     if node.kind == "Block" then
-      -- The statements tile the block, so it closes at the token after the last (at its first, with none).
-      local close = if last_kid == nil then node.first else last_kid.last + 1 end
+      -- The statements tile the block (with the `;` that ends one), up to the token that closes it.
+      local close = node.close
       if close <= count then
         -- The statements of the chunk are not in a body.
         local is_chunk = node.first == 1 and close == count

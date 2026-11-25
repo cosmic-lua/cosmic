@@ -429,7 +429,7 @@ local function test_the_splices_are_the_last_first_and_a_refusal_names_its_line(
 end
 
 --- A call that already passes a check and a node is left as it is: what a program passes there is a function and data the
---- checker types, so it can only answer the type it names.
+--- checker types, so it can only return the type it names.
 local function test_a_call_with_more_than_the_name_is_left_as_written()
   local source = table.concat({
     'local Shape = require("cosmic.shape")',

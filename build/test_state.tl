@@ -29,7 +29,7 @@ local record test_state
     passed: boolean
     run_at_ns: integer
     --- How long the run that reached this verdict took, so a test
-    --- answered from it still has a duration to give `runs`.
+    --- settled from it still has a duration to give `runs`.
     elapsed_ns: integer
   end
 
@@ -41,7 +41,7 @@ local record test_state
     left?: string
   end
 
-  --- How many tests this run ran, and how many it answered from a
+  --- How many tests this run ran, and how many it settled from a
   --- verdict that still stood.
   record Tally
     mut ran: integer
@@ -158,7 +158,7 @@ local record test_state
     whole: boolean
   end
 
-  --- The hits of one load as a worker reported them, `from`, the one table [`worker.decode`] answers for every
+  --- The hits of one load as a worker reported them, `from`, the one table [`worker.decode`] returns for every
   --- report that spells them alike, once [`build.test`] has placed them and folded them into the run's: whether
   --- every line was placed (`whole`, [`Placing`]'s), and the part of a test's row they spell.
   record LoadTaken
@@ -192,11 +192,11 @@ local record test_state
     --- Each not applicable test's id and why, in the same shape.
     nas: mut {string}
     --- The modules whose requirements ([`host_requires`]) are not all
-    --- present on this host, by path, and what each answered: their tests
+    --- present on this host, by path, and what each reported: their tests
     --- are not started and have no key.
     unmet: mut {string:Unmet}
-    --- What the host answered to each module's requirements, by path, as
-    --- its key holds them: each present answer's name and key text. Empty
+    --- What the host reported for each module's requirements, by path, as
+    --- its key holds them: each present result's name and key text. Empty
     --- for a module that requires nothing.
     answered: mut {string:mut {string:string}}
     --- What each failing test printed, by its id.

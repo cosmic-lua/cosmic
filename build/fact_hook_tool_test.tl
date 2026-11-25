@@ -97,7 +97,7 @@ local function project(tmp: string): string
 end
 
 --- Runs the program with `words` in `root`, unsandboxed (a sandbox nested in this test's own may be refused where the
---- host nests only two deep), compiling with the new checker, and answers what it said.
+--- host nests only two deep), compiling with the new checker, and returns what it said.
 local function invoke(root: string, tmp: string, words: {string}): Child.Result, string
   local ran = TestSandboxFixture.invoke(root, tmp, words)
   return ran.result, ran.text

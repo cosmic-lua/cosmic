@@ -318,7 +318,7 @@ local function test_a_syntax_error_stops_before_any_other_stage(tmp: string)
 end
 
 --- A name of another file that stands for a primitive is a test for that primitive: the generator reads one file
---- and cannot see the alias, so the checker's answer reaches it.
+--- and cannot see the alias, so what the checker found reaches it.
 local function test_a_test_for_an_alias_of_another_file_is_a_test_for_what_it_stands_for(tmp: string)
   local defs = file(tmp, "defs.tl", table.concat({
     "local record Defs",

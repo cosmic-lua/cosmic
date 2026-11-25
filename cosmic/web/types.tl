@@ -15,26 +15,26 @@ local type Tls = require("cosmic.tls")
 local Url = require("cosmic.url")
 
 local record Types
-  --- What a handler answers: the server's own [`Server.Reply`], so
+  --- What a handler returns: the server's own [`Server.Reply`], so
   --- nothing is converted on the way out and the server's checks apply to
   --- it unchanged.
   type Response = Server.Reply
 
-  --- Answers one request. A handler raises only for a fault of the
+  --- Responds to one request. A handler raises only for a fault of the
   --- program: [`Web.abort`] ends a request with a status, and the
-  --- exception layer answers a raise with a 500.
+  --- exception layer responds to a raise with a 500.
   type Handler = function(Request): Response
 
   --- Wraps a [`Handler`] in another: the function receives the handler it
   --- calls and returns the handler that replaces it. It is applied once,
   --- when the app is built, so state it keeps is made in the factory that
-  --- returns it, not per request. It may answer without calling the inner
+  --- returns it, not per request. It may respond without calling the inner
   --- handler, change the request, and post-process the response; it must
   --- not read the body of a response that is a Reader, which belongs to the
   --- server.
   type Middleware = function(Handler): Handler
 
-  --- What a handler of a typed route answers when its input fails: see
+  --- The handler a typed route calls when its input fails: see
   --- [`Web.typed`]. It is given the request and every error the
   --- route's specs found.
   type InvalidHandler = function(Request, Invalid): Response
@@ -76,7 +76,7 @@ local record Types
     --- The whole pattern, mount prefixes included: "/api/items/:id"; a
     --- mount that serves a handler ends in "/*".
     pattern: string
-    --- The methods the route answers; empty for a mount that serves a
+    --- The methods the route takes; empty for a mount that serves a
     --- handler, which takes every method.
     methods: {string}
   end
@@ -99,7 +99,7 @@ local record Types
   end
 
   --- How a request was left unrouted, or how it was routed: the router's
-  --- answer, read by the terminal handler of [`Web.app`] and by
+  --- result, read by the terminal handler of [`Web.app`] and by
   --- [`Router.match`].
   record Outcome
     --- "match", "not_found", "not_allowed" (405), "options" (the
@@ -153,7 +153,7 @@ local record Types
     --- The full prefix of the mount serving this request; "" at the top.
     mut mount_path: string
     --- The route matched; nil for a 404, a 405 and the router's other
-    --- answers.
+    --- results.
     mut route?: RouteInfo
     --- The app serving this request.
     app: App
@@ -191,7 +191,7 @@ local record Types
     header: function(self: Request, name: string): string?
     --- The body, read whole once and kept; also put back as
     --- `raw.body`, so a later reader of it sees the same bytes. Nil and
-    --- why when the read fails (the server then answers 413, 400 or 408
+    --- why when the read fails (the server then responds 413, 400 or 408
     --- in place of the handler's reply), so a handler may `assert` it.
     bytes: function(self: Request): string?, string
     --- The body as text: the `bytes` when they are valid UTF-8, else
@@ -229,7 +229,7 @@ local record Types
   --- One route or mount: plain data that [`Web.router`] and [`Web.app`]
   --- build their tables from.
   record Route
-    --- The methods answered, uppercase; empty for a mount.
+    --- The methods taken, uppercase; empty for a mount.
     methods: {string}
     --- The pattern; a mount's prefix.
     pattern: string
@@ -260,7 +260,7 @@ local record Types
     --- The route's own middleware, outermost first; inside the mount's and
     --- the app's.
     middleware?: {Middleware}
-    --- For a typed route ([`Web.typed`]): answers input that fails
+    --- For a typed route ([`Web.typed`]): responds to input that fails
     --- the route's specs in place of the default problem or error page.
     on_invalid?: InvalidHandler
     --- For a typed route: the body limit, the names left out of a
@@ -271,13 +271,13 @@ local record Types
   --- What [`Web.mount`] and [`Web.mount_handler`] take.
   record MountOptions
     --- The mount's name: its routes are named "name:inner", and a
-    --- handler mount answers `url_for(name, ...)` through `reverse`.
+    --- handler mount resolves `url_for(name, ...)` through `reverse`.
     --- Without one the routes keep their own names.
     name?: string
     --- The mount's middleware, outermost first, around its whole router,
     --- so a 404 or 405 raised inside passes through it.
     middleware?: {Middleware}
-    --- Answers `url_for(<mount name>, params)` for a handler mount: the
+    --- Resolves `url_for(<mount name>, params)` for a handler mount: the
     --- full URL, given the mount's full prefix (outer mounts included)
     --- and the params as strings. Nil and why for params it cannot
     --- resolve.
@@ -287,7 +287,7 @@ local record Types
   --- What [`Web.router`] takes.
   record RouterOptions
     --- "redirect" (default): a request that differs from a route's
-    --- spelling only by a trailing "/" is answered 308 to the spelling;
+    --- spelling only by a trailing "/" gets a 308 to the spelling;
     --- "strict": it is a 404.
     trailing_slash?: TrailingSlash
   end
@@ -337,7 +337,7 @@ local record Types
     submitted?: Url.Query
   end
 
-  --- What a reader or binder of cosmic.web.input answers: the value, or
+  --- What a reader or binder of cosmic.web.input returns: the value, or
   --- why there is none: `invalid` is set exactly when `value` is nil.
   record Parsed<T>
     --- What was read or bound; nil when `invalid` is set.
@@ -401,7 +401,7 @@ local record Types
   --- A handler that reads its request's path, query and body into checked records before it runs: [`Web.typed`]
   --- makes one, and a route takes it where it takes a [`Handler`].
   record TypedHandler
-    --- The plain handler for a route answering `methods` at `pattern`, and what it reads; raises, naming the
+    --- The plain handler for a route taking `methods` at `pattern`, and what it reads; raises, naming the
     --- pattern, where the input does not suit them.
     bind: function(methods: {string}, pattern: string, opts?: RouteOptions): Bound
   end
@@ -414,7 +414,7 @@ local record Types
     input: RouteInput
   end
 
-  --- What a route answers with: a plain handler, or one that reads typed input first.
+  --- What handles a route: a plain handler, or one that reads typed input first.
   type Handles = Handler | TypedHandler
 
   --- What a typed route binds, without the types.
@@ -518,7 +518,7 @@ local record Types
     policy: TrailingSlash
     --- The names of the whole tree, mounts' included.
     names: {string: ReverseEntry}
-    --- Every method any route of the tree answers.
+    --- Every method any route of the tree takes.
     verbs: {string:boolean}
     --- The handler for a request this router cannot route: the terminal
     --- inside the middleware of the mount that holds the router.
@@ -538,13 +538,13 @@ local record Types
     --- cleans up after the server stops, or nil for none. Nil and why
     --- stops [`Web.serve`] before it listens.
     lifespan?: function(app: App): Shutdown?, string
-    --- Answers a fault with a page holding its message and stack
+    --- Responds to a fault with a page holding its message and stack
     --- (false by default, never taken from the environment): it
     --- exposes source paths and values.
     debug?: boolean
     --- "redirect" (default) or "strict": see [`Web.RouterOptions`].
     trailing_slash?: TrailingSlash
-    --- Hosts the app answers to, each a name (or an IPv6 literal in
+    --- Hosts the app responds to, each a name (or an IPv6 literal in
     --- brackets) without a port: an entry with a port, or that is no host,
     --- raises when the app is made. A request for another host, at any
     --- port, or whose Host header is not `host[:port]` whole, is a 400.
@@ -565,7 +565,7 @@ local record Types
     --- IPv4 address mapped into IPv6 (`::ffff:10.0.0.2`) is matched as
     --- IPv4, so an IPv6 prefix, `::/0` among them, never holds it.
     trusted_proxy?: {string}
-    --- Answers a status in place of the default error page, by status.
+    --- The handler for a status in place of the default error page, by status.
     error_pages?: {integer: Handler}
     --- Makes the page of an error that has no entry in `error_pages`: the
     --- request, the status and the detail.
@@ -575,14 +575,14 @@ local record Types
     --- Serve htmx and its SSE extension under `/_web/` (true by default),
     --- ahead of the routes: a catch-all route cannot shadow them, and no
     --- route may be at or under `/_web/`. A path there that is none of
-    --- these files is a 404. With false the app answers `/_web/` paths as
+    --- these files is a 404. With false the app handles `/_web/` paths as
     --- any other, and a page that loads [`Htmx.head`] serves the files itself.
     builtin?: boolean
     --- Closed when the server begins to stop, in order, after the
     --- functions of `app:on_stop`: a hub's streams end at once, not at
     --- the grace. None by default.
     hubs?: {Closable}
-    --- The most event streams open at once ([`Sse.EventStream`] answers
+    --- The most event streams open at once ([`Sse.EventStream`] responds
     --- 503 past it); half of the server's connection limit by default, so
     --- ordinary requests keep the other half.
     max_streams?: integer
@@ -604,10 +604,10 @@ local record Types
     state: {any:any} -- declared: key_type
     --- The compiled routes.
     router: Router
-    --- Answers one request of the server: the server's entry point alone
-    --- ([`Web.serve`] and the test clients call it), taking the whole
-    --- [`Server.Request`] and the full path; middleware and handlers are
-    --- not called with it.
+    --- Responds to one request of the server: the server's entry point
+    --- alone ([`Web.serve`] and the test clients call it), taking the
+    --- whole [`Server.Request`] and the full path; middleware and handlers
+    --- are not called with it.
     mut handle: function(raw: Server.Request): Response
     --- [`Router.reverse`] on the app's routes.
     url_for: function(self: App, name: string, params?: {string: string | integer},
@@ -634,7 +634,7 @@ local record Types
     mut stream_limit: integer
     --- The unix socket [`Web.serve`] listens at for the daemon's Serve,
     --- from when it files the configuration (the daemon may pass a
-    --- request on before it answers) while it serves
+    --- request on before it responds) while it serves
     --- `tailnet = { via = "serve" }`: [`Web.tailnet`]
     --- trusts the identity headers of a request that came to it, and of
     --- no other socket but the one its `socket` names.
@@ -716,7 +716,7 @@ local record Types
     tailnet?: boolean | TailnetServe
     --- Serves HTTPS with a certificate from an ACME CA, kept current
     --- ([`Acme.auto`]): its certificate is the server's `tls`, and each
-    --- request in the clear is the CA's http-01 check, answered, or is
+    --- request in the clear is the CA's http-01 check, responded to, or is
     --- redirected to HTTPS (308). With no `listeners` the app listens at
     --- port 443 of every IPv4 address, and with no `clear` at port 80.
     --- With `tls` or `tailnet` too it raises.

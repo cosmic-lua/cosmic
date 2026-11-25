@@ -1,7 +1,7 @@
---- `cosmic docs` answers a field of a global [`cosmic.removed`] lists as
---- withheld with what to write instead, not with a search's nearest
+--- For a field of a global [`cosmic.removed`] lists as withheld,
+--- `cosmic docs` prints what to write instead, not a search's nearest
 --- member. The tree each test builds holds a function whose comment
---- mentions the withheld name, which is what a search would answer.
+--- mentions the withheld name, which is what a search would find.
 
 local docs = require("build.docs")
 local Doc = require("cosmic.doc")
@@ -36,7 +36,7 @@ local function tree(): {string: string}
   }
 end
 
---- The page `query` answers, as `cosmic docs` prints it: every entry's
+--- The page `query` finds, as `cosmic docs` prints it: every entry's
 --- lines in turn.
 local function page(view: Doc.View, found: Doc.Lookup): string
   local out: mut {string} = {}
@@ -48,10 +48,10 @@ local function page(view: Doc.View, found: Doc.Lookup): string
   return table.concat(out, "\n")
 end
 
---- A field of a removed global (`os.getenv`) answers what
---- [`cosmic.removed`]'s `message` says of it, which a compile error and
---- a run-time failure say too, and not the function whose comment only
---- mentions the old name.
+--- A lookup of a field of a removed global (`os.getenv`) shows what
+--- [`cosmic.removed`]'s `message` says of it, which a compile error
+--- and a run-time failure say too, and not the function whose comment
+--- only mentions the old name.
 local function test_a_removed_global_s_field_answers_its_replacement(dir: string)
   local view = assert(docs.view({ fixture.database(dir, tree()) }))
   local found = assert(Doc.lookup(view, "os.getenv"))
@@ -62,8 +62,9 @@ local function test_a_removed_global_s_field_answers_its_replacement(dir: string
   assert(not shown:find("One variable", 1, true), shown)
 end
 
---- A removed field of `package` answers the catalog too, though
---- `package` itself is no removed name: its other fields keep theirs.
+--- A lookup of a removed field of `package` shows the catalog too,
+--- though `package` itself is no removed name: its other fields keep
+--- theirs.
 local function test_a_removed_package_field_answers_its_replacement(dir: string)
   local view = assert(docs.view({ fixture.database(dir, tree()) }))
   local found = assert(Doc.lookup(view, "package.path"))

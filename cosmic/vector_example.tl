@@ -24,8 +24,8 @@ function Example.nearest()
 end
 
 --- Load a corpus once from the table that stores it, search it many times,
---- and let SQL decide which rows may answer: `allow` takes the ids of a
---- `SELECT id ... WHERE` filter.
+--- and let SQL decide which rows a search may return: `allow` takes the
+--- ids of a `SELECT id ... WHERE` filter.
 function Example.load_and_filter()
   local db = assert(Sqlite.memory())
   assert(db:exec([[

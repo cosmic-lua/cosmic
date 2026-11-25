@@ -533,7 +533,8 @@ end
 --- Merges each `.db` file in `from` into the file of the same name in
 --- `into` (`merged`), and puts a copy where `into` has none. A file that
 --- cannot be merged is left as it was and said: the suites run what it
---- would have answered. 2 where a directory is not absolute, else 0.
+--- would have held verdicts for. 2 where a directory is not absolute,
+--- else 0.
 function QueueVerdicts.merge(from: string, into: string): QueueVerdicts.Said
   if from:sub(1, 1) ~= "/" or into:sub(1, 1) ~= "/" or from:find("\0", 1, true) ~= nil or
       into:find("\0", 1, true) ~= nil then
@@ -679,9 +680,9 @@ end
 --- that never merged, which chose what its archive holds, and a restore
 --- extracts that over the job's checkout. ci.yml's `queue-ref` job runs
 --- this and restores nothing, and every job that restores a cache waits
---- on it. 1 where the ref holds one or
---- GitHub does not say, 2 where the step names no queue ref or
---- repository, else 0.
+--- on it, and the `ci` gate runs it again once every job has run. 1
+--- where the ref holds one or GitHub does not say, 2 where the step names
+--- no queue ref or repository, else 0.
 function QueueVerdicts.ref_caches(env: {string:string}, host: Github.Host): integer
   local ref, repository = env["GITHUB_REF"] or "", env["GITHUB_REPOSITORY"] or ""
   if QueueVerdicts.entry_of(ref) == nil or not ref:match("^refs/heads/") or

@@ -43,7 +43,7 @@ function Example.client()
 end
 
 --- A wrong password. The server learns only that the proof is wrong,
---- and answers with nothing the client could try other passwords
+--- and replies with nothing the client could try other passwords
 --- against. The next attempt gets a new server side.
 function Example.server()
   local salt = assert(Rand.entropy(16))

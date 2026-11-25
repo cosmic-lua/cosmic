@@ -136,7 +136,7 @@ end
 --- `written_by` name the projection's writer ([`build.work`]'s
 --- `writer_modules`), which holds much of the standard library
 --- (cosmic.json among it); `compiler` and `compiled_by` name the
---- importer's. Each left out is answered by the tool's own `meta`, the
+--- importer's. Each left out is found in the tool's own `meta`, the
 --- next database [`Store.meta`] searches; what writes a closure store is
 --- named in its address instead ([`closure_store.address`]'s `salt`), and
 --- a test whose closure reads the compiler's identity is keyed by the
@@ -671,8 +671,8 @@ local declared_beside: {string:{string}} = {
 
 --- The modules of `basis` a closure store for `names` -- an import
 --- closure's module names ([`test_inputs.modules`]) -- holds, sorted: each
---- that the projection holds. A name only a declaration answers for is none:
---- `declared` answers those.
+--- that the projection holds. A name only a declaration provides is none:
+--- `declared` returns those.
 local function stored(basis: closure_store.Basis, names: {string}): {string}
   local seen: mut {string:boolean} = {}
   local out: mut {string} = {}
@@ -915,7 +915,7 @@ local function closed(uses_from: string, image: boolean): {string}
       "WHERE path IN temp.wanted OR path IN temp.declared ORDER BY path, name",
     "INSERT INTO main.decls SELECT * FROM whole.decls WHERE path IN temp.declared " ..
       "ORDER BY path",
-    -- Which of them a public source answers for ([`cosmic.internal.symbols`]'s `public_only`): a worker that reads its
+    -- Which of them a public source covers ([`cosmic.internal.symbols`]'s `public_only`): a worker that reads its
     -- store's docs as a project reads the binary's finds them.
     "INSERT INTO main.public_modules SELECT path FROM whole.public_modules " ..
       "WHERE path IN temp.wanted OR path IN temp.declared ORDER BY path",
@@ -992,7 +992,7 @@ end
 --- and `catalog` the lines of the error sites its modules document (its `code` rows, the checker's static data, are
 --- of no test that reads module text). `stubs` stays: it holds the rows of the modules a test names
 --- ([`text_kept`]) and the sources withheld otherwise fail ([`Store.withheld`]). The `pure_store` row says so to a
---- reader that would otherwise answer a missing table as a missing hint ([`cosmic.internal.symbols`]).
+--- reader that would otherwise take a missing table for a missing hint ([`cosmic.internal.symbols`]).
 local withheld_tables: {string} = {
   "DROP TABLE main.docs_words",
   "DROP TABLE main.docs_fts", "DROP TABLE main.catalog_fts", "DROP TABLE main.examples_fts",
@@ -1144,7 +1144,7 @@ function closure_store.write(whole: string, out: string, names: {string},
       end
       if own ~= nil then
         -- The tables of text-derived rows are left out, not left empty: a query of one fails ("no such table")
-        -- rather than answers nothing, so a test that reads text it was not given cannot pass on an empty answer.
+        -- rather than finds nothing, so a test that reads text it was not given cannot pass on an empty result.
         for _, statement in ipairs(withheld_tables) do
           local ok, failure = db:exec(statement)
           if not ok then return false, Failure.new(tostring(failure)) end

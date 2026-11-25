@@ -70,7 +70,7 @@ build/declared_unenforced_test.tl
 build/verify_codesign_test.tl
 # ci/cosmic_ci/host_id.tl's Darwin branch runs everywhere (the recorded
 # macOS hosts in ci/testdata/host_features); listed for its default,
-# `uname`'s answer.
+# what `uname` prints.
 build/host_features_test.tl
 # The launcher's Darwin shell: `stat -f` (portable_lstat), `ln -h`
 # (portable_link) and the $HOME/Library/Caches leaf (build/launcher.tl).

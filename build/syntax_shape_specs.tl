@@ -1,7 +1,7 @@
 --- Resolves `Shape.record_of("Module.Record")` where a module is compiled: the call names a record, and this reads the
 --- record's declaration off the checker's types and splices into the call a Teal function that builds the record field by
 --- field from the [`cosmic.shape`] checks of its fields' types, and a node that describes the fields. The checker types
---- that code as any other, so the call's answer is typed as the record by what builds it.
+--- that code as any other, so the call's result is typed as the record by what builds it.
 ---
 --- The build is where this runs, not the program: a record's declaration is source, and reading it is the compiler's
 --- work, which a program built into an executable does not carry. A call is rewritten in the compile's input alone; the
@@ -52,7 +52,7 @@ local record ShapeSpecs
   --- ([`ShapeSpecs.Found`]).
   splices: function(build: Driver.Build, module: string, file: string, source: string): Found
 
-  --- `source` with each of `splices` put in, the last first as [`ShapeSpecs.splices`] answers them.
+  --- `source` with each of `splices` put in, the last first as [`ShapeSpecs.splices`] returns them.
   spliced: function(source: string, splices: {Splice}): string
 end
 

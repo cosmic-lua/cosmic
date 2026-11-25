@@ -664,7 +664,7 @@ static const char *zstd_why (size_t rc) {
   }
 }
 
-/* One frame, regular or skippable: ZSTD_decompressStream answers 0 at
+/* One frame, regular or skippable: ZSTD_decompressStream returns 0 at
  * the end of each, and is ready for the next without a reset. */
 static int zstd_step (struct stream *s, const unsigned char *p, size_t n,
                       size_t *used, struct sink *out, const char **err) {
@@ -741,7 +741,7 @@ static int zstd_step (struct stream *s, const unsigned char *p, size_t n,
 /* ---- members ---- */
 
 /* Whether `p[0..n)` begins a zstd frame or a skippable frame
- * (0x184D2A50 to 0x184D2A5F, little-endian), as magic_match answers. */
+ * (0x184D2A50 to 0x184D2A5F, little-endian), as magic_match returns. */
 static int zstd_magic (const unsigned char *p, size_t n) {
   static const unsigned char frame[] = {0x28, 0xb5, 0x2f, 0xfd};
   static const unsigned char skippable[] = {0x50, 0x2a, 0x4d, 0x18};
@@ -991,7 +991,7 @@ static int deflater (lua_State *L) {
   return cosmic_succeeded(L);
 }
 
-/* Gives `s` its output scratch; on failure ends it and answers what the
+/* Gives `s` its output scratch; on failure ends it and pushes what the
  * constructor returns. */
 static int slice_alloc (lua_State *L, struct stream *s) {
   s->slice = cosmic_malloc(CODEC_SLICE);
@@ -1151,7 +1151,7 @@ static void deflate_chunk (struct stream *s, const unsigned char *data,
 }
 
 /* Compresses `data` with `mode`, appending to `out`: every byte is
- * taken, and with ZSTD_e_end the frame is closed. Answers NULL, or why
+ * taken, and with ZSTD_e_end the frame is closed. Returns NULL, or why
  * it failed. */
 static const char *zstd_chunk (struct stream *s, const unsigned char *data,
                                size_t len, ZSTD_EndDirective mode,
@@ -1175,7 +1175,7 @@ static const char *zstd_chunk (struct stream *s, const unsigned char *data,
 }
 
 /* Compresses `data` with `action`, appending to `out`: every byte is
- * taken, and with LZMA_FINISH the stream is closed. Answers NULL, or
+ * taken, and with LZMA_FINISH the stream is closed. Returns NULL, or
  * why it failed. */
 static const char *xz_chunk (struct stream *s, const unsigned char *data,
                              size_t len, lzma_action action,
@@ -1204,7 +1204,7 @@ static const char *xz_chunk (struct stream *s, const unsigned char *data,
 }
 
 /* Compresses `data` with `action` (BZ_RUN, or BZ_FINISH to close the
- * stream), appending to `out`: every byte is taken. Answers NULL, or why
+ * stream), appending to `out`: every byte is taken. Returns NULL, or why
  * it failed. bzip2 allocates only when it starts, so the one failure it
  * can report here is its own state being wrong. */
 static const char *bz2_chunk (struct stream *s, const unsigned char *data,
@@ -1212,7 +1212,7 @@ static const char *bz2_chunk (struct stream *s, const unsigned char *data,
   bz_stream *bz = &s->u.bz;
   size_t i = 0;
   /* BZ_RUN with nothing to take and nothing to emit is "no progress" to
-   * bzlib, which answers BZ_PARAM_ERROR: there is nothing to do. */
+   * bzlib, which returns BZ_PARAM_ERROR: there is nothing to do. */
   if (action == BZ_RUN && len == 0) return NULL;
   for (;;) {
     /* bzlib counts in unsigned int: offer a larger chunk in pieces. */
@@ -1228,7 +1228,7 @@ static const char *bz2_chunk (struct stream *s, const unsigned char *data,
     if (rc == BZ_STREAM_END) return NULL;
     /* When a call's output filled the slice exactly with the input all
      * taken, the next call may find nothing left to do: bzlib then
-     * answers BZ_PARAM_ERROR having moved nothing, which is done, not
+     * returns BZ_PARAM_ERROR having moved nothing, which is done, not
      * a failure. */
     if (rc == BZ_PARAM_ERROR && action == BZ_RUN && i == len && produced == 0) {
       return NULL;

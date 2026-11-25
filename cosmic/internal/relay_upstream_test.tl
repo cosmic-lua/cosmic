@@ -1,7 +1,7 @@
 --- A relay behind an upstream its starter resolved once: the upstream's
 --- host is looked up once however many connections go through it, a name
 --- no grant opens is never looked up, and a granted one is. A relay whose
---- lookups a name server of this test's own answers holds its thread while
+--- lookups go to a name server of this test's own holds its thread while
 --- it looks up, so it runs in a process of its own (this program, running
 --- a child of build.relay_children_test) while this one is the name server,
 --- on a loopback port it binds for UDP, to see each query.
@@ -15,7 +15,7 @@ local _ = require("build.relay_children_test")
 local test_child = require("build.test_child")
 local this_program = require("build.this_program")
 
---- The program itself, which runs a relay; a loopback alone answers.
+--- The program itself, which runs a relay; only a loopback is reachable.
 Test.policy{ profiles = { "cosmic" }, loopback = { "127.0.0.1" }, promises = { "fork" } }
 
 local TYPE_A <const> = 1
@@ -26,9 +26,9 @@ local function question(query: string): string, integer, integer
   return asked.name, asked.qtype, asked.after
 end
 
---- The answer to `query`: an A query for proxy.test is 127.0.0.1, where
+--- The reply to `query`: an A query for proxy.test is 127.0.0.1, where
 --- the program's proxy listens, and for any other name 192.0.2.7; an AAAA
---- query has no answer.
+--- query has no records.
 local function answer(query: string): string
   local name, qtype, question_end = question(query)
   local id = string.unpack(">I2", query)

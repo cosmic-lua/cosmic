@@ -43,7 +43,7 @@ local verbs <const>: {string} = {
 }
 
 --- `-e` loads no verb and no help: it loads the checker and what the logger reads, and the module that
---- answers a chunk. A module required at dispatch's top level for a verb's sake is loaded by every child a
+--- runs a chunk. A module required at dispatch's top level for a verb's sake is loaded by every child a
 --- test starts, and fails this.
 local function test_e_loads_none_of_the_verbs(tmp: string)
   local started = this_program.program(test_child.words(tmp, "build.dispatch_tool_test", "loaded"),
@@ -73,7 +73,7 @@ local function test_a_verb_loads_its_own_cli_module_alone(tmp: string)
   assert(#clis == 1 and clis[1] == "cosmic.cli.rand", "`cosmic rand` loads " .. table.concat(clis, ", "))
 end
 
---- Runs `-e` with `chunk` and `args` and answers the child's result.
+--- Runs `-e` with `chunk` and `args` and returns the child's result.
 local function evaluate(tmp: string, chunk: string, args?: {string}): Child.Result
   local words: mut {string} = { "-e", chunk }
   for _, word in ipairs(args or {}) do words[#words + 1] = word end
@@ -184,6 +184,18 @@ local function test_e_answers_an_empty_chunk_and_a_bad_status(tmp: string)
   assert(empty.code == 0 and empty.stdout == "", tostring(empty.stderr))
   local bad = evaluate(tmp, "return 256")
   assert(bad.code == 2 and says(bad, "not an exit status"), tostring(bad.stderr))
+end
+
+--- A chunk that returns a table prints it as JSON and exits 0, as an agent's snippet hands back what it returns; one
+--- that is not JSON exits 2.
+local function test_e_prints_a_returned_table_as_json(tmp: string)
+  local answer = evaluate(tmp, 'return { n = 1, seen = { "a", "b" } }')
+  assert(answer.code == 0 and answer.stdout == '{"n":1,"seen":["a","b"]}\n', tostring(answer.stdout) ..
+      tostring(answer.stderr))
+  local null = evaluate(tmp, 'return require("cosmic.json").null')
+  assert(null.code == 0 and null.stdout == "null\n", tostring(null.stdout) .. tostring(null.stderr))
+  local no_json = evaluate(tmp, "return { f = print }")
+  assert(no_json.code == 2 and no_json.stdout == "" and says(no_json, "not JSON"), tostring(no_json.stderr))
 end
 
 --- A `load` with no mode is text alone in a project, by the core and not by this check alone (core/surface.c's `load_with`

@@ -87,7 +87,7 @@ static int surface_trace (lua_State *L) {
 }
 
 /* The traceback of the coroutine at 1, from its top: where one that
- * raised stopped, of which `coroutine.resume` answers only the error.
+ * raised stopped, of which `coroutine.resume` returns only the error.
  * The running coroutine's starts at the frame `level` (argument 3,
  * default 1) counts up from the binding, 1 being its caller as in
  * `trace`; another's is from its top. */
@@ -120,7 +120,7 @@ static int surface_where (lua_State *L) {
   return 1;
 }
 
-/* `table`, answering the table of the program's globals, which `load`
+/* `table`: returns the table of the program's globals, which `load`
  * takes as the environment of a chunk that needs all of them. */
 static int globals_table (lua_State *L) {
   lua_pushglobaltable(L);
@@ -161,7 +161,7 @@ static int removed_message (lua_State *L) {
 
 /* Pushes what to write instead of the removed `name` -- or of its
  * field `field`, when that is a string. When cosmic.removed cannot
- * answer (no module searcher yet, no memory, or a held process whose
+ * be asked (no module searcher yet, no memory, or a held process whose
  * closure lacks it), the bare fact is pushed instead, naming the field
  * as the catalog's words would. */
 static void push_removed (lua_State *L, int name, int field) {
@@ -451,7 +451,7 @@ static void copy_table (lua_State *L, int from, bool deep) {
   }
 }
 
-/* `getmetatable`, except that the metatable of a string it answers is a
+/* `getmetatable`, except that the metatable of a string it returns is a
  * copy whose `__index` is a copy of the template's `string`. (A method
  * call on a string, `("x"):rep(2)`, goes through the real metatable to
  * the host's own library, which a chunk cannot reach to change.) Upvalue
@@ -532,7 +532,7 @@ static int surface_load_text (lua_State *L) {
  * loaded here spells `@v`, which reads a metatable whatever `__metatable`
  * says. A binary chunk is no text: a caller of `load` that names an
  * environment may still load hand-made bytecode, OP_CLASSOF among it.
- * The chunk, or nil and Lua's message, as `load` answers. */
+ * The chunk, or nil and Lua's message, as `load` returns. */
 static int compiled_load (lua_State *L) {
   size_t length;
   const char *text = luaL_checklstring(L, 1, &length);

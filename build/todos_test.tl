@@ -13,7 +13,7 @@ local support = require("build.test_support_fixture")
 --- Nothing beyond its closure: the trees these tests list are in no
 --- repository, so `cosmic todos` starts no git for them
 --- ([`test_a_tree_in_no_repository_starts_no_git`]). The tests that
---- blame a repository's lines, against recorded answers of git, are
+--- blame a repository's lines, against recorded output of git, are
 --- build/todos_git_test.tl's.
 Test.policy{}
 

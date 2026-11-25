@@ -13,7 +13,7 @@
  *
  * The highest number in either list, 471, is the highest the table has
  * been reviewed to: PROMISE_CALLS_REVIEWED (core/promises.h) is one past
- * it. A call numbered above it is answered ENOSYS, whatever the kernel
+ * it. A call numbered above it fails with ENOSYS, whatever the kernel
  * by then makes of it.
  */
 

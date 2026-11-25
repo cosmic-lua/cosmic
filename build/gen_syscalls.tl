@@ -88,7 +88,7 @@ local record Target
   summary: {string}
 end
 
---- A header, and the import path its declaration answers to.
+--- A header, and the import path its declaration goes by.
 local record Derivation
   path: string
   target: Target
@@ -606,7 +606,7 @@ local socket_target: Target = {
 }
 
 --- Every header a declaration is derived from, and the import path each
---- one's declaration answers to.
+--- one's declaration goes by.
 generator.targets = {
   { path = "cosmic.sys", target = syscalls_target },
   { path = "cosmic.internal.process", target = process_target },

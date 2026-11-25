@@ -112,7 +112,7 @@ local function test_a_file_run_refuses_an_exit_status_out_of_range(tmp: string)
 end
 
 --- Text naming a whole number is that number, as `cosmic_tostatus`
---- reads a built program's answer (build/exit_status_test.tl).
+--- reads what a built program returns (build/exit_status_test.tl).
 local function test_a_file_run_that_returns_numeric_text_exits_with_it(tmp: string)
   assert(Fs.write(tmp .. "/text.tl", "return function(): string\n  return \"3\"\nend\n"))
   local result = verbs_fixture.run(tmp, { "text.tl" })

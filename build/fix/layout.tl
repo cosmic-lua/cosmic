@@ -39,7 +39,7 @@
 ---
 --- The line structure is the source's: a break is kept as one `\n`, a run of blank lines is one, the `#!` line and
 --- every comment are kept, and the file ends with a single `\n`. No token is changed, and the only tokens added
---- or removed are the comma of a table:
+--- or removed are the comma of a table and the `;` that ends a statement, which is deleted:
 --- - a table whose `}` begins a line ends with a comma after its last entry, and one whose `}` follows its last
 ---   entry on the line has none (`{ 1, 2, }` is `{ 1, 2 }`);
 --- - the comma is not added after an entry that ends in a function type with return types (`x as function(): A`),
@@ -248,6 +248,26 @@ local function with_commas(placed: {Placed}, plan: Continuation.Plan): {Placed}
   return out
 end
 
+--- `placed` without the `;` that end statements, which the parser reads as no statement (a file it lays out parses, so a
+--- `;` it holds ends one). The line break before one moves to what follows it on its line, and a statement that followed
+--- one on its line begins a line ([`build.fix.breaks`]), so no two statements become one.
+local function without_semicolons(placed: {Placed}): {Placed}
+  local out: mut {Placed} = {}
+  local owed: Placed? = nil
+  for _, one in ipairs(placed) do
+    if one.item.kind == "token" and one.item.text == ";" then
+      if one.newlines > 0 and owed == nil then owed = one end
+    else
+      if owed ~= nil and one.newlines == 0 then
+        one.newlines, one.blank, one.from = owed.newlines, owed.blank, owed.from
+      end
+      owed = nil
+      out[#out + 1] = one
+    end
+  end
+  return out
+end
+
 --- The text of `placed`, the items of `source` in the order they are written, laid out by `roled` and `cursor`,
 --- whose `plan` and levels are those of the tree that `source` parses to, whose tokens are `tokens`.
 local function laid_out(source: string, placed: {Placed}, shebang: string?, tokens: Lexer.Tokens, roled: Roles.Roled,
@@ -402,7 +422,7 @@ function Layout.of(source: string, name: string, dialect?: Ast.Dialect): string?
   local roled = Roles.of(parsed.chunk)
   local levels = Blocks.of(parsed.chunk)
   local plan = Continuation.of(parsed.chunk)
-  local placed = with_commas(with_operators(stream, plan), plan)
+  local placed = without_semicolons(with_commas(with_operators(stream, plan), plan))
   local breaks = Breaks.of(parsed.chunk)
   return laid_out(source, placed, stream.shebang, lexed.tokens, roled, Continuation.start(plan, levels), breaks), ""
 end

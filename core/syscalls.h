@@ -14,11 +14,11 @@
  *
  * Two shapes, and no third. An argument-shape error -- a degenerate
  * input no correct program passes -- raises. A failure a correct caller
- * meets at runtime returns `nil, error, errno` from a call that answers
+ * meets at runtime returns `nil, error, errno` from a call that returns
  * a value and `false, error, errno` from an effect ([`core/fail.h`]): the
  * error in slot two, the errno in slot three, nothing else sharing a
  * slot. This table is the one place a third slot is allowed; a Teal
- * function over it answers in two.
+ * function over it returns nil or false and an error, in two slots.
  *
  * One descriptor is no argument's: the one a portable start retains on
  * its artifact, through which the database the program carries is read.
@@ -167,8 +167,8 @@ COSMIC_SYSCALL(close, 1);
 
 /*
  * --- Reads up to `count` bytes. An empty string means end of file.
- * --- A read may answer short, and one asks for no more than it can
- * --- answer: past 64 KiB, at most what is left of a regular file (never
+ * --- A read may return short, and one asks for no more than it can
+ * --- return: past 64 KiB, at most what is left of a regular file (never
  * --- under 64 KiB), or 1 MiB of anything else. A count far past that
  * --- costs nothing; loop until the empty string for all of it.
  * ---@param fd integer the descriptor to read
@@ -181,7 +181,7 @@ COSMIC_SYSCALL(read, 2);
 
 /*
  * --- Reads up to `count` bytes from an explicit offset, asking for no
- * --- more than it can answer, as read does.
+ * --- more than it can return, as read does.
  * ---@param fd integer the descriptor to read
  * ---@param count integer how many bytes to ask for
  * ---@param offset integer the offset to read from
@@ -515,9 +515,9 @@ COSMIC_SYSCALL(dumpable, 1);
 COSMIC_SYSCALL(umask, 1);
 
 /*
- * --- A resource's limits, as `getrlimit` answers them and `setrlimit`
+ * --- A resource's limits, as `getrlimit` returns them and `setrlimit`
  * --- takes them. `math.maxinteger` stands for no limit (RLIM_INFINITY) on
- * --- every system, and a limit at or past it is answered as none.
+ * --- every system, and a limit at or past it is returned as none.
  * ---@class Limits
  * ---@field soft integer the limit the system holds the process to
  * ---@field hard integer the most the soft limit may be raised to
@@ -538,7 +538,7 @@ COSMIC_SYSCALL(getrlimit, 1);
  * --- again; `math.maxinteger` stands for no limit. The process starts
  * --- with RLIMIT_NOFILE's soft limit raised toward the hard one, as far
  * --- as 10240 (macOS's kern.maxfilesperproc, where that is lower), so
- * --- `getrlimit` answers the raised limit, not the one it was started
+ * --- `getrlimit` returns the raised limit, not the one it was started
  * --- with; a program it starts is given that one back, until this sets
  * --- RLIMIT_NOFILE. A negative limit raises. A soft limit above the hard one is refused with EINVAL,
  * --- and a hard one raised without the privilege to with EPERM. The
@@ -547,7 +547,7 @@ COSMIC_SYSCALL(getrlimit, 1);
  * --- changed, by kern.maxfilesperproc (kern.maxfiles for root), and
  * --- may refuse one past it with EINVAL or hold the process to the
  * --- bound instead, a soft one of no limit included -- give its hard
- * --- limit back as `getrlimit` answers it, and a soft one below that
+ * --- limit back as `getrlimit` returns it, and a soft one below that
  * --- bound.
  * ---@param resource integer the resource, such as `RLIMIT_NOFILE`
  * ---@param soft integer the limit to hold the process to
@@ -641,7 +641,7 @@ COSMIC_SYSCALL(fd_flags, 1);
 COSMIC_SYSCALL(cpu_count, 0);
 
 /*
- * --- How many bytes of memory macOS could give a process now without compressing or swapping another's: the pages its kernel counts free, those that hold files' contents, and those their owners marked purgeable, less the ones read ahead from files, which it counts free already (`host_statistics64`). An estimate: the kernel gives up a file's page in use less readily than the count supposes. EIO where the kernel does not answer. ENOSYS elsewhere: Linux gives its own estimate in /proc/meminfo's MemAvailable, for whoever reads the file.
+ * --- How many bytes of memory macOS could give a process now without compressing or swapping another's: the pages its kernel counts free, those that hold files' contents, and those their owners marked purgeable, less the ones read ahead from files, which it counts free already (`host_statistics64`). An estimate: the kernel gives up a file's page in use less readily than the count supposes. EIO where the kernel call fails. ENOSYS elsewhere: Linux gives its own estimate in /proc/meminfo's MemAvailable, for whoever reads the file.
  * ---@return integer|nil bytes the memory available, or nil on failure
  * ---@return string error what went wrong, when bytes is nil
  * ---@return integer errno the error number, when bytes is nil
@@ -722,7 +722,7 @@ COSMIC_SYSCALL(errno_name, 1);
 /*
  * --- What an errno says: the text a failure's second slot carries for
  * --- it, the same words on every OS (musl's), where libc's `strerror`
- * --- would answer each OS's own.
+ * --- would return each OS's own.
  * ---@param number integer the errno
  * ---@return string message its message, "No error information" for a number with none
  */
@@ -993,11 +993,11 @@ COSMIC_SYSCALL(fd_status, 1);
 
 /*
  * --- Waits until one of the descriptors is ready or the timeout passes,
- * --- and answers what happened to each, 0 for one not ready. A
- * --- descriptor of -1 is not watched and answers 0, one below -1 raises,
- * --- and one not open answers POLLNVAL. A descriptor given more than once
+ * --- and returns what happened to each, 0 for one not ready. A
+ * --- descriptor of -1 is not watched and gets 0, one below -1 raises,
+ * --- and one not open gets POLLNVAL. A descriptor given more than once
  * --- is watched once, for every event its entries want, and each entry
- * --- answers only its own events (and POLLERR, POLLHUP, POLLNVAL), on
+ * --- gets only its own events (and POLLERR, POLLHUP, POLLNVAL), on
  * --- every system alike. A signal ends the wait early, as
  * --- though nothing were ready. There is no count the call itself
  * --- refuses: the kernel refuses more distinct descriptors than
@@ -1071,7 +1071,7 @@ COSMIC_SYSCALL(poll, 3);
  * ---@field POLLERR integer for `poll`: the descriptor is in error
  * ---@field POLLHUP integer for `poll`: the other end hung up
  * ---@field POLLNVAL integer for `poll`: the descriptor is not open
- * ---@field POLLRDHUP integer for `poll`: a stream socket's peer has ended what it sends (closed, or shut down its writing), seen behind bytes still unread, which bytes alone do not answer; 0 where the system has none (macOS), whose POLLHUP says it
+ * ---@field POLLRDHUP integer for `poll`: a stream socket's peer has ended what it sends (closed, or shut down its writing), seen behind bytes still unread, which bytes alone do not show; 0 where the system has none (macOS), whose POLLHUP says it
  * ---@field RLIMIT_NOFILE integer for `getrlimit` and `setrlimit`: one more than the highest descriptor the process may open
  * ---@field RLIMIT_FSIZE integer for `getrlimit` and `setrlimit`: the most bytes of a file the process may write
  * ---@field RLIMIT_CPU integer for `getrlimit` and `setrlimit`: the CPU seconds the process may spend before SIGXCPU

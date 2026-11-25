@@ -69,7 +69,7 @@ end
 
 --- Whether `root`'s last build staged a source at `path` or under it,
 --- `path` relative to `root`, or a file of the tool's own there (`tool`); nil and why when its `build.db` cannot be
---- read, which is not an answer either way.
+--- read, which settles nothing either way.
 -- TODO: climb from a directory the last build staged no Teal under --
 -- prose alone (`doc/`, whose Markdown the walk skips), or one made
 -- since -- which is now a root of its own: `cosmic fix` there fails
@@ -93,7 +93,7 @@ end
 --- staged `dir` in, or nil: none does, or `dir` is at or above `home`,
 --- or `dir` holds an established tree itself. The climb ends at `home`
 --- and at the filesystem root, neither of which is a tree. A second
---- answer says why when a tree was found but its database could not be
+--- result says why when a tree was found but its database could not be
 --- read, so `dir` is left a root of its own for that reason.
 --- @param dir an absolute directory
 --- @param home the home directory, resolved, or nil for none

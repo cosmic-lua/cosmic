@@ -1,4 +1,4 @@
---- `cosmic docs <code>` answers a code of the new checker with its rule, why it holds and the fix, from the `catalog` rows
+--- `cosmic docs <code>` shows a code of the new checker with its rule, why it holds and the fix, from the `catalog` rows
 --- [`build.error_catalog`] writes, and finds one by the words of its rule. The database also holds the symbols the tree
 --- documents, among them the enum member of each code ([`Codes.Code.not_assignable`]) that a query for the code names too.
 local ErrorCatalog = require("build.error_catalog")

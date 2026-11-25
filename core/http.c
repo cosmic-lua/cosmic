@@ -1054,9 +1054,10 @@ uint32_t cosmic_roots_distrust (const mbedtls_x509_crt *crt, int depth,
  * `mbedtls_x509_crt_verify_info` words them.
  * TODO: read the verify flags rather than their wording, once a record
  * under patch/curl/ has vendor/curl/lib/vtls/mbedtls.c's mbed_verify_cb
- * keep them where CURLINFO_SSL_VERIFYRESULT answers: that callback words
- * them into 128 bytes, so a chain that is also expired and misnamed
- * cuts the untrusted line short, and no hint is given. */
+ * keep them where curl_easy_getinfo's CURLINFO_SSL_VERIFYRESULT can
+ * give them: that callback words them into 128 bytes, so a chain that
+ * is also expired and misnamed cuts the untrusted line short, and no
+ * hint is given. */
 static void push_transfer_error (lua_State *L, struct transfer *t) {
   const char *message = transfer_error(t);
   const struct distrusted *root = t->distrusted;
@@ -1180,7 +1181,7 @@ static int failed (lua_State *L, const char *why) {
 }
 
 /* The multi handle's refusal, naming the call, pushed as a message;
- * MULTI_FAILED answers it as `nil, err`. Macros rather than functions:
+ * MULTI_FAILED returns it as `nil, err`. Macros rather than functions:
  * nothing a test does on a release core makes a multi call fail, and
  * every function of a core is one a test must enter
  * (build/c_functions.tl). */
@@ -1841,7 +1842,7 @@ static int handle_ready (lua_State *L) {
 
 /* handle:settled(): once ready, true and "", or, where the transfer
  * failed before any header arrived, nil, why and its code, as `open`
- * answers when it waits itself. */
+ * returns when it waits itself. */
 static int handle_settled (lua_State *L) {
   struct transfer *t = checked(L);
   if (t->done && t->result != CURLE_OK && !t->headed && t->body_len == 0) {
@@ -1854,7 +1855,7 @@ static int handle_settled (lua_State *L) {
 }
 
 /* handle:waiting(): whether `read` would have to pump before it could
- * answer, with no body held and the transfer not over. It resumes a
+ * return, with no body held and the transfer not over. It resumes a
  * paused transfer first, as `read` does, so that pumping can fill the
  * body. */
 static int handle_waiting (lua_State *L) {

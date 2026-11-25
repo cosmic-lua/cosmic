@@ -64,8 +64,8 @@ local record Daemon
   mut socket: string
   --- What it saw, a line each.
   mut lines: mut {string}
-  --- What the app answered a request the daemon passed on before it
-  --- answered the configuration, as a daemon may.
+  --- What the app sent back for a request the daemon passed on
+  --- before its reply to the configuration, as a daemon may.
   mut early: string
   --- Refuse the configuration, as a daemon whose policy forbids Funnel.
   refuse: boolean
@@ -98,7 +98,7 @@ local class Watch is Stream.Reader
   end
 end
 
---- What `path` of the app's socket answers to a request with `headers`.
+--- The response at `path` of the app's socket to a request with `headers`.
 local function asked(path: string, headers: string): string
   local conn <close> = assert(Net.connect(Net.unix(path), { timeout_ns = Clock.seconds(5) }))
   assert(conn:write("GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n" .. headers .. "\r\n"))
@@ -139,8 +139,8 @@ local function answer(d: Daemon, req: Server.Request): Server.Reply
       d.socket = proxy
       return { status = 403, body = "Funnel not available\n" }
     end
-    -- Asked before d.socket is set, so the test reads its answer only
-    -- once it is in.
+    -- Asked before d.socket is set, so the test reads its response
+    -- only once it is in.
     d.early = asked(proxy, "Tailscale-User-Login: rene@example.com\r\n" ..
         'Tailscale-App-Capabilities: {"example.com/cap/admin":[{}]}\r\n')
     d.socket = proxy
@@ -151,8 +151,8 @@ end
 
 --- The app files a Funnel site whose one handler is its own private
 --- socket and passes on the capabilities named; a request through it
---- names who asked, even one the daemon passes on before it answers the
---- configuration; one Funnel brought names nobody; and once the app
+--- names who asked, even one the daemon passes on before it replies to
+--- the configuration; one Funnel brought names nobody; and once the app
 --- stops, the site is down and the socket's directory is gone.
 local function test_an_app_through_funnel_is_served_from_a_private_socket(tmp: string)
   local script = tmp .. "/app.tl"

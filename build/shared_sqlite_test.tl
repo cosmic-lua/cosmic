@@ -18,7 +18,7 @@ local function prepare(db: Sqlite.Handle): boolean, string
 end
 
 --- A cache opened is in write-ahead mode and prepared; a `prepare`
---- that fails is answered with the path, and the file is closed.
+--- that fails is reported with the path, and the file is closed.
 local function test_an_open_cache_is_in_wal_mode_and_prepared(tmp: string)
   local path = tmp .. "/cache.db"
   local db = assert(shared_sqlite.open(path, prepare))
@@ -85,9 +85,9 @@ end
 local gave_up_late_ns <const> = Clock.seconds(5)
 
 --- A cache another connection is writing, before it is in write-ahead
---- mode, is answered locked at once by SQLite, which calls no busy
+--- mode, is reported locked at once by SQLite, which calls no busy
 --- handler: the switch is tried again until the wait has passed, then
---- answered busy.
+--- reported busy.
 local function test_a_cache_being_written_is_tried_again_then_answered_busy(tmp: string)
   local wait_ns = Clock.ms(100)
   local waited, trouble = held_open(tmp .. "/cache.db",
