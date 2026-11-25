@@ -522,6 +522,8 @@ local record Ctx
   mut written: Ast.Name?
   --- The name of the function of the string library each local that is given one and never assigned holds, by id.
   library: mut {integer: string}
+  --- Each `s:sub(...)` whose `s` is a string, by the call's id: its bounds bound what it answers ([`Operators.short_range`]).
+  string_subs: mut {integer: boolean}
   --- The reads of `table.move` not yet taken as the callee of a call, by the id of the node ([`Writes.move_stray`]).
   moves: mut {integer: Ast.Node}
   --- Whether the type of each node is kept in `types`.
@@ -1234,6 +1236,27 @@ local function names_invalid(t: Type): boolean
   return false
 end
 
+--- For `e` that names a local made by a `local` statement with a type that has no nil (a cursor made of a value, which
+--- runs out to nil later: `local p = 1`): the fix that declares it optional where it is made, so it may be nil. Nil for
+--- a parameter, a loop variable, a global, or a local whose type has nil or reads otherwise with `?`.
+function Naming.optional_local(ctx: Ctx, e: Ast.Node): string?
+  local at = peel(e)
+  if not (at.kind == "Name") then return nil end
+  local id = at.binding
+  if id == nil then return nil end
+  local v, t = ctx.scoped.vars[id], ctx.vars[id]
+  if v == nil or t == nil or v.kind ~= "local" then return nil end
+  -- A type that `T?` writes plainly: no union, function or type variable, whose `?` would read otherwise.
+  local tag = t.tag
+  if not (tag == "integer" or tag == "number" or tag == "string" or tag == "boolean" or tag == "true" or
+      tag == "false" or tag == "named" or tag == "array" or tag == "map") then
+    return nil
+  end
+  local shown = Types.display(t, ctx.binders, ctx.fn_names)
+  return "declare `" .. at.text .. "` `" .. shown .. "?` where it is declared (`local " .. at.text .. ": " .. shown ..
+    "? = ...`), so it may be nil"
+end
+
 --- Reports that the value of `node`, of type `got`, is not below `want`, and `r` says why. `where` is a phrase that
 --- says what wants it, with a space before it, or "". `named` is how to write `want` where the program spells it
 --- otherwise than the type is (a parameter of a generic function that a failed inference made `invalid`).
@@ -1280,8 +1303,12 @@ local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relat
   local e = peel(node)
   if code == "nil" then
     if got.tag == "nil" then
+      -- A local made of a value and set to nil later (a cursor that runs out) is declared optional where it is made.
+      local target = ctx.written
+      local cursor = if target ~= nil then Naming.optional_local(ctx, target) else nil end
       report(ctx, "nil_not_allowed", node, "nil is given" .. where .. ", where " .. quoted(w) .. " is wanted",
-        "give a value, or declare what takes it `" .. w .. "?` (a parameter or field `name?: T`)", shown)
+        if cursor ~= nil then cursor .. ", or give a value" else
+          "give a value, or declare what takes it `" .. w .. "?` (a parameter or field `name?: T`)" end, shown)
     elseif (e.kind == "Index") then
       report(ctx, "index_may_be_nil", node, s .. " is " .. quoted(g) .. " (an index read may be nil), where " ..
           quoted(w) .. " is wanted" .. where,
@@ -4938,13 +4965,73 @@ end
 local record Operators
 end
 
+--- For a test of a local against nil (`p ~= nil`) where the local's declared type has no nil: it is to be declared
+--- optional where it is made, as a cursor that runs out is (`local p: integer? = 1`). Nil for any other test.
+function Operators.optional_fix(ctx: Ctx, node: Ast.Binary): string?
+  local name, other = peel(node.left), peel(node.right)
+  if (name.kind ~= "Name") then name, other = other, name end
+  if not (other.kind == "Nil") then return nil end
+  local fix = Naming.optional_local(ctx, name)
+  return if fix ~= nil then fix .. ", or remove the test" else nil end
+end
+
+--- The integer an integer literal or its negation (`-1`) writes, else nil.
+function Operators.literal_integer(e: Ast.Node): integer?
+  local at = peel(e)
+  if (at.kind == "Integer") then return at.value end
+  if (at.kind == "Unary") and at.op == "-" then
+    local inner = peel(at.operand)
+    if (inner.kind == "Integer") then return -inner.value end
+  end
+  return nil
+end
+
+--- The bounds of `s:sub(i, j)` when both are literals of one sign (`sub(1, 19)`, `sub(-3)`), else 0, 0 (never a bound
+--- of one sign).
+function Operators.literal_range(e: Ast.Node): integer, integer
+  local at = peel(e)
+  if not ((at.kind == "MethodCall") and at.name == "sub") or #at.args < 1 or #at.args > 2 then
+    return 0, 0
+  end
+  local i = Operators.literal_integer(assert(at.args[1]))
+  local j = if #at.args == 2 then Operators.literal_integer(assert(at.args[2])) else -1 end
+  if i == nil or j == nil or (i > 0) ~= (j > 0) or i == 0 or j == 0 then return 0, 0 end
+  return i, j
+end
+
+--- `s:sub(1, 19) == "local function test_"`: a literal longer than the range is never what the range answers, which
+--- finds a miscounted prefix.
+function Operators.short_range(ctx: Ctx, node: Ast.Binary)
+  local range, literal = peel(node.left), peel(node.right)
+  if not (literal.kind == "String") then range, literal = literal, range end
+  if not (literal.kind == "String") or not (range.kind == "MethodCall") or ctx.string_subs[range.id] ~= true then
+    return
+  end
+  local i, j = Operators.literal_range(range)
+  if i == 0 then return end
+  local most, n = math.max(0, j - i + 1), #literal.value
+  if n <= most then return end
+  local object = text_of(ctx, range.object)
+  local fix = if i > 0 then "write `" .. object .. ":sub(" .. tostring(i) .. ", " .. tostring(i + n - 1) .. ")`"
+    elseif j == -1 then "write `" .. object .. ":sub(" .. tostring(-n) .. ")`"
+    else "make the range " .. tostring(n) .. (if n == 1 then " byte" else " bytes" end) .. " long" end
+  report(ctx, "compare_disjoint", node, subject(ctx, range) .. " has at most " .. tostring(most) ..
+      (if most == 1 then " byte" else " bytes" end) .. " and " ..
+      subject(ctx, literal) .. " has " .. tostring(n) .. ": the test is never " ..
+      (if node.op == "==" then "true" else "false" end),
+    fix .. ", which is as long as the string")
+end
+
 --- `a == b` and `a ~= b`: both sides overlap, else the test is dead.
 function Operators.equality(ctx: Ctx, node: Ast.Binary, left: Type, right: Type)
   if not Operands.overlaps(ctx, left, right) then
     report(ctx, "compare_disjoint", node, subject(ctx, node.left) .. " is " .. tq(ctx, left) .. " and " ..
         subject(ctx, node.right) .. " is " .. tq(ctx, right) .. ", which share no value: the test is never " ..
         (if node.op == "==" then "true" else "false" end),
-      "compare values of one type, or remove the test", { show(ctx, left), show(ctx, right) })
+      Operators.optional_fix(ctx, node) or "compare values of one type, or remove the test",
+      { show(ctx, left), show(ctx, right) })
+  else
+    Operators.short_range(ctx, node)
   end
 end
 
@@ -7711,6 +7798,7 @@ local function apply_method(ctx: Ctx, node: Ast.MethodCall, object: Type, expect
     end
     ft, cands = common, overloads
   else
+    if node.name == "sub" and (t.tag == "string") then ctx.string_subs[node.id] = true end
     ft = member_read(ctx, node, t, node.name)
     module = ctx.member_module
     if ctx.cand_node == node then
@@ -10598,7 +10686,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
       return false
     end, function(_node: Ast.Node, _spelled: string, _found: LoadOrder.Found) end),
     literals = {}, spreads = {}, tags = {}, declared = {}, union_fields = {}, spine = {},
-    ternaries = {}, spare = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, assigning = {}, quiet = 0, closers = 0, callee_module = "", member_module = "", moves = {},
+    ternaries = {}, spare = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, string_subs = {}, assigning = {}, quiet = 0, closers = 0, callee_module = "", member_module = "", moves = {},
     loops = {}, ranges = {}, map_reads = {}, keys = {}, edges = {}, guards = {}, ties = {}, coroutine_reads = {}, top = tops, module_table = module_table(input, lowered), initialized = {}, given = {}, handed = false, reads = {}, unfixed = {}, narrowed = {}, inert = {}, runs = {}, inferred = {}, boundaries = {}, types = {}, callees = {}, consts = {}, unread_schemas = {}, call_columns = {}, row_lists = {}, row_columns = {}, starts = {}, library = {}, typed = typed ~= false, warnings = {},
     unite = function(a: Type, b: Type): Type
       return store:union({ a, b })
