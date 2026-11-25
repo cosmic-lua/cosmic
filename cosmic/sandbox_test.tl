@@ -55,8 +55,8 @@ local function test_merge_joins_the_letters_of_a_path_in_order()
     { grants = { { path = "/a", letters = "x" }, { path = "/b", letters = "c" } } },
     { grants = { { path = "/a", letters = "wr" }, { path = "/b", letters = "ur" } } })
   assert(#assert(out.grants) == 2)
-  assert(Array.at(assert(out.grants), 1).path == "/a" and Array.at(assert(out.grants), 1).letters == "rwx")
-  assert(Array.at(assert(out.grants), 2).path == "/b" and Array.at(assert(out.grants), 2).letters == "rcu")
+  assert(Array.at(Sandbox.paths(out), 1).path == "/a" and Array.at(Sandbox.paths(out), 1).letters == "rwx")
+  assert(Array.at(Sandbox.paths(out), 2).path == "/b" and Array.at(Sandbox.paths(out), 2).letters == "rcu")
 end
 
 local function test_merge_keeps_a_path_with_another_host_path_apart()
@@ -65,17 +65,17 @@ local function test_merge_keeps_a_path_with_another_host_path_apart()
     { path = "/a", letters = "x", from = "/x" },
   } })
   assert(#assert(out.grants) == 2)
-  assert(Array.at(assert(out.grants), 1).from == nil and Array.at(assert(out.grants), 1).letters == "w")
-  assert(Array.at(assert(out.grants), 2).from == "/x" and Array.at(assert(out.grants), 2).letters == "rx")
+  assert(Array.at(Sandbox.paths(out), 1).from == nil and Array.at(Sandbox.paths(out), 1).letters == "w")
+  assert(Array.at(Sandbox.paths(out), 2).from == "/x" and Array.at(Sandbox.paths(out), 2).letters == "rx")
 end
 
 local function test_merge_unions_lists_sorted_without_repeats()
   local out = PolicyMerge.merged(
-    { promises = { "jit", "fork" }, env = { "B", "A" }, connect = { "b:1", "a:1" },
+    { grants = { { calls = "jit" }, { calls = "fork" } }, env = { "B", "A" }, connect = { "b:1", "a:1" },
       isolate = { "proc" }, loopback = { "127.0.0.2" } },
-    { promises = { "fork", "fattr" }, env = { "A", "C" }, connect = { "a:1" },
+    { grants = { { calls = "fork" }, { calls = "fattr" } }, env = { "A", "C" }, connect = { "a:1" },
       isolate = { "file", "proc" }, loopback = { "127.0.0.1" } })
-  assert(table.concat(assert(out.promises), ",") == "fattr,fork,jit")
+  assert(table.concat(Sandbox.calls(out), ",") == "fattr,fork,jit")
   assert(table.concat(assert(out.env), ",") == "A,B,C")
   assert(table.concat(assert(out.connect), ",") == "a:1,b:1")
   assert(table.concat(assert(out.isolate), ",") == "file,proc")
@@ -85,7 +85,7 @@ end
 local function test_merge_answers_every_field_even_for_nothing()
   local out = PolicyMerge.merged()
   assert(out.profiles == nil and out.tmp == false)
-  assert(#assert(out.grants) == 0 and #assert(out.isolate) == 0 and #assert(out.promises) == 0 and #assert(out.connect) == 0)
+  assert(#assert(out.grants) == 0 and #assert(out.isolate) == 0 and #Sandbox.calls(out) == 0 and #assert(out.connect) == 0)
   assert(#assert(out.loopback) == 0 and #assert(out.env) == 0 and next(assert(out.set_env)) == nil)
   assert(next(assert(out.set_env_digests)) == nil and assert(out.limits).open_files == nil)
   assert(PolicyMerge.merged({}, { tmp = false }).tmp == false and PolicyMerge.merged({ tmp = false }, { tmp = true }).tmp) -- checked: or_mix
@@ -207,8 +207,8 @@ local function test_a_loopback_address_a_connect_target_names_is_refused()
 end
 
 local function test_merge_takes_letters_in_any_order_where_decode_does_not()
-  assert(Array.at(assert(PolicyMerge.merged({ grants = { { path = "a", letters = "xr" } } }).grants), 1).letters == "rx")
-  assert(Array.at(assert(PolicyMerge.merged({ grants = { { path = "a", letters = "rrw" } } }).grants), 1).letters == "rw")
+  assert(Array.at(Sandbox.paths(PolicyMerge.merged({ grants = { { path = "a", letters = "xr" } } })), 1).letters == "rx")
+  assert(Array.at(Sandbox.paths(PolicyMerge.merged({ grants = { { path = "a", letters = "rrw" } } })), 1).letters == "rw")
 end
 
 local function test_merge_resolves_profiles_away()
@@ -216,7 +216,7 @@ local function test_merge_resolves_profiles_away()
   assert(out.profiles == nil)
   local executable = assert(Proc.executable())
   local found, data = false, false
-  for _, grant in ipairs(assert(out.grants)) do
+  for _, grant in ipairs(Sandbox.paths(out)) do
     if grant.path == executable and grant.letters == "rx" then found = true end
     if grant.path == "/data" then data = true end
   end
@@ -229,7 +229,7 @@ local function test_a_profile_joins_with_the_policys_own_grant_of_the_same_path(
   local executable = assert(Proc.executable())
   local out = PolicyMerge.merged({ profiles = { "cosmic" }, grants = { { path = executable, letters = "w" } } })
   local count = 0
-  for _, grant in ipairs(assert(out.grants)) do
+  for _, grant in ipairs(Sandbox.paths(out)) do
     if grant.path == executable then
       count = count + 1
       assert(grant.letters == "rwx", grant.letters)
@@ -244,8 +244,8 @@ local function test_profile_names_what_it_holds_and_refuses_what_it_has_not()
   local system = assert(Sandbox.profile("system"))
   assert(system.profiles == nil and system.grants ~= nil)
   local cosmic = assert(Sandbox.profile("cosmic"))
-  assert(#assert(cosmic.grants) == 1 and Array.at(assert(cosmic.grants), 1).path == assert(Proc.executable()))
-  assert(Array.at(assert(cosmic.grants), 1).letters == "rx")
+  assert(#assert(cosmic.grants) == 1 and Array.at(Sandbox.paths(cosmic), 1).path == assert(Proc.executable()))
+  assert(Array.at(Sandbox.paths(cosmic), 1).letters == "rx")
   local none, why = Sandbox.profile("bogus")
   assert(none == nil and why:find("unknown profile \"bogus\"", 1, true) ~= nil, why)
 end
@@ -257,10 +257,10 @@ local function test_proc_profile_is_proc_on_linux_and_nothing_on_macos()
     local proc_grants = proc.grants
     assert(proc_grants == nil or #assert(proc_grants) == 0)
   else
-    assert(#assert(proc.grants) == 1 and Array.at(assert(proc.grants), 1).path == "/proc" and Array.at(assert(proc.grants), 1).letters == "r")
+    assert(#assert(proc.grants) == 1 and Array.at(Sandbox.paths(proc), 1).path == "/proc" and Array.at(Sandbox.paths(proc), 1).letters == "r")
   end
   local both = assert(Sandbox.union({ profiles = { "proc" } }, { grants = { { path = "/proc", letters = "r" } } }))
-  assert(both.profiles == nil and #assert(both.grants) == 1 and Array.at(assert(both.grants), 1).path == "/proc")
+  assert(both.profiles == nil and #assert(both.grants) == 1 and Array.at(Sandbox.paths(both), 1).path == "/proc")
 end
 
 --- On macOS /bin/sh is a stub that runs the shell /private/var/select/sh
@@ -403,7 +403,7 @@ local function test_merge_writes_a_path_once_and_joins_its_spellings()
     { path = "//", letters = "r" },
   } })
   local seen: mut {string:string} = {}
-  for _, grant in ipairs(assert(out.grants)) do seen[grant.path] = grant.letters end
+  for _, grant in ipairs(Sandbox.paths(out)) do seen[grant.path] = grant.letters end
   assert(seen["/a/b"] == "rx" and seen["rel/x"] == "r" and seen["."] == "w", "paths")
   assert(seen["/"] == "rx" and #assert(out.grants) == 4)
 end
@@ -416,7 +416,7 @@ local function test_a_dot_dot_in_a_grant_path_is_refused_naming_the_field()
     assert(none == nil and trouble:find("$.grants[1].path", 1, true) ~= nil and trouble:find("..", 1, true) ~= nil, trouble)
   end
   -- A name that only contains dots is a name.
-  assert(Array.at(assert(PolicyMerge.merged({ grants = { { path = "/a/..b/c..", letters = "r" } } }).grants), 1).path == "/a/..b/c..")
+  assert(Array.at(Sandbox.paths(PolicyMerge.merged({ grants = { { path = "/a/..b/c..", letters = "r" } } })), 1).path == "/a/..b/c..")
 end
 
 local FULL <const> = "         0          0 4294967295\n"
@@ -576,7 +576,7 @@ local function test_a_database_beside_the_cosmic_profile_leaves_the_programs_fil
   local executable = assert(Proc.executable())
   local plain = PolicyMerge.merged({ profiles = { "cosmic" } })
   local found = false
-  for _, grant in ipairs(assert(plain.grants)) do
+  for _, grant in ipairs(Sandbox.paths(plain)) do
     if grant.path == executable then found = true end
   end
   assert(found, "the profile no longer grants the program")
@@ -584,7 +584,7 @@ local function test_a_database_beside_the_cosmic_profile_leaves_the_programs_fil
   assert(#assert(out.grants) == 0 and assert(out.database).path == path)
   -- In either order of the two.
   out = PolicyMerge.merged({ database = { path = path } }, { profiles = { "cosmic", "system" } })
-  for _, grant in ipairs(assert(out.grants)) do
+  for _, grant in ipairs(Sandbox.paths(out)) do
     assert(grant.path ~= executable, "the profile's grant stayed")
   end
 end
@@ -600,17 +600,17 @@ local function test_intersect_keeps_the_deeper_path_with_the_letters_of_both()
   local a: Sandbox.Policy = { grants = { { path = "/srv", letters = "rwx" } } }
   local b: Sandbox.Policy = { grants = { { path = "/srv/data", letters = "rc" }, { path = "/etc", letters = "r" } } }
   local both = assert(Sandbox.intersect(a, b))
-  local grants = assert(both.grants)
+  local grants = Sandbox.paths(both)
   assert(#grants == 1, tostring(#grants))
   assert(assert(grants[1]).path == "/srv/data" and assert(grants[1]).letters == "r")
 end
 
 local function test_intersect_meets_connect_targets_and_lists()
-  local a: Sandbox.Policy = { connect = { "*:443", "db.internal:5432" }, promises = { "fork", "jit" }, env = { "HOME", "PATH" } }
-  local b: Sandbox.Policy = { connect = { "api.github.com:*" }, promises = { "fork" }, env = { "PATH" } }
+  local a: Sandbox.Policy = { connect = { "*:443", "db.internal:5432" }, grants = { { calls = "fork" }, { calls = "jit" } }, env = { "HOME", "PATH" } }
+  local b: Sandbox.Policy = { connect = { "api.github.com:*" }, grants = { { calls = "fork" } }, env = { "PATH" } }
   local both = assert(Sandbox.intersect(a, b))
   assert(table.concat(assert(both.connect), ",") == "api.github.com:443", table.concat(assert(both.connect), ","))
-  assert(table.concat(assert(both.promises), ",") == "fork")
+  assert(table.concat(Sandbox.calls(both), ",") == "fork")
   assert(table.concat(assert(both.env), ",") == "PATH")
 end
 

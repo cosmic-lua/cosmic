@@ -2,6 +2,7 @@
 --- names, which the start tells the relay without a lookup.
 
 local RelayStart = require("cosmic.internal.relay_start")
+local Sandbox = require("cosmic.sandbox")
 local type Config = require("cosmic.internal.relay_config")
 
 local DIGEST <const> = string.rep("0", 64)
@@ -12,10 +13,10 @@ local function test_the_relays_policy_differs_by_platform_only_in_what_holds_it(
   for _, policy in ipairs({ linux, macos }) do
     local database = assert(policy.database)
     assert(database.path == "/tmp/relay.db" and database.sha256 == DIGEST)
-    for _, grant in ipairs(policy.grants or {}) do
+    for _, grant in ipairs(Sandbox.paths(policy)) do
       assert(grant.letters == "r", grant.path .. " is granted " .. grant.letters)
     end
-    assert(#(policy.connect or {}) == 0 and #(policy.promises or {}) == 0)
+    assert(#(policy.connect or {}) == 0 and #Sandbox.calls(policy) == 0)
   end
   assert(table.concat(assert(linux.isolate), ",") == "proc" and linux.profiles == nil)
   assert(table.concat(assert(macos.profiles), ",") == "system" and macos.isolate == nil)

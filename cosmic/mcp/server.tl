@@ -2413,7 +2413,7 @@ function McpServer.command(spec: McpServer.CommandSpec): McpServer.ToolSpec
   if merged == nil then refuse("command: " .. name .. ": " .. why) end
   local checked, check_why = Sandbox.check(merged)
   if not checked then refuse("command: " .. name .. ": " .. check_why) end
-  for _, grant in ipairs(merged.grants or {}) do
+  for _, grant in ipairs(Sandbox.paths(merged)) do
     if grant.path:sub(1, 1) ~= "/" then
       refuse("command: " .. name .. ": grant " .. grant.path .. " is relative: a call would read it from the " ..
           "server's directory as it is then")
