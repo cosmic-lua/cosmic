@@ -21,7 +21,7 @@
 ---
 --- `before` and `after` are the agent's own policy over each tool call
 --- the model makes, and each call a snippet of run makes of the agent
---- (history, store, mcp): `before` may block a call, with a reason the model
+--- (history, store, mcp, use): `before` may block a call, with a reason the model
 --- reads (or the snippet, raised), and `after` may change a result
 --- before it is kept or read
 --- ([`Agent.Before`], [`Agent.After`], [`cosmic.agent.check`]). They are
@@ -244,7 +244,8 @@ local record Agent
   end
 
   --- Who made a [`Agent.Call`]: the model, or a snippet's code, through
-  --- its host: history, store or mcp, each asked as a call of its own.
+  --- its host: history, store, mcp, or a tool by [`Host.use`], each asked
+  --- as a call of its own.
   enum Caller "model" "code" end
 
   --- The kind of a [`Agent.BlockedEvent`].
@@ -269,8 +270,9 @@ local record Agent
   --- A call, as `before` and `after` see it: a tool call of the model,
   --- or a snippet's call of the agent.
   record Call
-    --- The tool's name, or the snippet's call's: history, store.get,
-    --- store.put, mcp.servers, mcp.tools or mcp.call.
+    --- The tool's name (a snippet's [`Host.use`] too), or the snippet's
+    --- call's: history, store.get, store.put, mcp.servers, mcp.tools or
+    --- mcp.call.
     name: string
     --- What it was given, as the tool gets it: read it, and change none of it.
     input: Tools.Object
@@ -297,9 +299,10 @@ local record Agent
   ---
   --- A snippet's call has `caller` "code", its name the call's, its
   --- input the arguments the snippet sent, unchecked, and no paths
-  --- ([`Tools.Context`] `guard` lists them); a blocked one raises
-  --- "Blocked: <reason>" in the snippet, which the model reads only as
-  --- the snippet passes it on. Such calls may come at once, from a
+  --- ([`Tools.Context`] `guard` lists them); one of [`Host.use`] has the
+  --- tool's name, input and paths, as the model's call would. A blocked
+  --- one raises "Blocked: <reason>" in the snippet, which the model reads
+  --- only as the snippet passes it on. Such calls may come at once, from a
   --- snippet's tasks, and while its time runs.
   type Before = function(call: Call): string?
 
