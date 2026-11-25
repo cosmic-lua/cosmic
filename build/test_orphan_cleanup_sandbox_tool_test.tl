@@ -6,8 +6,7 @@ local fixture = require("build.test_isolation_fixture")
 
 Test.policy{
   profiles = { "cosmic", "proc" },
-  grants = { { path = "o/bin", letters = "rx" } },
-  promises = { "nest" },
+  grants = { { path = "o/bin", letters = "rx" }, { calls = "nest" } },
   env = { "COSMIC_SANDBOX", "COSMIC_TEST_SANDBOX" },
   requires = { "sandbox", "path:/proc/thread-self/children" },
 }

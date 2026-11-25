@@ -25,7 +25,7 @@ local ChildPolicy = require("build.child_policy_fixture")
 --- Landlock ruleset cannot build.
 Test.policy{
   env = { "TMPDIR" },
-  promises = { "nest" },
+  grants = { { calls = "nest" } },
   requires = { "nest" },
 }
 

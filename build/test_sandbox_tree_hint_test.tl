@@ -16,8 +16,7 @@ local this_program = require("build.this_program")
 --- case whose run sandboxed none of its workers reads to skip.
 Test.policy{
   profiles = { "cosmic" },
-  grants = { { path = "o/bin", letters = "rx" } },
-  promises = { "nest" },
+  grants = { { path = "o/bin", letters = "rx" }, { calls = "nest" } },
   env = { "COSMIC_SANDBOX", "COSMIC_TEST_SANDBOX" },
   timeout = 120,
 }

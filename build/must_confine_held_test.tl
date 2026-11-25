@@ -28,7 +28,7 @@ local function test_a_sandboxed_worker_is_held_by_a_ruleset_and_refused_a_root_o
   local said = fixture.run(tmp, "held", { probe, tmp }, { [confine.held_variable] = held })
   assert(said.code == 0, said.text)
   local refused = probe .. " cannot start in a root of its own: " .. held .. "'s worker is held by a Landlock " ..
-    "ruleset, under which the kernel refuses every mount; declare the promise \"nest\" in its Test.policy"
+    "ruleset, under which the kernel refuses every mount; declare the grant { calls = \"nest\" } in its Test.policy"
   assert(fixture.field(said, "confined") == refused, said.text)
   assert(fixture.field(said, "own_sandbox") == refused, said.text)
 end

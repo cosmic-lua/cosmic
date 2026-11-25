@@ -311,12 +311,11 @@ local function program_dirs(path: string, user_home: string?, guarded: {string},
 end
 
 --- The `connect` targets `config` grants: `*:*` for network, then its
---- own; nil for none.
-local function connect_of(config: Policy.Config): {string}?
+--- own.
+local function connect_of(config: Policy.Config): {string}
   local out: mut {string} = {}
   if config.network then out[#out + 1] = "*:*" end
   for _, target in ipairs(config.connect or {}) do out[#out + 1] = target end
-  if #out == 0 then return nil end
   return out
 end
 
@@ -408,13 +407,13 @@ function Policy.of(cwd: string, config: Policy.Config): Sandbox.Policy?, string
   -- files are then held by that root alone.
   local calls: {Sandbox.Promise} = if linux then { "fork", "fattr", "jit", "nest" } else { "fork", "fattr", "jit" } end
   for _, promise in ipairs(calls) do grants[#grants + 1] = { calls = promise } end
+  for _, target in ipairs(connect_of(config)) do grants[#grants + 1] = { connect = target } end
   local own: Sandbox.Policy = {
     profiles = { "system", "programs", "proc" },
     grants = grants,
     tmp = true,
     env = if config.path ~= nil then { "LANG", "LC_ALL", "TERM" } else { "PATH", "LANG", "LC_ALL", "TERM" } end,
     set_env = env_of(linux, home, if config.path ~= nil then real_path(config.path) else nil end, cert),
-    connect = connect_of(config),
     -- On Linux a root of its own: what it was not granted is not there,
     -- and it owns what it was, whoever runs the agent. macOS has no
     -- namespaces to give it one.
@@ -458,7 +457,7 @@ function Policy.describe(p: Sandbox.Policy, home?: string): {string}
         bytes(size_of(kept)))
     end
   end
-  local connect = p.connect or {}
+  local connect = Sandbox.connects(p)
   out[#out + 1] = "network: " .. (if #connect > 0 then table.concat(connect, " ") else "none" end)
   out[#out + 1] = "grants (r reads, w writes, x runs, c creates and removes):"
   local grants: mut {Sandbox.Path} = {}

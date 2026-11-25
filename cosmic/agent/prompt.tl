@@ -2,11 +2,11 @@
 --- The system prompt of `cosmic agent`, built as pi builds its own: a line
 --- of who the model is, the tools in a line each, the rules the tools
 --- bring, the project's instructions (each AGENTS.md or CLAUDE.md from
---- the root down to the working directory), and the MCP servers. It
+--- the root down to the working directory). It
 --- names no path of the machine, only paths relative to the working
 --- directory, so sessions in other directories read it from the cache;
---- the working directory itself is a block of its own after it
---- ([`Prompt.where`]). Code mode adds no section of its own: what a
+--- the working directory and the MCP servers, which differ from one session
+--- to the next, are a block of their own after it ([`Prompt.where`]). Code mode adds no section of its own: what a
 --- snippet of `run` may do is in that tool's description, so a session
 --- that never runs one pays for little more than the tool.
 
@@ -14,6 +14,7 @@ local AgentMcp = require("cosmic.agent.mcp")
 local Fs = require("cosmic.fs")
 local Data = require("cosmic.agent.prompt_data")
 local Text = require("cosmic.agent.prompt_text")
+local WhereText = require("cosmic.agent.where_text")
 local Json = require("cosmic.json")
 local Tools = require("cosmic.agent.tools")
 
@@ -26,10 +27,8 @@ local record Prompt
     content: string
   end
 
-  --- What a prompt holds beside its tools and the project's instructions.
+  --- What a prompt holds beside the project's instructions.
   record Options
-    --- The MCP servers a snippet may call, by `require("mcp.<name>")`.
-    servers?: {AgentMcp.Server}
     --- The tools the model is offered, each a line and its rules; [`Tools.default`] where nil, as an agent's.
     tools?: {Tools.Tool}
   end
@@ -75,26 +74,27 @@ local function seen_from(path: string, cwd: string): string
 end
 
 --- What follows the system prompt of a session in `cwd`, past its cache
---- mark: the working directory, which the system prompt leaves out so
---- that it is the same in every directory.
-function Prompt.where(cwd: string): string
-  return "<cwd>\n" .. cwd .. "\n</cwd>"
+--- mark: the working directory and each of `servers` (its name and what
+--- it is for, which a snippet calls by `require("mcp.<name>")`), which the
+--- system prompt leaves out so that it is the same in every directory and
+--- for every set of servers.
+function Prompt.where(cwd: string, servers?: {AgentMcp.Server}): string
+  local named: mut {Data.Server} = {}
+  for _, server in ipairs(servers or {}) do
+    local about = server.description
+    named[#named + 1] = { name = server.name, about = if about ~= nil then (about:gsub("%s+", " ")) else nil end }
+  end
+  return WhereText.render({ cwd = cwd, servers = if #named > 0 then named else nil end })
 end
 
---- The system prompt for `cwd`, with `contexts` as its project's instructions (each named by its path relative to `cwd`), and `options`' MCP servers where
---- given: each server's name and what it is for, which a snippet calls by `require("mcp.<name>")`.
+--- The system prompt for `cwd`, with `contexts` as its project's instructions (each named by its path relative to `cwd`),
+--- and `options`' tools.
 -- The words are the text template prompt_text.tmpl (cosmic.template); this fills its record.
 function Prompt.build(cwd: string, contexts: {Prompt.Context}, options?: Prompt.Options): string
   local offered = if options ~= nil and options.tools ~= nil then options.tools else Tools.default() end
   local instructions: mut {Data.Instructions} = {}
   for _, c in ipairs(contexts) do
     instructions[#instructions + 1] = { path = seen_from(c.path, cwd), content = c.content }
-  end
-  local servers: mut {Data.Server} = {}
-  local given: {AgentMcp.Server} = if options ~= nil and options.servers ~= nil then options.servers else {} end
-  for _, server in ipairs(given) do
-    local about = server.description
-    servers[#servers + 1] = { name = server.name, about = if about ~= nil then (about:gsub("%s+", " ")) else nil end }
   end
   local for_model: mut {Tools.Tool} = {}
   local for_code: mut {Data.CodeTool} = {}
@@ -112,7 +112,6 @@ function Prompt.build(cwd: string, contexts: {Prompt.Context}, options?: Prompt.
     bash = Tools.find(for_model, "bash") ~= nil,
     run = run,
     instructions = if #instructions > 0 then instructions else nil end,
-    servers = if #servers > 0 then servers else nil end,
   })
 end
 

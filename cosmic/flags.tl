@@ -38,7 +38,30 @@ local source_run = require("cosmic.internal.source_run")
 local type Doc = require("cosmic.doc")
 local type Stream = require("cosmic.stream")
 
+--- Standard input kept in a file of its own, made by [`Flags.spool`], for what opens a file by its path (a
+--- SQLite database, an executable) where "-" is given. Held in a `<close>` local, it removes the file as
+--- the block ends.
+local class Spool
+  --- The file that holds the bytes.
+  path: string
+  --- The directory made for it, removed with it.
+  mut dir: string
+
+  --- Removes the file and its directory. Safe to call more than once.
+  function close(self)
+    if self.dir == "" then return end
+    local _, _ = Fs.remove_tree(self.dir)
+    self.dir = ""
+  end
+
+  function __close(self)
+    self:close()
+  end
+end
+
 local record Flags
+  type Spool = Spool
+
   --- One option described, for a spec to name and [`Flags.help`] to show.
   record Option
     --- What its value is called in help ("n", "path"), for an option
@@ -1870,6 +1893,32 @@ function Flags.write(path: string, data: string, mode?: integer): boolean, strin
   local wrote, failure = Fs.write_output(path, data, mode)
   if not wrote then return false, tostring(failure) end
   return true, ""
+end
+
+--- `bytes`, standard input's (read with [`Flags.read`]`("-")`), kept in a new file named `name` in a
+--- directory of its own, for what opens a file by its path where "-" is given. The file is removed as the
+--- [`Flags.Spool`] is closed:
+---
+---     local bytes, why = Flags.read("-")
+---     if bytes == nil then return refused(why) end
+---     local spool <close>, trouble = Flags.spool(bytes, "db")
+---     if spool == nil then return undone(trouble) end
+---     open(spool.path)
+--- @param bytes string What the file holds
+--- @param name string The file's name, which a message that names the file shows
+--- @param mode integer | nil The file's mode, as [`Fs.write`] takes it (0755 for an executable)
+--- @return Flags.Spool | nil The file, or nil when it could not be written
+--- @return string Why not, or ""
+function Flags.spool(bytes: string, name: string, mode?: integer): (Flags.Spool) | (nil, string)
+  local dir, dir_why = Fs.mkdtemp("cosmic-stdin-")
+  if dir == nil then return nil, "standard input: " .. tostring(dir_why) end
+  local path = dir .. "/" .. name
+  local wrote, why = Fs.write(path, bytes, mode)
+  if not wrote then
+    local _, _ = Fs.remove_tree(dir)
+    return nil, "standard input: " .. tostring(why)
+  end
+  return { path = path, dir = dir }
 end
 
 --- The refusal of a command line that gives "-" for standard input more than once among the `names` of

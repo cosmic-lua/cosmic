@@ -24,7 +24,7 @@ local type _ = require("cosmic.child")
 --- `network`, whose loopback the worker's filter lets it make inet sockets
 --- on, the children it starts inheriting that filter.
 Test.policy{
-  promises = { "nest" },
+  grants = { { calls = "nest" } },
   loopback = { "127.0.0.1" },
   requires = { "nest" },
 }

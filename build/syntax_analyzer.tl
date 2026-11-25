@@ -1319,8 +1319,6 @@ end
 local function policy_data(chunk: Ast.Chunk, node: Ast.Table): PolicyRules.PolicyData?, string
   local profiles: {string}?
   local isolate: {string}?
-  local promises: {string}?
-  local connect: {string}?
   local loopback: {string}?
   local env: {string}?
   local requires: {string}?
@@ -1343,8 +1341,8 @@ local function policy_data(chunk: Ast.Chunk, node: Ast.Table): PolicyRules.Polic
       takes = TestPolicy.kind_of(field)
     end
     if field == nil or takes == nil then
-      return nil, (if field ~= nil then ("has no field " .. field) else "has an entry with no name" end) ..
-        "; it has " .. TestPolicy.field_list()
+      return nil, if field ~= nil then TestPolicy.no_field(field) else "has an entry with no name; it has " ..
+          TestPolicy.field_list() end
     end
     if seen[field] == true then
       return nil, field .. " is declared twice"
@@ -1369,10 +1367,6 @@ local function policy_data(chunk: Ast.Chunk, node: Ast.Table): PolicyRules.Polic
         profiles, why = string_list(chunk, given, field)
       elseif field == "isolate" then
         isolate, why = string_list(chunk, given, field)
-      elseif field == "promises" then
-        promises, why = string_list(chunk, given, field)
-      elseif field == "connect" then
-        connect, why = string_list(chunk, given, field)
       elseif field == "loopback" then
         loopback, why = string_list(chunk, given, field)
       elseif field == "requires" then
@@ -1452,11 +1446,12 @@ local function policy_data(chunk: Ast.Chunk, node: Ast.Table): PolicyRules.Polic
             break
           end
           for name in pairs(grant) do
-            if not (name == "path" or name == "letters" or name == "from") then
-              why = at .. " has no field " .. name .. "; it has from, letters, path"
+            if not (name == "path" or name == "letters" or name == "from" or name == "calls" or name == "connect") then
+              why = at .. " has no field " .. name .. "; it has calls, connect, from, letters, path"
             end
           end
-          found_grants[#found_grants + 1] = { path = grant["path"], letters = grant["letters"], from = grant["from"] }
+          found_grants[#found_grants + 1] = { path = grant["path"], letters = grant["letters"], from = grant["from"],
+            calls = grant["calls"], connect = grant["connect"] }
         end
       end
     end
@@ -1464,7 +1459,7 @@ local function policy_data(chunk: Ast.Chunk, node: Ast.Table): PolicyRules.Polic
       return nil, why
     end
   end
-  return { profiles = profiles, isolate = isolate, promises = promises, connect = connect, loopback = loopback,
+  return { profiles = profiles, isolate = isolate, loopback = loopback,
     env = env, requires = requires, set_env = set_env, set_env_digests = set_env_digests, grants = grants,
     limits = limits, tmp = tmp, cpu_features = cpu_features, store_text = store_text, user = user, group = group,
     database = database, timeout = timeout }, ""

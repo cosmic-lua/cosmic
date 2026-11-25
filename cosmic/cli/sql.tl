@@ -47,7 +47,11 @@
 --- as `--db sessions.db` does. Give it alone: it joins no data file, and
 --- takes no `name=`, `--as`, `--at` or `--raw`. With no statement, `--from`
 --- or `--db` on a database, or `--build`, lists each table and view with
---- its row count and its columns' declared types.
+--- its row count and its columns' declared types. `--db -` reads a
+--- database from standard input, kept in a file while the statement runs:
+--- `ssh host cat app.db | cosmic sql --db - 'SELECT count(*) FROM users'`.
+--- Only the file comes through the pipe: commits still in its `-wal` are
+--- not read.
 ---
 --- A CSV or TSV file (RFC 4180, with quotes) has a header line that names
 --- the columns, in order, and one row per record. A record with more or
@@ -111,7 +115,7 @@ local Flags = require("cosmic.flags")
 
 local command: Flags.Command = {
   about = "read-only SQL on a database or data files",
-  usage = "[--db <path> | --build | --store | --from <file|-> [--as <fmt>] [--at <path>] [--raw]...] " ..
+  usage = "[--db <path|-> | --build | --store | --from <file|-> [--as <fmt>] [--at <path>] [--raw]...] " ..
     "[--to csv|ndjson] ['<statement>']",
   examples = {
     { line = "--from sales.csv 'SELECT region, sum(amount) FROM sales GROUP BY region'", about = "query a CSV file" },
@@ -120,7 +124,7 @@ local command: Flags.Command = {
     { line = "--build 'SELECT count(*) FROM modules'", about = "query the build database" },
   },
   spec = {
-    ["--db"] = { value = "path", about = "run against this file" },
+    ["--db"] = { value = "path", about = "run against this file", dash = "input" },
     ["--build"] = { about = "run against the build directory's build.db" },
     ["--store"] = { about = "run against the binary's own; only PRAGMA data_version" },
     ["--from"] = { value = "file", about = "load a data file as a table " ..
