@@ -3601,7 +3601,7 @@ local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Pol
   -- core and this program `r` alone: it runs neither again. The relay is
   -- held by the trampoline, as its profile is the start's.
   local booted = relaunch ~= nil and serves_relay == nil and core ~= nil and
-    startable(core, merged.grants or {}, opts.cwd)
+    startable(core, Rules.paths(merged), opts.cwd)
   for name in pairs(merged.set_env or {}) do
     if name:sub(1, 5) == "DYLD_" then booted = false end
   end
