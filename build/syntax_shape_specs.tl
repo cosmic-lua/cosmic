@@ -16,15 +16,18 @@
 ---   ([`build.plans`]'s `dependency_keys`).
 ---
 --- What a record may hold is what [`cosmic.shape`] can check: strings, integers, numbers, booleans and `any`; arrays and
---- string-keyed maps of those; enums, as `one_of` in byte order; records of those; and `T?` for a field that may be
---- missing. Anything else (a function, a union of more than one type, a generic, an interface, a class, a record that
---- holds itself) is refused where the call is, naming the field.
+--- string-keyed maps of those; enums, as `one_of` in byte order; records of those; a union of records each told by a
+--- field it alone declares ([`Declarations.presence_field`]), as the one whose field the value holds; and `T?` for a
+--- field that may be missing. Anything else (a function, another union of more than one type, a generic, an interface,
+--- a class, a record that holds itself) is refused where the call is, naming the field.
 local Ast = require("lang.ast")
+local Declarations = require("lang.declarations")
 local Lexer = require("lang.lexer")
 local Driver = require("build.driver")
 local Match = require("build.syntax_match")
 local Node = require("build.syntax_node")
 local RecordCalls = require("build.syntax_record_calls")
+local Relation = require("lang.relation")
 local Types = require("lang.types")
 
 local record ShapeSpecs
@@ -77,6 +80,8 @@ local record Gen
   --- The name the calling module gives cosmic.shape.
   shape: string
   store: Types.Store
+  --- What tells which interfaces a declaration lists, for the fields it has from them.
+  judge: Relation.Judge
   --- Where the call stands, for how the module spells a type.
   names: RecordCalls.Namer
   --- The records being read, which none may hold.
@@ -98,6 +103,10 @@ end
 local record Written
   spec: string
   node: string
+end
+
+--- The check of a union of records, which names [`gen_spec`] and which it names.
+local record Unions
 end
 
 local gen_spec: function(g: Gen, t: Type, path: string): Written?, string
@@ -160,7 +169,7 @@ local function gen_record(g: Gen, t_of_decl: Type, decl: Types.Decl, path: strin
     -- folds `any?` into `any`, so the union that would say so is gone from the field's type.
     local nilable = field.omittable == true or field.type == g.store.any
     local inner, node = written.spec, written.node
-    if nilable and field.type.tag ~= "union" then
+    if nilable and not ((field.type.tag == "union") and field.type.nilable) then
       inner = S .. ".build.optional(" .. own .. ", " .. inner .. ")"
       node = optional_node(node)
     end
@@ -168,7 +177,7 @@ local function gen_record(g: Gen, t_of_decl: Type, decl: Types.Decl, path: strin
     checks[#checks + 1] = ("local sh_c%d = %s "):format(k, inner)
     reads[#reads + 1] = ("local sh_v%d, sh_e%d = sh_c%d.check(%s.build.get(sh_t, %q), %s) %s"):format(
       k, k, k, S, field.name, step,
-      if nilable or field.type.tag == "union" then ("if sh_e%d ~= \"\" then return nil, sh_e%d end"):format(k, k) else
+      if nilable or ((field.type.tag == "union") and field.type.nilable) then ("if sh_e%d ~= \"\" then return nil, sh_e%d end"):format(k, k) else
         ("if sh_v%d == nil then return nil, %s.build.failed(sh_e%d, %s) end"):format(k, S, k, step) end)
     names[#names + 1] = ("%q"):format(field.name)
     built[#built + 1] = ("[%q] = sh_v%d"):format(field.name, k)
@@ -210,7 +219,12 @@ gen_spec = function(g: Gen, t: Type, path: string): Written?, string
       node = ('{ kind = "map", optional = false, of = %s }'):format(inner.node) }, ""
   elseif t.tag == "union" then
     if #t.members > 1 then
-      return nil, path .. ": a union of more than one type has no shape; `T?` is the one it has, and an enum a choice"
+      local written, why = Unions.gen(g, t, path)
+      if written == nil then return nil, why end
+      if t.nilable then
+        return { spec = S .. ".build.optional(" .. g.mode .. ", " .. written.spec .. ")", node = optional_node(written.node) }, ""
+      end
+      return written, ""
     end
     local inner, why = gen_spec(g, assert(t.members[1]), path)
     if inner == nil then return nil, why end
@@ -262,6 +276,55 @@ local type Splice = ShapeSpecs.Splice
 
 --- The comment that leaves a use of `record_of` unresolved on purpose, on the line of the use, wherever it is.
 local UNRESOLVED_ON_PURPOSE <const> = "-- record_of: unresolved on purpose"
+
+--- The check of the union `t` of records at `path`, each told by a field it alone declares
+--- ([`Declarations.presence_field`]): the value is the record whose field it holds, and one that holds none or two is refused. Nil and why for a union of
+--- anything else, or of records no field tells apart.
+function Unions.gen(g: Gen, t: Types.Union, path: string): Written?, string
+  local records: mut {Types.Named} = {}
+  local refused = path .. ": a union of more than one type has no shape unless each member is a record that " ..
+    "requires a field no other declares; `T?` is the one other it has, and an enum a choice"
+  for _, m in ipairs(t.members) do
+    if not ((m.tag == "named")) or m.decl.kind ~= "record" or m.value or #m.args > 0 then
+      return nil, refused
+    end
+    records[#records + 1] = m
+  end
+  local spelled: mut {string} = {}
+  local by: mut {string} = {}
+  for i, r in ipairs(records) do
+    local field = Declarations.presence_field(g.store, g.judge, records, r)
+    local named = RecordCalls.spelling(g.names, r, r.decl)
+    if field == nil then
+      return nil, refused .. " (" .. Types.decl_name(r.decl) .. " has none)"
+    elseif named == nil then
+      return nil, path .. ": the module cannot name this record, which is declared where it does not reach: declare " ..
+        "it in the calling module or in a module it requires at its top level"
+    end
+    by[i] = field
+    spelled[i] = named
+  end
+  local S = g.shape
+  local whole = table.concat(spelled, " | ")
+  local checks: mut {string} = {}
+  local arms: mut {string} = {}
+  local nodes: mut {string} = {}
+  local names: mut {string} = {}
+  for i, r in ipairs(records) do
+    local k = fresh(g)
+    local written, why = gen_spec(g, r, path)
+    if written == nil then return nil, why end
+    checks[#checks + 1] = ("local sh_c%d = %s "):format(k, written.spec)
+    arms[#arms + 1] = ("if sh_i == %d then return sh_c%d.check(sh_v, sh_p) end "):format(i, k)
+    nodes[#nodes + 1] = written.node
+    names[#names + 1] = ("%q"):format(by[i])
+  end
+  local spec = ("(function(): %s.Spec<%s> %sreturn { check = function(sh_v: any, sh_p: string): ((%s)?, string) " ..
+    "local sh_i, sh_why = %s.build.arm(sh_v, sh_p, { %s }) %sreturn nil, sh_why end } end)()"):format(S, whole,
+      table.concat(checks), whole, S, table.concat(names, ", "), table.concat(arms))
+  return { spec = spec, node = ('{ kind = "union", optional = false, arms = { %s }, by = { %s } }'):format(
+    table.concat(nodes, ", "), table.concat(names, ", ")) }, ""
+end
 
 --- Whether `e` is `require("cosmic.shape")`.
 local function requires_shape(e: Ast.Exp): boolean
@@ -438,7 +501,7 @@ function ShapeSpecs.splices(build: Driver.Build, module: string, file: string, s
         refusal = ("%s(%q): it is %s"):format(where, literal.value, what) }
     end
     local g: Gen = {
-      shape = shape, store = build.program.store, holding = {}, count = 0, mode = "",
+      shape = shape, store = build.program.store, judge = build.program.judge, holding = {}, count = 0, mode = "",
       names = {
         program = build.program, module = module, aliases = aliases, target = at.decl, spelled = target.spelled,
         visible = RecordCalls.visible(outcome, Node.base(hit.node).first),

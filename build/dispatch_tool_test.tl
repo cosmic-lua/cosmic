@@ -186,6 +186,18 @@ local function test_e_answers_an_empty_chunk_and_a_bad_status(tmp: string)
   assert(bad.code == 2 and says(bad, "not an exit status"), tostring(bad.stderr))
 end
 
+--- A chunk that returns a table prints it as JSON and exits 0, as an agent's snippet hands back what it returns; one
+--- that is not JSON exits 2.
+local function test_e_prints_a_returned_table_as_json(tmp: string)
+  local answer = evaluate(tmp, 'return { n = 1, seen = { "a", "b" } }')
+  assert(answer.code == 0 and answer.stdout == '{"n":1,"seen":["a","b"]}\n', tostring(answer.stdout) ..
+      tostring(answer.stderr))
+  local null = evaluate(tmp, 'return require("cosmic.json").null')
+  assert(null.code == 0 and null.stdout == "null\n", tostring(null.stdout) .. tostring(null.stderr))
+  local no_json = evaluate(tmp, "return { f = print }")
+  assert(no_json.code == 2 and no_json.stdout == "" and says(no_json, "not JSON"), tostring(no_json.stderr))
+end
+
 --- A `load` with no mode is text alone in a project, by the core and not by this check alone (core/surface.c's `load_with`
 --- forces the mode "t" and a chunk's own environment where none is passed): the bytecode of a function does not load.
 local function test_e_load_with_no_mode_does_not_load_bytecode(tmp: string)

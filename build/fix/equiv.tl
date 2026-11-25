@@ -4,7 +4,8 @@
 ---
 --- Two sources are the same when all of these hold:
 --- - the tokens, in order, are the same (kind and bytes), but for the comma a table ends with, written before its `}`
----   or not (which the tree says: the token before the `}` that closes a `Table`);
+---   or not (which the tree says: the token before the `}` that closes a `Table`), and for a `;` that ends a statement,
+---   which the layout deletes;
 --- - the comments are the same, in order, byte for byte, and each follows the same number of tokens. One that lay
 ---   before a binary operator that began a line follows the operator once the layout moves it behind the code before
 ---   it, so that one more token may precede it there;
@@ -41,7 +42,7 @@ local record Equiv
     trouble: string
     shebang: string?
     tokens: Lexer.Tokens
-    --- The numbers of the tokens that count: all but the trailing commas of tables.
+    --- The numbers of the tokens that count: all but the trailing commas of tables and the `;` that end statements.
     mut kept: {integer}
     mut comments: {Remark}
     --- The binary operators, by token.
@@ -138,7 +139,8 @@ function Equiv.read(source: string, name: string, dialect: Ast.Dialect): Equiv.S
         text = comment.text, before = #kept, on = i, doc = k >= from, y = comment.y, x = comment.x,
       }
     end
-    if dropped[i] ~= true then
+    -- A `;` ends a statement and is no part of the tree: the layout deletes it.
+    if dropped[i] ~= true and tokens.kind[i] ~= ";" then
       kept[#kept + 1] = i
     end
   end

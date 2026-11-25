@@ -79,12 +79,14 @@ local function test_each_output_is_kept_before_it_is_shown()
   assert(answer.text:find("use sql.]", 1, true) ~= nil and #answer.text < 20000, answer.text:sub(-100))
   local whole = assert(db:rows("SELECT length(text), call FROM outputs WHERE call = 't2'"))
   assert(assert(whole[1]):integer(1) > 13000)
-  -- With no sql tool, the note names Host.history, which a snippet of run reads it with.
+  -- With no sql tool, the note names the Host.output call that reads it in a snippet of run.
   s, _, db = kept({ { content = { bash_call("t3", "seq 3000") }, stop_reason = "tool_use" }, text_reply("ok") })
   s.tools = Tools.without(s.tools, { "sql" })
   assert(s:prompt("go"))
   local noted = assert(Sessions.answer(db, assert(s.id), "t3"))
-  assert(noted.text:find("read it with Host.history in run.]", 1, true) ~= nil, noted.text:sub(-100))
+  local id = assert(assert(db:rows("SELECT id FROM outputs WHERE call = 't3'"))[1]):integer(1)
+  assert(noted.text:find("kept as output " .. tostring(id) .. ": read it in run with Host.output(" .. tostring(id) ..
+      ").]", 1, true) ~= nil, noted.text:sub(-100))
 end
 
 local function test_the_user_stops_and_steers_a_turn()

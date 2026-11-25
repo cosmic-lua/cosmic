@@ -117,6 +117,8 @@ local record Host
     body?: string
     --- The most seconds it may take: 30 by default, at most 120.
     timeout?: integer
+    --- Whether a status of 400 or more is answered as a value, in place of raising.
+    any_status?: boolean
   end
 
   --- What [`Host.fetch`] got back.
@@ -600,6 +602,38 @@ function Host.history(query: string): {Host.Row}
   return value
 end
 
+--- The characters of a kept output one history call reads: JSON takes a control character as six bytes, so a part
+--- stays within the 512KB a reply holds.
+local OUTPUT_PART <const> = 64 * 1024
+
+--- The text kept of output `id` of sessions.db, which the note under a cut output names ("kept as output 17"): what
+--- the tool's call gave, but for a run output past 64KB, of which its first 16KB and last 48KB are kept; bytes that
+--- are not UTF-8 come back replaced. It reads any session's outputs, as Host.history does: a forked session's notes
+--- name the outputs of the session it was copied from. Raises where it fails, as "host: output: ...".
+function Host.output(id: integer): string
+  local function rows_of(query: string): {Host.Row}
+    local rows, why = history_of(query)
+    if rows == nil then error("host: output: " .. tostring(why):gsub("^host: history: ", ""), 3) end
+    return rows
+  end
+  local sized = rows_of("SELECT length(text) AS n FROM outputs WHERE id = " .. tostring(id))[1]
+  local n = if sized ~= nil then sized["n"] else nil end
+  if not (n is integer) then
+    error("host: output: no output " .. tostring(id) .. " in sessions.db", 2)
+  end
+  local parts: mut {string} = {}
+  for start = 1, n, OUTPUT_PART do
+    local row = rows_of("SELECT substr(text, " .. tostring(start) .. ", " .. tostring(OUTPUT_PART) ..
+        ") AS part FROM outputs WHERE id = " .. tostring(id))[1]
+    local part = if row ~= nil then row["part"] else nil end
+    if not (part is string) then
+      error("host: output: output " .. tostring(id) .. " changed as it was read", 2)
+    end
+    parts[#parts + 1] = part
+  end
+  return table.concat(parts)
+end
+
 --- What the agent's tool `name` answers `input`, as the model would call it: its text. Only a tool code may call
 --- is called (`callers` "code" or "both", cosmic.agent.tools), under the agent's `before` and `after` as a call by
 --- code. Raises where the call is refused or the tool's result is an error, as "host: use: ...".
@@ -675,12 +709,13 @@ end
 
 --- The response to a request of `url`, which follows no redirect
 --- ([`cosmic.agent.fetch`]): made from the snippet's sandbox, which reaches no network in a session started without
---- --network or --connect, and no loopback, private or link-local address but those --connect names. A response of
---- any status is answered; a request that gets none raises.
+--- --network or --connect, and no loopback, private or link-local address but those --connect names. A status under
+--- 400 is answered; one of 400 or more raises, as `curl -f` fails, with the status and the start of the body in the
+--- message, unless `any_status` is given; a request that gets no response raises.
 function Host.fetch(url: string, options?: Host.FetchOptions): Host.Fetched
   local o: Host.FetchOptions = options or {}
   local got, why = AgentFetch.fetch({ url = url, method = o.method, headers = o.headers, body = o.body,
-    timeout = o.timeout })
+    timeout = o.timeout, any_status = o.any_status })
   if got == nil then error(tostring(why), 2) end
   return { status = got.status, headers = got.headers, body = got.body, cut = got.cut }
 end

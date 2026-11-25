@@ -78,8 +78,9 @@ local record Pipeline
     --- Whether the tree is a project outside cosmic's own, whose checker is its own and which no marker holds: every error
     --- refuses. Absent for cosmic's tree, whose markers hold what they mark.
     project: boolean?
-    --- Whether an unused name (`unused_*`) is let pass rather than told: for a snippet, which runs once and is read
-    --- by no one after. Other warnings are told.
+    --- Whether an unused name (`unused_*`) is let pass rather than told: for code that runs (`cosmic -e`, a file run
+    --- alone, an agent's snippet), which no one reviews. `cosmic fix` and a tree's tests still tell it. Other warnings
+    --- are told.
     mut lax?: boolean
   end
 
