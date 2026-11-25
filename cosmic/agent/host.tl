@@ -56,6 +56,7 @@
 ---
 --- Outside a worker no agent replies, and each call raises so.
 
+local AgentEdit = require("cosmic.agent.edit")
 local AgentFetch = require("cosmic.agent.fetch")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
@@ -514,11 +515,27 @@ function Host.find(dir: string, suffix?: string): mut {string}
   return found
 end
 
---- The text of the file `path`, as `cat` prints it. Raises where it cannot be read.
-function Host.cat(path: string): string
+--- The text of the file `path`, whole. Raises where it cannot be read.
+function Host.read(path: string): string
   local text, why = Fs.read(path)
-  if text == nil then error("host: cat: " .. tostring(why), 2) end
+  if text == nil then error("host: read: " .. tostring(why), 2) end
   return text
+end
+
+--- Makes each of `edits` in the file `path`, as the agent's edit tool does ([`cosmic.agent.edit`]): each `old` is in
+--- the file once, as it was before any edit, no two overlap, and a file of CRLF line ends keeps them. Returns how many
+--- it made; raises, saying which edit and how to fix it, where one does not match once, or the file cannot be read or
+--- written, and then changes nothing.
+---
+---     Host.edit("notes.md", { { old = "teh", new = "the" }, { old = "## Todo", new = "## Done" } })
+function Host.edit(path: string, edits: {AgentEdit.Replacement}): integer
+  local raw, why = Fs.read(path)
+  if raw == nil then error("host: edit: " .. tostring(why), 2) end
+  local edited, made = AgentEdit.apply(raw, edits, path, "old")
+  if edited == nil then error("host: edit: " .. made, 2) end
+  local ok, write_why = Fs.write(path, edited)
+  if not ok then error("host: edit: " .. tostring(write_why), 2) end
+  return made
 end
 
 --- The lines of the file `path` ([`Shell.lines`]); raises where it cannot be read.
