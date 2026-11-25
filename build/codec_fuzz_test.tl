@@ -8,12 +8,13 @@ local Codec = require("cosmic.codec")
 local Fuzz = require("build.fuzz")
 local Sources = require("build.codec_fuzz_sources")
 local codec = require("build.codec")
+local type Failure = require("cosmic.failure")
 local support = require("build.test_support_fixture")
 
 local record Pair
   name: codec.Name
   encode: function(string): string
-  decode: function(string): string?, string
+  decode: function(string): (string) | (nil, Failure)
 end
 
 local PAIRS <const>: {Pair} = {
@@ -83,7 +84,8 @@ local function test_chunked_decoding_equals_the_whole_string(tmp: string)
       end,
       check = function(input: string): boolean, string
         local fields = Fuzz.unpack(input)
-        local want, want_why = p.decode(support.nth(fields, 1))
+        local want, refused = p.decode(support.nth(fields, 1))
+        local want_why = if refused ~= nil then tostring(refused) else "" end
         local got, why, empty = run_cut(codec.decoder(p.name), support.nth(fields, 1), support.nth(fields, 2))
         if got ~= want or why ~= want_why then
           return false, ("%q cut %q: %s | %s, whole %s | %s"):format(
