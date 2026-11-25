@@ -4,12 +4,17 @@
 --- binary carries.
 ---
 ---     local Htmx = require("cosmic.web.htmx")
+---     -- pages/items.tmpl, a template (cosmic.template): the page, and the
+---     -- list that is its body, which an htmx request gets alone, of the
+---     -- records Page {head, body: Html.SafeHtml} and List {names: {string}}.
+---     --   {{type Page from pages.data}}<!doctype html><head>{{.head}}</head>
+---     --   <body><ul>{{.body}}</ul></body>
+---     --   {{define list List}}{{range .names}}<li>{{.}}</li>{{end}}{{end}}
+---     local items = require("pages.items")
 ---
----     local function items(req: Web.Request): Web.Response
----       local rows = Html.trust("<li>one</li>")
----       return Htmx.page(req, rows, function(content: Html.SafeHtml): Html.SafeHtml
----         return Html.concat({ Html.trust("<!doctype html><head>"), Htmx.head(),
----           Html.trust("</head><body><ul>"), content, Html.trust("</ul></body>") })
+---     local function shown(req: Web.Request, names: {string}): Web.Response
+---       return Htmx.page(req, items.list({ names = names }), function(content: Html.SafeHtml): Html.SafeHtml
+---         return items.render({ head = Htmx.head(), body = content })
 ---       end)
 ---     end
 ---

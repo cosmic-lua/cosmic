@@ -25,7 +25,7 @@ conventions added.
     tasks/
       static/app.css            carried verbatim in the executable
       pages/data.tl             the records the templates are given
-      pages/layout.tmpl         templates: pages.layout, pages.row, ...
+      pages/tasks.tmpl          templates: pages.tasks, pages.layout
       store.tl                  the tasks, in memory
       view.tl  site.tl          the pages
       tasks.tl                  the app, with its middleware
@@ -99,20 +99,18 @@ local record data
     title: string
     mut done: boolean
   end
-  record Tasks
-    tasks: {Task}
-  end
   record Panel
     title: string
     error: string?
-    rows: Html.SafeHtml
+    tasks: {Task}
   end
   record Page
-    panel: Html.SafeHtml
+    panel: Panel
   end
   record Layout
     title: string
-    head: Html.SafeHtml
+    css: Html.SafeResourceUrl
+    htmx: Html.SafeHtml
     csrf: Html.SafeJson
     body: Html.SafeHtml
   end
@@ -121,57 +119,57 @@ end
 return data
 ```
 
-One task is a row. `{{use htmx}}` makes the template read htmx's
-attributes: `hx-post="/tasks/{{.id}}/toggle"` is a URL with a slot after
-literal text, escaped as one path segment, and `hx-target="#task-{{.id}}"`
-is a selector, escaped as a CSS identifier. A slot is escaped for the place
-it lands, so `{{.title}}` in the text cannot start a tag and `{{.id}}` in a
-URL cannot add a `/`.
+The page, the panel on it and each row are one file. The body is the
+page; each `{{define name Type}} .. {{end}}` after it is a template of its
+own, of a record of the same module, which `| name` calls and the module
+exports beside `render`: `pages.tasks` answers `render`, `panel` and
+`row`, so a route that changes one task responds with its row alone.
 
-```teal file=pages/row.tmpl
-{{type Task from pages.data}}{{use htmx}}
-<li id="task-{{.id}}" class="{{if .done}}done{{end}}">
-  <button hx-post="/tasks/{{.id}}/toggle" hx-target="#task-{{.id}}" hx-swap="outerHTML">{{if .done}}undo{{else}}done{{end}}</button>
-  <span class="title">{{.title}}</span>
-  <button hx-delete="/tasks/{{.id}}" hx-target="#task-{{.id}}" hx-swap="outerHTML">delete</button>
-</li>
-```
+`{{use htmx}}` makes the template read htmx's attributes:
+`hx-post="/tasks/{{.id}}/toggle"` is a URL with a slot after literal text,
+escaped as one path segment, and `hx-target="#task-{{.id}}"` is a
+selector, escaped as a CSS identifier. A slot is escaped for the place it
+lands, so `{{.title}}` in the text cannot start a tag and `{{.id}}` in a
+URL cannot add a `/`. The `-}}` that ends a `{{define}}` drops the newline
+after it, so a row starts at its `<li>`. Each define is checked as a whole template is, so it
+must end where it began: a row cannot leave an attribute open for what
+follows it. The panel is the form and the list together, because the
+server responds to an `add` with the whole panel: the new row appears, and
+the form is empty again or shows what was wrong with it.
 
-A template can use another as a stage of a slot, by the other's import
-path: the list is the row, once per task, or a line saying there are none.
-
-```teal file=pages/rows.tmpl
-{{type Tasks from pages.data}}
-{{range .tasks}}{{. | pages.row.render}}{{else}}<li>nothing to do</li>{{end}}
-```
-
-The panel is the form and the list together, because the server responds
-to an `add` with the whole panel. The new row appears, and the form is
-empty again or shows what was wrong with it. `{{.rows}}` is
-markup the program already made safe (an [`Html.SafeHtml`]), taken as it is.
-
-```teal file=pages/panel.tmpl
-{{type Panel from pages.data}}{{use htmx}}
+```teal file=pages/tasks.tmpl
+{{type Page from pages.data}}{{use htmx}}
+<h1>tasks</h1>
+{{.panel | panel}}
+{{define panel Panel -}}
 <section id="panel">
   <form hx-post="/tasks" hx-target="#panel" hx-swap="outerHTML">
     <input name="title" value="{{.title}}" placeholder="what needs doing?" autofocus>
     <button>add</button>
     {{if .error}}<p class="error">{{.error}}</p>{{end}}
   </form>
-  <ul id="tasks">{{.rows}}</ul>
+  <ul id="tasks">{{range .tasks}}{{. | row}}{{else}}<li>nothing to do</li>{{end}}</ul>
 </section>
+{{end}}
+{{define row Task -}}
+<li id="task-{{.id}}" class="{{if .done}}done{{end}}">
+  <button hx-post="/tasks/{{.id}}/toggle" hx-target="#task-{{.id}}" hx-swap="outerHTML">{{if .done}}undo{{else}}done{{end}}</button>
+  <span class="title">{{.title}}</span>
+  <button hx-delete="/tasks/{{.id}}" hx-target="#task-{{.id}}" hx-swap="outerHTML">delete</button>
+</li>
+{{end}}
 ```
 
-```teal file=pages/index.tmpl
-{{type Page from pages.data}}
-<h1>tasks</h1>
-{{.panel}}
-```
+Another file calls a define by its import path:
+`{{.x | pages.tasks.panel}}`.
 
 The layout is the page around it. `hx-headers` takes an [`Html.SafeJson`]
 as its whole value (it carries the CSRF token, which [the security
-guide](web-security.md) explains); the head arrives ready made, for a
-reason a later section shows.
+guide](web-security.md) explains). The stylesheet's `href` takes only a
+whole [`Html.SafeResourceUrl`], a URL the program vouches for, since a
+stylesheet or script from a URL that data chose could be anyone's. htmx's
+own tags arrive ready made from [`Htmx.head`], for a reason a later section
+shows.
 
 ```teal file=pages/layout.tmpl
 {{type Layout from pages.data}}{{use htmx}}
@@ -181,7 +179,8 @@ reason a later section shows.
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{.title}}</title>
-{{.head}}
+<link rel="stylesheet" href="{{.css}}">
+{{.htmx}}
 </head>
 <body hx-headers='{{.csrf}}'>
 {{.body}}
@@ -285,22 +284,24 @@ local String = require("cosmic.string")
 local Url = require("cosmic.url")
 local View = require("view")
 local Web = require("cosmic.web")
-local index = require("pages.index")
-local panel = require("pages.panel")
-local row = require("pages.row")
-local rows = require("pages.rows")
+local data = require("pages.data")
+local tasks = require("pages.tasks")
 
 local record Site
 end
 
 --- Routes over `store`.
 function Site.routes(store: Store): {Web.Route}
+  local function panel_of(title: string, problem?: string): data.Panel
+    return { title = title, error = problem, tasks = store.tasks }
+  end
+
   local function shown(title: string, problem?: string): Html.SafeHtml
-    return panel.render({ title = title, error = problem, rows = rows.render({ tasks = store.tasks }) })
+    return tasks.panel(panel_of(title, problem))
   end
 
   local function home(req: Web.Request): Web.Response
-    return View.page(req, "tasks", index.render({ panel = shown("") }))
+    return View.page(req, "tasks", tasks.render({ panel = panel_of("") }))
   end
 
   local function create(req: Web.Request): Web.Response
@@ -324,7 +325,7 @@ function Site.routes(store: Store): {Web.Route}
     local id = named(req)
     local task = if id ~= nil then store:toggle(id) else nil end
     if task == nil then return Web.abort(404, "no such task") end
-    return Web.html(row.render(task))
+    return Web.html(tasks.row(task))
   end
 
   local function remove(req: Web.Request): Web.Response
@@ -420,21 +421,15 @@ local layout = require("pages.layout")
 local record View
 end
 
---- The tags every page's head holds: the stylesheet and htmx.
-local function head(req: Web.Request): Html.SafeHtml
-  local css = assert(req:url_for("static", { path = "app.css" }))
-  local link = '<link rel="stylesheet" href="' .. Html.raw_attr(Html.escape_attr(css)) .. '">'
-  return Html.concat({
-    Html.trust(link),
-    Htmx.head{ nonce = req:get(Headers.NONCE) },
-  })
-end
-
 --- Returns the response to `req`: `content` alone for an htmx request,
 --- else the whole page.
 function View.page(req: Web.Request, title: string, content: Html.SafeHtml): Web.Response
   return Htmx.page(req, content, function(body: Html.SafeHtml): Html.SafeHtml
-    return layout.render({ title = title, head = head(req), csrf = Csrf.hx_headers(req), body = body })
+    -- The stylesheet's URL is the app's own route, which the program vouches for.
+    local path = assert(req:url_for("static", { path = "app.css" }))
+    local css = Html.trust_resource_url(path)
+    return layout.render({ title = title, css = css, htmx = Htmx.head{ nonce = req:get(Headers.NONCE) },
+      csrf = Csrf.hx_headers(req), body = body })
   end)
 end
 
@@ -449,9 +444,11 @@ configuration is closed: no `eval`, no script in swapped HTML, no injected
 style, and same-origin requests only. A 422 is swapped in, so a form's
 errors reach the page. Other 4xx and 5xx responses are not swapped in. The files
 themselves are served under `/_web/` by every [`Web.app`], ahead of the
-routes, at paths that carry the version, so no route may live there. The
-head is Teal because `<link href>` and `<script src>` take no slot in a
-template.
+routes, at paths that carry the version, so no route may live there.
+[`Htmx.head`] is one call, not a template's slots, because it writes the
+`htmx-config` tag and every script tag with an `integrity` the binary
+computed from the bytes it serves: a template takes the lot as one
+`SafeHtml`.
 
 A response tells htmx in headers what to do with it. [`Htmx.apply`] writes
 them, and refuses a redirect to another origin, since htmx navigates by
@@ -836,6 +833,7 @@ Each guide below builds a small project of its own and can be read alone.
 [`Dev.supervise`]: ../../cosmic/web/dev.tl
 [`Html.SafeHtml`]: ../../cosmic/html.tl
 [`Html.SafeJson`]: ../../cosmic/html.tl
+[`Html.SafeResourceUrl`]: ../../cosmic/html.tl
 [`Htmx.apply`]: ../../cosmic/web/htmx.tl
 [`Htmx.head`]: ../../cosmic/web/htmx.tl
 [`Htmx.page`]: ../../cosmic/web/htmx.tl

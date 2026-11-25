@@ -49,7 +49,7 @@ cookie authenticates it, as [the API guide](web-api.md) shows.
 
 The layout carries the token for htmx in `hx-headers`, and the index has a
 plain form with the field and a button that posts with htmx. The head is
-Teal for the reasons [the first guide](web.md) gives.
+[`Htmx.head`]'s, for the reason [the first guide](web.md) gives.
 
 ```teal file=pages/data.tl
 local Html = require("cosmic.html")
