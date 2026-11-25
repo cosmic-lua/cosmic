@@ -1,7 +1,8 @@
 --- `cosmic refresh`'s parts that need no program to refresh: what it
 --- refuses before reading one, and how it reads a bundle, a PIN and
---- PyPI's answer. The refreshes of a program `cosmic build` wrote, and
---- the searches of this program's docs, are in `refresh_tool_test.tl`.
+--- PyPI's response. The refreshes of a program `cosmic build` wrote,
+--- and the searches of this program's docs, are in
+--- `refresh_tool_test.tl`.
 
 local Verb = require("cosmic.cli.refresh")
 local Fs = require("cosmic.fs")

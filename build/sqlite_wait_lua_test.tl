@@ -44,7 +44,7 @@ assert(db:close())
 end
 
 --- A process that sends this one SIGTERM 100 ms after a line on its
---- stdin ([`signal`]), answered once it has started and waits for that
+--- stdin ([`signal`]), returned once it has started and waits for that
 --- line: its start, however slow, comes before the wait it is to end.
 local function signaller(): Child.Handle
   local sender = child(([[
@@ -142,7 +142,7 @@ local function test_rebuild_sqlite_wait_releases_the_flock_after_cancellation(tm
   signal(sender)
   -- Long past the signal, which the ready handshake leaves only its
   -- 100 ms and a wake-up from, and within CI's 10 s per-test deadline:
-  -- a wait the signal did not end answers "busy".
+  -- a wait the signal did not end returns "busy".
   local taken, reason = rebuild_lock.take(tmp, Clock.seconds(6))
   local caught = guard:take()
   local _, _ = guard:release()

@@ -1,4 +1,4 @@
---- cosmic.shell's calls do as their commands do, and answer a failure, never raise, where they fail.
+--- cosmic.shell's calls do as their commands do, and return nil and a failure, never raise, where they fail.
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Shell = require("cosmic.shell")

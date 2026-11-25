@@ -592,7 +592,7 @@ static int verified (void *context, mbedtls_x509_crt *crt, int depth,
   return 0;
 }
 
-/* What a call that did not finish answers in its third value. */
+/* What a call that did not finish returns in its third value. */
 enum { stop_failed = 0, stop_read = 1, stop_write = 2, stop_ended = 3 };
 
 /* `first` (nil or false), why, and what stopped the call, of the

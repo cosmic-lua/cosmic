@@ -459,7 +459,7 @@ static int html_url_part (lua_State *L) {
 
 /* `url_query`: `name=value` pairs joined by `&`, in order, each name and
  * value escaped as a part but for the dot rule, which is about path
- * segments. A pair that is not two strings answers `nil` and why. */
+ * segments. For a pair that is not two strings it returns `nil` and why. */
 static int html_url_query (lua_State *L) {
   lua_Unsigned count = check_sequence(L, 1, "pairs");
   for (lua_Unsigned i = 1; i <= count; i++) {

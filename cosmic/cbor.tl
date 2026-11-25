@@ -95,7 +95,7 @@ local record Cbor
     max_depth?: integer
   end
 
-  --- What [`Cbor.decode_first`] answers.
+  --- What [`Cbor.decode_first`] returns.
   record Decoded
     --- The item.
     item: Item

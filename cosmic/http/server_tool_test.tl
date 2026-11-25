@@ -31,7 +31,7 @@ end
 Test.policy{ profiles = { "cosmic" }, loopback = { "127.0.0.1" } }
 
 --- cosmic.http's client and server speak the same HTTP/1.1: a GET, a
---- PUT with a body, a HEAD and a DELETE over TCP, each answered as sent.
+--- PUT with a body, a HEAD and a DELETE over TCP, each handled as sent.
 local function test_the_client_and_the_server_agree(tmp: string)
   local script = tmp .. "/client.tl"
   assert(Fs.write(script, [[

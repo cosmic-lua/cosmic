@@ -2,7 +2,7 @@
 ---
 --- [`cosmic.removed`] lists the standard globals and `package` fields cosmic withholds. The checker's error for each is the
 --- ordinary one (a name that nothing declares, a field the record lacks), whose fix is generic and would send the program to
---- declare what cosmic withholds on purpose. [`RemovedFix.fix`] reads the program around the error and answers the
+--- declare what cosmic withholds on purpose. [`RemovedFix.fix`] reads the program around the error and returns the
 --- catalog's words in its place, the same words [`core/surface.c`] raises with when a running program reaches the name:
 ---
 --- - an undeclared `os` (or `io`, `debug`, `dofile`, `loadfile`), with the field read through it when there is one:

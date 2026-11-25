@@ -11,7 +11,7 @@ local Test = require("cosmic.test")
 Test.policy{ requires = { "checked" } }
 
 --- An entry whose type the filesystem leaves unknown is asked with an
---- lstat, which answers a link as one too: the checked core's fault
+--- lstat, which reports a link as one too: the checked core's fault
 --- point makes each entry in turn unknown.
 local function test_readdir_names_an_entry_of_unknown_type_as_lstat_does(tmp: string)
   local d = tmp .. "/d"
@@ -36,7 +36,7 @@ local function test_readdir_names_an_entry_of_unknown_type_as_lstat_does(tmp: st
 end
 
 --- The core's own lookup of its path refuses a buffer the path does not
---- fit in, NUL included, rather than answering it cut short. Only the
+--- fit in, NUL included, rather than returning it cut short. Only the
 --- checked core can hand it a buffer that small.
 local function test_executable_path_refuses_a_room_it_does_not_fit()
   local path = assert(testing.executable_path(4096))

@@ -19,7 +19,7 @@
 --- 16KB and its last 48KB with a line between them of how many bytes were cut, `cut` true then, and `head_bytes` and
 --- `tail_bytes`, the length of each part; and `bytes`, how much was written. Only its start and its end are held, so a
 --- snippet that prints without end fills no file. Before its answer, a snippet may call the
---- agent ([`cosmic.agent.host`]): a line `{"id":1,"call":"sql","args":{...}}`, which [`Worker.Options.serve`] answers
+--- agent ([`cosmic.agent.host`]): a line `{"id":1,"call":"history","args":{...}}`, which [`Worker.Options.serve`] answers
 --- in the agent and the reply goes back on the worker's input, `{"reply":...}` or `{"failed":"..."}`. A snippet sets no global, which the checker
 --- refuses; what it keeps for the next it keeps with [`Host.store`], or writes to a file. Its standard input is /dev/null.
 ---
@@ -147,13 +147,13 @@ local function started(set: Worker.Set, opts: Worker.Options): (Stream.Lines) | 
   local policy: Sandbox.Policy? = nil
   local given = opts.policy
   if given ~= nil then
-    -- TODO: copy `merged` whole, changing its promises alone, once a record can be copied with a field changed: a field
+    -- TODO: copy `merged` whole, changing its calls alone, once a record can be copied with a field changed: a field
     -- Sandbox.Policy gains is left out of this copy, and so given to the worker as nothing.
     local merged, why = Sandbox.union(given, { profiles = { "cosmic" } })
     if merged == nil then return nil, Failure.new("worker: " .. why) end
     local promises: mut {Sandbox.Promise} = {}
     local runs = opts.commands ~= false
-    for _, promise in ipairs(merged.promises or {}) do
+    for _, promise in ipairs(Sandbox.calls(merged)) do
       if promise ~= "nest" and (runs or promise ~= "fork") then
         promises[#promises + 1] = promise
       end
@@ -170,7 +170,7 @@ local function started(set: Worker.Set, opts: Worker.Options): (Stream.Lines) | 
     -- process there either, though it could still become another program.
     -- TODO: hold an x grant on macOS as map-only (Seatbelt's file-map-executable alone) once a grant can say so.
     local strip = not runs and not Sandbox.on_macos()
-    for _, grant in ipairs(merged.grants or {}) do
+    for _, grant in ipairs(Sandbox.paths(merged)) do
       -- With no commands, no grant runs a file. The grant of this program is left to the "cosmic" profile, named
       -- below, so it is the start's alone: the core holds its policy again at boot without it, and with no grant
       -- left with `x` the exec filter holds too, so the worker cannot become another program, nor run itself again.
@@ -185,8 +185,9 @@ local function started(set: Worker.Set, opts: Worker.Options): (Stream.Lines) | 
         grants[#grants + 1] = { path = grant.path, letters = letters, from = grant.from }
       end
     end
+    for _, promise in ipairs(promises) do grants[#grants + 1] = { calls = promise } end
     policy = { grants = grants, profiles = if strip then { "cosmic" } else nil end, isolate = merged.isolate,
-      promises = promises, connect = merged.connect,
+      connect = merged.connect,
       loopback = merged.loopback, env = merged.env, set_env = merged.set_env, set_env_digests = merged.set_env_digests,
       tmp = merged.tmp, limits = merged.limits, user = merged.user, group = merged.group, database = merged.database }
   end

@@ -1,6 +1,6 @@
 --- Tests of [`build.ceilings_base`]: the markers of the tree are held to those of the files at the merge base, from the base CI
 --- names or that git finds, and a run that cannot name one fails in CI and is skipped (saying why) only where none can exist.
---- The git is a stand-in that answers each call from a table.
+--- The git is a stand-in function that returns each call's result from a table.
 local CeilingsBase = require("build.ceilings_base")
 local Fs = require("cosmic.fs")
 local Markers = require("build.markers")
@@ -15,7 +15,7 @@ local record Asked
   calls: mut {string}
 end
 
---- What the stand-in git answers: the exit status of each call (joined with spaces) and what it printed. A call it lacks
+--- What the stand-in git returns: the exit status of each call (joined with spaces) and what it printed. A call it lacks
 --- fails with status 128.
 local record Answers
   status: mut {string: integer}

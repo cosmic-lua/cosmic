@@ -329,6 +329,29 @@ local KIND_CHOICE <const> = "^%${{ fromJSON%(github%.event_name == 'pull_request
   "github%.event_name == 'merge_group' && '(%[[^']-%])' || github%.event_name == 'push' && '(%[[^']-%])' || " ..
   "'(%[[^']-%])'%) }}$"
 
+--- What every run but a pull request's runs: the merge queue, main's
+--- push, the scheduled and a manual run.
+local PR_SKIPS <const> = "github.event_name != 'pull_request'"
+--- How a job that restores a cache starts: in the merge queue, only where
+--- the merge-queue ref's check (`queue-ref`) passed.
+local QUEUE_REF <const> = "!cancelled() && (github.event_name != 'merge_group' || needs.queue-ref.result == 'success')"
+--- The parts of a leg ([`expand`]'s `part`) a step runs in: a whole leg
+--- (`all`) runs every part, and the queue runs a leg as its `suite` and
+--- its `product` in two jobs at once, beside linux-x86_64's `format`.
+local SUITE_PART <const> = "(matrix.part == 'all' || matrix.part == 'suite')"
+local PRODUCT_PART <const> = "(matrix.part == 'all' || matrix.part == 'product' || matrix.part == 'portable')"
+--- The steps every part that makes or checks the product runs: assemble, and the regressions (not `portable`'s).
+local ASSEMBLE_PART <const> = "(matrix.part == 'all' || matrix.part == 'product' || matrix.part == 'portable' || " ..
+  "matrix.part == 'regressions')"
+local REGRESSIONS_PART <const> = "(matrix.part == 'all' || matrix.part == 'product' || matrix.part == 'regressions')"
+local FORMAT_PART <const> = "(matrix.part == 'all' || matrix.part == 'format')"
+--- A leg's native suite and what follows it on its host, which every
+--- run but a pull request's runs, in the queue in its `suite` job.
+local SUITE_RUNS <const> = PR_SKIPS .. " && " .. SUITE_PART
+--- A leg's assemble, regressions, portable suite and product, which every
+--- run but a pull request's runs, in the queue in its `product` job.
+local PRODUCT_RUNS <const> = PR_SKIPS .. " && " .. PRODUCT_PART
+
 local function strings_of(value: any, what: string): {string}
   local list, err: {string}?, string = Shape.into(value, Shape.list(Shape.string))
   return (assert(list, what .. ": " .. err))
@@ -1132,14 +1155,14 @@ end
 --- boolean.
 local type Value = string | boolean
 
---- What `${{ <text> }}` answers on a run of `event` to `ref`, for a leg
+--- What `${{ <text> }}` gives on a run of `event` to `ref`, for a leg
 --- of `leg`'s values, in as much of GitHub's expression syntax as a
 --- leg's switches use: string literals, `matrix.<key>`,
 --- `github.event_name`, `github.ref`, `needs.reuse.outputs.run` (`reuse`,
 --- empty unless given) and any other name `named` holds, `==`, `!=`, `!`, `&&`, `||` and parentheses. As GitHub's docs ("Operators") say, '' and false are
---- falsy, and `a && b` and `a || b` answer an operand, not a boolean.
+--- falsy, and `a && b` and `a || b` give an operand, not a boolean.
 --- It compares two strings ignoring case, as GitHub does, so a
---- literal cased otherwise than the value it names answers as it would
+--- literal cased otherwise than the value it names compares as it would
 --- there; a comparison of a string with a boolean, which GitHub coerces
 --- to numbers, it refuses.
 local function evaluate(text: string, leg: {string: string}, event: string, ref: string, reuse?: string,
@@ -1225,8 +1248,8 @@ local function evaluate(text: string, leg: {string: string}, event: string, ref:
   return v
 end
 
---- [`evaluate`] answers as GitHub does where `&&` and `||` choose
---- between strings, and where a comparison is grouped.
+--- [`evaluate`] returns what GitHub does where `&&` and `||`
+--- choose between strings, and where a comparison is grouped.
 local function test_an_expression_evaluates_as_github_says()
   local leg = { name = "linux-x86_64" }
   local function e(text: string, event: string): Value
@@ -1349,8 +1372,8 @@ local function test_the_credential_proof_follows_the_native_database_boundary()
     "credential proof wrapper does not compile the transition helper")
   assert(suite < boundary and boundary < compiled and compiled < proved,
     "credential proof setup or dispatch writes across the native database boundary")
-  assert(compile["if"] == "runner.os == 'Linux' && github.event_name != 'merge_group' && github.event_name != 'pull_request'" and proof["if"] == compile["if"],
-    "credential proof must remain required on every Linux leg past the merge queue")
+  assert(compile["if"] == "runner.os == 'Linux' && " .. SUITE_RUNS and proof["if"] == compile["if"],
+    "credential proof must remain required on every Linux leg's suite but a pull request's")
   assert(proof.shell == "leg-shell --root {0}" and proof["continue-on-error"] == nil,
     "credential proof lost its privileged failure gate")
   local runner, ran = step_running(steps, "run-local-proof.sh")
@@ -1471,24 +1494,57 @@ local function test_a_gating_download_is_tried_twice()
   assert(retries > 0, "no retried download found: the test reads nothing")
 end
 
---- The merge queue runs linux-x86_64's leg alone, a light and fast gate; a
---- push to main every leg but macOS, which the daily scheduled run and a
---- manual run add, the runs prerelease.yml publishes from. A leg has the same values whatever the
+--- A pull request runs linux-x86_64's leg alone, a light gate; the merge
+--- queue and a push to main every leg but macOS, which the daily scheduled
+--- run and a manual run add, the runs prerelease.yml publishes from. A leg has the same values whatever the
 --- run, every entry sets the same values, and alpine-x86_64,
 --- linux-x86_64's runner and target in the alpine image, is the only leg in
 --- that image.
 local function test_each_kind_of_run_has_its_legs()
   local pr, queue, push, full = platform_legs("pr"), platform_legs("queue"), platform_legs("push"), platform_legs("full")
   assert(names_of(pr) == "linux-x86_64", "a pull request's legs: " .. names_of(pr))
-  -- The queue runs linux-x86_64's leg as two jobs at once, its native suite in one and the format check in the other.
-  assert(names_of(queue) == "linux-x86_64 linux-x86_64-format", "the queue's legs: " .. names_of(queue))
-  local suite, format = assert(queue["linux-x86_64"]), assert(queue["linux-x86_64-format"])
-  assert(suite["part"] == "suite" and format["part"] == "format" and format["leg"] == "linux-x86_64",
-    "the queue's jobs split the leg otherwise")
+  -- The queue runs a push's legs, each as its suite and its product at once, linux-x86_64's format check beside, and
+  -- macOS's suite, which a push does not run: only the daily run met its failures, and they held up the prerelease.
+  assert(names_of(queue) == "alpine-x86_64 alpine-x86_64-portable alpine-x86_64-regressions linux-aarch64 " ..
+      "linux-aarch64-product linux-x86_64 linux-x86_64-format linux-x86_64-product macos-aarch64",
+    "the queue's legs: " .. names_of(queue))
+  local mac, full_mac = assert(queue["macos-aarch64"]), assert(full["macos-aarch64"])
+  assert(mac["part"] == "suite" and mac["leg"] == "macos-aarch64", "the queue runs macOS otherwise")
   for _, key in ipairs({ "runner", "target", "image" }) do
-    assert(format[key] == suite[key], "the queue's format job runs on another host: " .. key)
+    assert(mac[key] == full_mac[key], "the queue runs macOS on another host: " .. key)
   end
-  assert(names_of(push) == "alpine-x86_64 linux-aarch64 linux-x86_64", "a push's legs: " .. names_of(push))
+  -- alpine-x86_64's product, the longest, is two jobs: its portable suite and its regressions. macOS's suite, of a
+  -- push too, is pinned above.
+  for name, leg in pairs(push) do
+    if name == "macos-aarch64" then continue end
+    local parts: {string} = if name == "alpine-x86_64" then { "suite", "portable", "regressions" } else { "suite", "product" } end
+    for _, part in ipairs(parts) do
+      local job = assert(queue[if part == "suite" then name else name .. "-" .. part end], name .. " has no " .. part)
+      assert(job["part"] == part and job["leg"] == name, "the queue's jobs split " .. name .. " otherwise")
+      for _, key in ipairs({ "runner", "target", "image" }) do
+        assert(job[key] == leg[key], "the queue runs " .. name .. " on another host: " .. key)
+      end
+    end
+  end
+  local format = assert(queue["linux-x86_64-format"])
+  assert(format["part"] == "format" and format["leg"] == "linux-x86_64", "the queue's format job")
+  for _, key in ipairs({ "runner", "target", "image" }) do
+    assert(format[key] == assert(push["linux-x86_64"])[key], "the queue's format job runs on another host: " .. key)
+  end
+  -- A push runs three legs whole and macOS's suite, which stands on the queue's verdicts and saves macOS's caches for
+  -- the queue's next runs, which otherwise only the daily run saved (the queue's macOS job booted cold, 7.3 of its
+  -- 18.2 min on 45475769968).
+  assert(names_of(push) == "alpine-x86_64 linux-aarch64 linux-x86_64 macos-aarch64", "a push's legs: " .. names_of(push))
+  local push_mac = assert(push["macos-aarch64"])
+  for _, key in ipairs({ "part", "runner", "target", "image" }) do
+    assert(push_mac[key] == mac[key], "a push runs macOS otherwise than the queue: " .. key)
+  end
+  -- A suite job's zig build outputs are its boot's alone, saved apart (`<vendor>boot-`), so that the daily run, which
+  -- assembles the whole leg, still saves the leg's `<vendor>full-` entry.
+  local zig_save = step_named(job_of(ci_workflow().jobs, "platform").steps, "save zig build outputs")
+  assert(tostring(with_of(zig_save)["key"]):find("matrix.part == 'suite' && format('{0}boot-", 1, true) ~= nil and
+      (zig_save["if"] or ""):find("format('{0}boot-', steps.names.outputs.vendor)", 1, true) ~= nil,
+    "a suite job saves its boot as the leg's whole entry")
   assert(names_of(full) == "alpine-x86_64 linux-aarch64 linux-x86_64 macos-aarch64",
     "a full run's legs: " .. names_of(full))
   local keys <const>: {string} = { "name", "leg", "part", "runner", "target", "image" }
@@ -1499,7 +1555,8 @@ local function test_each_kind_of_run_has_its_legs()
     for _, key in ipairs(keys) do
       assert(leg[key] ~= nil, name .. " has no " .. key)
       for _, other in ipairs({ pr[name] or leg, push[name] or leg }) do
-        assert(other[key] == leg[key], name .. "'s " .. key .. " differs between runs")
+        assert(other[key] == leg[key] or key == "part" and other == push[name] and name == "macos-aarch64",
+          name .. "'s " .. key .. " differs between runs")
       end
     end
     local alpine = assert(leg["image"]):find("^ghcr%.io/cosmic%-lua/cosmic%-ci%-alpine@sha256:") ~= nil
@@ -1515,20 +1572,18 @@ local function test_each_kind_of_run_has_its_legs()
   assert(assert(platform.strategy)["fail-fast"] == false, "a failed leg cancels the others")
 end
 
---- What only main's runs run (main's push, the weekly and a manual run):
---- not the merge queue, nor a pull request.
-local QUEUE_SKIPS <const> = "github.event_name != 'merge_group' && github.event_name != 'pull_request'"
---- What a pull request skips beside.
-local PR_SKIPS <const> = "github.event_name != 'pull_request'"
-
 --- What a pull request runs where a path it changed reaches the launcher
 --- and startup fixtures (driver.tl changed-paths).
-local PR_FIXTURES <const> = "(" .. QUEUE_SKIPS .. ") || (github.event_name == 'pull_request' && " ..
-  "steps.changed.outputs.fixtures != 'skip')"
+local function pr_fixtures(part: string): string
+  return "(" .. PR_SKIPS .. " && " .. part .. ") || (github.event_name == 'pull_request' && " ..
+    "steps.changed.outputs.fixtures != 'skip')"
+end
+local PR_ASSEMBLE <const> = pr_fixtures(ASSEMBLE_PART)
+local PR_FIXTURES <const> = pr_fixtures(REGRESSIONS_PART)
 
 --- The format check's runs: linux-x86_64's, on every run but main's push
 --- and the daily one.
-local FORMAT_RUNS <const> = "matrix.leg == 'linux-x86_64' && matrix.part != 'suite' && github.event_name != 'push' && " ..
+local FORMAT_RUNS <const> = "matrix.leg == 'linux-x86_64' && " .. FORMAT_PART .. " && github.event_name != 'push' && " ..
   "github.event.schedule != '41 3 * * 1-6'"
 
 --- The phases the platform job's steps run on a run that skips the steps
@@ -1547,31 +1602,64 @@ local function phases_unless(steps: {Step}, skips: string): string
   return table.concat(out, " ")
 end
 
---- In the merge queue, the leg boots, runs its native suite and its
---- boundary, checks the bootstrap's scripts, the tree's format and,
---- where the change reaches its tests, the pinned driver, and probes the
---- sandbox: everything past that (assemble,
---- the regressions, the portable suite, the attestation and the product,
---- the credential proofs) is main's, and so are
---- the checked and narrowing jobs, which the queue skips.
-local function test_the_merge_queue_runs_the_native_suite_and_the_format_check_alone()
+--- The merge queue runs what main's push runs, so a commit that would
+--- break a push breaks its queue entry first: every leg's native suite,
+--- assemble, the fixtures, the regressions, the portable suite, the
+--- attestation and the product, the credential proofs, and the checked
+--- and narrowing jobs. Beside, linux-x86_64's format check runs as a job
+--- of its own, which skips all of that.
+local function test_the_merge_queue_runs_what_mains_push_runs()
   local jobs = ci_workflow().jobs
   local steps = job_of(jobs, "platform").steps
-  local in_queue = phases_unless(steps, QUEUE_SKIPS)
-  assert(in_queue == "boot local-suite local-boundary format darwin-suite sandbox", "the queue's leg runs " .. in_queue)
+  for _, step in ipairs(steps) do
+    assert((step["if"] or ""):find("github.event_name != 'merge_group'", 1, true) == nil,
+      tostring(step.name) .. " is skipped in the merge queue")
+  end
   for _, name in ipairs({ "run the product suite from fresh tracked source", "attest the exact executed product bytes",
       "upload the attested product" }) do
-    assert(step_named(steps, name)["if"] == QUEUE_SKIPS, name .. " runs in the merge queue")
+    assert(step_named(steps, name)["if"] == PRODUCT_RUNS, name .. " is skipped in the merge queue, or runs in its suite job")
   end
-  for _, name in ipairs({ "build local portable and checked artifacts", "run runtime, launcher, rebuild, and identity regressions" }) do
-    assert(step_named(steps, name)["if"] == PR_FIXTURES, name .. " runs in the merge queue, or ungated on a pull request")
-  end
+  assert(step_named(steps, "build local portable and checked artifacts")["if"] == PR_ASSEMBLE,
+    "assemble is skipped in the merge queue, or ungated on a pull request")
+  assert(step_named(steps, "run runtime, launcher, rebuild, and identity regressions")["if"] == PR_FIXTURES,
+    "the regressions are skipped in the merge queue, or ungated on a pull request")
   for _, name in ipairs({ "checked", "narrowing" }) do
-    assert(job_of(jobs, name)["if"] == QUEUE_SKIPS, name .. " runs in the merge queue")
+    assert(job_of(jobs, name)["if"] == QUEUE_REF .. " && " .. PR_SKIPS, name .. " is skipped in the merge queue")
+  end
+  -- Each queue job runs its part's phases, as GitHub would choose them: the suite job the native suite and what
+  -- follows it on the host, the product job assemble and what follows it, the format job the format check.
+  local named <const>: {string: Value} = {
+    ["runner.os"] = "Linux", ["github.event.schedule"] = "", ["steps.changed.outputs.fixtures"] = "skip",
+    ["steps.ceilings-base.outputs.sha"] = "base",
+  }
+  local want <const>: {string: string} = {
+    suite = "boot local-suite local-boundary darwin-suite sandbox",
+    product = "boot assemble fixtures portable attest",
+    portable = "boot assemble portable attest",
+    regressions = "boot assemble fixtures",
+    format = "boot format",
+  }
+  for name, leg in pairs(platform_legs("queue")) do
+    local ran: mut {string} = {}
+    for _, step in ipairs(steps) do
+      local phase = (step.run or ""):match("driver%.tl platform ([%w-]+)")
+      local condition = step["if"]
+      -- The portable boundary follows the portable suite wherever it ran (always()).
+      if phase ~= nil and phase ~= "portable-boundary" then
+        local runs: Value = true
+        if condition ~= nil then
+          runs = evaluate("${{ " .. condition .. " }}", leg, "merge_group", "refs/heads/gh-readonly-queue/main", nil, named)
+        end
+        if runs ~= false and runs ~= "" then ran[#ran + 1] = phase end
+      end
+    end
+    local part = assert(leg["part"])
+    local expected = assert(want[part], name .. "'s part " .. part)
+    assert(table.concat(ran, " ") == expected, name .. " runs " .. table.concat(ran, " "))
   end
   local suite = step_named(steps, "run release Cosmic's native suite")
-  -- Skipped on a pull request and in the queue's format job alone.
-  assert(suite["if"] == PR_SKIPS .. " && matrix.part != 'format'",
+  -- Skipped on a pull request and in the queue's format and product jobs.
+  assert(suite["if"] == SUITE_RUNS,
     "the native suite is skipped on some run but a pull request's: " .. tostring(suite["if"]))
   local format = step_named(steps, "check the tree's format")
   assert(format["if"] == FORMAT_RUNS and map_of(format.env)["COSMIC_CI_FORMAT"] == "run" and
@@ -1583,7 +1671,7 @@ end
 --- commit the queue just checked: it repeats neither the format check nor
 --- the pinned driver's, which the daily, weekly and a manual run make on
 --- every leg. The queue checks the pinned driver in a job of its own
---- (`driver`), which boots nothing, beside its two linux-x86_64 jobs, and
+--- (`driver`), which boots nothing, beside its legs' jobs, and
 --- only where what the commit changed reaches what its tests read (ci/ and
 --- .github/), or where the paths changed are not known.
 local function test_mains_push_repeats_nothing_the_queue_checked()
@@ -1596,7 +1684,8 @@ local function test_mains_push_repeats_nothing_the_queue_checked()
       map_of(check.env)["COSMIC_TEST_SANDBOX"] == "0",
     "the legs check the pinned driver on other runs: " .. tostring(check["if"]))
   local driver = job_of(jobs, "driver")
-  assert(driver["if"] == "github.event_name == 'merge_group'" and #needs_of(driver) == 0,
+  assert(driver["if"] == QUEUE_REF .. " && github.event_name == 'merge_group'" and
+      table.concat(needs_of(driver), ",") == "queue-ref",
     "the pinned driver's own job runs on other runs, or waits on another job")
   local own = driver.steps
   -- Its unprivileged builder cannot write the default ~/.cache, and it
@@ -1632,49 +1721,201 @@ local function test_mains_push_repeats_nothing_the_queue_checked()
     assert(s["id"] ~= "reach", "a leg still asks whether the change reaches the driver's tests")
   end
   local islands = step_named(steps, "type-check the bootstrap's scripts on the pinned driver")
-  assert(islands["if"] == "matrix.leg == 'linux-x86_64' && matrix.part != 'suite' && github.event_name != 'push'",
+  assert(islands["if"] == "matrix.leg == 'linux-x86_64' && " .. FORMAT_PART .. " && github.event_name != 'push'",
     "the bootstrap's scripts")
-  -- The queue's suite job runs the native suite and its boundary alone, its format job the rest.
+  -- The queue's suite job runs the native suite and its boundary, its product and format jobs neither.
   for _, name in ipairs({ "run release Cosmic's native suite", "verify the delayed native database boundary" }) do
-    assert(step_named(steps, name)["if"] == "github.event_name != 'pull_request' && matrix.part != 'format'",
-      name .. " runs in the queue's format job")
+    assert(step_named(steps, name)["if"] == SUITE_RUNS, name .. " runs in the queue's format or product job")
   end
 end
 
+--- The terms `condition` ANDs at its top level, outside any parentheses.
+local function conjuncts(condition: string): {string}
+  local terms: mut {string} = {}
+  local depth, start, at = 0, 1, 1
+  while at <= #condition do
+    local c = condition:sub(at, at)
+    if c == "(" then
+      depth = depth + 1
+    elseif c == ")" then
+      depth = depth - 1
+    elseif depth == 0 and condition:sub(at, at + 3) == " && " then
+      terms[#terms + 1] = condition:sub(start, at - 1)
+      start = at + 4
+      at = at + 3
+    elseif depth == 0 and condition:sub(at, at + 3) == " || " then
+      return {}
+    end
+    at = at + 1
+  end
+  terms[#terms + 1] = condition:sub(start)
+  return terms
+end
+
 --- Only main's push and the weekly run save a cache (COSMIC_CI_SAVES):
---- every save holds it, or follows a step that does. Two things are
+--- every save ANDs it at the top of its own condition. Two things are
 --- relayed between runs: main's push of a commit takes the verdicts the
 --- merge queue's run of the same commit reached (cosmic_ci/queue_verdicts.tl),
 --- and the memo of its tree checks (build/check_memo.tl).
---- No other step downloads another run's artifacts, only the platform
---- job reads the runs (`actions: read`), and none holds `actions: write`.
+--- No other step downloads another run's artifacts, only the jobs that
+--- relay verdicts read the runs (`actions: read`), and none holds
+--- `actions: write`.
 local function test_only_main_saves_and_only_the_queue_relays_to_main()
   local ci = ci_workflow()
   assert(map_of(ci.env)["COSMIC_CI_SAVES"] == MAIN_SAVES, "the saves' condition: " .. tostring(map_of(ci.env)["COSMIC_CI_SAVES"]))
   for name, job in pairs(ci.jobs) do
     local actions = map_of(job.permissions)["actions"]
-    assert(actions == nil or (name == "platform" and actions == "read"), name .. " holds actions permission")
-    local gated: mut {string: boolean} = {}
+    assert(actions == nil or ((name == "platform" or name == "checked" or name == "narrowing" or name == "queue-ref" or name == "ci") and actions == "read"), name .. " holds actions permission")
     for _, step in ipairs(job.steps) do
       local condition = step["if"] or ""
-      if condition:find(SAVES, 1, true) ~= nil and step.id ~= nil then
-        gated[assert(step.id)] = true
-      end
       if (step.uses or ""):find("actions/cache/save@", 1, true) ~= nil then
-        local held = condition:find(SAVES, 1, true) ~= nil
-        for id in pairs(gated) do
-          held = held or condition:find("steps." .. id .. ".outputs", 1, true) ~= nil
-        end
+        local held = false
+        for _, term in ipairs(conjuncts(condition)) do held = held or term == SAVES end
         assert(held, name .. "'s " .. tostring(step.name) .. " saves off main: " .. condition)
       end
-      assert(with_of(step)["run-id"] == nil or step.id == "queue-download" or step.id == "queue-checks" or
+      assert(with_of(step)["run-id"] == nil or step.id == "queue-download" or step.id == "tried-download" or step.id == "queue-checks" or
           step.id == "queue-compiles",
         name .. "'s " .. tostring(step.name) .. " takes another run's artifact")
     end
   end
-  -- The verdicts' save holds the saves' condition itself: the queue trims them too, for the relay.
-  local save = step_named(job_of(ci.jobs, "platform").steps, "save test verdicts")
-  assert((save["if"] or ""):find(SAVES, 1, true) ~= nil, "the queue saves its verdicts: " .. tostring(save["if"]))
+  -- Each verdicts' save holds the saves' condition itself: the queue trims them too, for the
+  -- relay and the next try, and a save on a queue ref fails the run (`queue-ref`).
+  for _, name in ipairs({ "platform", "checked", "narrowing" }) do
+    local save = step_named(job_of(ci.jobs, name).steps, "save test verdicts")
+    assert((save["if"] or ""):find(SAVES, 1, true) ~= nil, name .. " saves its verdicts in the queue: " .. tostring(save["if"]))
+  end
+end
+
+--- A merge-queue run takes in what the last failed try of its pull
+--- request reached, before each job's suite: what each release leg, checked
+--- shard and the narrowing suite uploaded under the job's own name, or a
+--- release leg's suite's verdicts for main's push. None of the steps takes
+--- part outside the queue or fails the job.
+local function test_a_queue_try_stands_on_its_pull_requests_last_failed_try()
+  -- Each job that runs a suite in the queue: its suite step, its artifact, what its upload
+  -- of its rows waits on, and the artifact it reads where a try passed in a run that
+  -- failed. A release leg's suite that passed left them for main's push
+  -- ("upload the merge queue's verdicts"); the others upload theirs passing or failing.
+  local release = "${{ matrix.part == 'suite' && format('queue-verdicts-{0}', matrix.leg) || '' }}"
+  for _, leg in ipairs({
+      { "platform", "release-suite", "queue-tried-verdicts-${{ matrix.name }}", "job.status == 'failure' && ", release },
+      { "checked", "checked-suite", "queue-tried-verdicts-${{ matrix.name }}", "", "" },
+      { "narrowing", "checked-narrowing", "queue-tried-verdicts-linux-x86_64-checked-narrowing", "", "" } }) do
+    local job_name, suite, name, waits, passed = leg[1]!, leg[2]!, leg[3]!, leg[4]!, leg[5]!
+    local steps = job_of(ci_workflow().jobs, job_name).steps
+    local find, find_at = step_with_id(steps, "tried-run")
+    local download, download_at = step_with_id(steps, "tried-download")
+    local taken, taken_at = step_named(steps, "take in the last failed try's verdicts")
+    local _, restore_at = step_with_id(steps, "verdicts-restore")
+    local _, suite_at = step_with_id(steps, suite)
+    local trim, trim_at = step_with_id(steps, "verdicts-trim")
+    local upload, upload_at = step_named(steps, if waits == "" then "upload what this try in the merge queue reached"
+      else "upload what this failed try in the merge queue reached" end)
+    assert(restore_at < find_at and find_at < download_at and download_at < taken_at and taken_at < suite_at and
+        trim_at < upload_at, "the tried verdicts are taken in out of order")
+    local env = map_of(find.env)
+    -- On the runner's own shell: a leg's container takes in only some of the step's env.
+    assert(find["if"] == "github.event_name == 'merge_group'" and find["continue-on-error"] == true and find.shell == "sh" and
+        env["ARTIFACT"] == name and env["HEAD_REF"] == "${{ github.event.merge_group.head_ref }}" and
+        env["RUN_ID"] == "${{ github.run_id }}" and env["BASE_SHA"] == "${{ github.event.merge_group.base_sha }}" and
+        env["SHA"] == "${{ github.sha }}" and env["GH_TOKEN"] == "${{ github.token }}" and
+        (env["PASSED_ARTIFACT"] or "") == passed and
+        (find.run or ""):find("driver.tl queue-tried-run", 1, true) ~= nil,
+      "the tried run's lookup")
+    -- By the artifact's id, which the lookup checked, not its name: an
+    -- attempt again uploads another of the same name.
+    assert(download["if"] == "steps.tried-run.outputs.artifact != ''" and download["continue-on-error"] == true and
+        with_of(download)["name"] == nil and with_of(download)["pattern"] == nil and
+        param(download, "artifact-ids") == "${{ steps.tried-run.outputs.artifact }}" and
+        with_of(download)["merge-multiple"] == true and param(download, "run-id") == "${{ steps.tried-run.outputs.run }}",
+      "the tried verdicts' download")
+    -- A failed try in the queue keeps only the rows it used, as a passing one does.
+    assert(trim["if"] == "always() && steps.driver.outcome == 'success' && " ..
+        "(env.COSMIC_CI_SAVES == 'true' || github.event_name == 'merge_group')", job_name .. "'s trim: " .. tostring(trim["if"]))
+    assert((trim.run or ""):find("(job.status == 'success' || github.event_name == 'merge_group') && " ..
+        "steps.names.outputs.since || 'whole'", 1, true) ~= nil, "a failed try uploads the rows it restored")
+    assert(taken["if"] == "steps.tried-download.outcome == 'success'" and taken["continue-on-error"] == true and
+        (taken.run or ""):find("driver.tl verdicts-merge \"" .. param(download, "path") .. "\"", 1, true) ~= nil,
+      "the tried verdicts are taken in otherwise")
+    assert(upload["if"] == "always() && github.event_name == 'merge_group' && " .. waits ..
+        "steps.verdicts-trim.outputs.digest != ''" and upload["continue-on-error"] == true and
+        param(upload, "name") == name and param(upload, "path") == "${{ runner.temp }}/verdicts/*.db" and
+        with_of(upload)["retention-days"] == 1,
+      "the tried verdicts' upload: " .. tostring(upload["if"]))
+    assert(map_of(job_of(ci_workflow().jobs, job_name).permissions)["actions"] == "read", job_name .. " cannot read the runs")
+  end
+  -- The lookup reads a tried run's ref checks by these names
+  -- (QueueVerdicts.REF_JOB, GATE_JOB, the key of a job with no name, and
+  -- RECHECK_STEP); a name changed here turns the lookup off.
+  local jobs = ci_workflow().jobs
+  assert(job_of(jobs, "queue-ref").name == "merge-queue ref" and job_of(jobs, "ci").name == nil,
+    "the tried run's ref job, or the gate, is named otherwise")
+  local _ = step_named(job_of(jobs, "ci").steps, "refuse a cache the merge-queue ref saved, after every job")
+end
+
+--- A merge-queue run whose own ref holds a cache runs no job that
+--- restores one: each waits on `queue-ref`, which restores none and fails
+--- on such a cache, and runs only where it did not fail.
+local function test_a_queue_run_refuses_its_own_refs_caches()
+  local jobs = ci_workflow().jobs
+  local gate = job_of(jobs, "queue-ref")
+  assert(gate["if"] == "github.event_name == 'merge_group'", "the queue ref's check runs otherwise")
+  local checked_at = 0
+  for at, step in ipairs(gate.steps) do
+    assert((step.uses or ""):find("actions/cache", 1, true) == nil and (step.uses or ""):find("cosmic-driver", 1, true) == nil,
+      "the queue ref's check restores a cache: " .. tostring(step.name))
+    if (step.run or ""):find("driver.tl queue-ref-caches", 1, true) ~= nil then
+      checked_at = at
+      assert(step["if"] == nil and step["continue-on-error"] == nil and map_of(step.env)["GH_TOKEN"] == "${{ github.token }}",
+        "the queue ref's check passes a job otherwise")
+    end
+  end
+  assert(checked_at > 0, "the queue ref's caches are never checked")
+  for name, job in pairs(jobs) do
+    local restores = false
+    for _, step in ipairs(job.steps) do
+      local uses = step.uses or ""
+      restores = restores or uses:find("actions/cache", 1, true) ~= nil or uses:find("cosmic-driver", 1, true) ~= nil
+    end
+    -- The gate restores only outside the merge queue (below).
+    if restores and name ~= "ci" then
+      local needs = needs_of(job)
+      local waits = false
+      for _, each in ipairs(needs) do waits = waits or each == "queue-ref" end
+      local condition = job["if"] or ""
+      local rest = condition:sub(#QUEUE_REF + 1)
+      assert(waits and condition:sub(1, #QUEUE_REF) == QUEUE_REF and (rest == "" or rest:sub(1, 4) == " && ") and
+          rest:find("||", 1, true) == nil,
+        name .. " restores a cache without waiting on the queue ref's check")
+    end
+  end
+  -- The gate, which restores none, lists the ref's caches again once every job has restored its own.
+  -- It does so before it reads the jobs' results, so a run that failed is checked too, on a driver no restore wrote.
+  local ci = job_of(jobs, "ci")
+  local recheck, recheck_at = step_named(ci.steps, "refuse a cache the merge-queue ref saved, after every job")
+  local fetch, fetch_at = step_with_id(ci.steps, "driver-fetch")
+  local _, passed_at = step_named(ci.steps, "every job passed")
+  local action, action_at = step_with_id(ci.steps, "driver")
+  assert(recheck["if"] == "github.event_name == 'merge_group'" and recheck["continue-on-error"] == nil and
+      map_of(recheck.env)["GH_TOKEN"] == "${{ github.token }}" and
+      (recheck.run or ""):find("driver.tl queue-ref-caches", 1, true) ~= nil and fetch["if"] == "github.event_name == 'merge_group'" and
+      (fetch.run or ""):find("cosmic-driver.sh", 1, true) ~= nil and fetch_at < recheck_at and recheck_at < passed_at and
+      passed_at < action_at and (action["if"] or ""):find("github.event_name != 'merge_group'", 1, true) ~= nil,
+    "the gate checks the queue ref's caches otherwise")
+  -- In the queue the gate restores nothing: each restore it has runs on other events alone.
+  for _, step in ipairs(ci.steps) do
+    local uses = step.uses or ""
+    if uses:find("actions/cache", 1, true) ~= nil or uses:find("cosmic-driver", 1, true) ~= nil then
+      assert((step["if"] or ""):find("github.event_name != 'merge_group'", 1, true) ~= nil and
+          (step["if"] or ""):find("||", 1, true) == nil, "the gate restores in the merge queue: " .. tostring(step.name))
+    end
+  end
+  local summary = step_named(ci.steps, "summarize provenance operations")
+  assert(summary["if"] == "always() && (steps.driver.outcome == 'success' || steps.driver-fetch.outcome == 'success')",
+    "the gate's summary runs on neither driver: " .. tostring(summary["if"]))
+  -- Both list the ref's caches, which takes actions: read.
+  assert(map_of(gate.permissions)["actions"] == "read" and map_of(ci.permissions)["actions"] == "read",
+    "the queue ref's caches cannot be listed")
 end
 
 local function relay_workflow(): Workflow
@@ -1719,8 +1960,9 @@ local function test_the_format_check_takes_the_queues_memo_through_main()
   local held, held_at = step_with_id(relayed, "queue-checks-held")
   local save, save_at = step_named(relayed, "save the tree checks' memo")
   assert(find_at < download_at and download_at < held_at and held_at < save_at, "the memo is relayed out of order")
-  assert(download["if"] == "steps.queue-run.outputs.run != ''" and download["continue-on-error"] == true and
-      param(download, "name") == "queue-checks-linux-x86_64" and
+  -- linux-x86_64's format job alone seals the memo, so the other legs' relays look for none.
+  assert(download["if"] == "matrix.leg == 'linux-x86_64' && steps.queue-run.outputs.run != ''" and
+      download["continue-on-error"] == true and param(download, "name") == "queue-checks-linux-x86_64" and
       param(download, "path") == "${{ runner.temp }}/cache/cosmic/build" and
       param(download, "run-id") == "${{ steps.queue-run.outputs.run }}", "the memo's download")
   assert(held["if"] == "steps.queue-checks.outcome == 'success'" and held["continue-on-error"] == true and
@@ -1763,7 +2005,7 @@ local function test_mains_push_saves_the_queues_compiles_at_once()
   -- The trim runs in the queue too, so main's own save holds the saves' condition itself. Where it took the queue's
   -- compiles it saves them under the relay's name, which a relay that saved them leaves as it is, and a push main
   -- moved past saves none.
-  assert(late["if"] == "always() && " .. SAVES .. " && steps.main-newest.outputs.newest != 'false' && " ..
+  assert(late["if"] == "always() && " .. SAVES .. " && (matrix.leg == 'macos-aarch64' || steps.main-newest.outputs.newest != 'false') && " ..
       "steps.release-suite.outcome == 'success' && steps.compiles-trim.outputs.digest != '' && " ..
       "steps.compiles-restore.outputs.cache-matched-key != format('compiles-{0}-{1}', matrix.leg, steps.compiles-trim.outputs.digest)",
     "main's own save of the compiles: " .. tostring(late["if"]))
@@ -1778,7 +2020,7 @@ local function test_mains_push_saves_the_queues_compiles_at_once()
       newest["if"] == "always() && steps.queue-run.outcome != 'skipped' && steps.driver.outcome == 'success'" and
       newest["continue-on-error"] == true and map_of(newest.env)["SHA"] == "${{ github.sha }}" and
       (newest.run or ""):find("driver.tl main-newest", 1, true) ~= nil, "a push asks otherwise whether main moved")
-  assert((step_named(steps, "save test verdicts")["if"] or ""):find("steps.main-newest.outputs.newest != 'false'", 1, true) ~= nil,
+  assert((step_named(steps, "save test verdicts")["if"] or ""):find("(matrix.leg == 'macos-aarch64' || steps.main-newest.outputs.newest != 'false')", 1, true) ~= nil,
     "a push main moved past saves its verdicts")
   local relayed = job_of(relay_workflow().jobs, "relay").steps
   local _, relay_find_at = step_with_id(relayed, "queue-run")
@@ -1786,10 +2028,10 @@ local function test_mains_push_saves_the_queues_compiles_at_once()
   local save, save_at = step_named(relayed, "save the merge queue's compiles and parses")
   assert(relay_find_at < fetched_at and fetched_at < save_at, "the compiles are relayed out of order")
   assert(fetched["if"] == "steps.queue-run.outputs.run != ''" and fetched["continue-on-error"] == true and
-      param(fetched, "name") == "queue-compiles-linux-x86_64" and param(fetched, "path") == dir and
+      param(fetched, "name") == "queue-compiles-${{ matrix.leg }}" and param(fetched, "path") == dir and
       param(fetched, "run-id") == "${{ steps.queue-run.outputs.run }}", "the relay's download of the compiles")
   assert(save["if"] == "steps.queue-compiles.outcome == 'success'" and save["continue-on-error"] == true and
-      param(save, "path") == dir and param(save, "key") == "compiles-linux-x86_64-queue-${{ github.sha }}",
+      param(save, "path") == dir and param(save, "key") == "compiles-${{ matrix.leg }}-queue-${{ github.sha }}",
     "the relay's save of the compiles")
 end
 
@@ -1810,12 +2052,32 @@ local function test_the_relay_saves_the_queues_verdicts_under_the_queues_name()
   assert(concurrency["group"] == "relay" and concurrency["cancel-in-progress"] == false,
     "the relay is not in a group of its own, or is cancelled")
   local job = job_of(relay.jobs, "relay")
+  -- A job a leg main's push runs, each relaying its own leg's: the queue's macOS suite has no push to relay to.
+  local relayed: mut {string} = {}
+  local queue_legs = platform_legs("queue")
+  for _, entry in ipairs(legs_of(job, "full")) do
+    local leg = assert(entry["leg"])
+    relayed[#relayed + 1] = leg
+    assert(job["runs-on"] == "${{ matrix.runner }}" and entry["runner"] == assert(queue_legs[leg])["runner"],
+      "the relay of " .. leg .. " runs on another runner than its leg's")
+  end
+  table.sort(relayed)
+  local pushed: mut {string} = {}
+  for _, leg in pairs(platform_legs("push")) do
+    -- macOS's push job saves its own: no relay runs on a macOS runner.
+    if leg["part"] == "suite" then continue end
+    pushed[#pushed + 1] = assert(leg["leg"])
+    assert(assert(queue_legs[assert(leg["leg"])])["part"] == "suite", "the queue runs no suite of " .. tostring(leg["leg"]))
+  end
+  table.sort(pushed)
+  assert(table.concat(relayed, " ") == table.concat(pushed, " "),
+    "the relay's legs " .. table.concat(relayed, " ") .. " are not a push's " .. table.concat(pushed, " "))
   assert(map_of(job.permissions)["actions"] == "read" and map_of(job.permissions)["contents"] == "read",
     "the relay's permissions")
   local steps = job.steps
   local find = step_with_id(steps, "queue-run")
   assert(map_of(find.env)["SHA"] == "${{ github.sha }}" and
-      map_of(find.env)["ARTIFACT"] == "queue-verdicts-linux-x86_64", "the relay looks for another run")
+      map_of(find.env)["ARTIFACT"] == "queue-verdicts-${{ matrix.leg }}", "the relay looks for another run")
   local _, find_at = step_with_id(steps, "queue-run")
   local download, download_at = step_with_id(steps, "queue-download")
   local key, key_at = step_with_id(steps, "verdicts-key")
@@ -1824,9 +2086,9 @@ local function test_the_relay_saves_the_queues_verdicts_under_the_queues_name()
   local save, save_at = step_named(steps, "save test verdicts")
   assert(find_at < download_at and download_at < key_at and key_at < restore_at and restore_at < merge_at and
       merge_at < save_at, "the verdicts are relayed out of order")
-  assert(param(download, "name") == "queue-verdicts-linux-x86_64" and
+  assert(param(download, "name") == "queue-verdicts-${{ matrix.leg }}" and
       param(download, "run-id") == "${{ steps.queue-run.outputs.run }}", "the relay's download of the verdicts")
-  assert((key.run or ""):find("driver.tl verdicts-key \"${{ runner.temp }}/queue-verdicts\" linux-x86_64", 1, true) ~= nil,
+  assert((key.run or ""):find("driver.tl verdicts-key \"${{ runner.temp }}/queue-verdicts\" ${{ matrix.leg }}", 1, true) ~= nil,
     "the cache's name is read otherwise")
   local named = "${{ steps.verdicts-key.outputs.verdicts }}"
   assert(param(restore, "key") == named and param(restore, "restore-keys") == named .. "\n" and
@@ -1851,7 +2113,7 @@ local function test_the_relay_saves_the_queues_verdicts_under_the_queues_name()
     "the queue uploads its cache's name otherwise")
 end
 
---- The queue's linux-x86_64 leg uploads the verdicts it trimmed where
+--- Each queue leg's suite job uploads the verdicts it trimmed where
 --- its native suite passed, and main's push of the leg finds that run by
 --- its commit, downloads them and merges them in after it restores its
 --- cache and before its suites. The relay never fails the leg.
@@ -1864,7 +2126,7 @@ local function test_mains_push_takes_the_queues_verdicts_before_its_suites()
   local _, suite_at = step_with_id(steps, "release-suite")
   assert(restore_at < find_at and find_at < download_at and download_at < merge_at and merge_at < suite_at,
     "the queue's verdicts are taken in out of order")
-  assert(find["if"] == "matrix.leg == 'linux-x86_64' && github.event_name == 'push' && github.ref == 'refs/heads/main'" and
+  assert(find["if"] == "github.event_name == 'push' && github.ref == 'refs/heads/main'" and
       map_of(find.env)["SHA"] == "${{ github.sha }}" and
       map_of(find.env)["ARTIFACT"] == "queue-verdicts-${{ matrix.leg }}" and
       (find.run or ""):find("driver.tl queue-run", 1, true) ~= nil,
@@ -1887,36 +2149,79 @@ local function test_mains_push_takes_the_queues_verdicts_before_its_suites()
     "the queue uploads its verdicts otherwise: " .. tostring(upload["if"]))
 end
 
+--- The merge queue runs the checked suite in three shares at once, each a job named for its share, which saves no
+--- verdicts; every other run runs it whole, as one job, `linux-x86_64-checked`, whose run checks the C functions,
+--- which a share cannot (build/test.tl). The performance fixture runs in the third share, and once elsewhere.
+--- Each job's uploads are named for it, so the shares' do not collide.
+local function test_the_queue_runs_the_checked_suite_in_three_shares()
+  local checked = job_of(ci_workflow().jobs, "checked")
+  assert(checked.name == "${{ matrix.name }}", "the checked job is not named for its share")
+  local function shares(kind: string): string
+    local out: mut {string} = {}
+    for _, entry in ipairs(legs_of(checked, kind)) do
+      out[#out + 1] = assert(entry["name"]) .. "=" .. assert(entry["shard"]) .. "=" .. assert(entry["performance"])
+    end
+    table.sort(out)
+    return table.concat(out, " ")
+  end
+  assert(shares("queue") == "linux-x86_64-checked-1=1/3=skip linux-x86_64-checked-2=2/3=skip linux-x86_64-checked-3=3/3=run",
+    "the queue's shares: " .. shares("queue"))
+  for _, kind in ipairs({ "push", "full" }) do
+    assert(shares(kind) == "linux-x86_64-checked==run", kind .. " runs the checked suite in shares: " .. shares(kind))
+  end
+  local env = map_of(checked.env)
+  assert(env["COSMIC_CI_CHECKED_SHARD"] == "${{ matrix.shard }}" and env["COSMIC_WORKER"] == "linux-x86_64-checked",
+    "the share does not reach the suite, or a share keys its verdicts apart")
+  local performance = step_named(checked.steps, "check performance fixture histories on the checked core")
+  assert(performance["if"] == "matrix.performance == 'run'", "the performance fixture runs in no share or in several")
+  for _, step in ipairs(checked.steps) do
+    if step.uses ~= nil and step.uses:find("upload-artifact", 1, true) ~= nil then
+      local name = tostring(with_of(step)["name"])
+      assert(name:find("${{ matrix.name }}", 1, true) ~= nil, "two shares upload " .. name)
+    end
+  end
+  local trim = step_with_id(checked.steps, "verdicts-trim")
+  assert((trim["if"] or ""):find("env.COSMIC_CI_SAVES == 'true'", 1, true) ~= nil, "a share saves verdicts")
+end
+
 --- The gate (`ci`, the one check a ruleset requires) needs every job and
 --- fails on any that failed or was cancelled; the checked and narrowing
---- jobs read as passed in the merge queue, which skips them. On every
---- other run it compares the legs' products: a push's three, the
+--- jobs read as passed on a pull request, which skips them. On every
+--- other run it compares the legs' products: the queue's and a push's three, the
 --- scheduled and a manual run's four, which prerelease.yml publishes from
 --- alone.
-local function test_the_gate_needs_every_job_and_compares_four_products()
+local function test_the_gate_needs_every_job_and_compares_the_legs_products()
   local jobs = ci_workflow().jobs
   local gate = job_of(jobs, "ci")
-  assert(table.concat(needs_of(gate), ",") == "platform,checked,narrowing,driver" and gate["if"] == "always()",
+  assert(table.concat(needs_of(gate), ",") == "queue-ref,platform,checked,narrowing,driver" and gate["if"] == "always()",
     "the gate needs " .. table.concat(needs_of(gate), ","))
-  local env = map_of(assert(gate.steps[1]).env)
+  local passed = step_named(gate.steps, "every job passed")
+  local env = map_of(passed.env)
   assert(env["RESULT"] == "${{ needs.platform.result }}" and
-      env["CHECKED"] == "${{ (github.event_name == 'merge_group' || github.event_name == 'pull_request') && 'success' || " ..
-      "needs.checked.result }}" and
-      env["NARROWING"] == "${{ (github.event_name == 'merge_group' || github.event_name == 'pull_request') && 'success' || " ..
-      "needs.narrowing.result }}" and
+      env["CHECKED"] == "${{ github.event_name == 'pull_request' && 'success' || needs.checked.result }}" and
+      env["NARROWING"] == "${{ github.event_name == 'pull_request' && 'success' || needs.narrowing.result }}" and
       env["DRIVER"] == "${{ github.event_name == 'merge_group' && needs.driver.result || 'success' }}" and
-      (assert(gate.steps[1]).run or ""):find("[ \"$DRIVER\" = success ]", 1, true) ~= nil,
+      env["QUEUE_REF"] == "${{ github.event_name == 'merge_group' && needs.queue-ref.result || 'success' }}" and
+      (passed.run or ""):find("[ \"$DRIVER\" = success ]", 1, true) ~= nil and
+      (passed.run or ""):find("[ \"$QUEUE_REF\" = success ]", 1, true) ~= nil,
     "the gate reads other results")
   local compare = step_named(gate.steps, "compare the Cosmic bytes executed on every native host")
-  assert(compare["if"] == QUEUE_SKIPS and
-      map_of(compare.env)["COSMIC_CI_PRODUCTS"] == "${{ github.event_name == 'push' && '3' || '4' }}",
+  assert(compare["if"] == PR_SKIPS and
+      map_of(compare.env)["COSMIC_CI_PRODUCTS"] ==
+      "${{ (github.event_name == 'push' || github.event_name == 'merge_group') && '3' || '4' }}",
     "the join compares other than main's products: " .. tostring(map_of(compare.env)["COSMIC_CI_PRODUCTS"]))
   local function count(legs: {string: {string: string}}): integer
     local n = 0
     for _ in pairs(legs) do n = n + 1 end
     return n
   end
-  assert(count(platform_legs("push")) == 3 and count(platform_legs("full")) == 4, "the runs' legs")
+  assert(count(platform_legs("push")) == 4 and count(platform_legs("full")) == 4, "the runs' legs")
+  -- The queue's three products, one a leg's product job (alpine-x86_64's `portable`).
+  local queued = 0
+  for _, leg in pairs(platform_legs("queue")) do
+    if leg["part"] == "product" or leg["part"] == "portable" then queued = queued + 1 end
+  end
+  assert(queued == 3, "the queue's products")
   -- prerelease.yml publishes four lanes, so only from a run of all four:
   -- the scheduled and a manual run of main, never a push. Its `follow`
   -- job alone reads a push's run, which publishes nothing.
@@ -1968,7 +2273,8 @@ local function test_the_gate_needs_every_job_and_compares_four_products()
     assert(follow_env[name] ~= nil, "prerelease.yml's follow job does not set " .. name .. ", which prerelease-follow needs")
   end
   for name in pairs(jobs) do
-    assert(name == "platform" or name == "checked" or name == "narrowing" or name == "driver" or name == "ci",
+    assert(name == "queue-ref" or name == "platform" or name == "checked" or name == "narrowing" or name == "driver" or
+        name == "ci",
       "ci.yml has a job " .. name)
   end
 end
@@ -1991,14 +2297,16 @@ local function test_a_pull_request_runs_the_light_check_alone()
   local gated: mut {string} = {}
   for _, step in ipairs(steps) do
     local phase = (step.run or ""):match("driver%.tl platform ([%w-]+)")
-    if step["if"] == PR_FIXTURES then gated[#gated + 1] = phase or "?" end
+    if step["if"] == PR_FIXTURES or step["if"] == PR_ASSEMBLE then
+      gated[#gated + 1] = phase or "?"
+    end
   end
   assert(table.concat(gated, " ") == "assemble fixtures", "a pull request gates " .. table.concat(gated, " "))
   local _, at_changed = step_running(steps, "driver.tl changed-paths")
   local _, at_assemble = step_running(steps, "driver.tl platform assemble")
   assert(at_changed < at_assemble, "the fixtures' gate is read before the step that names the paths changed")
   local changed = step_named(steps, "name the paths the commit changed")
-  assert(changed["if"] == "matrix.leg == 'linux-x86_64' && matrix.part != 'suite' && (github.event_name == 'merge_group' || " ..
+  assert(changed["if"] == "matrix.leg == 'linux-x86_64' && " .. FORMAT_PART .. " && (github.event_name == 'merge_group' || " ..
       "github.event_name == 'pull_request') && " ..
       "steps.ceilings-base.outputs.sha != ''" and map_of(changed.env)["BASE"] == "${{ steps.ceilings-base.outputs.sha }}" and
       (changed.run or ""):find("driver.tl changed-paths", 1, true) ~= nil, "the paths changed are named otherwise")
@@ -2018,6 +2326,6 @@ local function test_a_pull_request_runs_the_light_check_alone()
   assert(based < moved and listed < moved, "a step fetches from origin after the tree moved, without the checkout's credentials")
   assert(names_of(platform_legs("pr")) == "linux-x86_64", "a pull request's legs")
   for _, name in ipairs({ "checked", "narrowing" }) do
-    assert(job_of(ci.jobs, name)["if"] == QUEUE_SKIPS, name .. " runs on a pull request")
+    assert(job_of(ci.jobs, name)["if"] == QUEUE_REF .. " && " .. PR_SKIPS, name .. " runs on a pull request")
   end
 end

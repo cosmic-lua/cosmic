@@ -82,7 +82,7 @@ local function test_xz_and_bzip2_decoders_refuse_and_free_on_the_core_heap()
     for after = 0, 100000 do
       why = ""
       -- Once: a walk refuses every allocation after the first too, so the
-      -- message that answers the codec's refusal could not be built.
+      -- message that reports the codec's refusal could not be built.
       testing.fail_allocations(after, true)
       local ok, out = pcall(attempt)
       local refused = testing.allow_allocations()

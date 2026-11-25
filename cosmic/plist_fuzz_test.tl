@@ -1,5 +1,5 @@
 --- Fuzz properties for [`cosmic.plist`], whose decoders take the bytes anyone sends: neither raises, each
---- answers a value or a reason and never both, and what one reads is written in both forms and read again as
+--- returns a value or a reason and never both, and what one reads is written in both forms and read again as
 --- the same bytes. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
 local Fuzz = require("build.fuzz")
@@ -145,7 +145,7 @@ end
 --- Checks what holds of any value a decoder read: it is written in the binary form, which reads and is
 --- written again as the same bytes. In the XML form it is written, or refused with a reason, as a control
 --- character or a date past the years XML holds is; what is written reads and is written again as the same
---- text. Answers that text, or "" where XML refused the value.
+--- text. Returns whether all of that holds, why not, and the XML text ("" where XML refused the value).
 local function written_both_ways(value: Plist.Value): boolean, string, string
   local binary, binary_why = Plist.encode(value)
   if binary == nil then

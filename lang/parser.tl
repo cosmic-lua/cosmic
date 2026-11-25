@@ -40,9 +40,11 @@ local record Parser
   --- What an error is, so that a reader does not parse its `msg`. The lexer's
   --- codes ([`Lexer.Code`]) come first, then the parser's.
   enum Code
-    "label_or_goto" "semicolon" "long_comment" "unterminated_long_comment"
+    "label_or_goto" "long_comment" "unterminated_long_comment"
     "digit_separator" "hex_float" "malformed_number" "unterminated_string"
     "unterminated_long_string" "bad_escape" "stray_byte"
+    -- a `;` between the items of a table, which `,` separates
+    "semicolon"
     -- a reserved word where a name stands
     "reserved_word"
     -- `T | nil`, which is `T?`
@@ -106,6 +108,8 @@ local record Parser
     "computed_require"
     -- `require` read as a value: aliased, parenthesised or passed anywhere but as the first argument of `pcall`
     "require_value"
+    -- `local schema Name = <exp>` whose expression is no constant text
+    "schema_not_constant"
   end
 
   --- A syntax error, or the lexer's error carried over. `y`, `x`, `offset`
@@ -153,7 +157,6 @@ end
 
 local LEXER_CODES <const>: {string: Parser.Code} = {
   label_or_goto = "label_or_goto",
-  semicolon = "semicolon",
   long_comment = "long_comment",
   unterminated_long_comment = "unterminated_long_comment",
   digit_separator = "digit_separator",
@@ -236,6 +239,9 @@ local record State
   mut require_nodes: mut {Ast.Node}
   --- Each token that reads the name `require`, by its index, and whether a `require(...)` or `pcall(require, ...)` took it.
   mut require_names: mut {integer: boolean}
+  --- The text of each `<const>` local given constant text, by name, of the block at each depth that the parse is
+  --- in, as far as it has come: what a `local schema Name = <exp>` of that block reads ([`constant_text`]).
+  mut consts: mut {integer: mut {string: string}}
 end
 
 local NO_TOKENS <const>: Lexer.Tokens = Lexer.lex("", "").tokens
@@ -244,7 +250,7 @@ local S: State = {
   tokens = NO_TOKENS, kinds = NO_TOKENS.kind, texts = NO_TOKENS.text, ys = NO_TOKENS.y,
   yends = NO_TOKENS.yend, last = 1, pos = 1, text = "", kind = "$EOF$", errors = {}, name = "",
   decl = false, half = 0, reported = {}, beside = nil, beside_work = 0, lent_if = 0, lent_end = 0, muted = false, nesting = 0, arms = 0, tables = 0, arm_from = 1, typed_arm = false, arm_same = 0, scan_at = 1, scan_depth = 0, depth = 0, loops = {}, loop_base = 0, requires = {}, -- checked: nil_not_allowed
-  require_nodes = {}, require_names = {},
+  require_nodes = {}, require_names = {}, consts = {},
 }
 
 local ADDED <const>: mut {string: boolean} = {}
@@ -1337,6 +1343,10 @@ local function parse_table(): Ast.Exp
     end
     if S.text == "," then
       advance()
+    elseif S.kind == ";" then
+      report("semicolon", S.pos, "`;` separates the items of a table here",
+        "write `,`: the items of a table are separated by `,`, and a `;` only ends a statement")
+      advance()
     elseif S.text ~= "}" and begins_line(S.pos) and starts_item() then
       report("expected_token", S.pos, "expected `,` or `}` after the item on line " .. (S.yends[S.pos - 1] or S.ys[S.pos - 1]) .. ", found " .. shown(S.pos), -- checked: nil_not_allowed
         "add a `,` at the end of the item before it; the items of a table are separated by `,`")
@@ -1615,6 +1625,13 @@ parse_prefix = function(): Ast.Exp
         kind = "String", id = 0, first = at, last = at, value = assert(S.tokens.value[at]), long = Lexer.long(S.tokens, at),
       }
       e = { kind = "Call", id = 0, first = first, last = S.pos - 1, callee = e, args = { string_arg } }
+    elseif t == "!" and S.kind == "op" and same_line(S.pos) then
+      -- `e!` is `assert(e)`, read so by every stage after this one: the value, or a raise with the reason a
+      -- `T | (nil, Failure)` call gave. The `assert` is written nowhere, so its name holds no token: an empty range
+      -- before `e`.
+      advance()
+      local must: Ast.Name = { kind = "Name", id = 0, first = first, last = first - 1, text = "assert" }
+      e = { kind = "Call", id = 0, first = first, last = S.pos - 1, callee = must, args = { e } }
     else
       break
     end
@@ -2177,6 +2194,13 @@ local PLAIN_LOOP <const>: Loop = { repeat_loop = false, depth = 0, continue_at =
 --- level of a `repeat` body after a `continue`: Lua cannot jump into the scope of
 --- one, since the `until` is inside it.
 local function declared(names: {string}, at: integer)
+  -- A name declared again is no longer the constant `local schema` read for it.
+  local consts = S.consts[S.depth]
+  if consts ~= nil then
+    for _, n in ipairs(names) do
+      consts[n] = nil
+    end
+  end
   local top = S.loops[#S.loops]
   if top ~= nil and top.repeat_loop and top.continue_at > 0 and #S.loops > S.loop_base and S.depth == top.depth then
     if top.after_at == 0 then
@@ -2206,6 +2230,25 @@ local function parse_local_binding(what: string): Ast.Binding
   return b
 end
 
+--- The text of `e` where it is constant: a string literal, a `<const>` local of the block being parsed given
+--- constant text, and a `..` or a parenthesis of them. Nil otherwise, and for a local of a block around, which the
+--- parser does not tell apart from a parameter or a loop variable that shadows it.
+local function constant_text(e: Ast.Exp): string?
+  if (e.kind == "String") then
+    return e.value
+  elseif (e.kind == "Paren") then
+    return constant_text(e.inner)
+  elseif (e.kind == "Name") then
+    local consts = S.consts[S.depth]
+    return if consts ~= nil then consts[e.text] else nil end
+  elseif (e.kind == "Binary") and e.op == ".." then
+    local left = constant_text(e.left)
+    local right = if left ~= nil then constant_text(e.right) else nil end
+    return if left ~= nil and right ~= nil then left .. right else nil end
+  end
+  return nil
+end
+
 --- `local schema Name [[DDL]]`: a class of the handles that hold the tables of the DDL, and the
 --- value of `require("cosmic.sqlite").schema` of it. The module is required as any is.
 local function parse_schema(first: integer): Ast.Class
@@ -2213,11 +2256,28 @@ local function parse_schema(first: integer): Ast.Class
   local name = binding("a schema")
   name.doc = doc_of(first)
   declared({ name.name }, first)
-  local ddl = S.tokens.value[S.pos] or ""
-  advance()
+  local ddl = ""
+  local value: Ast.Exp? = nil
+  if S.text == "=" then
+    advance()
+    local at = S.pos
+    local errors = #S.errors
+    local given = parse_expression()
+    value = given
+    local text = constant_text(given)
+    -- An expression the parser refused is reported once, as what it is.
+    if text == nil and #S.errors == errors then
+      report("schema_not_constant", at, "the DDL of the schema `" .. name.name .. "` is no constant text, which the checker " ..
+          "reads where it is written", "write string literals, and `<const>` locals of the same block given them, joined with `..`")
+    end
+    ddl = text or ""
+  else
+    ddl = S.tokens.value[S.pos] or ""
+    advance()
+  end
   local node: Ast.Class = {
     kind = "Class", id = 0, first = first, last = S.pos - 1, scope = "local", name = name, typeparams = {}, supers = {},
-    members = {}, schema = ddl,
+    members = {}, schema = ddl, schema_value = value,
   }
   S.requires[#S.requires + 1] = { module = "cosmic.sqlite", node = 0 }
   S.require_nodes[#S.require_nodes + 1] = node
@@ -2244,13 +2304,19 @@ local function parse_local(): Ast.Stat
     end
     local fn = parse_fn(ffirst, "function `" .. name.name .. "`")
     return { kind = "LocalFunction", id = 0, first = first, last = S.pos - 1, name = name, typeparams = typeparams, fn = fn }
-  elseif S.text == "schema" and scope == "local" and peek_kind(1) == "identifier" and peek_kind(2) == "string" then
+  elseif S.text == "schema" and scope == "local" and peek_kind(1) == "identifier" and
+      (peek_kind(2) == "string" or peek_text(2) == "=") and same_line(S.pos + 1) and same_line(S.pos + 2) then
     return parse_schema(first)
   elseif S.kind == "identifier" and DECL_WORD[S.text] == true and peek_kind(1) == "identifier" then
     local decl = parse_typedecl(first, scope)
     -- A class, a record and an import are values in the Lua written for them.
     if (decl.kind == "Class") or (decl.kind == "Record") or (decl.kind == "Import") then
       declared({ decl.name.name }, first)
+    end
+    -- Whatever it declares, the name is no constant a `local schema` reads: an enum of integers is a table too.
+    local consts = S.consts[S.depth]
+    if consts ~= nil then
+      consts[decl.name.name] = nil
     end
     return decl
   end
@@ -2287,6 +2353,17 @@ local function parse_local(): Ast.Stat
     names[i] = b.name
   end
   declared(names, first)
+  local consts = S.consts[S.depth]
+  if consts ~= nil then
+    -- A local that a `local schema` of its block may read: one `<const>` given constant text.
+    local only, given = bindings[1], values[1]
+    if #bindings == 1 and #values == 1 and only ~= nil and only.attr == "const" and given ~= nil then
+      local text = constant_text(given)
+      if text ~= nil then
+        consts[only.name] = text
+      end
+    end
+  end
   return { kind = "Local", id = 0, first = first, last = S.pos - 1, scope = scope, bindings = bindings, types = types, values = values }
 end
 
@@ -2649,7 +2726,8 @@ local function parse_return(): Ast.Stat
   local first = S.pos
   advance()
   local values: {Ast.Exp} = {}
-  if TERMINATOR[S.text] ~= true and S.text ~= "|" then
+  -- `return;` returns nothing, as in Lua: the `;` ends the statement.
+  if TERMINATOR[S.text] ~= true and S.text ~= "|" and S.kind ~= ";" then
     values = parse_explist()
   end
   return { kind = "Return", id = 0, first = first, last = S.pos - 1, values = values }
@@ -2864,8 +2942,13 @@ parse_block = function(mode: integer): Ast.Block
   end
   S.nesting = S.nesting + 1
   S.depth = S.depth + 1
+  S.consts[S.depth] = {}
   local returned = 0
   while true do
+    -- A statement may end in a `;`, as in Lua: it is no statement, and `cosmic fix` deletes it.
+    while S.kind == ";" do
+      advance()
+    end
     if S.muted and S.depth == 1 then
       -- What is left of the construct that was too deep is skipped, and the
       -- statements after it are reported again.
@@ -2937,6 +3020,7 @@ function Parser.parse(lexed: Lexer.Lexed, name: string, dialect: Ast.Dialect): P
   S.requires = {}
   S.require_nodes = {}
   S.require_names = {}
+  S.consts = {}
   local body = parse_block(2)
   for index, taken in pairs(S.require_names) do
     if not taken then
@@ -2996,9 +3080,9 @@ function Parser.parse(lexed: Lexer.Lexed, name: string, dialect: Ast.Dialect): P
 end
 
 Parser.codes = {
-  "label_or_goto", "semicolon", "long_comment", "unterminated_long_comment", "digit_separator",
+  "label_or_goto", "long_comment", "unterminated_long_comment", "digit_separator",
   "hex_float", "malformed_number", "unterminated_string", "unterminated_long_string", "bad_escape",
-  "stray_byte", "reserved_word", "nil_union", "method_in_record", "continue_outside_loop",
+  "stray_byte", "semicolon", "reserved_word", "nil_union", "method_in_record", "continue_outside_loop",
   "break_outside_loop", "continue_skips_local", "unclosed", "expected_token", "expected_name",
   "expected_expression", "expected_type", "unexpected_token", "not_a_statement", "bad_target",
   "statement_after_return", "chained_optional", "chained_is", "is_union", "bare_function",
@@ -3008,7 +3092,7 @@ Parser.codes = {
   "generic_function_literal", "bad_attribute", "type_argument", "inline_record", "if_needs_else", "match_needs_call", "method_needs_self",
   "method_path", "close_repeated", "trailing_comma", "arm_on_same_line", "unreachable_arm", "duplicate_binding", "reserved_method",
   "suffix_needs_parens", "nested_in_interface",
-  "old_type_declaration", "narrowing_return", "too_deep", "computed_require", "require_value",
+  "old_type_declaration", "narrowing_return", "too_deep", "computed_require", "require_value", "schema_not_constant",
 }
 
 return Parser

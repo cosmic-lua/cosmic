@@ -164,7 +164,7 @@ function Example.limit()
 end
 
 --- A header read whole, or found short: [`read_up_to`] gathers what a
---- Reader gives in pieces, and answers "" at a clean end of the stream.
+--- Reader gives in pieces, and returns "" at a clean end of the stream.
 function Example.read_up_to()
   local block, why = Stream.read_up_to(Stream.from_string("0123456789"), 4)
   print(block)

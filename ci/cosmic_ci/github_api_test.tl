@@ -17,7 +17,7 @@ local record Flag
   mut value: boolean
 end
 
---- What a download answers, with the fields it leaves out said so.
+--- What a download returns, with the fields it leaves out said so.
 local function download_result(kind: Http.DownloadKind, reason: string,
                                status: integer?): Http.DownloadResult
   return { kind = kind, reason = reason, status = status, algorithm = nil,
@@ -44,7 +44,7 @@ local token <const> = "tok-123"
 local reply <const> = TestSupport.reply
 
 --- The live client over a plain-HTTP API (a script cannot finish a TLS
---- handshake), its calls answered by `script` in order; `sent` collects
+--- handshake), `script` replying to its calls in order; `sent` collects
 --- what each `send` wrote.
 local function live(script: {{string}}, env?: {string:string},
                     download?: function(url: string, path: string, opts?: Http.Options): Http.DownloadResult): GithubApi.Client, {string}
@@ -324,11 +324,11 @@ local release_assets <const> = "http://uploads.test/repos/o/r/releases/5/assets"
 local function test_an_upload_sends_the_bytes_to_the_upload_origin_with_the_token()
   local client, sent = live({ { reply("201 Created", "", '{"id":1,"name":"a b","state":"uploaded"}') } })
   -- Small enough to fit one write to the script's socket on every leg:
-  -- the script answers at once, and curl ends the request once the
-  -- answer is whole, so macOS's small socket buffer would leave the
+  -- the script replies at once, and curl ends the request once the
+  -- response is whole, so macOS's small socket buffer would leave the
   -- rest of a larger body unsent and unrecorded.
   -- TODO: send a body the size of a real asset once core/http.c's
-  -- script holds its reply until the request it answers is whole.
+  -- script holds its reply until the request it replies to is whole.
   local bytes = "\0\1binary\255" .. string.rep("x", 2000)
   local ok, why = GithubApi.upload(client, release_assets .. "{?name,label}", "a b", bytes)
   assert(ok, why)
@@ -426,7 +426,7 @@ local function test_an_upload_sets_the_type_it_is_given()
   assert(not assert(sent[1]):find("octet-stream", 1, true), sent[1])
 end
 
---- Asked for as bytes, the API may answer with them, not a redirect.
+--- Asked for as bytes, the API may respond with them, not a redirect.
 local function test_a_download_takes_the_bytes_when_the_api_answers_with_them(tmp: string)
   local client, sent = live({ { reply("200 OK", "Content-Type: application/octet-stream\r\n", "\0asset\255") } })
   local ok, why = GithubApi.download(client, "repos/o/r/releases/assets/5", tmp .. "/a",
@@ -441,7 +441,7 @@ local function test_a_download_takes_the_bytes_when_the_api_answers_with_them(tm
   assert(assert(Fs.status(tmp .. "/b")).exists ~= true)
 end
 
---- A client whose `send` answers each page after `cost_ns` of a clock
+--- A client whose `send` returns each page after `cost_ns` of a clock
 --- the test steps, recording the timeout each request was given.
 local function stepped(pages: integer, cost_ns: integer): GithubApi.Client, {integer}
   local clock: Tally = { value = 0 }

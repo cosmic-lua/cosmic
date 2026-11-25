@@ -1,6 +1,7 @@
 --- The JSON the protocol sends each record of [`cosmic.mcp`] as: a tool as `tools/list` lists it, a tool's result as
---- `tools/call` answers it, and the rest, each a [`Json.Value`] for [`Json.encode`]. A program that prints or keeps
---- what a server answered writes it with these, as `cosmic mcp` does; [`cosmic.mcp.server`] sends the same.
+--- the server sends it for `tools/call`, and the rest, each a [`Json.Value`] for [`Json.encode`]. A program that
+--- prints or keeps what a server sent writes it with these, as `cosmic mcp` does; [`cosmic.mcp.server`] sends the
+--- same.
 ---
 ---     local tools = assert(session:tools())
 ---     print(assert(Json.encode(McpJson.list(tools, McpJson.tool))))
@@ -18,7 +19,7 @@ function McpJson.tool(t: Mcp.Tool): Json.Value
   return wire.tool(t)
 end
 
---- `r` as `tools/call` answers it.
+--- `r` as the server sends it for `tools/call`.
 function McpJson.tool_result(r: Mcp.ToolResult): Json.Value
   return wire.tool_result(r)
 end
@@ -33,7 +34,7 @@ function McpJson.template(t: Mcp.ResourceTemplate): Json.Value
   return wire.template(t)
 end
 
---- `c`, one of what `resources/read` answers.
+--- `c`, one of what the server sends for `resources/read`.
 function McpJson.contents(c: Mcp.ResourceContents): Json.Value
   return wire.contents(c)
 end
@@ -43,12 +44,12 @@ function McpJson.prompt(p: Mcp.Prompt): Json.Value
   return wire.prompt(p)
 end
 
---- `r` as `prompts/get` answers it.
+--- `r` as the server sends it for `prompts/get`.
 function McpJson.prompt_result(r: Mcp.PromptResult): Json.Value
   return wire.prompt_result(r)
 end
 
---- `d` as `server/discover` answers it, less its `_meta` and `resultType`.
+--- `d` as the server sends it for `server/discover`, less its `_meta` and `resultType`.
 function McpJson.discovery(d: Mcp.Discovery): Json.Value
   local caps: mut {string: Json.Value} = {}
   local c = d.capabilities

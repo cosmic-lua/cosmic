@@ -11,7 +11,7 @@
 --- module does not require it. A span the calendar
 --- measures, whole years, months and days and a remainder, is a
 --- [`Duration`]. [`add_calendar`] moves a moment by one, [`between`]
---- answers one, and [`parse_duration`] and [`format_duration`] read and
+--- returns one, and [`parse_duration`] and [`format_duration`] read and
 --- write one as text.
 ---
 --- A zone says what offset from UTC, abbreviation and daylight saving
@@ -81,7 +81,7 @@ local record Time
   end
 
   --- A moment as a calendar names it: UTC's, or a zone's local time, as
-  --- [`civil`] answers it, with the fields [`from_civil`] ignores.
+  --- [`civil`] returns it, with the fields [`from_civil`] ignores.
   record Civil is CivilFields
     --- As [`Time.CivilFields.year`].
     mut year: integer
@@ -221,10 +221,10 @@ local MIN_NS <const> = math.mininteger % NS
 local MAX_S <const> = math.maxinteger // NS
 local MAX_NS <const> = math.maxinteger % NS
 --- A failure's text under the module's name, as a public function's
---- [`Failure`] carries it. Only the public functions' work answers through it: the
---- private readers (the parsers, the TZif reader, the zone cache) answer
---- a bare `why`, so a message that quotes one -- a zone's, the footer's --
---- is not prefixed twice.
+--- [`Failure`] carries it. Only the public functions return their
+--- failures through it: the private readers (the parsers, the TZif
+--- reader, the zone cache) return a bare `why`, so a message that
+--- quotes one -- a zone's, the footer's -- is not prefixed twice.
 local function refuse(why: string): nil, string
   return nil, "time: " .. why
 end
@@ -372,7 +372,7 @@ local function civil_text(c: Time.CivilFields, part: Part): string
 end
 
 --- Where a reader of `text` is, and why it stopped, if it has. The
---- first failure is kept and every read after it answers nil and moves
+--- first failure is kept and every read after it returns nil and moves
 --- nothing, so a run of reads is checked once, by `why`.
 local class Cursor
   mut text: string
@@ -417,7 +417,7 @@ end
 
 --- The integer of the `most` ASCII digits at the cursor, or of at least
 --- `least` and at most `most` of them when `least` is given, naming the
---- field `what` where it fails. Once the cursor has failed it answers 0,
+--- field `what` where it fails. Once the cursor has failed it returns 0,
 --- a value no caller reads: each checks `cur.why` before it uses one.
 local function read_digits(cur: Cursor, most: integer, what: string, least?: integer): integer
   if cur.why ~= nil then return 0 end
@@ -452,7 +452,7 @@ local function expect(cur: Cursor, want: string, what: string)
   cur.at = at + #want
 end
 
---- Moves past `want` and answers true when the text holds it here.
+--- Moves past `want` and returns true when the text holds it here.
 local function accept(cur: Cursor, want: string): boolean
   local at = cur.at
   if cur.why ~= nil or sub(cur.text, at, at + #want - 1) ~= want then return false end
@@ -573,9 +573,9 @@ end
 --- Each zone's rules, kept apart from the record a caller holds.
 local rules_of: mut {Time.Zone:Rules} = setmetatable({}, { __mode = "k" })
 
---- A zone for `rules`, named `name`. Zones are shared -- `zone` answers
+--- A zone for `rules`, named `name`. Zones are shared -- `zone` returns
 --- one per name, to every caller in the process -- so the record is
---- read-only: `name` is answered from the rules, a write raises, and the
+--- read-only: `name` is read from the rules, a write raises, and the
 --- metatable is hidden. `rawset` can still shadow `name` on the record,
 --- but nothing here reads it there: every message and `zone_name`
 --- write the rules' name.
@@ -1129,7 +1129,7 @@ local function carried_set(): {string:boolean}?, string
   return names, ""
 end
 
---- The zone `name` names, as [`Time.zone`] answers for a name that is not
+--- The zone `name` names, as [`Time.zone`] returns for a name that is not
 --- empty.
 local function zone_of(name: string): Time.Zone?, string
   local problem = name_problem(name)
@@ -1138,7 +1138,7 @@ local function zone_of(name: string): Time.Zone?, string
   if cached ~= nil then return cached, "" end
   local refusal = refused.names[name]
   if refusal ~= nil then return nil, refusal end
-  -- Only an answer the database gave is remembered: a query that failed
+  -- Only a result the database gave is remembered: a query that failed
   -- (EMFILE, a locked file) is this call's failure, and asked again.
   local function remember(why: string): string
     if refused.count >= REFUSED_KEPT then
@@ -1173,7 +1173,7 @@ end
 --- `name` is no zone name (absolute, with a `..` part, or with a
 --- character other than letters, digits and `_+-./`) or the binary
 --- carries no such zone. An empty `name` raises. A zone is read once a
---- process and the same [`Zone`] answered from then on, and a name found
+--- process and the same [`Zone`] returned from then on, and a name found
 --- to be no zone is not looked for again.
 function Time.zone(name: string): (Time.Zone) | (nil, Failure)
   if name == "" then error("time: the zone name is empty", 2) end
@@ -1250,7 +1250,7 @@ end
 --- /etc/localtime link names, else the one /etc/timezone names, else UTC.
 --- TODO: say so when the host names a zone this binary does not carry
 --- -- one IANA added since its database was built -- rather than taking
---- UTC in silence: [`local_zone`] answers no reason on this path today;
+--- UTC in silence: [`local_zone`] returns no reason on this path today;
 --- a warning, or a way to ask why, would carry `NEWER_ZONES`.
 local function host_zone(localtime: string, timezone: string): Time.Zone
   local function carried(name: string?): Time.Zone?
@@ -1275,7 +1275,7 @@ local function tz_name(rest: string): string?
   return zoneinfo_name(rest) or linked_name(rest)
 end
 
---- Every zone [`local_zone`] has answered with no options, by `TZ`, and
+--- Every zone [`local_zone`] has returned with no options, by `TZ`, and
 --- the one for `TZ` unset.
 local locals: mut {string:Time.Zone} = {}
 local unset_local: mut {Time.Zone} = {}
@@ -1365,7 +1365,7 @@ end
 --- `opts.tz` stands in for `TZ` (nil reads the environment's, unless
 --- `opts.unset` reads as though it were unset), `opts.localtime` for
 --- /etc/localtime and `opts.timezone` for /etc/timezone. With no options,
---- the answer is read once a process.
+--- the result is read once a process.
 function Time.local_zone(opts?: Time.LocalOptions): (Time.Zone) | (nil, Failure)
   local value, why = local_zone_text(opts)
   if value == nil then return nil, Failure.new(why) end
@@ -1403,7 +1403,7 @@ local function resolve(c: Time.CivilFields, zone: Time.Zone?, how: Time.Disambig
   -- the latest the offset after it.
   local offsets = offsets_near(rules, s)
   local found: mut {integer} = {}
-  -- [`offsets_near`] answers at least the offset at `s - 2 * DAY`.
+  -- [`offsets_near`] returns at least the offset at `s - 2 * DAY`.
   local lowest, highest = Array.at(offsets, 1), Array.at(offsets, 1)
   for _, offset in ipairs(offsets) do
     if kind_at(rules, s - offset).offset == offset then found[#found + 1] = s - offset end
@@ -1451,7 +1451,7 @@ end
 --- February 30, hour 24), or that the moment is outside what an integer
 --- holds. Nothing is normalized: day 32 is refused,
 --- not carried into the next month. For a plain date, [`Time.parse_date`]
---- answers its first moment. A local time a zone skipped or
+--- returns its first moment. A local time a zone skipped or
 --- passed twice is resolved as `opts.disambiguation` says, and refused
 --- by default, naming the
 --- change; passed twice, the moment whose offset is `c.offset` is taken
@@ -1849,7 +1849,7 @@ local function parse_date_text(text: string, zone?: Time.Zone): integer?, string
   local midnight, midnight_why = seconds_of(c)
   if midnight == nil then return refuse(midnight_why) end
   local earliest, earliest_why = from_civil_text(c, zone, { disambiguation = "earlier" })
-  -- from_civil answers under the module's name already.
+  -- from_civil's failures carry the module's name already.
   if earliest == nil then return nil, earliest_why end
   local lo = earliest // NS
   if lo + kind_at(rules, lo).offset == midnight then return earliest, "" end
@@ -1868,14 +1868,14 @@ end
 --- The first moment of the date `YYYY-MM-DD` names, as `2026-09-25`, on
 --- the calendar of `zone`, UTC's by default, as Temporal's `startOfDay`
 --- has it: its midnight -- the earlier, where midnight happens twice --
---- or, where the zone's clocks skipped midnight, the moment they
---- moved, which is the first the day has (Toronto's 1919-03-31 began at
+--- or, where the zone's clocks skipped midnight, the moment they moved,
+--- which is the first the day has (Toronto's 1919-03-31 began at
 --- 00:30-04:00). A day a zone skipped whole begins where the next one
 --- does, so [`format_date`] of it can name the next day (Apia's
---- 2011-12-30 answers 2011-12-31's first moment). Nil and a [`Failure`] for
---- anything else, a day its month does not have, or a date whose first
---- moment is outside the range, as the range's first, 1677-09-21, in
---- UTC. Raises for a `zone` no function here made.
+--- 2011-12-30 parses to 2011-12-31's first moment). Nil and a
+--- [`Failure`] for anything else, a day its month does not have, or a
+--- date whose first moment is outside the range, as the range's first,
+--- 1677-09-21, in UTC. Raises for a `zone` no function here made.
 function Time.parse_date(text: string, zone?: Time.Zone): (integer) | (nil, Failure)
   -- A table no function here made raises on behalf of this caller.
   if zone ~= nil then local _ = rules_for(zone) end
@@ -1956,7 +1956,7 @@ end
 --- need not be the date's: `Mon, 26 Jul 1997 05:00:00 GMT`, a Saturday,
 --- is read as its date says, as recipients commonly do. An RFC 850 year
 --- of 69 through 99 is 1969 through 1999 and one of 00 through 68 is
---- 2000 through 2068, as POSIX's `%y`, so the answer does not hang on
+--- 2000 through 2068, as POSIX's `%y`, so the result does not hang on
 --- the clock as RFC 9110's fifty years ahead would. Nil and a [`Failure`] for
 --- anything else, a leap second, or a moment outside the range.
 function Time.parse_http(text: string): (integer) | (nil, Failure)

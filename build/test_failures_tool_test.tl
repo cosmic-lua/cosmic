@@ -22,8 +22,9 @@ local function test_a_flake_keeps_its_failure_and_a_fix_its_other_key(tmp: strin
   assert(Fs.set_mtime(flag, 1600000000))
   assert(Fs.write(answer, "fail\n"))
   -- Keys hold contents, never times: the flag's mtime changes no key, the
-  -- answer's contents change the key of the module that reads it. Each
-  -- test has a module of its own, as a key is of a module's declared inputs.
+  -- `answer` file's contents change the key of the module that reads it.
+  -- Each test has a module of its own, as a key is of a module's declared
+  -- inputs.
   assert(Fs.write(root .. "/flaky_test.tl", [[
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")

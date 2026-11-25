@@ -8,7 +8,7 @@
 --- - [`Seed.compile`], the compile `cosmic compile` makes ([`build.compile_grammar`]). The bridge's first stage runs
 ---   it over the seed's own files and compares the Lua with what the pinned release wrote, which holds the pin and the
 ---   tree's generator to each other.
---- - [`Seed.program`], a [`build.driver`] build over the modules of the tree on disk, from which the bridge's searcher answers
+--- - [`Seed.program`], a [`build.driver`] build over the modules of the tree on disk, from which the bridge's searcher resolves
 ---   `require` for the build's code up to [`build.boot`].
 ---
 --- THE FILES ARE READ AS WRITTEN. The tree holds the text the new checker reads, so a source is read here exactly as it is written,
@@ -33,7 +33,7 @@ local record Seed
     code: string
   end
 
-  --- The modules of a tree, each answered once.
+  --- The modules of a tree, each returned once.
   record Program
     --- The Lua of the module `name`, nil and "" where the tree has no source for it (a binding of C, a declaration
     --- file), nil and why where it has one the compiler refuses.
@@ -44,7 +44,7 @@ local record Seed
   compile: function(sources: {CompileGrammar.Source}): {CompileGrammar.Compiled}
 
   --- A program over the tree at `root`. `declared` holds the declarations a boot makes in memory (the syscall table's, by
-  --- module name); it is read when a module is asked for, so a declaration made after the program is answered.
+  --- module name); it is read when a module is asked for, so a declaration made after the program is found.
   program: function(root: string, declared: {string: string}): Program
 end
 

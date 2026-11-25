@@ -193,7 +193,7 @@ local function test_a_request_retries_with_its_method()
   assert(got.status == 200 and got.body == "done", tostring(got.status))
 end
 
---- A download whose `cancelled` answers true is not parked by a retry's
+--- A download whose `cancelled` returns true is not parked by a retry's
 --- wait: it fails "interrupted" before the wait, sending no second request
 --- (the 200 would write a file).
 local function test_a_cancelled_download_does_not_wait_or_retry(tmp: string)
@@ -211,7 +211,7 @@ local function test_a_cancelled_download_does_not_wait_or_retry(tmp: string)
   assert(not assert(Fs.status(tmp .. "/got")).exists, "the 200 was read")
 end
 
---- `cancelled` answering true during the wait ends it between slices.
+--- `cancelled` returning true during the wait ends it between slices.
 local function test_a_download_cancelled_during_the_wait_stops_waiting(tmp: string)
   local began = Clock.monotonic_ns()
   local ok, why = Http.download(url, tmp .. "/got", { timeout_ns = Clock.seconds(60),

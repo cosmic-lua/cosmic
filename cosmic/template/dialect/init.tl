@@ -31,9 +31,9 @@ local record Dialect
     prefixes: {types.Prefix}
     --- The name families also read with a `data-` prefix.
     families: {string}
-    --- What `classify` has answered: the rule of each attribute that has one.
+    --- What `classify` has returned: the rule of each attribute that has one.
     known: mut {string: Rule}
-    --- What `classify` has answered of an attribute that has none.
+    --- What `classify` has returned of an attribute that has none.
     plain: mut {string: boolean}
   end
 

@@ -39,8 +39,8 @@ local record Compress
   --- One incremental transform, a chunk at a time: a
   --- [`Stream.Transform`], so [`Stream.transform`],
   --- [`Stream.transform_writer`] and [`Stream.run`] drive it. Every
-  --- method that can fail answers `value, ""` on success and
-  --- `nil, error` on failure; the constructors answer the stream, or
+  --- method that can fail returns `value, ""` on success and
+  --- `nil, error` on failure; the constructors return the stream, or
   --- nil and a [`Failure`].
   ---
   --- `update(chunk, max_bytes?)` feeds `chunk` and returns output,
@@ -72,7 +72,7 @@ local record Compress
   --- codec may have taken input it can no longer account for), or
   --- once closed, `update` and `finish` throw. A stream is closeable:
   --- `local s <close> = assert(Compress.decoder("gzip"))` frees its
-  --- codec at the end of the scope; `rest()` still answers after.
+  --- codec at the end of the scope; `rest()` still works after.
   ---
   --- `done()` turns true once a decoder has seen the end of the
   --- compressed data, and `rest()` returns the input bytes fed after
@@ -108,7 +108,7 @@ local record Compress
   --- the format does not read raises.
   record DecodeOptions
     --- [`Compress.decode`] alone: the most bytes of output; more is a
-    --- failure rather than an answer. Under 0 raises.
+    --- failure rather than a result. Under 0 raises.
     max_bytes?: integer
     --- "xz" alone: the most bytes of decoder memory a stream's headers
     --- may ask for (default 256 MiB; `xz -9` needs 65 MiB); more fails
@@ -221,9 +221,9 @@ end
 ---   decoder needs about the dictionary alone (65 MiB at 9). Lua's
 ---   accounting does not see that memory, so a caller that holds many
 ---   encoders, or uses levels 8 and 9 in a server, holds each
----   `<close>`. An allocation the machine refuses answers a
----   [`Failure`] "compress: out of memory", from here or from `update`
----   or `finish`, which then finishes the stream. It runs on one
+---   `<close>`. When the machine refuses an allocation, this call, or
+---   `update` or `finish`, returns nil and a [`Failure`] "compress: out
+---   of memory", and the stream is then finished. It runs on one
 ---   thread, and [`Compress.decoder`] reads what it writes at the
 ---   default `max_memory` at every level.
 --- - "bz2": one stream, byte for byte what `bzip2 -c -<level>` writes;
@@ -308,32 +308,6 @@ function Compress.decode(format: Compress.Format, data: string, opts?: Compress.
   local value, why = decode_text(format, data, opts)
   if value == nil then return nil, Failure.new(why) end
   return value
-end
-
--- TODO: once ci/cosmic-driver.pin names a release with Compress.decoder,
--- move ci/fixtures and eval/check/grade.tl to Compress.decoder,
--- Compress.encoder, Compress.encode and Compress.decode, and delete these
--- four, which those files call on the pinned release.
-
---- [`Compress.decode`] of `format` with `max_bytes`, for
---- eval/check/grade.tl.
-function Compress.inflate(format: Compress.Format, data: string, max_bytes?: integer): (string) | (nil, Failure)
-  return Compress.decode(format, data, { max_bytes = max_bytes })
-end
-
---- [`Compress.decoder`] of "zstd" with `max_window`, for ci/.
-function Compress.zstd_decoder(max_window?: integer): (Compress.Stream) | (nil, Failure)
-  return Compress.decoder("zstd", { max_window = max_window })
-end
-
---- [`Compress.encoder`] of "zstd" at `level`, for ci/.
-function Compress.zstd_encoder(level?: integer): (Compress.Stream) | (nil, Failure)
-  return Compress.encoder("zstd", { level = level })
-end
-
---- [`Compress.encode`] of "zstd" at `level`, for ci/.
-function Compress.zstd(data: string, level?: integer): (string) | (nil, Failure)
-  return Compress.encode("zstd", data, { level = level })
 end
 
 return Compress

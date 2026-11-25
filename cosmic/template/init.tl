@@ -34,10 +34,10 @@
 ---
 --- A stage is a function by import path, whose module the generated
 --- source requires; composing one template in another is a stage naming
---- its `render`. A stage answers exactly one value, wherever it stands:
---- one declared to answer a fixed number of values above one is a type
+--- its `render`. A stage returns exactly one value, wherever it stands:
+--- one declared to return a fixed number of values above one is a type
 --- error on the template's line, so a function that can fail (`nil,
---- reason`) is wrapped by the caller into a stage that answers a value.
+--- reason`) is wrapped by the caller into a stage that returns a value.
 --- Truthiness is Lua's: only `nil` and `false` are false, not `""` or `0`.
 ---
 --- A value starts from dot, from `$` or from a variable. `range` and `with`
@@ -73,7 +73,7 @@
 --- a slot takes a string, a number or a `SafeAttr`; in a quoted URL
 --- attribute value (`href`, `src`, `action` and the like), a slot that
 --- begins the value takes a string (checked by [`html.href`], which allows
---- a web or mail link or a relative reference and else answers
+--- a web or mail link or a relative reference and else returns
 --- `about:invalid`) or a `SafeUrl`; a slot after literal text is one piece
 --- of the URL (`href="/items/{{.id}}"`, `href="/s?q={{.q}}"`) and takes a
 --- string, a number or a `SafeUrlPart`, escaped by [`html.url_part`] so
@@ -123,8 +123,8 @@
 --- `ws-connect` are URLs, a slot as in `href` (a whole one, or a part after
 --- literal text); but a string given whole must be a same-origin reference
 --- ([`html.local_href`]: no scheme, no `//host`, else `about:invalid`) and
---- only a `SafeUrl` can name another origin, since htmx swaps what the URL
---- answers into the page. `hx-vals`, `hx-headers` and `hx-request` take a
+--- only a `SafeUrl` can name another origin, since htmx swaps the URL's
+--- response into the page. `hx-vals`, `hx-headers` and `hx-request` take a
 --- [`html.SafeJson`] as the whole value (`hx-vals='{{.vals}}'`), entity
 --- escaped for either quote, with nothing before or after the slot: JSON
 --- text cannot begin with the `js:` that makes htmx run it. A selector

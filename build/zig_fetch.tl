@@ -168,7 +168,8 @@ function ZigFetch.limits(connect_ns: integer, low_speed_bytes: integer, low_spee
   -- trusts every root rather than the minimal set a request trusts by
   -- default.
   return { connect_timeout_ns = connect_ns, low_speed_bytes = low_speed_bytes,
-    low_speed_ns = low_speed_ns, timeout_ns = timeout_ns, roots = "mozilla", sha256 = sha256 }
+    low_speed_ns = low_speed_ns, timeout_ns = timeout_ns, roots = "mozilla",
+    digests = if sha256 ~= nil then { ["sha256"] = sha256 } else nil end }
 end
 
 --- Downloads the file whose sha256 is `sha256` to `path` from the first
@@ -286,7 +287,7 @@ local function unpack(work: string, version: string, host: string,
 end
 
 --- Fetches zig `version`'s release for `host` into `install`, a
---- directory under `cache`, answering `install/zig`. `sha256` is the
+--- directory under `cache`, returning `install/zig`. `sha256` is the
 --- host's tarball's, from [`bin/zig.pin`]; nil when the pin names none,
 --- which fails with no download.
 function ZigFetch.install(cache: string, install: string, version: string, host: string,

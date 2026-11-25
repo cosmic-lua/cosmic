@@ -21,7 +21,7 @@
 ---
 --- `before` and `after` are the agent's own policy over each tool call
 --- the model makes, and each call a snippet of run makes of the agent
---- (sql, store, mcp): `before` may block a call, with a reason the model
+--- (history, store, mcp): `before` may block a call, with a reason the model
 --- reads (or the snippet, raised), and `after` may change a result
 --- before it is kept or read
 --- ([`Agent.Before`], [`Agent.After`], [`cosmic.agent.check`]). They are
@@ -54,7 +54,7 @@
 --- and sends the whole conversation still, and the server reads it
 --- from the last compaction block on, so a request after one costs
 --- what the summary and the turns since cost. What the summary leaves
---- out is still in sessions.db, where the sql tool finds it.
+--- out is still in sessions.db, where Host.history in run finds it.
 ---
 --- Each request asks the API (beta headers): to fall back to another
 --- model where one refuses (server-side-fallback-2026-07-01); to say
@@ -65,7 +65,7 @@
 --- Each message, and each tool's whole output, is kept in sessions.db
 --- before it is shown (`cosmic docs cosmic.agent.sessions`). So a run that ends in
 --- the middle of a turn loses nothing it showed, and `cosmic agent resume`
---- (or ask or chat with --continue) takes the turn up where it was:
+--- (or ask or chat, which go on with the newest session) takes the turn up where it was:
 --- each tool call that ended is answered with its kept output, one
 --- that never ended is answered as interrupted, not run again, and the
 --- request the run was in is sent again. A turn is started again at
@@ -244,7 +244,7 @@ local record Agent
   end
 
   --- Who made a [`Agent.Call`]: the model, or a snippet's code, through
-  --- its host: sql, store or mcp, each asked as a call of its own.
+  --- its host: history, store or mcp, each asked as a call of its own.
   enum Caller "model" "code" end
 
   --- The kind of a [`Agent.BlockedEvent`].
@@ -269,7 +269,7 @@ local record Agent
   --- A call, as `before` and `after` see it: a tool call of the model,
   --- or a snippet's call of the agent.
   record Call
-    --- The tool's name, or the snippet's call's: sql, store.get,
+    --- The tool's name, or the snippet's call's: history, store.get,
     --- store.put, mcp.servers, mcp.tools or mcp.call.
     name: string
     --- What it was given, as the tool gets it: read it, and change none of it.
@@ -575,6 +575,17 @@ local function held_policy(s: Agent.Session): Sandbox.Policy?, string
   return policy, ""
 end
 
+--- The paths a call by code of `name` with `input` touches: its tool's, where it is one code may call
+--- ([`Tools.for_code`]) and says; none for a host call of the agent (history, store, mcp). Nil and why where they fail.
+local function code_paths(s: Agent.Session, name: string, input: Tools.Object): {Tools.Touch}?, string
+  local t = Tools.find(s.tools, name)
+  local paths = if t ~= nil and Tools.for_code(t) then t.paths else nil end
+  if paths == nil then return {}, "" end
+  local ran, found = pcall(paths, input, s.cwd)
+  if not ran then return nil, "the tool's paths failed: " .. tostring(found) end
+  return found, ""
+end
+
 --- What `before` of `s` says of `call`: nil to run it, or why not.
 local function blocked(s: Agent.Session, call: Agent.Call): string?
   local before = s.before
@@ -666,8 +677,9 @@ local function record(s: Agent.Session, call: string, tool: string, input: Tools
   if output == nil then return nil, why end
   -- What sql says is kept already, and it says where to find more.
   if result.raw == nil or tool == "sql" then return result.text, "" end
-  local how = if Tools.find(s.tools, "sql") ~= nil then "use sql"
-    elseif Tools.find(s.tools, "run") ~= nil then "use require(\"cosmic.agent.host\").sql in run"
+  local sql, run = Tools.find(s.tools, "sql"), Tools.find(s.tools, "run")
+  local how = if sql ~= nil and Tools.for_model(sql) then "use sql"
+    elseif run ~= nil and Tools.for_model(run) then "read it in run with Host.output(" .. tostring(output) .. ")"
     else "" end
   if how == "" then return result.text, "" end
   local shown = result.text .. "\n\n[The whole output is kept as output " .. tostring(output) .. ": " .. how .. ".]"
@@ -1203,7 +1215,9 @@ local function loop(s: Agent.Session): boolean, string
           tell(s, { kind = "tool", name = called, input = given })
           -- A tool that runs past the turn's time is stopped as the user stops one.
           local asking = function(): boolean return stopped(s) or spent_why(s, spent) ~= nil end
-          local tool = Tools.find(s.tools, called)
+          -- A tool for code alone is not the model's to call: it is not offered, so it is not found.
+          local listed = Tools.find(s.tools, called)
+          local tool = if listed ~= nil and Tools.for_model(listed) then listed else nil end
           local paths = tool and tool.paths
           local touched: {Tools.Touch} = {}
           local reason: string? = nil
@@ -1226,9 +1240,10 @@ local function loop(s: Agent.Session): boolean, string
               mcp = s.mcp, stopped = asking, deadline_ns = deadline, tools = s.tools,
               commands = Tools.find(s.tools, "bash") ~= nil,
               guard = if s.before == nil then nil else function(host: string, args: Tools.Object): string?
+                local touches, touches_why = code_paths(s, host, args)
                 local by_code: Agent.Call = { name = host, input = args, caller = "code", cwd = s.cwd, id = s.id,
-                  paths = {}, stopped = asking }
-                local why_not = blocked(s, by_code)
+                  paths = touches or {}, stopped = asking }
+                local why_not = if touches == nil then touches_why else blocked(s, by_code) end
                 if why_not ~= nil then
                   tell(s, { kind = "blocked", name = host, caller = "code", input = args, reason = why_not })
                 end
@@ -1236,11 +1251,13 @@ local function loop(s: Agent.Session): boolean, string
               end end,
               amend = if s.after == nil then nil else function(host: string, args: Tools.Object,
                                                                answered: Tools.Result): Tools.Result
+                local touches, _ = code_paths(s, host, args)
                 local by_code: Agent.Call = { name = host, input = args, caller = "code", cwd = s.cwd, id = s.id,
-                  paths = {}, stopped = asking }
+                  paths = touches or {}, stopped = asking }
                 return afterward(s, by_code, answered)
               end end }
-            result = Tools.dispatch(s.tools, called, given, context)
+            result = if tool ~= nil then Tools.dispatch(s.tools, called, given, context) else
+              { text = "Tool " .. called .. " not found", is_error = true } end
             if tool ~= nil then result = afterward(s, asked_call, result) end
           end
           local shown, record_why = record(s, call_id, called, given, result)

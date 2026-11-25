@@ -86,7 +86,7 @@ local function test_a_binding_of_c_is_typed_where_the_tree_declares_it_and_untyp
     -- the file they stand for, the module, and the header the ceilings are kept under
     assert(support.nth(entry, 1):find("%.d%.tl$") ~= nil and support.nth(entry, 4):find("^core/%w+%.h$") ~= nil, support.nth(entry, 1) .. " " .. support.nth(entry, 4))
   end
-  -- a provider that answers one is a declaration too
+  -- a provider that returns one is a declaration too
   local provided = TreeProgram.build(TreeProgram.index({}, {}), globals, false, nil, function(module: string): Driver.Source?
     return if module == "cosmic.sys" then Driver.declarations(module, "cosmic/sys.d.tl", "local record S\nend\nreturn S\n", {}) else nil end
   end)

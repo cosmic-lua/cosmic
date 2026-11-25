@@ -32,7 +32,7 @@ Test.policy{
 
 --- A checkout at `tmp/a tree` (a space in its path, so a word split
 --- anywhere shows), holding the entrypoint and the bootstrap script, and
---- a stand-in for the bootstrap cosmic that answers the resolver's
+--- a stand-in for the bootstrap cosmic that prints for the resolver's
 --- question as build/paths.tl does today: `<root>/o`. Its bin/zig
 --- records how it was called and, unless `BOOT_FAILS` is set, writes the
 --- tool; the tool prints its directory and arguments and exits with
@@ -94,7 +94,7 @@ end
 
 --- With no tool, it boots from the tree's root, the boot's output on
 --- stderr alone, then runs the tool in the caller's directory with the
---- arguments as given and answers its exit status; with the tool there,
+--- arguments as given and exits with its status; with the tool there,
 --- it boots no more.
 local function test_it_boots_once_then_runs_the_tool_where_it_was_called(tmp: string)
   local root, bootstrap = checkout(tmp)
@@ -121,7 +121,7 @@ local function test_it_refuses_to_boot_under_cosmic_auto_boot_0(tmp: string)
   assert(zig_calls(tmp) == "", zig_calls(tmp))
 end
 
---- A boot that fails is answered with its status, and no tool runs.
+--- A boot that fails passes its status on, and no tool runs.
 local function test_a_failed_boot_answers_its_status(tmp: string)
   local root, bootstrap = checkout(tmp)
   local result = run(tmp, root, bootstrap, root, { "test" }, { BOOT_FAILS = "1" })

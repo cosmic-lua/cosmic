@@ -28,8 +28,44 @@ local function test_the_one_table_a_value_may_be_is_told_by_its_kind()
       "    return v.n\n  end\n  return 0\nend\nprint(f({ n = 4 }))\nprint(f(\"s\"))\nprint(f(nil))\n", "4,0,0")
 end
 
+local GRANTS <const> = "local record Path\n  path: string\n  letters: string\nend\nlocal record Calls\n" ..
+  "  calls: string\nend\nlocal record Connect\n  connect: string\n  port?: integer\nend\n" ..
+  "local type Grant = Path | Calls | Connect\n"
+
+local function test_a_record_is_told_by_a_field_no_other_record_declares()
+  Programs.stands(GRANTS .. "local function said(g: Grant): string\n  if g is Path then\n    return g.path\n" ..
+      "  elseif g is Calls then\n    return g.calls\n  end\n  return g.connect\nend\n" ..
+      "local list: {Grant} = { { path = \"/tmp\", letters = \"r\" }, { calls = \"fork\" }, { connect = \"h\" } }\n" ..
+      "for _, g in ipairs(list) do\n  print(said(g))\nend\n", "/tmp,fork,h")
+  -- a literal is the one record that declares every field it names
+  Programs.stands(GRANTS .. "local function connects(g: Grant): boolean\n  return g is Connect\nend\n" ..
+      "print(connects({ connect = \"h\", port = 1 }))\nprint(connects({ path = \"/\", letters = \"r\" }))\n", "true,false")
+  -- a value that is no name is read once
+  Programs.stands(GRANTS .. "local n = 0\nlocal function get(): Grant\n  n = n + 1\n  return { calls = \"x\" }\nend\n" ..
+      "print(get() is Calls)\nprint(get() is Path)\nprint(n)\n", "true,false,2")
+end
+
+local function test_a_field_another_record_declares_or_that_may_be_nil_tells_nothing()
+  -- `port` is omittable, and `path` is in both, so `Near` has no field of its own
+  local r = Programs.run("local record Far\n  path: string\n  far: boolean\nend\nlocal record Near\n" ..
+      "  path: string\n  port?: integer\nend\nlocal function f(v: Far | Near): boolean\n  return v is Near\nend\n")
+  assert(table.concat(r.before, " ") == "untagged_union", table.concat(r.before, " "))
+  assert(Programs.codes(r) == "is_on_record", Programs.codes(r))
+  -- a field typed to hold nil, a `mut` one and a method another record has tell nothing either
+  local held = Programs.run("local record A\n  a: string?\nend\nlocal record B\n  mut b: string\nend\n" ..
+      "local function f(v: A | B): boolean\n  return v is A\nend\n")
+  assert(table.concat(held.before, " ") == "untagged_union", table.concat(held.before, " "))
+  local method = Programs.run("local record A\n  a: string\nend\nlocal record B\n  b: string\n" ..
+      "  a: function(self: B): string\nend\nlocal function f(v: A | B): boolean\n  return v is A\nend\n")
+  assert(table.concat(method.before, " ") == "untagged_union", table.concat(method.before, " "))
+  -- a map beside the records may hold any field
+  local mapped = Programs.run("local record A\n  a: string\nend\nlocal record B\n  b: string\nend\n" ..
+      "local function f(v: A | B | {string: string}): boolean\n  return v is A\nend\n")
+  assert(table.concat(mapped.before, " ") == "untagged_union", table.concat(mapped.before, " "))
+end
+
 local function test_a_record_no_tag_tells_from_the_other_tables_is_refused()
-  local untagged = Programs.run("local record P\n  x: integer\nend\nlocal record Q\n  y: integer\nend\n" ..
+  local untagged = Programs.run("local record P\n  x: integer\nend\nlocal record Q\n  x: integer\n  y: integer\nend\n" ..
       "local function f(v: P | Q): integer\n  if v is P then\n    return v.x\n  end\n  return 0\nend\n")
   assert(table.concat(untagged.before, " ") == "untagged_union", table.concat(untagged.before, " "))
   assert(Programs.codes(untagged) == "is_on_record", Programs.codes(untagged))

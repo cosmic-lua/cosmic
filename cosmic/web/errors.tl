@@ -1,5 +1,5 @@
 --- Errors: the exception layer that turns a raise into a response, the error
---- pages, and the terminal that answers what the router could not route.
+--- pages, and the terminal that responds to what the router could not route.
 
 local ErrorPage = require("cosmic.web.error_page")
 local type Json = require("cosmic.json")
@@ -35,7 +35,7 @@ local function wants_json(req: Types.Request): boolean
   return choice == "application/json" or choice == "application/problem+json"
 end
 
---- The default answer: a problem body for a client that prefers JSON, else
+--- The default response: a problem body for a client that prefers JSON, else
 --- a page.
 local function default_answer(req: Types.Request, status: integer, detail: string?,
                               extra: {string: Json.Value}?): Types.Response
@@ -43,7 +43,7 @@ local function default_answer(req: Types.Request, status: integer, detail: strin
   return page(status, detail, nil)
 end
 
---- The answer for `status`: the app's `error_pages` entry, else its
+--- The response for `status`: the app's `error_pages` entry, else its
 --- `error_view`, else the default one chosen by the request's Accept;
 --- `headers` (an `Allow`) are set on it.
 local function respond(req: Types.Request, status: integer, detail?: string,
@@ -64,10 +64,10 @@ local function respond(req: Types.Request, status: integer, detail?: string,
   return res
 end
 
---- Answers a request the router did not send to a route, by what it
+--- Responds to a request the router did not send to a route, by what it
 --- decided: 404, 405 with `Allow`, the automatic OPTIONS, a redirect to
 --- the canonical spelling, or 400.
---- @param req Types.Request The request, whose `outcome` says what to answer
+--- @param req Types.Request The request, whose `outcome` says how to respond
 --- @return Types.Response The response
 function Errors.terminal(req: Types.Request): Types.Response
   local outcome = assert(req.outcome)
@@ -111,7 +111,7 @@ local function fault(req: Types.Request, trace: string): Types.Response
   return Response.text("Internal Server Error\n", { status = 500 })
 end
 
---- The answer for `abort`, which `req` raised: the error page of its
+--- The response for `abort`, which `req` raised: the error page of its
 --- status. A 5xx goes to the sink too.
 local function answer_abort(req: Types.Request, abort: Response.Abort): Types.Response
   if abort.status >= 500 then
@@ -123,12 +123,11 @@ local function answer_abort(req: Types.Request, abort: Response.Abort): Types.Re
   return fault(req, tostring(answer))
 end
 
---- `inner` with the exception layer around it: an abort is answered with
---- the error page of its status, any other raise with a 500 whose body
---- tells the client nothing (a page of the fault and its stack when the
---- app is in debug), and the fault goes to the app's sink. In debug a
---- response the server would refuse is a fault too, so its trace names
---- the handler.
+--- `inner` with the exception layer around it: an abort gets the error
+--- page of its status, any other raise a 500 whose body tells the
+--- client nothing (a page of the fault and its stack when the app is in
+--- debug), and the fault goes to the app's sink. In debug a response the
+--- server would refuse is a fault too, so its trace names the handler.
 --- @param inner Types.Handler The handler to guard
 --- @return Types.Handler The guarded handler
 function Errors.wrap(inner: Types.Handler): Types.Handler
@@ -136,7 +135,7 @@ function Errors.wrap(inner: Types.Handler): Types.Handler
     local ok, res = xpcall(inner, traced, req)
     if ok then
       if req.app.spec.debug == true then
-        -- The server's own words for an answer that is no reply (see
+        -- The server's own words for a response it would refuse (see
         -- `reply_trouble` in cosmic/http/server.tl).
         local trouble = Server.check(res, req.method)
         if trouble ~= "" then
@@ -151,11 +150,11 @@ function Errors.wrap(inner: Types.Handler): Types.Handler
   end
 end
 
---- `inner` with an abort answered where it is raised, for a layer of
+--- `inner` with an abort handled where it is raised, for a layer of
 --- middleware: [`Web.abort`] from a middleware becomes the error page of its
 --- status, as a response the middleware outside it sees, so an access log
 --- or a header it adds covers it. Any other raise passes on with its
---- stack, for the exception layer or the server to answer 500, as before.
+--- stack, for the exception layer or the server to respond 500, as before.
 --- @param inner Types.Handler One middleware's handler
 --- @return Types.Handler The guarded handler
 function Errors.guard(inner: Types.Handler): Types.Handler

@@ -214,8 +214,8 @@ local function text_of(config: {string: Json.Value}): string
 end
 
 --- A serve files the program's sites and forwards under its stream,
---- beside what others serve, answers their URLs, and is gone once the
---- serving is closed; what others serve stays.
+--- beside what others serve, responds at their URLs, and is gone once
+--- the serving is closed; what others serve stays.
 local function test_a_serve_is_filed_under_its_stream_and_dropped_with_it(tmp: string)
   local said, d = across(tmp, [[
   local served = assert(ts:serve({

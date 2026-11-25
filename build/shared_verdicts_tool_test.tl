@@ -32,7 +32,7 @@ Test.policy{
   env = { "COSMIC_SANDBOX", "COSMIC_TEST_SANDBOX" },
 }
 
---- Runs `cosmic test` on `root` with `words` after it, answering what
+--- Runs `cosmic test` on `root` with `words` after it, returning what
 --- it printed.
 local function run(root: string, output: string, env: {string:string},
                    words?: {string}, fails?: boolean): string
@@ -189,7 +189,7 @@ local function test_a_rebooted_run_stands_on_the_first_ones_verdicts(tmp: string
   said("rebooted", tmp .. "/rebooted", "0 ran, 5 stood")
 end
 
---- A checkout runs what no shared verdict answers for: a file a module
+--- A checkout runs what no shared verdict covers: a file a module
 --- declares that differs, or an edit in the checkout itself.
 local function test_a_checkout_runs_what_no_shared_verdict_answers_for(tmp: string)
   local _, said, _ = seeded(tmp)
@@ -353,7 +353,7 @@ local function linked(tmp: string): mut {string:string}
 end
 
 --- A declared link is keyed by what it is and where it leads,
---- unfollowed, as `lstat` and `readlink` answer: a checkout whose link
+--- unfollowed, as `lstat` and `readlink` return: a checkout whose link
 --- leads elsewhere runs what read it again, and fails it, while one the
 --- same stands on the first one's verdicts.
 local function test_a_link_a_test_reads_is_keyed_by_what_it_is(tmp: string)
@@ -563,7 +563,7 @@ local function test_a_row_whose_key_this_checkout_does_not_reach_does_not_stand(
   assert(second:find("host kernel %x+, host %x+, system %x+, runtime %x+") ~= nil, second)
 end
 
---- A cache that cannot answer -- its pages overwritten, or this
+--- A cache that cannot be read -- its pages overwritten, or this
 --- format's table in another shape -- is said so once and done without:
 --- the run runs what it must and passes.
 local function test_a_cache_that_cannot_answer_is_done_without(tmp: string)

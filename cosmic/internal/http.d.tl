@@ -37,9 +37,9 @@ local record http
     ready: function(Handle): boolean
     -- Once ready: true and "", or, where the transfer failed before any
     -- header arrived, nil, why and the failure's code, as a waiting
-    -- `open` answers.
+    -- `open` returns.
     settled: function(Handle): boolean?, string, string?
-    -- Whether `read` would pump before it answered: no body held and
+    -- Whether `read` would pump first: no body held and
     -- the transfer not over. A paused transfer is resumed first, as
     -- `read` resumes it.
     waiting: function(Handle): boolean
@@ -58,7 +58,7 @@ local record http
     -- Whether to follow redirects; true by default.
     follow?: boolean
     -- Whether `open` waits for the headers itself; true by default.
-    -- False answers the handle at once, for a caller that waits
+    -- False returns the handle at once, for a caller that waits
     -- through [`pump_fds`] and [`pump`] until `ready`, then `settled`.
     wait?: boolean
     -- The most redirects followed, 10 by default.

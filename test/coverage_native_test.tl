@@ -1,6 +1,6 @@
 --- The core's own C in coverage. A core built with native coverage --
---- every release core and the sanitized one -- answers every C line a
---- block begins on and puts hits on those lines; any other core answers
+--- every release core and the sanitized one -- reports every C line a
+--- block begins on and puts hits on those lines; any other core reports
 --- none, and its hits never name a C file. The case about a fresh
 --- process's first window, which starts this program, is in
 --- test/coverage_native_tool_test.tl.

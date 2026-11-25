@@ -2,7 +2,8 @@
 --- it for a built program (`cosmic_tostatus`, build/exit_status_test.tl),
 --- for the runs that return from Teal rather than through the core: a
 --- file run and `-e` (build/dispatch.tl) and `--standalone`
---- (build/standalone.tl).
+--- (build/standalone.tl). `-e` prints a returned table or [`Json.null`] as
+--- JSON before it asks here.
 
 local log = require("build.logger").log
 

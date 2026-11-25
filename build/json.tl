@@ -63,7 +63,7 @@ local record verb
     --- another language than JSONPath (`.users`, `[0]`), for a hint
     --- when there is no such file.
     mut pathlike: boolean
-    --- "value", "exists", "keys", "shape" or "flat".
+    --- "value", "exists", "keys", "type" or "flat".
     mut mode: string
     compact: boolean
     raw: boolean
@@ -96,7 +96,7 @@ local function arguments(argv: {string}): verb.Request?, string
   local parsed, trouble = Flags.parse(argv, 2, spec)
   if parsed == nil then return nil, trouble end
   local modes: mut {string} = {}
-  for _, name in ipairs({ "exists", "keys", "shape", "flat" }) do
+  for _, name in ipairs({ "exists", "keys", "type", "flat" }) do
     if parsed.set["--" .. name] == true then modes[#modes + 1] = "--" .. name end
   end
   if #modes > 1 then
@@ -105,8 +105,8 @@ local function arguments(argv: {string}): verb.Request?, string
   local raw = parsed.set["-r"] == true or parsed.set["--raw"] == true
   local compact = parsed.set["--compact"] == true
   if #modes == 1 and (raw or compact) then
-    return nil, (if raw then "--raw" else "--compact" end) .. " shapes a printed value, which " ..
-      modes[1] .. (if modes[1] == "--flat" then " prints in one form" else " does not print" end)
+    return nil, (if raw then "--raw" else "--compact" end) .. " changes how the value prints, which " ..
+      modes[1] .. (if modes[1] == "--flat" then " prints in one form" else " does not print the value" end)
   end
   local words = parsed.words
   -- No option of this verb takes a value, so the first `--` is the one
@@ -151,7 +151,7 @@ local function arguments(argv: {string}): verb.Request?, string
     for _, segment in ipairs(query.segments) do
       if segment.descendant or segment.kind == "wildcard" then request.singular = false end
     end
-    if not request.singular and (request.mode == "keys" or request.mode == "shape") then
+    if not request.singular and (request.mode == "keys" or request.mode == "type") then
       return nil, "--" .. request.mode .. " reads one value and `" .. path ..
         "` can match many; name one path (`--flat` lists every leaf under a query)"
     end
@@ -363,7 +363,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   local value = found.value
   if request.mode == "exists" then return 0 end
   if request.mode == "flat" then return flattened(matches) end
-  if request.mode == "shape" then
+  if request.mode == "type" then
     return written(to.out(json_query.describe(value) .. "\n"))
   end
   local place = "pointer " .. Json.quote((assert(Json.pointer(found.steps))))

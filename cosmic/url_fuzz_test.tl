@@ -2,7 +2,7 @@
 --- a client or a server is handed: what `escape` writes is only
 --- unreserved bytes and escapes, and `unescape` takes it back to the
 --- bytes it came from; `unescape` and `parse` are total on any bytes;
---- `segments` never answers a segment that is empty, `.`, `..` or holds
+--- `segments` never returns a segment that is empty, `.`, `..` or holds
 --- a `/` or a NUL, and reads back every name `escape` wrote; and `parse`
 --- reads back the parts a URL was built from. `FUZZ_SEED` and
 --- `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).

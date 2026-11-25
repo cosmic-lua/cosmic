@@ -42,11 +42,11 @@ local record RecordCalls
   required_name: function(call: Ast.Exp?): string?
 
   --- The modules the chunk requires at its top level, each by the name it binds (`local Fs = require("cosmic.fs")`,
-  --- or `local type Fs = ...`). A module bound twice answers its first name.
+  --- or `local type Fs = ...`). A module bound twice gives its first name.
   required: function(chunk: Ast.Chunk): {string: string}
 
   --- `name`, read as a record, or nil and why it is none. `at` is the token of the call, for the names in scope there,
-  --- and `required_by` what [`required`] answers for the call's chunk.
+  --- and `required_by` what [`required`] returns for the call's chunk.
   resolve_name: function(build: Driver.Build, outcome: Driver.Outcome, name: string, at: integer,
     required_by: {string: string}): Target?, string
 

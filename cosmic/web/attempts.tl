@@ -103,7 +103,7 @@ local record Attempts
   interface Tally
     --- How long a key's window lasts, in nanoseconds.
     window_ns: integer
-    --- Adds `n`, an integer of at least 0, to `key`'s count, and answers
+    --- Adds `n`, an integer of at least 0, to `key`'s count, and returns
     --- the count of its window, which stops at `math.maxinteger`. Adding 0
     --- begins no window. Raises for any other `n`.
     add: function(Tally, key: string, n: integer): integer
@@ -354,7 +354,7 @@ function Attempts.retry_after(wait_ns: integer): string
 end
 
 --- A 429 problem reply ([`Web.problem`]) with `Retry-After` for a wait of
---- `wait_ns`, as [`Attempts.Limiter.wait_ns`] answers it. A page that
+--- `wait_ns`, as [`Attempts.Limiter.wait_ns`] returns it. A page that
 --- shows a form again instead sets the status and header on its own reply:
 --- `Web.html(page, { status = 429, headers = { ["Retry-After"] =
 --- Attempts.retry_after(wait_ns) } })`.

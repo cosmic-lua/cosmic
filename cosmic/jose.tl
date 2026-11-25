@@ -58,7 +58,7 @@ local record Jose
   end
 
   --- A compact JWS, decoded: what [`Jose.decode`] and [`Jose.verify`]
-  --- answer.
+  --- return.
   record Jws
     --- The protected header.
     header: {string: Json.Value}

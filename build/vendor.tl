@@ -211,10 +211,9 @@ function Vendor.fetch(url: string, path: string, digests: {Vendor.Digest}): stri
   -- and the download is held to the PIN's digests whoever serves it, so it
   -- trusts every root rather than the minimal set a request trusts by
   -- default.
-  local want: mut {string:string} = {}
+  local want: mut {Hash.Algorithm:string} = {}
   for _, digest in ipairs(digests) do want[digest.algorithm] = digest.hex end
-  local options: Http.Options = { timeout_ns = Http.FOREVER, roots = "mozilla", sha256 = want["sha256"],
-    sha3_256 = want["sha3-256"] }
+  local options: Http.Options = { timeout_ns = Http.FOREVER, roots = "mozilla", digests = want }
   local ok, trouble = Http.download(url, path, options)
   if not ok then
     return nil, tostring(trouble)
@@ -291,7 +290,7 @@ local function prune(tree: string, files: {string:boolean}, under?: string): boo
     if under ~= nil then
       path = under .. "/" .. name
     end
-    -- A link to a directory is removed, not followed: readdir answers
+    -- A link to a directory is removed, not followed: readdir gives
     -- a link as "link", whatever it leads to.
     if kind == "dir" then
       local pruned, why = prune(tree, files, path)
@@ -386,7 +385,7 @@ local function from_archive(tree: string, pin: Vendor.Pin, archive_path: string)
     count, trouble = install(tree, scratch, files)
   end
   -- What is left in the scratch directory is only litter; the
-  -- extraction's or the install's own answer is the one reported.
+  -- extraction's or the install's own result is the one reported.
   local _, _ = Fs.remove_tree(scratch)
   if count == nil then
     return nil, trouble
@@ -491,7 +490,7 @@ end
 --- A feed tree (`pin.feed`): with `newest`, its file and PIN rewritten
 --- from the feed's newest state; without, kept as it is when its file
 --- matches the PIN's digests, and refused when it does not. The count of
---- files written and "", or 0 and why. `cache_dir` answers the cache
+--- files written and "", or 0 and why. `cache_dir` returns the cache
 --- directory and "", or "" and why.
 local function feed_tree(tree: string, text: string, pin: Vendor.Pin,
                          cache_dir: function(): (string, string), newest: boolean): integer, string

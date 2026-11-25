@@ -1,6 +1,6 @@
 #!/bin/sh
-# Records the answers of the system's git that build/todos_git_test.tl
-# replays, into this directory's scenarios (run from anywhere):
+# Records what the system's git prints, for build/todos_git_test.tl to
+# replay, into this directory's scenarios (run from anywhere):
 #
 #     sh testdata/todos_git/record.sh
 #
@@ -8,7 +8,7 @@
 # run records the same hashes again; each step it records holds what
 # `cosmic todos` asks of git at that HEAD:
 #   head            `git rev-parse --verify -q HEAD`
-#   ancestors       `git rev-list HEAD`, which `merge-base --is-ancestor` answers from
+#   ancestors       `git rev-list HEAD`, from which the replay decides `merge-base --is-ancestor`
 #   diff-<old>      `git diff --name-only --no-renames --relative <old> HEAD --`
 #   <file>.blame     `git blame --line-porcelain -L <n>,<n>... [--ignore-revs-file F] -- <file>`
 #                   (a "/" in the file's name is "_")
@@ -32,8 +32,8 @@ commit() {
     g commit -q "$@"
 }
 
-# record <dir> <root> <ignore-file or ""> <earlier heads> -- <files>: the answers
-# for the tree at <root> (the repository, a directory in it or a worktree of it).
+# record <dir> <root> <ignore-file or ""> <earlier heads> -- <files>: what git
+# prints for the tree at <root> (the repository, a directory in it or a worktree of it).
 record() {
   dir=$1 root=$2 ignore=$3
   shift 3

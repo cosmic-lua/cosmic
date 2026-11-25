@@ -62,7 +62,7 @@ local raw = require("cosmic.internal.tls")
 
 local NS <const> = 1000000000
 
---- A certificate and its key, as a source answers them: `cert`, the
+--- A certificate and its key, as a source returns them: `cert`, the
 --- chain, PEM, the leaf first and then each certificate up to, but not
 --- needing, the root; and `key`, the leaf's private key, PEM: ECDSA
 --- (P-256, P-384, P-521) or RSA.
@@ -81,7 +81,7 @@ end
 --- What obtains the pairs: called once before a server first listens,
 --- and again as they near expiry, with how long the leaves must still
 --- be valid for (nil the first time): a source that keeps certificates
---- of its own renews one that expires sooner. It answers 1 to 64 pairs,
+--- of its own renews one that expires sooner. It returns 1 to 64 pairs,
 --- or nil and why.
 local type Source = function(min_validity_ns?: integer): {Pair}?, string
 
@@ -158,7 +158,7 @@ local class Certs
   --- Obtains the pairs from the source now and serves them to every
   --- connection after, with `min_validity_ns` given to the source. True,
   --- or false and why, the pairs before kept: a source that fails or
-  --- raises (what it raised is the why), or answers no pair, a pair whose certificate or key cannot be read,
+  --- raises (what it raised is the why), or returns no pair, a pair whose certificate or key cannot be read,
   --- a key that is not its certificate's, or a leaf already expired or
   --- one that starts more than 5 minutes from now. The names a leaf holds are not checked here: a
   --- client is offered a pair by them, as [`cosmic.tls`] says.
@@ -224,11 +224,11 @@ local class Certs
   --- for at least half the life of those it holds, so a source with a
   --- store of its own renews too. A failure goes to `report` and is
   --- tried again after `retry_ns`, doubled after each, the pairs before
-  --- served meanwhile. Leaves the source answers already due are served
+  --- served meanwhile. Leaves the source returns already due are served
   --- and asked for again the same way, reported once.
   function keep(self, report: function(trouble: string), stopping: function(): boolean)
     local retry = self.retry_ns
-    -- Set while each load answers leaves already due, so that is
+    -- Set while each load returns leaves already due, so that is
     -- reported once, not at every retry: a source that renews nothing
     -- ([`Tls.static`]) does so for the last third of its leaves' life.
     local stale = false
@@ -244,7 +244,7 @@ local class Certs
           retry = self.retry_ns
           stale = false
         else
-          -- A source that answered leaves already due is tried again
+          -- A source that returned leaves already due is tried again
           -- later too, so it is not asked again at once, without end.
           if not ok then
             report(why)
@@ -498,7 +498,7 @@ function Tls.leaf(pem: string): (Leaf) | (nil, Failure)
   return leaf
 end
 
---- A source that always answers the pairs `held`: certificates the program
+--- A source that always returns the pairs `held`: certificates the program
 --- holds already, renewed only by a new program.
 function Tls.static(held: {Pair}): Source
   return function(_?: integer): {Pair}?, string

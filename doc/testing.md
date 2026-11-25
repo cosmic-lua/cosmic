@@ -157,6 +157,15 @@ verdict, pass or fail, and the summary says how many did not run. The
 merge queue's suites use it ([`ci/README.md`]). A run without it runs
 every test.
 
+`--deadline SECONDS` (`COSMIC_TEST_DEADLINE`) starts no test once that
+many seconds have passed since the run began. As with `--bail`, the
+tests already running finish and keep their verdicts, a test never
+started keeps none, and the run fails, saying how many did not run. CI's
+suites set it under the bound each suite is held to
+(ci/cosmic_ci/orchestration.tl), so a suite of main's push or a
+scheduled run that runs out of time still keeps the verdicts it reached,
+and the next run stands on them.
+
 A test must not depend on where the tree is. CI moves the checkout to
 a path chosen by the commit and the leg to catch one that does.
 
@@ -200,9 +209,10 @@ moved path.
 
 A module declares what its tests read with one top-level
 `Test.policy { ... }` ([`Test.policy`]). Its fields are those of
-[`cosmic.sandbox`]'s `Policy`: `profiles`, `grants`, `env`, `promises`,
-`loopback` and `requires`, and `cpu_features` and `store_text`, which only a
-test declares (below, and "the pure store"). The harness takes only some of the rest.
+[`cosmic.sandbox`]'s `Policy`: `profiles`, `grants`, `env` and `loopback`,
+and `promises`, the system calls a policy grants as `{ calls = ... }`, and
+`requires`, `cpu_features` and `store_text`, which only a test declares
+(below, and "the pure store"). The harness takes only some of the rest.
 
 ```text
 local Test = require("cosmic.test")

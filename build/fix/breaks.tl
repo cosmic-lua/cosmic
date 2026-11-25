@@ -210,7 +210,7 @@ function Breaks.of(chunk: Ast.Chunk): Breaks.Plan
     end
   end
 
-  -- A construct is not flat if it or a block inside it is not; an arm answers for itself alone.
+  -- A construct is not flat if it or a block inside it is not; an arm counts for itself alone.
   local bad: mut {integer: boolean} = {}
   for at = #queue, 1, -1 do
     if spoilt[at] == true then

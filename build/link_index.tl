@@ -17,9 +17,9 @@
 --- So what the files said is part of the projection's signature
 --- ([`Pending.digest`]): each link is resolved first with no symbols at
 --- all, which asks after every file and heading any resolution of it
---- can, and each answer is kept. A link that also names a symbol fails
+--- can, and each result is kept. A link that also names a symbol fails
 --- or stops before it reads more, so the resolution that writes the
---- rows reads only answers already kept. A file that appears, goes or
+--- rows reads only results already kept. A file that appears, goes or
 --- changes its headings moves the digest, and the next build writes the
 --- projection again, rather than keeping a row about a file that is not
 --- there.
@@ -65,10 +65,10 @@ local record link_index
     alias: string
   end
 
-  --- What the disk answered, by absolute path: a kind as
-  --- [`Context.kind`] answers it (`""` for nothing there), and a text or
+  --- What the disk said, by absolute path: a kind as
+  --- [`Context.kind`] returns it (`""` for nothing there), and a text or
   --- a real path, each in a table of its own so that none is kept as an
-  --- answer too.
+  --- result too.
   record Memo
     kinds: mut {string: string}
     reads: mut {string: {string}}
@@ -92,7 +92,7 @@ local record link_index
   end
 
   --- The standard library a project's links may name besides its own
-  --- symbols: the docs of `databases`, each answering for the modules
+  --- symbols: the docs of `databases`, each covering the modules
   --- no earlier one holds, as `cosmic docs` shows them to a project.
   record Library
     --- What determines those docs, signed into the projection
@@ -112,7 +112,7 @@ local record link_index
     --- What the links may name besides the projection's own symbols:
     --- nil for cosmic's own tree, and where no link asks for a symbol.
     library: Library?
-    --- A hash of every answer in `memo`, from the root down -- of a
+    --- A hash of every result in `memo`, from the root down -- of a
     --- file read, the anchors it gives, which is all a link reads of it
     --- -- and of every link of a file that is no module, as the stage
     --- read it, and the library's identity once a link asks for a
@@ -120,11 +120,11 @@ local record link_index
     --- own. So an edit to a file that moves none of its links and none
     --- of the headings a link names leaves it as it was.
     digest: string
-    --- Whether `memo` is one an earlier call kept, which every answer of
+    --- Whether `memo` is one an earlier call kept, which every result of
     --- it was asked of the disk again and found the same.
     remembered: boolean
     --- What the links of `rows` are resolved from, beside the disk's
-    --- answers and the projection's symbols: their rows, the root and
+    --- results and the projection's symbols: their rows, the root and
     --- the code that resolves them. Nil where the caller named no code.
     fingerprint: string?
   end
@@ -182,7 +182,7 @@ local raw_links =
   "FROM linked f JOIN linked_found l ON l.sha256 = f.sha256 AND l.kind = f.kind " ..
   "ORDER BY 2, 3, 4"
 
---- A context over the tree at `root` on disk that keeps each answer in
+--- A context over the tree at `root` on disk that keeps each result in
 --- `memo`, and gives one already kept without asking again; its
 --- symbols are `symbols` and `member`'s.
 local function remembering(root: string, memo: link_index.Memo,
@@ -257,7 +257,7 @@ local function label_of(raw: link_index.Raw): string?
   return link_text.shortcut_target(raw.text)
 end
 
---- `memo`'s answers and the links of `rows` in no module as one hash,
+--- `memo`'s results and the links of `rows` in no module as one hash,
 --- each path from `root`, so the same tree gives the same digest
 --- wherever it is checked out.
 local function digest_of(root: string, memo: link_index.Memo, rows: {link_index.Raw},
@@ -306,7 +306,7 @@ local function digest_of(root: string, memo: link_index.Memo, rows: {link_index.
 end
 
 --- What a resolution of `rows` under the code `code` is a function of beside
---- the disk's answers: the rows themselves, the root they are resolved
+--- the disk's results: the rows themselves, the root they are resolved
 --- from, and the code that resolves them.
 local function memo_fingerprint(code: string, root: string, rows: {link_index.Raw}): string
   local parts: mut {string} = { "link-memo-1", code, root }
@@ -318,24 +318,24 @@ local function memo_fingerprint(code: string, root: string, rows: {link_index.Ra
   return Hash.hex_sha256(table.concat(parts, "\n"))
 end
 
---- What a row of `link_answers` says the disk answered: `value` where it
---- answered, nil where it did not.
+--- What a row of `link_answers` says the disk gave: `value` where it
+--- gave one, nil where it did not.
 local function kept_answer(found: boolean, value: string): string?
   if found then return value end
   return nil
 end
 
 --- The memo an earlier [`link_index.pending`] kept under `fingerprint`, and
---- whether a link asked for a symbol, when the disk still answers each
---- question it holds as it did: a path's kind, a path's real path, a
+--- whether a link asked for a symbol, when the disk still says of each
+--- question it holds what it did: a path's kind, a path's real path, a
 --- file's text, each asked again. The resolution is a function of the rows
---- and these answers alone, so one that is given the same answers to the
+--- and these results alone, so one that is given the same results for the
 --- same questions asks the same ones in turn and makes the same memo:
 --- nothing a file's mtime or size could miss is trusted. Nil where none
---- is kept, it is another's, or the disk answers any question differently.
---- With them, the digest of those answers and the links ([`digest_of`])
+--- is kept, it is another's, or the disk says otherwise of any question.
+--- With them, the digest of those results and the links ([`digest_of`])
 --- the call that kept them made, and what it signed in ([`link_index.Pending`]'s
---- `digest`): it is a function of the rows, the answers and that, which is
+--- `digest`): it is a function of the rows, the results and that, which is
 --- all `recalled` has found the same.
 local function recalled(db: Sqlite.Handle, fingerprint: string): link_index.Memo?, boolean, string?, string
   local kept, _ = db:text_rows(
@@ -405,7 +405,7 @@ end
 --- goes, with a digest of what it said; `library` is what they may name
 --- beside `db`'s own symbols, nil for none. `code` names the code that
 --- resolves them, the writer's identity ([`build.identity`]): given, the
---- disk's answers are kept in `link_answers` and, where the disk still gives
+--- disk's results are kept in `link_answers` and, where the disk still gives
 --- every one, not worked out again ([`recalled`]).
 function link_index.pending(db: Sqlite.Handle, root: string,
                             library: link_index.Library?, code?: string): link_index.Pending?, string
@@ -467,7 +467,7 @@ function link_index.pending(db: Sqlite.Handle, root: string,
       if recalled_memo == nil then
         remember(db, fingerprint, memo, library_asked, signed or "", digest)
       else
-        -- Answers kept before the digest was, or by a call that signed another library in.
+        -- Results kept before the digest was, or by a call that signed another library in.
         local _, _ = db:run("DELETE FROM link_answers WHERE kind = 'digest'")
         local _, _ = db:run("INSERT INTO link_answers (kind, path, value, found) VALUES ('digest', ?1, ?2, 1)",
           { text(signed or ""), text(digest) })
@@ -479,7 +479,7 @@ function link_index.pending(db: Sqlite.Handle, root: string,
 end
 
 --- The `docs` of the projection under `qualifier`, held in memory, with
---- each module it answers for ([`symbols.owned_modules`]) set in `held`.
+--- each module it covers ([`symbols.owned_modules`]) set in `held`.
 local function index_of(db: Sqlite.Handle, qualifier: string,
                         held: mut {string: boolean}): symbol_index.Index?, string
   local out = symbol_index.new()
@@ -510,7 +510,7 @@ local function index_of(db: Sqlite.Handle, qualifier: string,
 end
 
 --- Adds to `index` the rows of `library`'s databases that `cosmic docs`
---- shows a project, each module answered by the first that holds it
+--- shows a project, each module taken from the first that holds it
 --- and none the projection holds (`held`), as [`docs.view`] owns them
 --- ([`symbols.owned_modules`]) and [`build.links`] reads them for
 --- `cosmic fix`.
@@ -558,7 +558,7 @@ end
 
 --- Resolves `pending`'s links against the `docs` of the projection
 --- under `qualifier` and writes those that name one thing to its `links`:
---- [`link_index.fill`] without the memory of its last answer.
+--- [`link_index.fill`] without the memory of its last result.
 local function resolve_and_write(db: Sqlite.Handle, pending: link_index.Pending,
                                  qualifier: string): boolean, string
   local held: mut {string: boolean} = {}
@@ -695,7 +695,7 @@ local link_columns <const> =
 
 --- One digest of everything [`resolve_and_write`] reads of the projection
 --- under `qualifier` to know which symbols there are: the modules and
---- declarations that answer for a name, each doc row's names, kind and
+--- declarations that stand for a name, each doc row's names, kind and
 --- signature (not its text or line, which no link reads), and the names
 --- each module binds. Quoted by type as [`build.closure_store`] quotes a row, so
 --- no two rows spell one line.
@@ -726,7 +726,7 @@ local function symbols_digest(db: Sqlite.Handle, qualifier: string): string?
     row:text(3), row:text(4) }, "\n"))
 end
 
---- How many answers `memo` holds, which only grows.
+--- How many results `memo` holds, which only grows.
 local function answers(memo: link_index.Memo): integer
   local n = 0
   for _ in pairs(memo.kinds) do n = n + 1 end
@@ -740,7 +740,7 @@ end
 --- its `links`, in key order.
 ---
 --- What it writes is a function of the links, the code and the disk's
---- answers `pending` holds, of the library's docs, and of the symbols the
+--- results `pending` holds, of the library's docs, and of the symbols the
 --- projection documents ([`symbols_digest`]) alone, so the rows it wrote
 --- last are kept in the working database under a fingerprint of those and
 --- copied where they are the same: an edit that adds, drops or renames no

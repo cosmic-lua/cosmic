@@ -41,10 +41,10 @@ local function described(info?: Tls.Info): string
     tostring(peer.verified)
 end
 
---- Serves `certs` at a port of 127.0.0.1, each connection answered with
---- what the server saw of its client once the handshake is done; runs
---- `body` with the port in a task of the server's run, and stops the
---- server once it returns. What a handshake failed with goes to
+--- Serves `certs` at a port of 127.0.0.1, replying on each connection
+--- with what the server saw of its client once the handshake is done;
+--- runs `body` with the port in a task of the server's run, and stops
+--- the server once it returns. What a handshake failed with goes to
 --- `failures`.
 local function served(certs: Tls.Certs, failures: mut {string}, body: function(port: integer))
   assert(Net.serve{
@@ -67,8 +67,8 @@ local function served(certs: Tls.Certs, failures: mut {string}, body: function(p
   })
 end
 
---- What the server answers a client of `client` at `port`: its line, or
---- "failed: " and why.
+--- What the server replies to a client of `client` at `port`: its line,
+--- or "failed: " and why.
 local function answer(port: integer, client: Tls.Client): string
   local conn, why = Net.connect(Net.tcp("127.0.0.1", port), { tls = client, server_name = "localhost" })
   if conn == nil then return "failed: " .. tostring(why) end

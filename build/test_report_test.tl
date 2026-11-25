@@ -62,6 +62,8 @@ local function test_summaries_keep_the_figures_ci_reads_in_order()
   assert(test_report.failed(1, 1, 0, "7 ms") == "1 of 1 test failed, 0 infrastructure errors, 7 ms")
   assert(test_report.failed(1, 3, 0, "7 ms", 2) ==
       "1 of 3 tests failed, 0 infrastructure errors, 7 ms; 2 not run after the first failure")
+  assert(test_report.failed(1, 3, 0, "7 ms", 2, "the deadline") ==
+      "1 of 3 tests failed, 0 infrastructure errors, 7 ms; 2 not run after the deadline")
   assert(test_report.coverage(1, 4) ==
       "test: coverage 25.0% (1/4 lines; informational, never a failure)")
   assert(test_report.coverage(0, 0) ==

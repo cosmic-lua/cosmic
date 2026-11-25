@@ -18,7 +18,7 @@
 ---   doc comment on it: the rows are those of the module as staged, or open and unsaved, and for the document's own module of
 ---   the last text that parsed; those of the standard library's `cosmic.*` modules are the ones the tool carries. An
 ---   interface lists others by the checker's resolution of the names, in the module or another. A field whose type the
----   checker resolves to a function is offered as a function. The checker's declarations answer for a type the rows cannot
+---   checker resolves to a function is offered as a function. The checker's declarations are used for a type the rows cannot
 ---   name exactly: a name declared twice in a module or in a block, a module generated from another file ([`cosmic.sys`]), an
 ---   interface listing one whose rows are not held, and a text with no rows (one that does not parse). There the `detail`
 ---   is the signature in the docs database where it has one, else the checker's type, and the `documentation` its text.
@@ -51,7 +51,7 @@
 
 -- TODO: type a name narrowed at the cursor, and a call receiver, in a text typed whose own statement does not parse
 -- (`foo(` left open around the cursor, or a block with its `end` missing above it), once the checker reads a tree the
--- parser recovered of a text with errors: the last text that parsed answers there, and where it has no read of a name at
+-- parser recovered of a text with errors: the last text that parsed serves there, and where it has no read of a name at
 -- that place its declared type is used, and a call takes its function's declared result, with the type parameters of a
 -- generic function left unsolved. A broken `local` keeps its names and what is before its `=` ([`neutralized`]), so
 -- a name without a written type has none there, and a broken function, record, enum or type declaration gives no text
@@ -469,7 +469,7 @@ local function stripped(t: Types.Type?): Types.Type?
   return t
 end
 
---- The first value a function of type `t` answers.
+--- The first value a function of type `t` returns.
 local function returned(t: Types.Type?): Types.Type?
   local fn = stripped(t)
   if fn == nil or fn.tag ~= "fn" then return nil end

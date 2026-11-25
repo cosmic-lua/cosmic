@@ -1,6 +1,6 @@
 --- The policy layer cosmic.sandbox and cosmic.sandbox.seatbelt share: the types
 --- of a policy, the check of its values, the profiles it names and the
---- merge of policies into one. Use [`cosmic.sandbox`], which answers all of
+--- merge of policies into one. Use [`cosmic.sandbox`], which offers all of
 --- it under its own name and documents it there. Apart from cosmic.sandbox
 --- only so that cosmic.sandbox.seatbelt, which cosmic.sandbox requires, can require
 --- this.
@@ -40,8 +40,8 @@ local record rules
     "nest"
   end
 
-  --- One path a program may reach, and how.
-  record Grant
+  --- One path a program may reach, and how: a [`rules.Grant`] that names a `path`.
+  record Path
     --- The path as the program sees it, relative to the directory it
     --- runs in. It must exist when the program starts.
     path: string
@@ -60,6 +60,16 @@ local record rules
     --- file or directory under another name. Needs `isolate` file.
     from?: string
   end
+
+  --- System calls a program may make beyond its basics, as a [`rules.Grant`]: `{ calls = "fork" }`.
+  record Calls
+    --- Which ones ([`rules.Promise`]).
+    calls: rules.Promise
+  end
+
+  --- One thing a program may do: reach a path (`{ path = "data", letters = "r" }`, [`rules.Path`]) or make system
+  --- calls beyond its basics (`{ calls = "fork" }`, [`rules.Calls`]). Each is told by the field it alone has.
+  type Grant = Path | Calls
 
   --- Resource limits on every process the program starts. Nil is the
   --- start's default: 1024 open files, no core dump, and under `isolate`
@@ -85,14 +95,12 @@ local record rules
   record Policy
     --- Named policies to join in, by [`Sandbox.union`]: "system", "programs", "cosmic", "proc".
     profiles?: {string}
-    --- The paths the program reaches.
+    --- What the program may do: the paths it reaches, and the system calls it may make beyond its basics.
     grants?: {Grant}
     --- How far it is isolated from the host. With "file", a writable grant on a tree that user does not own (`/etc`
     --- as `rwc`, say) is mounted so that it is the tree's owner there: it
     --- writes the owner's files, root's included, through that mount.
     isolate?: {Isolate}
-    --- The system calls it may make beyond its basics.
-    promises?: {Promise}
     --- The hosts it may reach, "host:port", where the host or the port is
     --- "*" for any. A host is a DNS name, an IPv4 address or an IPv6 address
     --- in brackets, and a name is read lower-case without a final dot; a
@@ -190,8 +198,8 @@ local record rules
   end
 end
 
---- What a failure of this module answers: nil and `why` under the name
---- "sandbox", as [`cosmic.sandbox`]'s own failures are.
+--- What a function returns for a failure of this module: nil and `why`
+--- under the name "sandbox", as [`cosmic.sandbox`]'s own failures are.
 local function refuse(why: string): nil, string
   return nil, "sandbox: " .. why
 end
@@ -222,6 +230,8 @@ local function env_name_ok(name: string): boolean
 end
 
 local PROFILES <const>: {string} = { "cosmic", "proc", "programs", "system" }
+
+local PROMISES <const>: {string} = { "fattr", "fork", "jit", "nest" }
 
 local function listed(name: string, names: {string}): boolean
   for _, known in ipairs(names) do
@@ -280,8 +290,15 @@ local function invalid(p: rules.Policy, exact: boolean): string
     end
   end
   for i, grant in ipairs(p.grants or {}) do
+    if grant is rules.Calls then
+      if not listed(grant.calls, PROMISES) then
+        return at({ "grants", i, "calls" }, "unknown calls \"" .. tostring(grant.calls) .. "\" (known: " ..
+            table.concat(PROMISES, ", ") .. ")")
+      end
+      continue
+    end
     if grant.path == nil or grant.path == "" or grant.path:find("\0", 1, true) ~= nil then -- checked: compare_disjoint
-      return at({ "grants", i, "path" }, "a path is not empty and holds no NUL")
+      return at({ "grants", i, "path" }, "a grant names a path that is not empty and holds no NUL, or calls")
     end
     for segment in grant.path:gmatch("[^/]+") do
       if segment == ".." then
@@ -576,7 +593,7 @@ end
 
 --- The "proc" profile: `r` on the host's /proc where there is one (Linux),
 --- the kernel's process information, and nothing on macOS, where sysctl
---- answers with no file to grant. As the "system" profile does, it grants
+--- reports it with no file to grant. As the "system" profile does, it grants
 --- only a path the host has, so a Linux host with no /proc mounted gets none.
 local function proc_profile(): rules.Policy
   if rules.on_macos() or not present("/proc") then return {} end
@@ -601,6 +618,24 @@ function rules.database(path: string): rules.Database?, string
   local bytes, why = Fs.read(path)
   if bytes == nil then return refuse("database " .. tostring(why)) end
   return { path = path, sha256 = Hash.hex_sha256(bytes) }, ""
+end
+
+--- The grants of `p` that name a path, in its order.
+function rules.paths(p: rules.Policy): {rules.Path}
+  local out: mut {rules.Path} = {}
+  for _, grant in ipairs(p.grants or {}) do
+    if grant is rules.Path then out[#out + 1] = grant end
+  end
+  return out
+end
+
+--- The system calls the grants of `p` give beyond a program's basics, in its order.
+function rules.calls(p: rules.Policy): {rules.Promise}
+  local out: mut {rules.Promise} = {}
+  for _, grant in ipairs(p.grants or {}) do
+    if grant is rules.Calls then out[#out + 1] = grant.calls end
+  end
+  return out
 end
 
 --- What the policies given hold together: [`Sandbox.union`], which says
@@ -656,6 +691,10 @@ function rules.merge(...: rules.Policy): rules.Policy?, string
       database = { path = at, sha256 = digest or (database and database.sha256) }
     end
     for _, grant in ipairs(p.grants or {}) do
+      if grant is rules.Calls then
+        promises = sorted_set(promises, { grant.calls })
+        continue
+      end
       local at = clean_path(grant.path)
       local key = at .. "\0" .. (grant.from or "")
       local held = joined[key]
@@ -667,7 +706,6 @@ function rules.merge(...: rules.Policy): rules.Policy?, string
       for i = 1, #grant.letters do held.letters[grant.letters:sub(i, i)] = true end
     end
     isolate = sorted_set(isolate, p.isolate or {})
-    promises = sorted_set(promises, p.promises or {})
     connect = sorted_set(connect, p.connect or {})
     loopback = sorted_set(loopback, p.loopback or {})
     env = sorted_set(env, p.env or {})
@@ -704,7 +742,7 @@ function rules.merge(...: rules.Policy): rules.Policy?, string
     limits.processes = own.processes or limits.processes
     if why ~= "" then return refuse(why) end
   end
-  local grants: mut {rules.Grant} = {}
+  local paths: mut {rules.Path} = {}
   for _, held in ipairs(order) do
     local letters: mut {string} = {}
     for letter in pairs(held.letters) do letters[#letters + 1] = letter end
@@ -713,12 +751,16 @@ function rules.merge(...: rules.Policy): rules.Policy?, string
     if canonical == nil then
       return refuse(path_of({ "grants" }) .. ": the grant of " .. held.path .. " holds no letter of \"" .. LETTERS .. "\"")
     end
-    grants[#grants + 1] = { path = held.path, from = held.from, letters = canonical }
+    paths[#paths + 1] = { path = held.path, from = held.from, letters = canonical }
   end
-  table.sort(grants, function(a: rules.Grant, b: rules.Grant): boolean
+  table.sort(paths, function(a: rules.Path, b: rules.Path): boolean
     if a.path ~= b.path then return a.path < b.path end
     return (a.from or "") < (b.from or "")
   end)
+  -- The paths in order, then the calls in theirs.
+  local grants: mut {rules.Grant} = {}
+  for _, grant in ipairs(paths) do grants[#grants + 1] = grant end
+  for _, promise in ipairs(promises) do grants[#grants + 1] = { calls = promise } end
   -- `file` implies `proc`: written out, so the two spellings are one policy.
   local implied: rules.Isolate = "proc"
   local has_file, has_proc = false, false
@@ -736,7 +778,7 @@ function rules.merge(...: rules.Policy): rules.Policy?, string
   local conflict = loopback_conflict(loopback, connect, true)
   if conflict ~= "" then return refuse(conflict) end
   local result: rules.Policy = {
-    grants = grants, isolate = isolate, promises = promises,
+    grants = grants, isolate = isolate,
     connect = connect, loopback = loopback, env = env, set_env = set_env,
     set_env_digests = digests, tmp = tmp, limits = limits,
     user = user, group = group, database = database,
@@ -847,8 +889,8 @@ end
 --- What two merged policies hold stacked: what both allow.
 local function intersect_two(a: rules.Policy, b: rules.Policy): rules.Policy?, string
   local grants: mut {rules.Grant} = {}
-  for _, ga in ipairs(a.grants or {}) do
-    for _, gb in ipairs(b.grants or {}) do
+  for _, ga in ipairs(rules.paths(a)) do
+    for _, gb in ipairs(rules.paths(b)) do
       if ga.from ~= nil or gb.from ~= nil then
         if ga.path == gb.path and ga.from ~= gb.from then
           return refuse(path_of({ "grants" }) .. ": " .. ga.path .. " is mapped from two host paths, " ..
@@ -871,6 +913,9 @@ local function intersect_two(a: rules.Policy, b: rules.Policy): rules.Policy?, s
         end
       end
     end
+  end
+  for _, promise in ipairs(common(rules.calls(a), rules.calls(b))) do
+    grants[#grants + 1] = { calls = promise }
   end
   local connect: mut {string} = {}
   for _, ta in ipairs(a.connect or {}) do
@@ -905,7 +950,7 @@ local function intersect_two(a: rules.Policy, b: rules.Policy): rules.Policy?, s
   -- one user, group and database, refused where the two disagree.
   local result: rules.Policy = {
     grants = grants, isolate = sorted_set(a.isolate or {}, b.isolate or {}),
-    promises = common(a.promises or {}, b.promises or {}), connect = connect,
+    connect = connect,
     loopback = common(a.loopback or {}, b.loopback or {}), env = common(a.env or {}, b.env or {}),
     set_env = a.set_env, set_env_digests = a.set_env_digests, limits = limits,
     tmp = a.tmp == true and b.tmp == true, user = a.user or b.user, group = a.group or b.group,
@@ -941,7 +986,7 @@ function rules.allows(p: rules.Policy, path: string, letters: string): boolean, 
   end
   local at = clean_path(path)
   local missing = letters
-  for _, grant in ipairs(p.grants or {}) do
+  for _, grant in ipairs(rules.paths(p)) do
     if within(at, clean_path(grant.path)) then
       missing = missing:gsub("[" .. grant.letters .. "]", "")
     end
@@ -955,7 +1000,7 @@ end
 --- ([`cosmic.sandbox.tailnet`]).
 function rules.with_connect(p: rules.Policy, connect: {string}): rules.Policy
   local result: rules.Policy = {
-    grants = p.grants, isolate = p.isolate, promises = p.promises,
+    grants = p.grants, isolate = p.isolate,
     connect = connect, loopback = p.loopback, env = p.env, set_env = p.set_env,
     set_env_digests = p.set_env_digests, tmp = p.tmp, limits = p.limits,
     user = p.user, group = p.group, database = p.database, profiles = p.profiles,

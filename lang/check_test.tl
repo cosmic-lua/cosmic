@@ -52,7 +52,7 @@ local CASES <const>: {Case} = {
   {
     code = "nil_not_allowed", source = FIND .. "local s: string = find()\n", at = { line = 4, column = 19 },
     msg = "`find()` is `string?`, so it may be nil, where `string` is wanted as the value of `s`",
-    fix = "take the value with `local v = assert(find())`, or test it first",
+    fix = "take the value with `local v = find()!`, or test it first",
   },
   {
     code = "nil_not_allowed", source = "local s: string = nil\n",
@@ -1357,12 +1357,12 @@ local function test_the_fix_of_an_optional_that_may_hold_a_boolean_names_no_bare
       "  return v\nend\n") == "")
   -- A value that holds no boolean is taken with `assert` as before.
   local whole = first_error("local function f(xs: {integer}): integer\n  return xs[1]\nend\n", "index_may_be_nil")
-  assert(has(whole.fix, "`Array.at(xs, 1)`") and has(whole.fix, "or `assert(xs[1])`"), whole.fix)
+  assert(has(whole.fix, "`Array.at(xs, 1)`") and has(whole.fix, "or `xs[1]!`"), whole.fix)
   local keyed = first_error("local function f(m: {string: integer}, k: string): integer\n  return m[k]\nend\n",
     "index_may_be_nil")
-  assert(has(keyed.fix, "take it with `assert(m[k])`") and has(keyed.fix, "`m[k] or <default>`"), keyed.fix)
+  assert(has(keyed.fix, "take it with `m[k]!`") and has(keyed.fix, "`m[k] or <default>`"), keyed.fix)
   local text = first_error("local function f(s: string?): string\n  return s\nend\n", "nil_not_allowed")
-  assert(has(text.fix, "take it with `assert(s)`"), text.fix)
+  assert(has(text.fix, "take it with `s!`"), text.fix)
 end
 
 --- What `assert` takes as before: a boolean, an optional that holds no boolean, a value and its reason, an effect and its
@@ -1734,7 +1734,7 @@ end
 local function test_a_map_read_that_may_be_nil_is_told_a_missing_key_not_an_array_fix()
   local e = first_error("local spans: {string: integer} = {}\nlocal function at(a: string): integer\n  return spans[a]\nend\n",
     "index_may_be_nil")
-  assert(has(e.fix, "`assert(spans[a])` where the key must be there"), e.fix)
+  assert(has(e.fix, "`spans[a]!` where the key must be there"), e.fix)
   assert(not has(e.fix, "ipairs") and not has(e.fix, "Array.at"), e.fix)
   -- an array's read keeps the array's fix
   local a = first_error("local xs: {integer} = {}\nlocal function at(i: integer): integer\n  return xs[i]\nend\n", "index_may_be_nil")
@@ -2104,13 +2104,13 @@ local function test_the_hint_of_an_index_read_names_the_loop_and_the_checked_rea
     return e.fix
   end
   local named = fix_of("local xs: {integer} = {}\nlocal i: integer = 2\nlocal n: integer = xs[i]\n", "index_may_be_nil")
-  for _, part in ipairs({ "for i = 1, #xs do", "if i >= 1 and i <= #xs then", "Array.at(xs, i)", "assert(xs[i])", "ipairs(xs)",
+  for _, part in ipairs({ "for i = 1, #xs do", "if i >= 1 and i <= #xs then", "Array.at(xs, i)", "xs[i]!", "ipairs(xs)",
       "or <default>", "a wrong value" }) do
     assert(has(named, part), part .. " is not in " .. named)
   end
   -- the loop is offered only for a local array read at a name
   local literal = fix_of("local xs: {integer} = {}\nlocal n: integer = xs[2]\n", "index_may_be_nil")
-  assert(has(literal, "Array.at(xs, 2)") and has(literal, "assert(xs[2])") and not has(literal, "for 2 = 1"), literal)
+  assert(has(literal, "Array.at(xs, 2)") and has(literal, "xs[2]!") and not has(literal, "for 2 = 1"), literal)
   local path = fix_of("local record R\n  items: {integer}\nend\nlocal r: R = { items = {} }\nlocal i: integer = 1\n" ..
       "local n: integer = r.items[i]\n", "index_may_be_nil")
   assert(has(path, "Array.at(r.items, i)") and not has(path, "count the keys") and not has(path, "test the index"), path)
@@ -2137,7 +2137,7 @@ local function test_a_read_at_the_index_of_a_loop_over_the_length_of_the_array_i
       "total = sum()\n") == "")
 end
 
---- `math.min` answers the least of its arguments, so a limit of `math.min(n, #t)` is at most `#t`.
+--- `math.min` returns the least of its arguments, so a limit of `math.min(n, #t)` is at most `#t`.
 local function test_a_read_at_the_index_of_a_loop_to_the_least_of_a_number_and_the_length_is_not_optional()
   assert(counted("for i = 1, math.min(2, #xs) do\n  total = total + xs[i]\nend\n") == "")
   assert(counted("for i = 1, math.min(#xs, total, 5) do\n  total = total + xs[i]\nend\n") == "")
@@ -2814,6 +2814,20 @@ local function test_a_table_literal_for_an_interface_with_library_advice_is_told
   -- an interface of no advice keeps the class it asks for
   local other = fix_of((use:gsub("cosmic.time", "other.time")), { ["other.time"] = TIME })
   assert(has(other, "class C is Time.CivilFields"), other)
+end
+
+local RULES <const> = "local record rules\n  record Policy\n    profiles?: {string}\n  end\nend\nreturn rules\n"
+
+local function test_a_field_a_library_type_had_once_is_told_what_took_its_place()
+  local modules = { ["cosmic.sandbox.policy"] = RULES }
+  local head = "local rules = require(\"cosmic.sandbox.policy\")\n"
+  local written = fix_of(head .. "local p: rules.Policy = { promises = { \"fork\" } }\nlocal _ = p\n", modules)
+  assert(has(written, "calls = \"fork\"") and has(written, "Sandbox.calls(policy)"), written)
+  local read = fix_of(head .. "local p: rules.Policy = {}\nlocal _ = p.promises\n", modules)
+  assert(has(read, "Sandbox.calls(policy)"), read)
+  -- a field of no advice keeps the generic fix
+  local other = fix_of(head .. "local p: rules.Policy = { profile = { \"a\" } }\nlocal _ = p\n", modules)
+  assert(has(other, "write `profiles`"), other)
 end
 
 local function test_a_write_to_a_view_that_may_leave_a_hole_names_the_map_that_runs_clean()

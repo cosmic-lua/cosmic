@@ -30,9 +30,9 @@
 --- two userdata types is not, which is why a slot is never given
 --- `SafeHtml | SafeAttr`.
 ---
---- A stage answers one value. Each stage's call is the argument of `_one`,
+--- A stage returns one value. Each stage's call is the argument of `_one`,
 --- an identity of one parameter, so the checker refuses a stage declared to
---- answer a fixed number of values above one, whether a slot, a condition
+--- return a fixed number of values above one, whether a slot, a condition
 --- or another stage takes it. Teal reads a variadic result (`T...`) as one
 --- argument, so a stage declared so passes the checker, and what holds it
 --- to one value is `_one` dropping the rest at run time.
@@ -42,7 +42,7 @@
 --- can export the record, and a module's body does not run for its types.
 --- The module must return the record type itself, as a `.d.tl` or `local
 --- record M ... end return M` does: one that returns a value of it is
---- refused at the `{{type}}`'s line, since `require` then answers no
+--- refused at the `{{type}}`'s line, since `require` then returns no
 --- type.
 ---
 --- Line N of the template is line N of the module. The requires, the
@@ -230,7 +230,7 @@ local function to_line(g: Gen, line: integer)
   end
 end
 
---- Writes `code` as the next statement of the line, and answers where in
+--- Writes `code` as the next statement of the line, and returns where in
 --- the pieces it went, for a header that is finished after its body.
 local function put(g: Gen, code: string): integer
   g.pieces[#g.pieces + 1] = (if g.started then " " else "" end) .. code

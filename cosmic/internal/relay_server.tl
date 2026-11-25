@@ -22,12 +22,12 @@
 ---    address and port literally ([`cosmic.relay.address`]'s `granted`),
 ---    whatever the address is. Nothing is resolved before this passes.
 --- 3. A name is resolved once, right now, with no cache, within the
----    `resolve` timeout, and the answers
+---    `resolve` timeout, and the addresses
 ---    [`cosmic.relay.address`]'s `permitted` allows are the only ones
 ---    connected to, tried in the order received (step 4): never another.
----    A loopback, private or metadata answer is allowed only by a literal
+---    A loopback, private or metadata address is allowed only by a literal
 ---    grant of that address.
---- 4. The `connect` connects the first of them that answers, one after
+--- 4. The `connect` connects the first of them that accepts, one after
 ---    another within the one `connect` timeout, each given an equal share
 ---    of what is left, so with several addresses a slow but working first
 ---    one gets only its share (the `connect` timeout divided by their
@@ -68,11 +68,11 @@
 --- connections open at once (`connections`), the bytes of a request
 --- (`header_bytes`) and the connections the relay serves in all
 --- (`total`). A connection past the first is still read as far as its
---- request, to be answered, but at most [`Relay.Limits.connections`] more
+--- request, to be refused, but at most [`Relay.Limits.connections`] more
 --- than the cap are accepted: the listeners wait beyond that.
 ---
 --- Name resolution waits through the run ([`Net.resolve`] in a task), so
---- only the connection resolving waits for its answer, at most the
+--- only the connection resolving waits for its result, at most the
 --- `resolve` timeout; the others, their deadlines and the stop go on.
 ---
 --- The relay asks for no credentials unless its spec carries a `token`, as
@@ -224,7 +224,7 @@ local record Relay
     refused: integer
   end
 
-  --- A running relay, answered by [`Relay.start`].
+  --- A running relay, from [`Relay.start`].
   record Serving
     --- Closes the listeners and every open connection, and ends every
     --- task of the relay once they have noticed.
@@ -272,7 +272,7 @@ local MAX_LOG <const> = 600
 --- The most bytes read at once.
 local CHUNK <const> = 16384
 
---- A fatal TLS handshake_failure alert, the answer to a hello the relay
+--- A fatal TLS handshake_failure alert, the reply to a hello the relay
 --- refuses.
 local TLS_ALERT <const> = "\21\3\3\0\2\2\40"
 
@@ -485,7 +485,7 @@ local function first_wait(run: Running): integer
   return if run.token_digest ~= nil then run.timeouts.auth else run.timeouts.head end
 end
 
---- The request of a CONNECT connection, or a refusal to answer it with.
+--- The request of a CONNECT connection, or a refusal to reply with.
 --- `first` is what was read of it already, within the wait that ends at
 --- `deadline`.
 local function read_connect(run: Running, conn: Net.Conn, first: string, deadline: integer): Wire.Connect, string
@@ -536,7 +536,7 @@ local record Socks
   kind: Wire.Kind
   port: integer
   leftover: string
-  --- Whether the program should be answered at all.
+  --- Whether the program gets a reply at all.
   answer: boolean
 end
 
@@ -673,7 +673,7 @@ local record Found
   refused?: Refusal
 end
 
---- What a lookup in a task of its own answered, which it hands back in a
+--- What a lookup in a task of its own found, which it hands back in a
 --- table.
 local record Looked
   mut found?: {Net.Resolved}
@@ -720,7 +720,7 @@ local function address_of(run: Running, name: string, kind: Wire.Kind, port: int
       lookup:cancel()
       found, why = nil, joined_why.message
     elseif found == nil and why == nil then
-      -- Ended without an answer, which a cancel or a stop does not do.
+      -- Ended without a result, which a cancel or a stop does not do.
       why = "the lookup ended without an answer"
     end
     if found == nil then
@@ -739,7 +739,7 @@ local function address_of(run: Running, name: string, kind: Wire.Kind, port: int
     -- The upstream's address is the one the caller's own https_proxy names: the
     -- relay may connect to it (a proxy on loopback or a private network is the
     -- usual one) without the program being granted it, which would let the
-    -- program ask the proxy for any host. Every answer of its name is trusted
+    -- program ask the proxy for any host. Every address of its name is trusted
     -- so, and tried in order; the decision line names the one connected to;
     -- the metadata and unspecified classes are not excepted,
     -- since the caller, not the sandbox, chose this name.
@@ -768,7 +768,7 @@ local record Connected
   refused?: Refusal
 end
 
---- Connects to the first of `addresses` on `port` that answers, trying
+--- Connects to the first of `addresses` on `port` that accepts, trying
 --- them in order within `deadline`: each attempt is given an equal share of
 --- the time left, the first of the connect timeout, so one that hangs
 --- leaves the rest theirs. `label` names the destination in a failure
@@ -874,9 +874,9 @@ end
 
 --- Carries bytes between `client` and `far` until the connection ends;
 --- `first` is what `far` sent already, and `sniff` the check on what
---- the client sends first. Answers why it ended.
+--- the client sends first. Returns why it ended.
 local function tunnel(run: Running, req: Request, client: Net.Conn, far: Net.Conn, first: string,
-                      sniff: Sniff?): string
+                      sniff: Sniff?, closer?: Wire.ResponseCloser): string
   local idle = run.timeouts.idle
   local flow_ended: string = ""
   local flow_stamp: integer = Clock.monotonic_ns()
@@ -888,11 +888,22 @@ local function tunnel(run: Running, req: Request, client: Net.Conn, far: Net.Con
     end
   end
   --- Pumps `from` to `to`; `check` is the sniff, for the client's side.
-  local function pump(from: Net.Conn, to: Net.Conn, pending: string, check: Sniff?, name: string)
+  local function pump(from: Net.Conn, to: Net.Conn, pending: string, check: Sniff?, name: string,
+                      rewrite?: Wire.ResponseCloser)
     -- The check stands until the hello is judged.
     local sniff_pending: Sniff? = check
-    local function pass(data: string): boolean
+    local function pass(given: string): boolean
       flow_stamp = Clock.monotonic_ns()
+      local data = given
+      if rewrite ~= nil then
+        local out, why = rewrite:feed(given)
+        if out == nil then
+          end_with(why)
+          return false
+        end
+        if out == "" then return true end
+        data = out
+      end
       if not send(to, data, idle) then
         end_with(name .. ": the other side stopped taking bytes")
         return false
@@ -961,7 +972,7 @@ local function tunnel(run: Running, req: Request, client: Net.Conn, far: Net.Con
       end
     end
   end
-  local down = Poll.spawn(function() pump(far, client, first, nil, "from the far side") end)
+  local down = Poll.spawn(function() pump(far, client, first, nil, "from the far side", closer) end)
   pump(client, far, req.leftover, sniff, "from the program")
   local _, _ = down:join()
   if flow_ended == "" then
@@ -995,7 +1006,7 @@ local record Slot
 end
 
 --- Moves the connection of `slot` into the counts of open and accepted
---- connections, from the pre-auth count where it was; answers why it is
+--- connections, from the pre-auth count where it was; returns why it is
 --- refused outright, or "".
 local function admit(run: Running, slot: Slot): string
   if slot.pre_auth then
@@ -1054,6 +1065,8 @@ local function serve_connection(run: Running, protocol: string, client: Net.Conn
   end
   local reading_until = Clock.monotonic_ns() + first_wait(run)
   local sniffed = ""
+  --- Whether the request is plain HTTP to an absolute URL, which is passed on with no CONNECT reply.
+  local plain = false
   if protocol == "mixed" then
     local data, why = read_before(client, reading_until, 1)
     if data == nil or data == "" then
@@ -1090,6 +1103,13 @@ local function serve_connection(run: Running, protocol: string, client: Net.Conn
       return
     end
     req.host, req.kind, req.port, req.leftover = host, kind, port, rest
+    local forward = head.forward
+    if forward ~= nil then
+      -- A plain request: the origin is sent its head in place of the client's, and no CONNECT reply.
+      plain = true
+      req.protocol = "http"
+      req.leftover = forward .. rest
+    end
   else
     local asked = read_socks(run, client, authenticated, sniffed, reading_until)
     if asked.status == "refused" then
@@ -1182,19 +1202,23 @@ local function serve_connection(run: Running, protocol: string, client: Net.Conn
     local _, _ = far:close()
     return
   end
-  local ok = send(client, if protocol == "connect" then Wire.connect_ok() else Wire.socks_reply("succeeded") end, run.timeouts.head)
-  if not ok then
-    run.log(("#%d %s %s: the program went away before the reply"):format(id, protocol, shown))
-    local _, _ = far:close()
-    local _, _ = client:close()
-    return
+  if not plain then
+    local ok = send(client, if protocol == "connect" then Wire.connect_ok() else Wire.socks_reply("succeeded") end,
+      run.timeouts.head)
+    if not ok then
+      run.log(("#%d %s %s: the program went away before the reply"):format(id, protocol, shown))
+      local _, _ = far:close()
+      local _, _ = client:close()
+      return
+    end
   end
-  run.log(("#%d %s %s: allowed %s"):format(id, protocol, shown, how))
-  local sniff: Sniff = {
+  run.log(("#%d %s %s: allowed %s"):format(id, req.protocol, shown, how))
+  -- A plain request is no TLS: what it reaches is the target its URL named, which the grants judged.
+  local sniff: Sniff? = if plain then nil else {
     reader = Wire.hello_reader(), host = req.host, kind = req.kind, strict = run.tls_ports[req.port] == true,
     held = "", deadline = 0,
-  }
-  tunnel(run, req, client, far, first, sniff)
+  } end
+  tunnel(run, req, client, far, first, sniff, if plain then Wire.response_closer() else nil end)
 end
 
 --- Takes the connections of `listener`, each in a task of its own.

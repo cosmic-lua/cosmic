@@ -63,5 +63,13 @@ local function test_a_snippet_of_no_commands_runs_no_program()
   assert(value ~= nil, shown(answer))
   local ran, _ = Fs.read(dir .. "/ran.txt")
   assert(answer["ok"] == true and value["bashed"] == false and value["ran"] == false and ran == nil, shown(answer))
+  -- Nor may the worker become another program: execve itself is refused, and the worker answers on.
+  local exec = "local sys = require(\"cosmic.sys\")\n" ..
+    "local done, _, errno = sys.execve(\"/bin/sh\", { \"/bin/sh\", \"-c\", \"echo ran > ran.txt\" }, {})\n" ..
+    "return not done and (errno == sys.EPERM or errno == sys.EACCES)\n"
+  local refused = assert(Worker.run(w, exec, { cwd = dir, policy = p, seconds = 60, commands = false }))
+  local after, _ = Fs.read(dir .. "/ran.txt")
+  assert(refused["ok"] == true and refused["value"] == true and after == nil, shown(refused))
+  assert(w.started == 1, tostring(w.started))
   Worker.close(w)
 end

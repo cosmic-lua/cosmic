@@ -402,9 +402,9 @@ end
 --- test's values, or `entropy` to draw from a pool.
 ---
 --- `entropy` is asked for 16 bytes for a version 4 value and 8 for a
---- version 7 one, and answers as [`Rand.entropy`] does. When it answers
+--- version 7 one, and returns as [`Rand.entropy`] does. When it returns
 --- nil and a reason, the draw returns nil and that reason. When it
---- answers a string of another length, the draw returns nil and says so.
+--- returns a string of another length, the draw returns nil and says so.
 --- An error it raises is not caught. A version 7 draw reads the clock
 --- first, and asks for no bytes when it refuses the reading.
 --- @param entropy function The source of bytes

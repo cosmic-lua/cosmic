@@ -26,7 +26,7 @@ local record Router
   record Context
     --- The trailing-slash policy.
     policy: Types.TrailingSlash
-    --- Answers a request no route takes: the innermost handler of every
+    --- Handles a request no route takes: the innermost handler of every
     --- miss.
     terminal: Types.Handler
     --- The handler for a request this level cannot route: the terminal
@@ -461,13 +461,13 @@ local record Hit
 end
 
 --- What a walk carries: the method looked up, and the most specific node
---- the path reached that answers some other method.
+--- the path reached that takes some other method.
 local record Walk
   method: string
   mut other?: Hit
 end
 
---- Whether `methods` answers `method` (HEAD by a GET).
+--- Whether `methods` takes `method` (HEAD by a GET).
 local function answers(methods: Types.Methods, method: string): boolean
   return methods.by_method[method] ~= nil or (method == "HEAD" and methods.by_method["GET"] ~= nil)
 end
@@ -532,7 +532,7 @@ local function allow_of(verbs: {string:boolean}): string
   return table.concat(list, ", ")
 end
 
---- The methods answered at `methods`.
+--- The methods handled at `methods`.
 local function verbs_of(methods: Types.Methods): {string:boolean}
   local verbs: mut {string:boolean} = {}
   for method in pairs(methods.by_method) do verbs[method] = true end
@@ -540,10 +540,10 @@ local function verbs_of(methods: Types.Methods): {string:boolean}
 end
 
 --- Looks `segments`, from the `from`th, up in `router` for `method`. The
---- most specific route that answers the method wins: where the most
---- specific node answers others alone (`POST /files` beside `GET
+--- most specific route that takes the method wins: where the most
+--- specific node takes others alone (`POST /files` beside `GET
 --- /files/*r`) the lookup goes on to the next node that has the method, and
---- answers 405 (or the automatic OPTIONS) only where none does, with the
+--- ends in 405 (or the automatic OPTIONS) only where none does, with the
 --- `Allow` of the most specific node the path reached.
 --- @param router Types.Router The router, or a mount's
 --- @param method string The request's method
@@ -596,8 +596,8 @@ function Router.lookup(router: Types.Router, method: string, segments: {string},
     mount_path = router.mount_path }
 end
 
---- The answer to `OPTIONS *`, which names no resource: 204 with every
---- method the app answers. Any other method is a bad request.
+--- The outcome of `OPTIONS *`, which names no resource: 204 with every
+--- method the app handles. Any other method is a bad request.
 --- @param router Types.Router The router
 --- @param method string The request's method
 --- @return Types.Outcome What to do
@@ -611,12 +611,12 @@ end
 
 --- Compiles `routes` into a router. Raises, naming the pattern, for a route
 --- or mount that cannot be registered: a pattern that is not valid, two
---- routes answering the same paths for one method, a name used twice, a
+--- routes taking the same paths for one method, a name used twice, a
 --- route under a mount's prefix, or one whose full path (a mount's prefix
 --- and its pattern) starts with the reserved `/_web/` (unless `served` is
 --- false: an app without the built-in files leaves the prefix to its routes).
 --- @param routes {Types.Route} The routes
---- @param terminal Types.Handler Answers a request no route takes
+--- @param terminal Types.Handler Handles a request no route takes
 --- @param policy TrailingSlash | nil "redirect" (default) or "strict"
 --- @param served boolean | nil Whether cosmic.web serves `/_web/` (default true)
 --- @return Types.Router The router

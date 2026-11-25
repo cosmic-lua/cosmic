@@ -145,7 +145,7 @@ local record Types
     end_line: integer
   end
 
-  --- The lexer's answer: its items, and how many lines the template
+  --- The lexer's result: its items, and how many lines the template
   --- has (one more than its newlines).
   record Lexed
     --- The items, in the order they stand in the template.
