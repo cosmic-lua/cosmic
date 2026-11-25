@@ -55,7 +55,7 @@ local function test_a_snippet_of_no_commands_runs_no_program()
     "return { bashed = bashed, ran = res ~= nil and res.ok }\n"
   -- With commands, the same snippet runs both, so it is the policy that holds the one without.
   local free = Worker.new()
-  local with = assert(Worker.run(free, code, { cwd = dir, policy = p, seconds = 60 }))
+  local with = assert(Worker.run(free, code, { cwd = dir, policy = p, seconds = 60, commands = true }))
   local both, _ = Json.to_object(with["value"])
   assert(both ~= nil and both["bashed"] == true and both["ran"] == true, shown(with))
   Worker.close(free)
@@ -73,6 +73,10 @@ local function test_a_snippet_of_no_commands_runs_no_program()
   local after, _ = Fs.read(dir .. "/ran.txt")
   assert(refused["ok"] == true and refused["value"] == true and after == nil, shown(refused))
   assert(w.started == 1, tostring(w.started))
+  -- A run with commands starts a new worker, which runs them.
+  local later = assert(Worker.run(w, code, { cwd = dir, policy = p, seconds = 60, commands = true }))
+  local now, _ = Json.to_object(later["value"])
+  assert(now ~= nil and now["bashed"] == true and w.started == 2, shown(later))
   Worker.close(w)
 end
 

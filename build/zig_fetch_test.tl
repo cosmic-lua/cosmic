@@ -27,7 +27,7 @@ local function test_a_raise_during_install_leaves_no_scratch_directory(tmp: stri
   local _, _ = ZigFetch.install(cache, cache .. "/warm", "0.1.0", "x86_64-linux", nil)
   local before = support.descriptors()
   local real = Http.download
-  Http.download = function(_url: string, _path: string, _options: Http.Options): (true) | (false, Failure) -- checked: field_fixed
+  Http.download = function(_url: string, _path: string, _options: Http.DownloadOptions): (true) | (false, Failure) -- checked: field_fixed
     error("the download raised")
   end
   local ok, trouble = pcall(ZigFetch.install, cache, cache .. "/0.1.0-x86_64-linux", "0.1.0", "x86_64-linux", "abc")
@@ -82,18 +82,14 @@ local downloaded: Reply = {}
 --- pauses. Only pauses and `per_call_ns`
 --- advance the clock.
 local function scripted(replies: {string:{Reply}}, calls: mut {string},
-                        sleeps: mut {integer}, per_call_ns?: integer, seen?: mut {Http.Options}): ZigFetch.Fetcher
+                        sleeps: mut {integer}, per_call_ns?: integer, seen?: mut {ZigFetch.Bounds}): ZigFetch.Fetcher
   local served: mut {string:integer} = {}
   local clock = { value = 0 }
   return {
-    download = function(url: string, path: string, opts: Http.Options): (true) | (false, Failure)
-      assert(assert(opts.digests)["sha256"] == "abc")
-      local connect_timeout_ns = opts.connect_timeout_ns
-      local low_speed_bytes = opts.low_speed_bytes
-      local low_speed_ns = opts.low_speed_ns
-      assert(connect_timeout_ns ~= nil and connect_timeout_ns > 0 and
-          low_speed_bytes ~= nil and low_speed_bytes >= 1024 and
-          low_speed_ns ~= nil and low_speed_ns > 0, "an attempt has no stall guard")
+    download = function(url: string, path: string, opts: ZigFetch.Bounds): (true) | (false, Failure)
+      assert(opts.sha256 == "abc")
+      assert(opts.connect_timeout_ns > 0 and opts.low_speed_bytes >= 1024 and opts.low_speed_ns > 0,
+        "an attempt has no stall guard")
       assert(not assert(Fs.status(path)).exists, "an attempt started over an earlier file")
       calls[#calls + 1] = url
       if seen ~= nil then
@@ -199,13 +195,13 @@ end
 local function test_fetch_bounds_mirrors_by_the_budget_and_the_fallback_by_its_own(tmp: string)
   local calls: mut {string} = {}
   local sleeps: mut {integer} = {}
-  local seen: {Http.Options} = {}
+  local seen: mut {ZigFetch.Bounds} = {}
   -- Each attempt takes five minutes, and the budget is twelve.
   local ok, trouble = ZigFetch.fetch({ "http://mirror", "http://fallback" }, tmp .. "/z", "abc",
     scripted({
       ["http://mirror"] = { failed("timed out") },
       ["http://fallback"] = { failed("stalled") },
-    }, calls, sleeps, Clock.minutes(5), seen)) -- checked: not_assignable
+    }, calls, sleeps, Clock.minutes(5), seen))
   assert(not ok)
   assert(table.concat(calls, " ") ==
       "http://mirror http://fallback http://mirror http://fallback http://fallback",
@@ -229,10 +225,9 @@ end
 local function test_fetch_sees_a_real_mismatch(tmp: string)
   local calls: mut {string} = {}
   local fetcher: ZigFetch.Fetcher = {
-    download = function(url: string, path: string, opts: Http.Options): (true) | (false, Failure)
+    download = function(url: string, path: string, limits: ZigFetch.Bounds): (true) | (false, Failure)
       calls[#calls + 1] = url
-      return Http.download(url, path,
-        { ...opts, script = { "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nwrong" } })
+      return ZigFetch.download(url, path, limits, { "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nwrong" })
     end,
     sleep = function(_: integer) end,
     now = function(): integer return 0 end,

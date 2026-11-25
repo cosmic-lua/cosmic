@@ -119,7 +119,7 @@ local function test_a_restart_serves_the_kept_certificate_and_asks_the_ca_nothin
   local _, ok, why = serve(auto_of(dir, fake_ca(port)), port)
   assert(ok, why)
   local silent = acme_fixture.new_server()
-  silent.request = function(_m: string, url: string, _o: Http.Options): Http.Body?, string
+  silent.request = function(_m: string, url: string, _o: Http.RequestOptions): Http.Body?, string
     error("the CA was asked for " .. url)
   end
   local again = free_port()
@@ -140,7 +140,7 @@ local function test_a_kept_certificate_that_misses_a_name_is_issued_again(tmp: s
   local ca = fake_ca(port)
   ca.check = function(_domain: string, _token: string): string return "valid" end
   local request = ca.request
-  ca.request = function(m: string, url: string, o: Http.Options): Http.Body?, string
+  ca.request = function(m: string, url: string, o: Http.RequestOptions): Http.Body?, string
     asked = true
     return request(m, url, o)
   end
@@ -253,7 +253,7 @@ local function test_a_kept_certificate_with_another_key_is_issued_again(tmp: str
   local ca = fake_ca(free_port())
   ca.check = function(_domain: string, _token: string): string return "valid" end
   local request = ca.request
-  ca.request = function(m: string, url: string, o: Http.Options): Http.Body?, string
+  ca.request = function(m: string, url: string, o: Http.RequestOptions): Http.Body?, string
     asked = true
     return request(m, url, o)
   end

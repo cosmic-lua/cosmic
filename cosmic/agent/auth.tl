@@ -28,7 +28,8 @@
 ---
 --- --model opus (the default) is claude-opus-5-5, --model sonnet is
 --- claude-sonnet-5-5, and --model haiku is claude-haiku-5-5: the latest
---- of each. --effort is medium unless it says low, high, xhigh or max.
+--- of each. --effort is low for haiku and medium for the rest, unless it
+--- says another.
 --- Thinking is adaptive, and a refusal falls back to another model on
 --- the server.
 
@@ -39,7 +40,7 @@ local Json = require("cosmic.json")
 
 local record Auth
   --- Sends one request: Http.request's shape, so a test can stand in.
-  type Send = function(method: string, url: string, opts: Http.Options): Http.Body?, string
+  type Send = function(method: string, url: string, opts: Http.RequestOptions): Http.Body?, string
   --- The headers that sign the next request, or nil and why.
   type Sign = function(): {string: string}?, string
   --- The clock, in nanoseconds. A test stands in for it.
@@ -118,7 +119,7 @@ function Auth.from(env: function(string): string?, base: string, send?: Auth.Sen
     return nil, "no credential: set ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN, or federation's variables " ..
       "(cosmic docs cosmic.agent.auth)"
   end
-  local go: Auth.Send = send or function(method: string, url: string, opts: Http.Options): Http.Body?, string
+  local go: Auth.Send = send or function(method: string, url: string, opts: Http.RequestOptions): Http.Body?, string
     local body, why = Http.request(method, url, opts)
     if body == nil then return nil, tostring(why) end
     return body, ""

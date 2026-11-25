@@ -150,4 +150,16 @@ function Failure.mismatch(message: string, path?: string): Failure
     code = nil, extended_code = nil }
 end
 
+--- `why`, met while doing what `context` says: a new failure of its
+--- kind, path, errno, place and code, whose message is
+--- `context: message`, so a caller that adds what it was doing keeps
+--- the cause a caller acts on. `tostring` gives `context: message`,
+--- after `path: ` when `why` has a path; `why` is left as it is.
+---
+---     if not ok then return nil, Failure.within(why, "tar: add_file") end
+function Failure.within(why: Failure, context: string): Failure
+  return { kind = why.kind, message = context .. ": " .. why.message, path = why.path, errno = why.errno,
+    line = why.line, column = why.column, code = why.code, extended_code = why.extended_code }
+end
+
 return Failure

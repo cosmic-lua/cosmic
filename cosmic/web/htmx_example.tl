@@ -38,7 +38,7 @@ function Example.reply()
   assert(Web.header(res, "HX-Trigger") == '{"saved":{"id":7}}')
   local refused, why = Htmx.apply(Web.empty(200), { redirect = "//evil.example/" })
   assert(refused == nil)
-  assert(why:find("same-origin", 1, true))
+  assert(tostring(why):find("same-origin", 1, true))
 end
 
 --- After a POST an htmx request is redirected by header, as its XHR would

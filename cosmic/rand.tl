@@ -29,6 +29,7 @@
 
 local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
+local Failure = require("cosmic.failure")
 local sys = require("cosmic.sys")
 
 local record Rand
@@ -358,13 +359,13 @@ end
 --- Raises when `count` is negative or past 1 MiB.
 --- @param count integer How many bytes
 --- @return string | nil The bytes
---- @return string Why none were drawn, or "" when they were
-function Rand.entropy(count: integer): string?, string
+--- @return Failure Why none were drawn
+function Rand.entropy(count: integer): (string) | (nil, Failure)
   local bytes, trouble = sys.entropy(count)
   if bytes == nil then
-    return nil, "rand: entropy: " .. trouble
+    return nil, Failure.new("rand: entropy: " .. trouble)
   end
-  return bytes, ""
+  return bytes
 end
 
 --- `bytes`, which must be sixteen, as a UUID in its canonical text:
@@ -403,7 +404,7 @@ end
 ---
 --- `entropy` is asked for 16 bytes for a version 4 value and 8 for a
 --- version 7 one, and returns as [`Rand.entropy`] does. When it returns
---- nil and a reason, the draw returns nil and that reason. When it
+--- nil and a [`Failure`], the draw returns nil and that same Failure. When it
 --- returns a string of another length, the draw returns nil and says so.
 --- An error it raises is not caught. A version 7 draw reads the clock
 --- first, and asks for no bytes when it refuses the reading.
@@ -411,9 +412,9 @@ end
 --- @param now_ns function The wall clock, in nanoseconds
 --- @return function The function that draws
 function Rand.uuid_maker(
-    entropy?: function(count: integer): (string?, string),
+    entropy?: function(count: integer): (string) | (nil, Failure),
     now_ns?: function(): integer
-): function(version?: integer): (string?, string)
+): function(version?: integer): (string) | (nil, Failure)
   local draw_bytes = entropy or Rand.entropy
   local read_clock = now_ns or Clock.now_ns
   -- The last version 7 timestamp given: milliseconds in the high bits,
@@ -421,28 +422,28 @@ function Rand.uuid_maker(
   local last = -1
 
   --- `count` bytes of the source, or nil and why there are none.
-  local function drawn(count: integer): string?, string
+  local function drawn(count: integer): (string) | (nil, Failure)
     local bytes, trouble = draw_bytes(count)
     if bytes == nil then return nil, trouble end
     if #bytes ~= count then
-      return nil, ("rand: uuid: the entropy source answered a string of length %d, not %d"):format(#bytes, count)
+      return nil, Failure.new(("rand: uuid: the entropy source answered a string of length %d, not %d"):format(#bytes, count))
     end
-    return bytes, ""
+    return bytes
   end
 
-  return function(version?: integer): string?, string
+  return function(version?: integer): (string) | (nil, Failure)
     local wanted = version or 4
     if wanted == 4 then
       local bytes, trouble = drawn(16)
       if bytes == nil then return nil, trouble end
-      return Rand.uuid_of(bytes, 4), ""
+      return Rand.uuid_of(bytes, 4)
     end
     if wanted ~= 7 then
       error(("rand: uuid(%d): the version is 4 or 7"):format(wanted), 2)
     end
     local ns = read_clock()
     if ns < 0 then
-      return nil, ("rand: uuid: the clock reads %d ns, before 1970, which version 7 has no room for"):format(ns)
+      return nil, Failure.new(("rand: uuid: the clock reads %d ns, before 1970, which version 7 has no room for"):format(ns))
     end
     local tail, trouble = drawn(8)
     if tail == nil then return nil, trouble end
@@ -451,7 +452,7 @@ function Rand.uuid_maker(
     local stamp = ((ns // 1000000) << 12) | ((ns % 1000000) * 4096 // 1000000)
     if stamp <= last then stamp = last + 1 end
     last = stamp
-    return Rand.uuid_of(string.pack(">I6I2", stamp >> 12, stamp & 0xfff) .. tail, 7), ""
+    return Rand.uuid_of(string.pack(">I6I2", stamp >> 12, stamp & 0xfff) .. tail, 7)
   end
 end
 
@@ -472,12 +473,12 @@ local draw_uuid = Rand.uuid_maker()
 --- their clocks are, and a version 7 value tells its reader when it was
 --- drawn.
 ---
---- Nil and why when the entropy source fails or, for version 7, the
+--- Nil and a [`Failure`] when the entropy source fails or, for version 7, the
 --- clock reads before 1970. Raises when `version` is neither 4 nor 7.
 --- @param version integer 4 or 7; 4 when nil
 --- @return string | nil The UUID
---- @return string Why none was drawn, or "" when one was
-function Rand.uuid(version?: integer): string?, string
+--- @return Failure Why none was drawn
+function Rand.uuid(version?: integer): (string) | (nil, Failure)
   if version ~= nil and version ~= 4 and version ~= 7 then
     error(("rand: uuid(%d): the version is 4 or 7"):format(version), 2)
   end

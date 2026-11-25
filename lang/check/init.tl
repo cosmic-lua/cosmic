@@ -1755,6 +1755,29 @@ local function merge_maybe(ctx: Ctx, a: Flow.State, b: Flow.State?): Flow.State
   return merge(ctx, a, b)
 end
 
+--- Whether each call in `pending`, which [`Writes.keeps_length`] left to the types of their arguments, has a callee that
+--- may run no code of the program: a method (of a string, [`Calls.note_plain`]), or a function of
+--- [`Tests.inert_callee`] or [`Tests.quiet_callee`]. A call of any other function runs code of the program, whatever it is
+--- given.
+local function may_be_inert(pending: {Ast.Node}): boolean
+  for _, node in ipairs(pending) do
+    if (node.kind == "Call") and not (Tests.quiet_callee(node.callee) or Tests.inert_callee(node.callee)) then
+      return false
+    end
+  end
+  return true
+end
+
+--- Whether the walk just made found each call in `pending` to run no code of the program ([`after_call`]).
+local function all_inert(ctx: Ctx, pending: {Ast.Node}): boolean
+  for _, node in ipairs(pending) do
+    if ctx.inert[node.id] ~= true then
+      return false
+    end
+  end
+  return true
+end
+
 local function numeric_bound(ctx: Ctx, e: Ast.Exp, what: string): integer
   local t = expr(ctx, e, nil)
   return Operands.arithmetic_operand(ctx, e, t, "for " .. what)
@@ -1770,20 +1793,44 @@ local function for_numeric(ctx: Ctx, s: Ast.ForNum)
   end
   ctx.vars[s.var.id] = (from == 1 and step == 1) and ctx.store.integer or ctx.store.number -- checked: and_ternary
   local entry = ctx.flow
-  local fill = Writes.fill_of(s)
-  local span = Writes.span_of(s)
+  -- The calls of the limit and the body, whose arguments say whether they run code of the program
+  -- ([`Writes.keeps_length`]).
+  local pending: mut {Ast.Node} = {}
+  local fill = Writes.fill_of(s, pending)
+  local span = Writes.span_of(s, pending)
   local grow: Grow? = nil
   if Writes.counts_from_one(s) then
     grow = Writes.grow_in(ctx, s, s.var, s.body)
   end
-  ctx.flow = run_loop(ctx, entry, function(head: Flow.State): Flow.State, Flow.State
+  local function walk(head: Flow.State): Flow.State, Flow.State
     ctx.flow = head
     local loop = open_loop(ctx, fill, grow, span)
     declare_local(ctx, s.var.id, false)
     ctx.walk.block(ctx, s.body)
     local back, breaks = close_loop(ctx, loop, ctx.flow)
     return back, merge_maybe(ctx, head, breaks)
-  end)
+  end
+  if #pending > 0 and (fill ~= nil or span ~= nil) then
+    -- The loop holds its keys if no call in it runs code of the program. A quiet run of the loop with the keys held
+    -- types the arguments of each call: where each is inert, nothing ran to shorten the array before it, so the reads
+    -- before it were elements, and by induction over the passes every read is. The run that reports starts from the
+    -- same state and walks the same way, so its calls are the same.
+    -- Inside another such run, the proof is taken on trust: the calls typed under both proofs are among those that
+    -- run tests, and the walk after it tests this one with the outer proof held.
+    local inert = may_be_inert(pending)
+    if inert and ctx.proving == 0 then
+      ctx.quiet = ctx.quiet + 1
+      ctx.proving = ctx.proving + 1
+      local _ = run_loop(ctx, entry, walk)
+      ctx.proving = ctx.proving - 1
+      ctx.quiet = ctx.quiet - 1
+      inert = all_inert(ctx, pending)
+    end
+    if not inert then
+      fill, span = nil, nil
+    end
+  end
+  ctx.flow = run_loop(ctx, entry, walk)
 end
 
 local function for_generic(ctx: Ctx, s: Ast.ForIn)
@@ -2062,14 +2109,35 @@ local function if_statement(ctx: Ctx, s: Ast.If)
     local _ = condition(ctx, arm.cond)
     local yes, no = edges(ctx, ctx.flow, arm.cond)
     ctx.flow = yes
-    local ranges = Writes.ranges_of(arm.cond, arm.body)
-    for _, range in ipairs(ranges) do
-      ctx.ranges[#ctx.ranges + 1] = range
+    local pending: mut {Ast.Node} = {}
+    local ranges = Writes.ranges_of(arm.cond, arm.body, pending)
+    local function walk()
+      for _, range in ipairs(ranges) do
+        ctx.ranges[#ctx.ranges + 1] = range
+      end
+      ctx.walk.block(ctx, arm.body)
+      for _ = 1, #ranges do
+        ctx.ranges[#ctx.ranges] = nil
+      end
     end
-    ctx.walk.block(ctx, arm.body)
-    for _ = 1, #ranges do
-      ctx.ranges[#ctx.ranges] = nil
+    if #ranges > 0 and #pending > 0 then
+      -- As in a counted loop ([`for_numeric`]): a quiet walk with the ranges types the calls, which the condition's
+      -- walk has typed already, and the ranges stand if none runs code of the program.
+      local inert = may_be_inert(pending)
+      if inert and ctx.proving == 0 then
+        ctx.quiet = ctx.quiet + 1
+        ctx.proving = ctx.proving + 1
+        walk()
+        ctx.proving = ctx.proving - 1
+        ctx.quiet = ctx.quiet - 1
+        ctx.flow = yes
+        inert = all_inert(ctx, pending)
+      end
+      if not inert then
+        ranges = {}
+      end
     end
+    walk()
     ends[#ends + 1] = ctx.flow
     ctx.flow = no
   end
@@ -2377,6 +2445,7 @@ local function stat(ctx: Ctx, s: Ast.Stat)
         report(ctx, "failure_ignored", c, subject(ctx, c) .. " answers one of " .. tostring(#alts) .. " lists of values, " ..
             "one of which may be a failure, and as a statement it drops which one it answered, so a failure would pass unseen",
           "bind its values and test the first (`local " .. Naming.bound(alts) .. " = " .. call .. "`), match the call, " ..
+            (if ValueLists.asserted(ctx, alts) ~= nil then "raise where it fails with `" .. call .. "!`, " else "" end) ..
             "or discard them on purpose: `local " .. Naming.bound(alts, true) .. " = " .. call .. "`")
       end
     end
@@ -2513,7 +2582,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
       return false
     end, function(_node: Ast.Node, _spelled: string, _found: LoadOrder.Found) end),
     literals = {}, spreads = {}, tags = {}, declared = {}, union_fields = {}, spine = {},
-    ternaries = {}, spare = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, string_subs = {}, assigning = {}, quiet = 0, closers = 0, callee_module = "", member_module = "", moves = {},
+    ternaries = {}, spare = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, string_subs = {}, assigning = {}, quiet = 0, proving = 0, closers = 0, callee_module = "", member_module = "", moves = {},
     loops = {}, ranges = {}, map_reads = {}, keys = {}, edges = {}, guards = {}, ties = {}, coroutine_reads = {}, top = tops, module_table = module_table(input, lowered), initialized = {}, given = {}, handed = false, reads = {}, unfixed = {}, narrowed = {}, inert = {}, runs = {}, inferred = {}, boundaries = {}, types = {}, callees = {}, consts = {}, unread_schemas = {}, call_columns = {}, row_lists = {}, row_columns = {}, starts = {}, library = {}, typed = typed ~= false, warnings = {},
     unite = function(a: Type, b: Type): Type
       return store:union({ a, b })

@@ -91,12 +91,14 @@ function this_program.program(args: {string}, opts?: Child.Options): this_progra
   -- -1 is Child.FOREVER, which a worker loading this cannot read: cosmic.child
   -- is not in its store before the test runs. A test's runner bounds it.
   local given: Child.Options = opts or { timeout_ns = -1 }
-  if given.policy ~= nil and given.env ~= nil then
+  -- A start with layers is held as one with a policy is.
+  local held = given.policy ~= nil or given.layers ~= nil
+  if held and given.env ~= nil then
     error("this_program.program: env beside a policy: the policy's env and set_env are the " ..
         "child's whole environment", 2)
   end
   local relaunch: Proc.Relaunch?
-  if given.policy == nil then
+  if not held then
     local found, _ = Proc.relaunch()
     relaunch = found
   end
@@ -108,7 +110,7 @@ function this_program.program(args: {string}, opts?: Child.Options): this_progra
   end
   for _, word in ipairs(args) do argv[#argv + 1] = word end
   local env: mut {string:string}?
-  if given.policy == nil then
+  if not held then
     local fresh: mut {string:string} = {}
     for name, value in pairs(given.env or Env.all()) do fresh[name] = value end
     env = fresh
@@ -134,7 +136,7 @@ function this_program.program(args: {string}, opts?: Child.Options): this_progra
     env = env, fds = fds, cwd = given.cwd, stdin = given.stdin, input = given.input,
     stdout = given.stdout, stderr = given.stderr, capture_limit = given.capture_limit,
     process_group = given.process_group, timeout_ns = given.timeout_ns, sandbox = given.sandbox,
-    credentials = given.credentials, policy = given.policy, relay_log = given.relay_log,
+    credentials = given.credentials, policy = given.policy, layers = given.layers, relay_log = given.relay_log,
   } }
 end
 

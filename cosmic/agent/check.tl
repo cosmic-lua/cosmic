@@ -11,9 +11,8 @@
 --- to make them.
 ---
 ---     agent.before = Check.all({
----       Check.only({ "read", "edit" }),
----       Check.paths({ grants = { { path = cwd, letters = "rwc" } } }),
----       Check.budget({ edit = 20 }),
+---       Check.only({ "run", "history" }),
+---       Check.budget({ run = 20 }),
 ---     })
 
 local type Agent = require("cosmic.agent")
@@ -35,8 +34,8 @@ function Check.all(checks: {Agent.Before}): Agent.Before
 end
 
 --- Blocks a call of any name not in `names`: a tool, or a snippet's call
---- of the agent, so `{ "read", "run" }` lets a snippet make none, and
---- `{ "read", "run", "history", "mcp.servers", "mcp.tools", "mcp.call" }`
+--- of the agent, so `{ "run" }` lets a snippet make none, and
+--- `{ "run", "history", "mcp.servers", "mcp.tools", "mcp.call" }`
 --- lets it query and reach the MCP servers.
 function Check.only(names: {string}): Agent.Before
   local named: mut {string: boolean} = {}
@@ -72,7 +71,7 @@ end
 --- `policy` does not permit ([`Sandbox.permits`], from the call's
 --- directory): each path by its real name, a file made asking `c` of its
 --- directory. A tool that says no paths
---- passes, and bash and run say none, though they reach what the
+--- passes, and run says none, though its snippets reach what the
 --- sandbox lets them: hold those with the sandbox, or [`Check.only`]. A
 --- snippet's call of the agent has none.
 ---

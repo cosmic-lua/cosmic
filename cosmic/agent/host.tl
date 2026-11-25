@@ -36,7 +36,7 @@
 --- [`Host.store`] keeps a small value for a later snippet of the session, which [`Host.load`] reads, as a file would, but
 --- with the session: a resumed session reads it again.
 ---
---- The agent's own bash tool is there too, run in the snippet's sandbox, with a result a snippet reads as a value:
+--- With commands (--commands), a program runs too, in the snippet's sandbox, with a result a snippet reads as a value:
 --- [`Host.bash`] runs a command and returns its output and how it ended:
 ---
 ---     local ran = Host.bash("git status --short")
@@ -183,14 +183,33 @@ local record Host
 
   --- How a call reaches the agent, and its reply: what the worker connects ([`Host.connect`]).
   type Transport = function(name: string, args: Json.Value): (Json.Value) | (nil, Failure)
+
+  --- A change Host.edit or Host.write made to the file `path`: the replacements of an edit, or the lines a write wrote.
+  --- It is for a person to see what a snippet changed, not a record of every write: a snippet writes with Fs too.
+  record Change
+    --- The file, as the snippet named it.
+    path: string
+    --- An edit's replacements; nil for a write.
+    edits?: {Replacement}
+    --- How many lines a write wrote; nil for an edit.
+    lines?: integer
+  end
+
+  --- What hears each change ([`Host.connect`]).
+  type Noted = function(change: Host.Change)
 end
 
 --- The way calls reach the agent; nil outside a worker.
 local transport: Host.Transport? = nil
 
---- Sends each later call by `through`: the worker calls it before it runs a snippet.
-function Host.connect(through: Host.Transport)
+--- What hears each change Host.edit and Host.write make; nil outside a worker.
+local noted: Host.Noted? = nil
+
+--- Sends each later call by `through`, and tells `changes` each file Host.edit and Host.write change: the worker
+--- calls it before it runs a snippet.
+function Host.connect(through: Host.Transport, changes?: Host.Noted)
   transport = through
+  noted = changes
 end
 
 --- The agent's reply to the call `name` with `args`, or why there is none: no agent, a call it does not serve, or
@@ -431,8 +450,7 @@ end
 --- The most seconds [`Host.bash`] may be given: a wait's most ([`Poll.MOST_NS`]), 24 days.
 local MOST_SECONDS <const> = 24 * 24 * 60 * 60
 
---- Runs `command` with bash, or sh where there is none, in the snippet's own sandbox and directory, as the bash tool
---- does: what it wrote to standard output and standard error, together, and how it ended. A command that exits other
+--- Runs `command` with bash, or sh where there is none, in the snippet's own sandbox and directory: what it wrote to standard output and standard error, together, and how it ended. A command that exits other
 --- than 0 still gives a result, `ok` false; a call fails for a command that could not start, or for a timeout
 --- outside 1 to 24 days. A command still running when the snippet ends ends with its worker.
 local function bash_of(command: string, options?: Host.BashOptions): (Host.Ran) | (nil, Failure)
@@ -456,7 +474,7 @@ local TOOLING <const>: {string: boolean} = {
 }
 
 --- The modules a snippet may require, from this binary's docs: a line each, `cosmic.<name>: ` and the start of what
---- it is for (about 90 bytes), but the agent's own and tooling's. Some hold more under them (cosmic.web.route), which
+--- it is for (its first clause, at most about 60 bytes), but the agent's own and tooling's. Some hold more under them (cosmic.web.route), which
 --- [`Host.docs`] of the module names. A plain string, to print: where the docs cannot be read, it says why. `index`
 --- stands in for the docs' index ([`Doc.index`]), for a test.
 function Host.modules(index?: {Doc.Summary}): string
@@ -478,8 +496,15 @@ function Host.modules(index?: {Doc.Summary}): string
     local name = summary.module:match("^cosmic%.([%w_]+)$")
     if name ~= nil and TOOLING[name] == nil then
       local about = summary.text:gsub("%s+", " "):gsub("^ ", "")
-      if #about > 90 then
-        about = String.cut(about, 88):gsub("%s%S*$", ""):gsub("[%s,;:(]+$", "") .. "..."
+      -- The first clause past its first few words, and at most 60 bytes: each line is read on every request, and
+      -- Host.docs has the rest.
+      local stop = about:find("[.:;] ", 25)
+      local dash = about:find(" %-%- ", 25)
+      if dash ~= nil and (stop == nil or dash < stop) then stop = dash end
+      if stop ~= nil then about = about:sub(1, stop - 1) end
+      about = about:gsub("%.$", "")
+      if #about > 60 then
+        about = String.cut(about, 58):gsub("%s%S*$", ""):gsub("[%s,;:(]+$", "") .. "..."
       end
       out[#out + 1] = "cosmic." .. name .. (if about ~= "" then ": " .. about else "" end)
     end
@@ -552,6 +577,13 @@ function Host.edit(path: string, edits: {Host.Replacement}): integer
   if edited == nil then error("host: edit: " .. made, 2) end
   local ok, write_why = Fs.write(file, edited)
   if not ok then error("host: edit: " .. tostring(write_why), 2) end
+  local hears = noted
+  if hears ~= nil then
+    -- A copy, so a list the snippet changes after the call shows what was written.
+    local copy: mut {Host.Replacement} = {}
+    for _, r in ipairs(edits) do copy[#copy + 1] = { old = r.old, new = r.new } end
+    hears({ path = path, edits = copy })
+  end
   return made
 end
 
@@ -576,6 +608,11 @@ function Host.write(path: string, text: string | {string})
   local body = if text is string then text elseif #text == 0 then "" else table.concat(text, "\n") .. "\n" end
   local ok, why = Fs.write(path, body)
   if not ok then error("host: write: " .. tostring(why), 2) end
+  local hears = noted
+  if hears ~= nil then
+    local _, newlines = body:gsub("\n", "")
+    hears({ path = path, lines = newlines + (if body ~= "" and body:sub(-1) ~= "\n" then 1 else 0 end) })
+  end
 end
 
 --- The lines of `paths` that hold `pattern` ([`Shell.grep`]); raises where a file cannot
@@ -762,7 +799,7 @@ function Host.load(key: string): Host.Loaded
   return value
 end
 
---- Runs `command` with bash in the snippet's sandbox and directory, as the bash tool does: its output and how it
+--- Runs `command` with bash in the snippet's sandbox and directory, where the session has commands: its output and how it
 --- ended. A command that exits other than 0 still gives a result, `ok` false; one that cannot start raises. Raises where it fails, as "host: ...".
 function Host.bash(command: string, options?: Host.BashOptions): Host.Ran
   local value, why = bash_of(command, options)
