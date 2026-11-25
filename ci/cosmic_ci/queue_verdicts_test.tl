@@ -299,6 +299,47 @@ local function test_the_newest_failed_try_of_the_pull_request_is_named()
   end
 end
 
+--- A change GitHub lists in part, or with a file of no content named,
+--- or that renames another file into the same one, is not this run's.
+local function test_a_change_that_cannot_be_matched_is_not_taken()
+  local mine = "gh-readonly-queue/main/pr-41-" .. OTHER
+  local many: mut {string} = {}
+  for i = 1, 300 do
+    many[i] = '{"filename":"f' .. tostring(i) .. '","status":"added","sha":"aa"}'
+  end
+  local answers: {string:string} = {
+    ["no files"] = '{"status":"ahead"}',
+    ["no blob"] = '{"status":"ahead","files":[{"filename":"b.tl","status":"added"},' ..
+      '{"filename":"a.tl","status":"modified","sha":"aa"}]}',
+    ["another rename"] = '{"status":"ahead","files":[{"filename":"b.tl","status":"added","sha":"bb"},' ..
+      '{"filename":"a.tl","previous_filename":"z.tl","status":"renamed","sha":"aa"}]}',
+    ["cut"] = '{"status":"ahead","files":[' .. table.concat(many, ",") .. ']}',
+    ["behind"] = '{"status":"behind","files":[]}',
+  }
+  for _, case in ipairs({ "no files", "no blob", "another rename", "cut", "behind" }) do
+    local fake = GithubFake.new(function(path: string, _nth: integer): string?
+      if path == FAILED then return '{"workflow_runs":[' .. run(5, tried_sha(5), mine) .. ']}' end
+      if path == "repos/o/r/compare/" .. OTHER .. "...main" then return '{"status":"ahead"}' end
+      if path == "repos/o/r/compare/" .. SHA .. "..." .. NOW then
+        if case == "another rename" then
+          return '{"status":"ahead","files":[{"filename":"b.tl","status":"added","sha":"bb"},' ..
+            '{"filename":"a.tl","previous_filename":"x.tl","status":"renamed","sha":"aa"}]}'
+        end
+        return change("aa")
+      end
+      if path == "repos/o/r/compare/" .. OTHER .. "..." .. tried_sha(5) then
+        return answers[case]
+      end
+      if path == "repos/o/r/actions/runs/5/artifacts?name=" .. TRIED_ARTIFACT then
+        return '{"artifacts":[{"name":"' .. TRIED_ARTIFACT .. '","expired":false}]}'
+      end
+      return nil
+    end)
+    assert(QueueVerdicts.find_tried(tried_env(), fake.host) == 0, case)
+    assert(#fake.outputs == 0, case .. ": " .. GithubFake.text(fake.outputs))
+  end
+end
+
 --- A first try, an API that fails and a step that names no queue ref
 --- write nothing; only the last fails the step.
 local function test_a_first_try_takes_nothing()

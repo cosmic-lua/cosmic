@@ -178,7 +178,8 @@ end
 --- The code a run ran can write any row, so a try is taken only where
 --- GitHub's own record shows it ran merged code and this try's change:
 --- the commit its entry was put on is on main, and its commit changes the
---- same files to the same contents as this try's does over its own base.
+--- same files, by name, name before and content, as this try's does over
+--- its own base ([`change_of`]).
 
 --- How many of the newest failed merge-queue runs are read for the pull
 --- request's: some 14 hours of the queue's failures on 2026-11-24.
@@ -213,6 +214,7 @@ end
 --- What a comparison's changed file is read for.
 local record FileRow
   filename?: any
+  previous_filename?: any
   status?: any
   sha?: any
 end
@@ -227,24 +229,31 @@ local CHANGE_ROW <const> = Shape.record_of("ChangeRow")
 local LISTED_FILES <const> = 300
 
 --- What commit `head` changes over `base` in `repository`, as GitHub
---- says: each changed file's name, status and content's blob, sorted, one
---- a line. Nil where GitHub does not say, `head` is not ahead of `base`,
---- or the list may be cut.
+--- says: each changed file's name, the name it had before, its status and
+--- its content's blob, sorted, one a line. Nil where GitHub does not say,
+--- `head` is not ahead of `base`, the list may be cut, or a file that
+--- stays has no blob named. GitHub names no file's mode, so a change of
+--- mode alone is not told apart.
 local function change_of(host: Github.Host, repository: string, base: string, head: string): string?
   local pages = Github.ask(host, "repos/" .. repository .. "/compare/" .. base .. "..." .. head, false, LOOKUP_SECONDS)
   local compared, _ = CHANGE_ROW:decode_into((pages or {})[1] or "")
   if compared == nil or compared.status ~= "ahead" then return nil end
-  local files = compared.files or {}
-  if #files >= LISTED_FILES then return nil end
+  local files = compared.files
+  if files == nil or #files >= LISTED_FILES then return nil end
   local lines: mut {string} = {}
   for _, item in ipairs(files) do
     local file, _ = FILE_ROW:into(item)
     if file == nil then return nil end
-    local name, status, blob = file.filename, file.status, file.sha
+    local name, before, status, blob = file.filename, file.previous_filename, file.status, file.sha
     if not (name is string) or not (status is string) then return nil end
-    local content = ""
-    if blob is string then content = blob end
-    lines[#lines + 1] = name .. "\0" .. status .. "\0" .. content
+    local content, was = "", ""
+    if blob is string and blob ~= "" then
+      content = blob
+    elseif status ~= "removed" then
+      return nil
+    end
+    if before is string then was = before end
+    lines[#lines + 1] = name .. "\0" .. was .. "\0" .. status .. "\0" .. content
   end
   table.sort(lines)
   return table.concat(lines, "\n")
@@ -276,7 +285,7 @@ local function tried_run_of(item: any, repository: string, entry: string, own: i
   return nil
 end
 
---- The ids of the failed merge-queue runs of ci.yml for pull request
+--- The failed merge-queue runs of ci.yml for pull request
 --- `entry` in `repository`, other than `own`, newest first and at most
 --- TRIED; nil and why where the list cannot be read.
 local function tried_runs(host: Github.Host, repository: string, entry: string, own: integer?): {Tried}?, string

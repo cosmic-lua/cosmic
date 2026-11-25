@@ -561,8 +561,9 @@ passes for that try. The code a run ran can write any row, so it takes a
 run only where GitHub's record shows that run ran merged code and this
 try's change: the commit its entry was put on is on main (a queue commit
 holds the entries ahead of it too, and one dropped from the queue never
-merges), and its commit changes the same files to the same contents (an
-earlier head of the pull request never merges either).
+merges), and its commit changes the same files, by name, name before and
+content, as this try's does (an earlier head of the pull request never
+merges either).
 The queue's format job, where its check passed, seals the memo of the
 tree checks (the shared rows of `build/check_memo.tl`, in the cache
 directory: `driver.tl checks-seal` keeps the rows the run used, in one
