@@ -288,4 +288,235 @@ function Steps.pid_in(path: string): integer?
   return pid
 end
 
+--- `text` and a newline, to stderr.
+function Steps.eprint(text: string): integer?
+  return Steps.put(2, text .. "\n")
+end
+
+--- `text` and a newline, at the end of file `path`, which it makes
+--- where it is not there.
+function Steps.append(path: string, text: string): integer?
+  local ok, trouble = Fs.append(path, text .. "\n")
+  if not ok then return Steps.fail(path, tostring(trouble)) end
+  return nil
+end
+
+--- File `path` to stdout where it reads; nothing, and no failure, where
+--- it does not.
+function Steps.cat_quiet(path: string): integer?
+  local bytes, _ = Fs.read(path)
+  if bytes == nil then return nil end
+  return Steps.put(1, bytes)
+end
+
+--- Whether `path` is there, taking a failure to look as its absence.
+function Steps.exists(path: string): boolean
+  local there, _ = Fs.status(path)
+  return there ~= nil and there.exists == true
+end
+
+--- Nil where `path` is there; fails where it is not.
+function Steps.present(path: string): integer?
+  if Steps.exists(path) then return nil end
+  return Steps.fail(path, "not there")
+end
+
+--- Sleeps `ms` milliseconds.
+function Steps.sleep(ms: integer): integer?
+  assert(Clock.sleep(Clock.ms(ms)))
+  return nil
+end
+
+--- Copies file `from` to `to`.
+function Steps.copy(from: string, to: string): integer?
+  local bytes, trouble = Fs.read(from)
+  if bytes == nil then return Steps.fail(from, tostring(trouble)) end
+  local ok, write_trouble = Fs.write(to, bytes)
+  if not ok then return Steps.fail(to, tostring(write_trouble)) end
+  return nil
+end
+
+--- Its working directory and a newline: to stdout where `path` is nil,
+--- or as the whole of file `path`.
+function Steps.cwd(path?: string): integer?
+  local here, trouble = sys.getcwd()
+  if here == nil then return Steps.fail("cwd", trouble) end
+  if path == nil then return Steps.print(here) end
+  return Steps.write(path, here)
+end
+
+--- How many lines of file `path` hold `text`, and a newline, to stdout.
+function Steps.grep_count(path: string, text: string): integer?
+  local bytes, trouble = Fs.read(path)
+  if bytes == nil then return Steps.fail(path, tostring(trouble)) end
+  local count = 0
+  for line in bytes:gmatch("[^\n]*") do
+    if line ~= "" and line:find(text, 1, true) ~= nil then count = count + 1 end
+  end
+  return Steps.print(tostring(count))
+end
+
+--- The line of /proc/self/status that field `name` starts, to stdout.
+function Steps.status_field(name: string): integer?
+  local status, trouble = Fs.read("/proc/self/status")
+  if status == nil then return Steps.fail("/proc/self/status", tostring(trouble)) end
+  for line in status:gmatch("[^\n]+") do
+    if String.starts_with(line, name .. ":") then return Steps.print(line) end
+  end
+  return Steps.fail("status-field", "no " .. name)
+end
+
+--- Starts `argv` up to `count` times, leaving each running, and says
+--- `started <n>`, and ` then <why>` where a start failed, to stdout.
+function Steps.start_count(count: integer, argv: {string}): integer?
+  local made = 0
+  local refusal = ""
+  for _ = 1, count do
+    local handle, trouble = Child.start(argv, { timeout_ns = Child.FOREVER, process_group = false })
+    if handle == nil then
+      refusal = tostring(trouble)
+      break
+    end
+    started[#started + 1] = handle
+    made = made + 1
+  end
+  return Steps.print("started " .. tostring(made) .. (if refusal ~= "" then " then " .. refusal else "" end))
+end
+
+--- `sockets <n>`, the descriptors 3 to 1023 open on a socket, to stdout.
+function Steps.sockets_open(): integer?
+  local count = 0
+  for fd = 3, 1023 do
+    -- fstat raises for the retained artifact descriptor, which is no socket.
+    local ok, stat = pcall(sys.fstat, fd)
+    if ok and stat ~= nil and stat.mode & 0xF000 == 0xC000 then count = count + 1 end
+  end
+  return Steps.print("sockets " .. tostring(count))
+end
+
+--- Sets both limits of `name` (as [`Steps.rlimit`] names them) to
+--- `limit`, and says `set` to stdout.
+function Steps.setrlimit(name: string, limit: integer): integer?
+  local resource = resources[name]
+  if resource == nil then return Steps.fail("setrlimit", "no resource " .. name) end
+  local ok, trouble = sys.setrlimit(resource, limit, limit)
+  if not ok then return Steps.fail("setrlimit", trouble) end
+  return Steps.print("set")
+end
+
+--- `pgid <n>`, the process group of `pid` (0 for its own), to stdout.
+function Steps.getpgid(pid: integer): integer?
+  if pid < 0 then return Steps.fail("getpgid", "no pid " .. tostring(pid)) end
+  local group, trouble = sys.getpgid(pid)
+  if group == nil then return Steps.fail("getpgid", trouble) end
+  return Steps.print("pgid " .. tostring(group))
+end
+
+--- Listens on `address`, connects to it and takes the connection:
+--- says `connected`, or why not, to stdout.
+local function round_trip(address: Net.Address): integer?
+  local server, trouble = Net.listen(address, { timeout_ns = Clock.seconds(5) })
+  if server == nil then return Steps.print(tostring(trouble)) end
+  local to = if address.kind == "unix" then address else Net.tcp(assert(address.host), assert(server.address.port)) end
+  local conn, connect_trouble = Net.connect(to, { timeout_ns = Clock.seconds(5) })
+  if conn == nil then
+    local _, _ = server:close()
+    return Steps.print(tostring(connect_trouble))
+  end
+  local accepted, accept_trouble = server:accept()
+  local _, _ = conn:close()
+  local _, _ = server:close()
+  if accepted == nil then return Steps.print(tostring(accept_trouble)) end
+  local _, _ = accepted:close()
+  return Steps.print("connected")
+end
+
+--- [`round_trip`] over TCP on `host`, at a port the kernel picks.
+function Steps.loopback_tcp(host: string): integer?
+  return round_trip(Net.tcp(host, 0))
+end
+
+--- [`round_trip`] on the unix socket `path`.
+function Steps.loopback_unix(path: string): integer?
+  return round_trip(Net.unix(path))
+end
+
+--- Listens on `host`:`port` over TCP and stops: says `bound`, or why
+--- not, to stdout.
+function Steps.bind_tcp(host: string, port: integer): integer?
+  if port < 0 or port > 65535 then return Steps.fail("bind-tcp", "no port " .. tostring(port)) end
+  local server, trouble = Net.listen(Net.tcp(host, port), { timeout_ns = Clock.seconds(5) })
+  if server == nil then return Steps.print(tostring(trouble)) end
+  local _, _ = server:close()
+  return Steps.print("bound")
+end
+
+--- Swaps the names of `a` and `b` with each other, without end.
+function Steps.flip(a: string, b: string): integer
+  while true do
+    local _, _ = sys.rename(a, a .. ".t")
+    local _, _ = sys.rename(b, a)
+    local _, _ = sys.rename(a .. ".t", b)
+  end
+end
+
+--- The permission bits of `path`, in octal, and a newline, to stdout.
+function Steps.mode(path: string): integer?
+  local st, trouble = sys.stat(path)
+  if st == nil then return Steps.fail(path, trouble) end
+  return Steps.print(string.format("%o", st.mode & 0xfff))
+end
+
+--- Each file below directory `root` that opens to write, a line each,
+--- in sorted order, to stdout.
+function Steps.find_writable(root: string): integer?
+  local lines: mut {string} = {}
+  local pending: mut {string} = { root }
+  while #pending > 0 do
+    local directory = assert(table.remove(pending), "pending is not empty")
+    local entries, _ = sys.readdir(directory)
+    if entries ~= nil then
+      local names: mut {string} = {}
+      for name in pairs(entries) do names[#names + 1] = name end
+      table.sort(names)
+      for _, name in ipairs(names) do
+        local path = directory .. "/" .. name
+        if entries[name] == "dir" then
+          pending[#pending + 1] = path
+        elseif entries[name] == "file" then
+          local fd, _ = sys.open(path, sys.O_WRONLY | sys.O_APPEND)
+          if fd ~= nil then
+            local _, _ = sys.close(fd)
+            lines[#lines + 1] = path .. "\n"
+          end
+        end
+      end
+    end
+  end
+  return Steps.put(1, table.concat(lines))
+end
+
+--- Runs `argv` as a child isolated to its own files, granted to run
+--- `argv[1]` and read `.`, and `loopback` where given: says
+--- `exit <status>` and what it printed, or why it did not start, to
+--- stdout.
+function Steps.run_isolated(argv: {string}, loopback?: {string}): integer?
+  local result, trouble = Child.run(argv, { timeout_ns = Child.FOREVER, policy = {
+    isolate = { "file" }, loopback = loopback, grants = { { path = argv[1]!, letters = "rx" },
+      { path = ".", letters = "r" } } }, stdout = "capture", stderr = "stdout" })
+  if result == nil then return Steps.print(tostring(trouble)) end
+  return Steps.put(1, "exit " .. tostring(result.code) .. "\n" .. (result.stdout or ""))
+end
+
+--- Starts `program` as [`Steps.run_isolated`] would and ends it: says
+--- `started`, or why it did not, to stdout.
+function Steps.start_isolated(program: string): integer?
+  local handle, trouble = Child.start({ program }, { timeout_ns = Child.FOREVER, policy = {
+    isolate = { "file" }, grants = { { path = program, letters = "rx" },
+      { path = ".", letters = "r" } } } })
+  if handle == nil then return Steps.print(tostring(trouble)) end
+  local _, _ = handle:close()
+  return Steps.print("started")
+end
+
 return Steps
