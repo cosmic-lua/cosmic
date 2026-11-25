@@ -1790,9 +1790,29 @@ local function test_a_queue_try_stands_on_its_pull_requests_last_failed_try()
       (taken.run or ""):find("driver.tl verdicts-merge \"" .. param(download, "path") .. "\"", 1, true) ~= nil,
     "the tried verdicts are taken in otherwise")
   assert(upload["if"] == "always() && github.event_name == 'merge_group' && job.status == 'failure' && " ..
-      "steps.verdicts-trim.outputs.digest != ''" and upload["continue-on-error"] == true and
+      "steps.ref-caches.outcome == 'success' && steps.verdicts-trim.outputs.digest != ''" and upload["continue-on-error"] == true and
       param(upload, "name") == name and param(upload, "path") == "${{ runner.temp }}/verdicts/*.db",
     "the tried verdicts' upload: " .. tostring(upload["if"]))
+end
+
+--- A merge-queue run of the platform job refuses a cache its own ref
+--- holds before it restores verdicts or compiles, and before it uses the
+--- zig caches it restored before the driver; the step's failure fails the
+--- job.
+local function test_a_queue_run_refuses_its_own_refs_caches()
+  local steps = job_of(ci_workflow().jobs, "platform").steps
+  local check, check_at = step_with_id(steps, "ref-caches")
+  local _, driver_at = step_with_id(steps, "driver")
+  assert(driver_at < check_at, "the check runs before the driver it runs on")
+  for at, step in ipairs(steps) do
+    local uses = step.uses or ""
+    if uses:find("actions/cache/restore@", 1, true) ~= nil and at > driver_at then
+      assert(check_at < at, tostring(step.name) .. " restores before the queue ref's caches are refused")
+    end
+  end
+  assert(check["if"] == "github.event_name == 'merge_group'" and check["continue-on-error"] == nil and
+      (check.run or ""):find("driver.tl queue-ref-caches", 1, true) ~= nil and
+      map_of(check.env)["GH_TOKEN"] == "${{ github.token }}", "the queue ref's caches are refused otherwise")
 end
 
 local function relay_workflow(): Workflow

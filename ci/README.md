@@ -563,7 +563,11 @@ try's change: the commit its entry was put on is on main (a queue commit
 holds the entries ahead of it too, and one dropped from the queue never
 merges), and its commit changes the same files, by name, name before and
 content, as this try's does (an earlier head of the pull request never
-merges either).
+merges either). No queue run saves a cache, but a queue ref's name comes
+again where a pull request is queued again on the same commit of main,
+and a run restores its own ref's caches before main's; so the platform
+job fails a queue run whose ref holds one, before it restores any but
+the zig caches it has not used yet (`driver.tl queue-ref-caches`).
 The queue's format job, where its check passed, seals the memo of the
 tree checks (the shared rows of `build/check_memo.tl`, in the cache
 directory: `driver.tl checks-seal` keeps the rows the run used, in one

@@ -248,6 +248,18 @@
           uses: "./.github/actions/cosmic-driver",
           with: {"zig-cache": true, shell: "${{ matrix.image && 'leg-shell {0}' || 'sh' }}"},
         },
+        # A cache of a merge-queue ref is one code the queue ran saved, as no
+        # queue run saves any (cosmic_ci/queue_verdicts.tl's `ref_caches`),
+        # and the restores below would take it before main's: such a run
+        # fails here, before it restores one.
+        {
+          name: "refuse a cache the merge-queue ref saved",
+          id: "ref-caches",
+          if: "github.event_name == 'merge_group'",
+          shell: "sh",
+          env: {GH_TOKEN: "${{ github.token }}"},
+          run: "cosmic-driver cosmic_ci/driver.tl queue-ref-caches",
+        },
         # What of the host every declared-key verdict's key holds
         # (COSMIC_HOST_ID), and the verdict cache's name.
         {
@@ -604,7 +616,7 @@
         # used.
         {
           name: "upload what this failed try in the merge queue reached",
-          if: "always() && github.event_name == 'merge_group' && job.status == 'failure' && steps.verdicts-trim.outputs.digest != ''",
+          if: "always() && github.event_name == 'merge_group' && job.status == 'failure' && steps.ref-caches.outcome == 'success' && steps.verdicts-trim.outputs.digest != ''",
           "continue-on-error": true,
           uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
           with: {

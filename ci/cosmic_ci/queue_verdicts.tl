@@ -580,6 +580,59 @@ function QueueVerdicts.key_command(argv: {string}): integer
   return QueueVerdicts.key(argv[1] or ".", argv[2] or "", Github.live(env))
 end
 
+--- What a listing of caches is read for.
+local record CacheList
+  total_count?: any
+end
+local CACHE_LIST <const> = Shape.record_of("CacheList")
+
+--- `driver.tl queue-ref-caches`: fails a merge-queue run whose own ref,
+--- GITHUB_REF in GITHUB_REPOSITORY, holds a cache. No queue run saves one
+--- (only main's push and scheduled runs do), but a queue ref's name comes
+--- again where the same pull request is queued again on the same commit
+--- of main, and a run restores its own ref's caches before main's. So a
+--- cache there was saved by code the queue ran, perhaps an earlier head
+--- that never merged, and whatever its rows say could stand in this run
+--- and, through its verdicts, in main's. 1 where the ref holds one or
+--- GitHub does not say, 2 where the step names no queue ref or
+--- repository, else 0.
+function QueueVerdicts.ref_caches(env: {string:string}, host: Github.Host): integer
+  local ref, repository = env["GITHUB_REF"] or "", env["GITHUB_REPOSITORY"] or ""
+  if QueueVerdicts.entry_of(ref) == nil or not ref:match("^refs/heads/") or
+      not repository:match("^[%w._-]+/[%w._-]+$") then
+    local _, _ = Fs.put(Fs.stderr, "queue-ref-caches: GITHUB_REF and GITHUB_REPOSITORY must name a merge-queue ref " ..
+        "and a repository\n")
+    return 2
+  end
+  local pages = Github.ask(host, "repos/" .. repository .. "/actions/caches?ref=" .. ref .. "&per_page=1", false,
+    LOOKUP_SECONDS)
+  local listed, _ = CACHE_LIST:decode_into((pages or {})[1] or "")
+  local count = 0
+  local said = false
+  if listed ~= nil then
+    local total = listed.total_count
+    if total is integer then count, said = total, true end
+  end
+  if not said then
+    local _, _ = Fs.put(Fs.stderr, "queue-ref-caches: GitHub did not say which caches " .. ref ..
+        " holds; this run stands on none it cannot vouch for\n")
+    return 1
+  end
+  if count > 0 then
+    local _, _ = Fs.put(Fs.stderr, "queue-ref-caches: " .. ref .. " holds " .. Plural.count(count, "cache") ..
+        ", which no merge-queue run saves: a run of this ref saved it, so this run takes none of its caches; " ..
+        "delete them (gh cache delete --ref " .. ref .. " --all) and queue the pull request again\n")
+    return 1
+  end
+  host.print("queue-ref-caches: " .. ref .. " holds no cache of its own")
+  return 0
+end
+
+function QueueVerdicts.ref_caches_command(_argv: {string}): integer
+  local env = Env.all()
+  return QueueVerdicts.ref_caches(env, Github.live(env))
+end
+
 --- What main's branch is read for.
 local record RefRow
   object?: any
