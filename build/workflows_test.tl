@@ -342,8 +342,9 @@ local SUITE_PART <const> = "(matrix.part == 'all' || matrix.part == 'suite')"
 local PRODUCT_PART <const> = "(matrix.part == 'all' || matrix.part == 'product' || matrix.part == 'portable')"
 --- The steps every part that makes or checks the product runs: assemble, and the regressions (not `portable`'s).
 local ASSEMBLE_PART <const> = "(matrix.part == 'all' || matrix.part == 'product' || matrix.part == 'portable' || " ..
-  "matrix.part == 'regressions')"
-local REGRESSIONS_PART <const> = "(matrix.part == 'all' || matrix.part == 'product' || matrix.part == 'regressions')"
+  "matrix.part == 'regressions' || matrix.part == 'rebuild')"
+local REGRESSIONS_PART <const> = "(matrix.part == 'all' || matrix.part == 'product' || matrix.part == 'regressions' || " ..
+  "matrix.part == 'rebuild')"
 local FORMAT_PART <const> = "(matrix.part == 'all' || matrix.part == 'format')"
 --- A leg's native suite and what follows it on its host, which every
 --- run but a pull request's runs, in the queue in its `suite` job.
@@ -1505,19 +1506,26 @@ local function test_each_kind_of_run_has_its_legs()
   assert(names_of(pr) == "linux-x86_64", "a pull request's legs: " .. names_of(pr))
   -- The queue runs a push's legs, each as its suite and its product at once, linux-x86_64's format check beside, and
   -- macOS's suite, which a push does not run: only the daily run met its failures, and they held up the prerelease.
-  assert(names_of(queue) == "alpine-x86_64 alpine-x86_64-portable alpine-x86_64-regressions linux-aarch64 " ..
-      "linux-aarch64-product linux-x86_64 linux-x86_64-format linux-x86_64-product macos-aarch64",
+  assert(names_of(queue) == "alpine-x86_64 alpine-x86_64-portable alpine-x86_64-rebuild alpine-x86_64-regressions " ..
+      "linux-aarch64 linux-aarch64-product linux-aarch64-rebuild linux-x86_64 linux-x86_64-format linux-x86_64-product " ..
+      "linux-x86_64-rebuild macos-aarch64",
     "the queue's legs: " .. names_of(queue))
   local mac, full_mac = assert(queue["macos-aarch64"]), assert(full["macos-aarch64"])
   assert(mac["part"] == "suite" and mac["leg"] == "macos-aarch64", "the queue runs macOS otherwise")
   for _, key in ipairs({ "runner", "target", "image" }) do
     assert(mac[key] == full_mac[key], "the queue runs macOS on another host: " .. key)
   end
+  -- Each Linux leg's self-rebuild regression is a job of its own (`rebuild`), which the leg's product or regressions
+  -- job skips; every other run runs it in the leg's own job.
+  assert(map_of(job_of(ci_workflow().jobs, "platform").env)["COSMIC_CI_SELF_REBUILD"] ==
+      "${{ matrix.part == 'rebuild' && 'only' || (matrix.part == 'product' || matrix.part == 'regressions') && 'skip' " ..
+      "|| 'run' }}", "the self-rebuild regression runs in some job other than its own, or in none")
   -- alpine-x86_64's product, the longest, is two jobs: its portable suite and its regressions. macOS's suite, of a
   -- push too, is pinned above.
   for name, leg in pairs(push) do
     if name == "macos-aarch64" then continue end
-    local parts: {string} = if name == "alpine-x86_64" then { "suite", "portable", "regressions" } else { "suite", "product" } end
+    local parts: {string} = if name == "alpine-x86_64" then { "suite", "portable", "regressions", "rebuild" } else
+      { "suite", "product", "rebuild" } end
     for _, part in ipairs(parts) do
       local job = assert(queue[if part == "suite" then name else name .. "-" .. part end], name .. " has no " .. part)
       assert(job["part"] == part and job["leg"] == name, "the queue's jobs split " .. name .. " otherwise")
@@ -1637,6 +1645,7 @@ local function test_the_merge_queue_runs_what_mains_push_runs()
     product = "boot assemble fixtures portable attest",
     portable = "boot assemble portable attest",
     regressions = "boot assemble fixtures",
+    rebuild = "boot assemble fixtures",
     format = "boot format",
   }
   for name, leg in pairs(platform_legs("queue")) do
