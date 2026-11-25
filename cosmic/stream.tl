@@ -606,20 +606,14 @@ function Stream.from_fd(fd: integer, opts?: Stream.FdOptions): Stream.Reader
   return make_fd_reader(fd, false, fd_options(opts, 2))
 end
 
--- Stream.open, its failure in words.
-local function open_text(path: string): Stream.Reader?, string
-  local fd, trouble = Fs.open_read(path)
-  if fd == nil then return nil, tostring(trouble) end
-  return make_fd_reader(fd, true, {}), ""
-end
-
 --- A Reader over a file at `path`, which it closes at end of file or
 --- at `close`, whichever comes first. Over a regular file it can
---- `skip`.
+--- `skip`. A file it cannot open gives [`Fs.open_read`]'s Failure, its
+--- errno and path kept.
 function Stream.open(path: string): (Stream.Reader) | (nil, Failure)
-  local value, why = open_text(path)
-  if value == nil then return nil, Failure.new(why) end
-  return value
+  local fd, trouble = Fs.open_read(path)
+  if fd == nil then return nil, trouble end
+  return make_fd_reader(fd, true, {})
 end
 
 --- Whether `t` holds output back, which `update("")` gives out; a
@@ -628,27 +622,35 @@ local function holds_output(t: Stream.Transform): boolean
   return t.pending ~= nil and t:pending() -- checked: compare_disjoint
 end
 
+-- What a codec's `update` or `finish` gave, as a Reader returns it.
+local function codec_out(out: string?, why: string): (string) | (nil, Failure)
+  if out == nil then
+    return nil, failure_of(if why ~= "" then why else "stream: codec failed" end)
+  end
+  return out
+end
+
 -- One step of the codec: its next batch of output (possibly ""), or
--- nil and an error. A decoder hands back a bounded batch per call
+-- nil and the codec's Failure or the source's own. A decoder hands back a bounded batch per call
 -- and says `pending` while it still holds input it has not
 -- expanded; that is drained with `update("")` before any more input
 -- goes in, so memory stays bounded however far the input expands.
 -- `finish` runs once, at the end of the source, when nothing is
 -- pending, and so returns only the codec's small tail.
-local function step(self: TransformReader): string?, string
+local function step(self: TransformReader): (string) | (nil, Failure)
   local codec = self.codec
-  if holds_output(codec) then return codec:update("") end
+  if holds_output(codec) then return codec_out(codec:update("")) end
   if self.at_eof then
     self.finished = true
-    return codec:finish()
+    return codec_out(codec:finish())
   end
   local chunk, trouble = self.source:read(chunk_size)
-  if chunk == nil then return nil, tostring(trouble) end
+  if chunk == nil then return nil, trouble end
   if chunk == false then
     self.at_eof = true
-    return "", ""
+    return ""
   end
-  return codec:update(chunk)
+  return codec_out(codec:update(chunk))
 end
 
 local class TransformReader is Stream.Reader
@@ -664,20 +666,22 @@ local class TransformReader is Stream.Reader
   mut at: integer
   mut at_eof: boolean
   mut finished: boolean
-  mut failed?: string
+  mut failed?: Failure
   mut closed: boolean
 
   function read(self, max_bytes?: integer): (string | false) | (nil, Failure)
     local failed = self.failed
-    if failed then return nil, failure_of(failed) end
+    if failed then return nil, failed end
     if self.closed then return nil, failure_of(closed_reader) end
     while self.at > #self.batch and not self.finished do
       local out, trouble = step(self)
       if out == nil then
-        local why = if trouble ~= "" then trouble else "stream: codec failed" end
-        self.failed = why
+        -- A source that timed out or was cancelled gave the codec
+        -- nothing, so a later read picks up where this one stopped.
+        if trouble.kind == "timeout" or trouble.kind == "cancelled" then return nil, trouble end
+        self.failed = trouble
         self.batch, self.at = "", 1
-        return nil, failure_of(why)
+        return nil, trouble
       end
       self.batch, self.at = out, 1
     end
@@ -705,8 +709,9 @@ end
 --- A Reader that pipes another Reader through a [`Stream.Transform`]:
 --- `reader`'s chunks go through `codec:update`, and `codec:finish` is
 --- called once, at `reader`'s end of file, for whatever the codec was
---- still holding. A codec or `reader` error ends it, stickily. Closing
---- it closes `reader`.
+--- still holding. A codec error, or a `reader` Failure other than a
+--- "timeout" or "cancelled" one, ends it, stickily. A `reader` Failure
+--- comes back as it is. Closing it closes `reader`.
 function Stream.transform(reader: Stream.Reader, codec: Stream.Transform): Stream.Reader
   local r: TransformReader = { source = reader, codec = codec, batch = "", at = 1,
     at_eof = false, finished = false, failed = nil, closed = false, skip = nil }
@@ -780,59 +785,48 @@ function Stream.prepend(prefix: string, reader: Stream.Reader): Stream.Reader
   return r
 end
 
--- Stream.read_up_to, its failure in words.
-local function read_up_to_text(reader: Stream.Reader, n: integer): string?, string
-  if n <= 0 then return "", "" end
+--- Reads up to `n` bytes: all of them, or what is left when the stream
+--- ends first. So "" is a clean end of the stream and fewer than `n`
+--- bytes are a truncated one; nil and the Reader's own Failure, its kind
+--- kept, when `reader` fails, with the bytes already read dropped: a
+--- "timeout" of a non-blocking [`Stream.from_fd`] stays one, and a read
+--- after it does not resume this one.
+---
+---     local head = assert(Stream.read_up_to(reader, 4))
+---     if #head < 4 then print("shorter than a header") end
+function Stream.read_up_to(reader: Stream.Reader, n: integer): (string) | (nil, Failure)
+  if n <= 0 then return "" end
   local first, trouble = reader:read(n)
-  if first == nil then return nil, tostring(trouble) end
+  if first == nil then return nil, trouble end
   if first == false then
-    return "", ""
+    return ""
   end
-  if #first >= n then return first, "" end
+  if #first >= n then return first end
   local parts: mut {string} = { first }
   local got = #first
   while got < n do
     local chunk, rtrouble = reader:read(n - got)
-    if chunk == nil then return nil, tostring(rtrouble) end
+    if chunk == nil then return nil, rtrouble end
     if chunk == false then
       break
     end
     parts[#parts + 1] = chunk
     got = got + #chunk
   end
-  return table.concat(parts), ""
-end
-
---- Reads up to `n` bytes: all of them, or what is left when the stream
---- ends first, returned with "". So "" is a clean end of the stream and
---- fewer than `n` bytes are a truncated one; nil and a Failure when
---- `reader` fails, with the bytes already read dropped.
----
----     local head = assert(Stream.read_up_to(reader, 4))
----     if #head < 4 then print("shorter than a header") end
-function Stream.read_up_to(reader: Stream.Reader, n: integer): (string) | (nil, Failure)
-  local value, why = read_up_to_text(reader, n)
-  if value == nil then return nil, Failure.new(why) end
-  return value
-end
-
--- Stream.read_exact, its failure in words.
-local function read_exact_text(reader: Stream.Reader, n: integer): string?, string
-  local data, trouble = read_up_to_text(reader, n)
-  if data == nil then return nil, trouble end
-  if #data < n then
-    return refuse("truncated: wanted " .. String.counted(n, "byte") ..
-        ", got " .. tostring(#data))
-  end
-  return data, ""
+  return table.concat(parts)
 end
 
 --- Reads exactly `n` bytes, or nil and a Failure when the stream ends
---- first.
+--- first or `reader` fails (the Reader's own Failure, as
+--- [`Stream.read_up_to`] gives it).
 function Stream.read_exact(reader: Stream.Reader, n: integer): (string) | (nil, Failure)
-  local value, why = read_exact_text(reader, n)
-  if value == nil then return nil, Failure.new(why) end
-  return value
+  local data, trouble = Stream.read_up_to(reader, n)
+  if data == nil then return nil, trouble end
+  if #data < n then
+    return nil, Failure.new("stream: truncated: wanted " .. String.counted(n, "byte") ..
+        ", got " .. tostring(#data))
+  end
+  return data
 end
 
 --- Moves `reader` forward `n` bytes: with its `skip` when it has one,
@@ -855,26 +849,20 @@ function Stream.skip(reader: Stream.Reader, n: integer): (true) | (false, Failur
   return true
 end
 
--- Stream.read_all, its failure in words.
-local function read_all_text(reader: Stream.Reader): string?, string
+--- Reads a Reader to its end of file and returns everything as one
+--- string, or nil and the Reader's own Failure, its kind kept. For
+--- bounded, whole-file cases; a streaming caller reads [`Reader.read`]
+--- in a loop instead, or `copy`s to a Writer.
+function Stream.read_all(reader: Stream.Reader): (string) | (nil, Failure)
   local parts: mut {string} = {}
   while true do
     local chunk, trouble = reader:read(chunk_size)
-    if chunk == nil then return nil, tostring(trouble) end
+    if chunk == nil then return nil, trouble end
     if chunk == false then
-      return table.concat(parts), ""
+      return table.concat(parts)
     end
     parts[#parts + 1] = chunk
   end
-end
-
---- Reads a Reader to its end of file and returns everything as one
---- string. For bounded, whole-file cases; a streaming caller reads
---- [`Reader.read`] in a loop instead, or `copy`s to a Writer.
-function Stream.read_all(reader: Stream.Reader): (string) | (nil, Failure)
-  local value, why = read_all_text(reader)
-  if value == nil then return nil, Failure.new(why) end
-  return value
 end
 
 local class StickyWriter is Stream.Sticky
@@ -1289,28 +1277,22 @@ local class StagedWriter is Stream.FileWriter
   end
 end
 
--- Stream.create, its failure in words.
-local function create_text(path: string, mode?: integer): Stream.FileWriter?, string
-  local file, trouble = Fs.create(path, mode)
-  if file == nil then return nil, tostring(trouble) end
-  -- Teal's interfaces are nominal, and cosmic.fs, a harness module, may
-  -- not require this module to say that its Writer is one of ours.
-  -- TODO: return the Fs.Staged itself once cosmic.fs may require
-  -- cosmic.stream (see its TODO) and declares Staged a Stream.Writer.
-  local w: StagedWriter = { staged = file }
-  return w, ""
-end
-
 --- A Writer over a file at `path`: bytes go to a temporary neighbor,
 --- which is renamed onto `path` only when `close` succeeds, so a
 --- reader of `path` never sees a partial write. A write or close
 --- failure, or `abort`, leaves `path` untouched and removes the
 --- temporary file. A failure names `path`, never the temporary file.
---- This is [`Fs.create`], which says more of the file.
+--- This is [`Fs.create`], which says more of the file, and its Failure
+--- is Fs.create's, its errno kept.
 function Stream.create(path: string, mode?: integer): (Stream.FileWriter) | (nil, Failure)
-  local value, why = create_text(path, mode)
-  if value == nil then return nil, Failure.new(why) end
-  return value
+  local file, trouble = Fs.create(path, mode)
+  if file == nil then return nil, trouble end
+  -- Teal's interfaces are nominal, and cosmic.fs, a harness module, may
+  -- not require this module to say that its Writer is one of ours.
+  -- TODO: return the Fs.Staged itself once cosmic.fs may require
+  -- cosmic.stream (see its TODO) and declares Staged a Stream.Writer.
+  local w: StagedWriter = { staged = file }
+  return w
 end
 
 local class CollectWriter is Stream.Collector

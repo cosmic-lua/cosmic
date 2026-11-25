@@ -7,6 +7,7 @@ local Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
+local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
 --- The next chunk of `reader`: raises where it ended or failed.
@@ -228,7 +229,6 @@ local function test_create_renames_into_place_only_on_close(tmp: string)
 end
 
 local function test_create_leaves_no_temp_file_when_write_fails(tmp: string)
-  local sys = require("cosmic.sys")
   local path = tmp .. "/target"
   local real_write = sys.write
   sys.write = function(_fd: integer, _data: string): integer?, string, integer -- checked: field_fixed
@@ -1259,8 +1259,9 @@ local function failing(fails_at: integer): Failing
 end
 
 --- A Reader that gives `chunks` one `read` at a time, whatever `max_bytes`
---- asks, then fails with `failure` (an end of file when it is "").
-local function chunked(chunks: {string}, failure: string): Stream.Reader
+--- asks, then fails with `failure` (an end of file when it is ""), a
+--- Failure given as it is.
+local function chunked(chunks: {string}, failure: string | Failure): Stream.Reader
   local at: integer = 0
   local r: Stream.Reader = { -- checked: literal_shape
     read = function(_self: Stream.Reader, _max_bytes?: integer): (string | false) | (nil, Failure)
@@ -1268,7 +1269,8 @@ local function chunked(chunks: {string}, failure: string): Stream.Reader
       local chunk = chunks[at]
       if chunk ~= nil then return chunk end
       if failure == "" then return false end
-      return nil, Failure.new(failure)
+      if failure is string then return nil, Failure.new(failure) end
+      return nil, failure
     end,
     close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
   }
@@ -1295,6 +1297,74 @@ local function test_read_up_to_answers_a_failure_and_drops_what_was_read()
   assert(got == nil and tostring(why) == "disk on fire", tostring(why))
   got, why = Stream.read_up_to(chunked({}, "disk on fire"), 4)
   assert(got == nil and tostring(why) == "disk on fire", tostring(why))
+end
+
+local function test_reading_helpers_keep_the_readers_failure_as_it_is()
+  local timeout = Failure.timeout(Poll.TIMEOUT, "/dev/tty")
+  local reads: {string: function(Stream.Reader): (string) | (nil, Failure)} = {
+    read_up_to = function(r: Stream.Reader): (string) | (nil, Failure)
+      return Stream.read_up_to(r, 4)
+    end,
+    read_exact = function(r: Stream.Reader): (string) | (nil, Failure)
+      return Stream.read_exact(r, 4)
+    end,
+    read_all = Stream.read_all,
+  }
+  local before: {{string}} = { {}, { "ab" } }
+  for name, read in pairs(reads) do
+    for _, chunks in ipairs(before) do
+      local got, why = read(chunked(chunks, timeout))
+      assert(got == nil and why == timeout, name .. ": " .. tostring(why and why.kind))
+    end
+    local got, why = read(chunked({}, Failure.cancelled()))
+    assert(got == nil and why.kind == "cancelled", name)
+  end
+end
+
+local function test_open_and_create_keep_the_errno_and_the_path(tmp: string)
+  local missing = tmp .. "/missing"
+  local r, trouble = Stream.open(missing)
+  assert(r == nil and trouble.kind == "system" and trouble.errno == sys.ENOENT and trouble.path == missing,
+    tostring(trouble))
+  local target = tmp .. "/missing/target"
+  local w, why = Stream.create(target)
+  assert(w == nil and why.kind == "system" and why.errno == sys.ENOENT and why.path == target, tostring(why))
+end
+
+--- A Reader whose first read times out; then it gives "cd" and ends.
+local class Stalling is Stream.Reader
+  mut reads: integer
+
+  function read(self, _max_bytes?: integer): (string | false) | (nil, Failure)
+    self.reads = self.reads + 1
+    if self.reads == 1 then return nil, Failure.timeout(Poll.TIMEOUT, "/dev/tty") end
+    if self.reads == 2 then return "cd" end
+    return false
+  end
+
+  function close(self): (true) | (false, Failure) return true end
+end
+
+--- A transform gives its source's Failure as it is: a timeout leaves it
+--- readable, and any other failure ends it.
+local function test_transform_keeps_the_sources_failure_as_it_is()
+  local same: Fake = {
+    pending = function(_self: Fake): boolean return false end,
+    update = function(_self: Fake, chunk: string): string?, string return chunk, "" end,
+    finish = function(_self: Fake): string?, string return "", "" end,
+  }
+  local source: Stalling = { reads = 0, skip = nil }
+  local r = Stream.transform(source, same)
+  local got, why = r:read()
+  assert(got == nil and why.kind == "timeout" and why.path == "/dev/tty", tostring(why))
+  assert(assert(Stream.read_all(r)) == "cd")
+  local disk = Failure.new("disk on fire")
+  local ended = Stream.transform(chunked({ "ab" }, disk), same)
+  local ab, _ = ended:read()
+  assert(ab == "ab")
+  local _, first = ended:read()
+  local _, again = ended:read()
+  assert(first == disk and again == disk, tostring(first))
 end
 
 local function test_copy_n_copies_exactly_n_bytes_and_no_more()

@@ -655,6 +655,8 @@ local function read_link(entry: Zip.Entry): string?, string
   local body, trouble = entry:open()
   if body == nil then return nil, tostring(trouble) end
   local target, rtrouble = Stream.read_all(body)
+  -- TODO: give the caller Stream's Failure, its kind kept, once this
+  -- function returns a Failure rather than words.
   if target == nil then return nil, entry.path .. ": " .. tostring(rtrouble) end
   local refusal = nul_refusal(target, "in the target of symlink " .. entry.path)
   if refusal ~= "" then return nil, refusal end
