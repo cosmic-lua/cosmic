@@ -447,7 +447,9 @@ cosmic agent ask --budget turns=6 'go on'
 `--model sonnet` costs less than the default, `opus`, and `--model haiku`
 costs least: its list price is a twentieth of sonnet's. A session keeps
 the model it used last, until `--model` names another. `--effort low`
-to `max` sets how hard the model thinks (default `medium`).
+to `max` sets how hard the model thinks (default `low` for haiku, which
+cost a quarter more at `medium` on the same evals and passed no more, and
+`medium` for the rest).
 
 ## sessions
 
