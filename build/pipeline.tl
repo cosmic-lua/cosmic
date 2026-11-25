@@ -52,6 +52,7 @@ local String = require("cosmic.string")
 local SyntaxContracts = require("build.syntax_contracts")
 local TreeProgram = require("build.tree_program")
 local standard_text = require("build.standard_text")
+local StandardMeant = require("build.standard_meant")
 local type Plans = require("build.plans")
 -- Declares what text this module reads ([`build.code_walk`]'s `markers`): pipeline, stubs.
 local _ = require("build.reads.pipeline")
@@ -375,13 +376,23 @@ function Pipeline.carried_own(): Driver.Provider
   end, declared)
 end
 
+--- `meant`, and where it names nothing for a `cosmic.*` name, what the binary's docs say it may have meant
+--- ([`StandardMeant.of`]).
+local function with_standard(meant: function(name: string, file: string): {string}): function(name: string, file: string): {string}
+  return function(name: string, file: string): {string}
+    local found = meant(name, file)
+    if #found > 0 then return found end
+    return StandardMeant.of(name)
+  end
+end
+
 function Pipeline.over(entries: {{string}}, kinds: {string: string}, options: Pipeline.Options, stubs?: {string: string}):
     Pipeline.Built
   local index = TreeProgram.index(entries, kinds)
   local standard = options.standard or Pipeline.carried()
   return {
     build = TreeProgram.build(index, options.globals, options.types, nil, standard,
-      TreeProgram.meant(index, options.project ~= true)), index = index,
+      with_standard(TreeProgram.meant(index, options.project ~= true))), index = index,
     globals = options.globals, standard = standard, types = options.types, given = stubs or {}, stubs = nil, stubbed = nil,
     project = options.project, standing = {},
   }
