@@ -219,6 +219,45 @@ local function test_a_new_file_of_markers_is_refused_and_a_file_at_or_under_its_
       "merge base held 0"), table.concat(refused.lines, "\n"))
 end
 
+--- Code that moved into a new file (a file renamed, or split out of another) keeps its markers: a marker of a file the base
+--- lacks is carried where a file of the base held the same code on the same line and no longer does. A marker on a line of
+--- its own, one more than moved, a file the base has, and a base git cannot list, are held to their own counts.
+local function test_a_new_file_carries_the_markers_of_lines_that_moved_into_it(tmp: string)
+  local root = tree_with(tmp)
+  local base = marked_base({ ["build/a.tl"] = "f() " .. KEY .. " map_field*3\n" })
+  local listing = "ls-tree -z --name-only " .. BASE .. " -- build/b.tl"
+  base.status[listing] = 0
+  local function check(a: string?, b: string): {string}
+    if a ~= nil then
+      assert(Fs.write(root .. "/build/a.tl", a))
+    else
+      local _, _ = Fs.remove(root .. "/build/a.tl")
+    end
+    assert(Fs.write(root .. "/build/b.tl", b))
+    local held: mut {string: {string: integer}} = { ["build/b.tl"] = Markers.counts(b, "build/b.tl") }
+    if a ~= nil then held["build/a.tl"] = Markers.counts(a, "build/a.tl") end
+    return CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE }), git_of(base, { calls = {} }), held).lines
+  end
+  local split = check("f() " .. KEY .. " map_field\n", "  f()  " .. KEY .. " map_field*2\n")
+  assert(#split == 0, table.concat(split, "\n"))
+  local moved = check(nil, "f() " .. KEY .. " map_field*3\n")
+  assert(#moved == 0, table.concat(moved, "\n"))
+  local more = check("f() " .. KEY .. " map_field\n", "f() " .. KEY .. " map_field*3\n")
+  assert(#more == 1 and has(more[1], "build/b.tl: 3 of its markers hold checked map_field and the merge base lacks " ..
+      "the file, which carries only the 2 that hold the same line as a marker a file of the base lost"), table.concat(more, "\n"))
+  local own = check("f()\n", "g() " .. KEY .. " map_field\n")
+  assert(#own == 1 and has(own[1], "which carries only the 0"), table.concat(own, "\n"))
+  -- A file the base has holds its own count, whatever another file lost.
+  base.printed[listing] = "build/b.tl\0"
+  local kept = check(nil, "f() " .. KEY .. " map_field\n")
+  assert(#kept == 1 and has(kept[1], "build/b.tl: 1 of its markers hold checked map_field and the merge base held 0"),
+    table.concat(kept, "\n"))
+  -- Where git cannot list the base, every file holds its own count.
+  base.status[listing] = 128
+  base.printed[listing] = ""
+  assert(#check(nil, "f() " .. KEY .. " map_field\n") == 1)
+end
+
 local function test_a_base_without_markers_makes_every_marker_new_and_a_tree_without_asks_git_nothing(tmp: string)
   local root = tree_with(tmp)
   local held: CeilingsBase.Held = { ["build/a.tl"] = { ["checked map_field"] = 1 } }

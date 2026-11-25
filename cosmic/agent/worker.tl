@@ -179,8 +179,10 @@ local function started(set: Worker.Set, opts: Worker.Options): (Stream.Lines) | 
       end
     end
     for _, promise in ipairs(promises) do grants[#grants + 1] = { calls = promise } end
+    for _, target in ipairs(Sandbox.connects(merged)) do
+      grants[#grants + 1] = { connect = target }
+    end
     policy = { grants = grants, isolate = merged.isolate,
-      connect = merged.connect,
       loopback = merged.loopback, env = merged.env, set_env = merged.set_env, set_env_digests = merged.set_env_digests,
       tmp = merged.tmp, limits = merged.limits, user = merged.user, group = merged.group, database = merged.database }
   end

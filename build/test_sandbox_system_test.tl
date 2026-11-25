@@ -20,8 +20,7 @@ local support = require("build.test_support_fixture")
 --- the root a worker's process would confine.
 Test.policy{
   profiles = { "system", "cosmic", "proc" },
-  grants = { { path = "o/bin", letters = "rx" }, { path = "/dev/urandom", letters = "r" } },
-  promises = { "nest" },
+  grants = { { path = "o/bin", letters = "rx" }, { path = "/dev/urandom", letters = "r" }, { calls = "nest" } },
 }
 
 --- A worker whose module declares `system` is given the system's own

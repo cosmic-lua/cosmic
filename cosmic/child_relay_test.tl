@@ -19,6 +19,7 @@ local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
 local RelayConfig = require("cosmic.internal.relay_config")
 local Store = require("cosmic.store")
+local Sandbox = require("cosmic.sandbox")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
@@ -34,12 +35,11 @@ local fixture = require("build.child_policy_database_fixture")
 --- a program is told to leave direct.
 Test.policy{
   profiles = { "cosmic" },
-  promises = { "nest" },
   loopback = { "127.0.0.1", "127.0.0.2" },
   env = { "TMPDIR" },
   grants = {
     { path = "o/bin", letters = "rx" },
-    { path = "o/cosmic.db", letters = "r" },
+    { path = "o/cosmic.db", letters = "r" }, { calls = "nest" },
   },
   requires = { "nest" },
 }
@@ -194,8 +194,15 @@ local function serving(body: function(granted: integer, ungranted: integer))
 end
 
 --- The policy that grants `port` of 127.0.0.2 to the program on `database`.
+--- `options` with `isolate` and `tmp` of `more` laid over its policy's,
+--- started in "/", which is above every grant a root of isolate file holds.
+local function with_more(options: Child.Options, more?: Sandbox.Policy): Child.Options
+  if more == nil then return options end
+  return { ...options, cwd = "/", policy = { ...assert(options.policy), isolate = more.isolate, tmp = more.tmp } }
+end
+
 local function granting(database: string, port: integer): Child.Options
-  return { policy = { database = { path = database }, connect = { "127.0.0.2:" .. tostring(port) } }, stdout = "capture", stderr = "capture",
+  return { policy = { database = { path = database }, grants = { { connect = "127.0.0.2:" .. tostring(port) } } }, stdout = "capture", stderr = "capture",
     timeout_ns = Clock.seconds(60) }
 end
 
@@ -237,14 +244,14 @@ end
 
 --- What the program says of its flows, and the port its servers left
 --- ungranted: ends the test, skipped, where the host gives no sandbox.
-local function flows(tmp: string): {string:string}, integer
+local function flows(tmp: string, more?: Sandbox.Policy): {string:string}, integer
   local database = sealed_client(tmp)
   local said: {string:string}? = nil
   local refusal: string? = nil
   local other: integer? = nil
   serving(function(granted: integer, ungranted: integer)
     local result, why = Child.run({ assert(Proc.executable()), "flows", tostring(granted),
-      tostring(ungranted) }, granting(database, granted))
+      tostring(ungranted) }, with_more(granting(database, granted), more))
     if result == nil then
       assert(ChildPolicy.unsandboxable(tostring(why)), "the start was refused: " .. tostring(why))
       refusal = tostring(why)
@@ -256,6 +263,14 @@ local function flows(tmp: string): {string:string}, integer
   local refusal_value = refusal
   if refusal_value ~= nil then Test.skip(refusal_value) end
   return assert(said), assert(other)
+end
+
+--- Under isolate file with a tmp of its own (the agent's Linux shape), the
+--- relay is handed the same grants: the /tmp the root makes drops no other.
+local function test_a_granted_flow_echoes_under_isolate_file_and_tmp(tmp: string)
+  local said = flows(tmp, { isolate = { "file" }, tmp = true })
+  assert(said["connect"] == "HTTP/1.1 200 Connection established", tostring(said["connect"]))
+  assert(said["connect_echo"] == "echo:ping", tostring(said["connect_echo"]))
 end
 
 --- A granted flow reaches its server, in both protocols; one nothing
@@ -356,7 +371,7 @@ local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 return function(argv: {string}): integer
   local started, why = Child.start({ assert(Proc.executable()), "wait" }, { timeout_ns = Child.FOREVER, policy = {
-    database = { path = (argv[1] or ""), sha256 = nil }, connect = { "127.0.0.2:9" } }, stdout = "null", stderr = "null" })
+    database = { path = (argv[1] or ""), sha256 = nil }, grants = { { connect = "127.0.0.2:9" } } }, stdout = "null", stderr = "null" })
   local pid = sys.getpid()
   local running: mut {string} = {}
   local children, _ = Fs.read("/proc/" .. tostring(pid) .. "/task/" .. tostring(pid) .. "/children")
@@ -424,7 +439,7 @@ local Proc = require("cosmic.proc")
 return function(argv: {string}): integer
   local log: Child.RelayLog = if argv[4] == "inherit" then "inherit" else "null" end
   local result, why = Child.run({ assert(Proc.executable()), "flows", (argv[2] or ""), (argv[3] or "") }, { timeout_ns = Child.FOREVER,
-    policy = { database = { path = (argv[1] or ""), sha256 = nil }, connect = { "127.0.0.2:" .. (argv[2] or "") } },
+    policy = { database = { path = (argv[1] or ""), sha256 = nil }, grants = { { connect = "127.0.0.2:" .. (argv[2] or "") } } },
     stdout = "capture", stderr = "capture", relay_log = log })
   assert(result, why)
   local _, _ = Fs.put(Fs.stdout, assert(result.stdout))

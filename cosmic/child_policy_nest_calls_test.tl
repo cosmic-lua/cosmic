@@ -25,7 +25,7 @@ local ChildPolicy = require("build.child_policy_fixture")
 Test.policy{
   env = { "TMPDIR" },
   profiles = { "cosmic" },
-  promises = { "nest" },
+  grants = { { calls = "nest" } },
   requires = { "nest" },
 }
 

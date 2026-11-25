@@ -106,7 +106,7 @@ local function test_a_refused_user_namespace_is_said_plainly()
     assert(refused:find("refuses this user a user namespace", 1, true), refused)
     -- A Landlock domain, which a test worker's process may be held by,
     -- refuses a mount EPERM alone.
-    assert((refused:find("held by a Landlock ruleset: declare the promise \"nest\" in the " ..
+    assert((refused:find("held by a Landlock ruleset: declare the grant { calls = \"nest\" } in the " ..
         "starting test's Test.policy", 1, true) ~= nil) == (errno == "Operation not permitted"),
       refused)
   end

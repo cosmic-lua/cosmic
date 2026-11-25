@@ -28,7 +28,7 @@ local Clock = require("cosmic.clock")
 --- policy makes no inet socket without it.
 Test.policy{
   profiles = { "cosmic", "proc" },
-  promises = { "nest" },
+  grants = { { calls = "nest" } },
   loopback = { "127.0.0.1" },
   requires = { "nest" },
 }

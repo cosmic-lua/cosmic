@@ -41,7 +41,7 @@ end
 local REFUSED <const>: {Refusal} = {
   { policy = "{ isolate = { \"file\" } }", says = "isolate \"file\"" },
   { policy = "{ isolate = { \"proc\" } }", says = "isolate \"proc\"" },
-  { policy = "{ connect = { \"example.com:443\" } }", says = "connect \"example.com:443\"" },
+  { policy = "{ grants = { { connect = \"example.com:443\" } } }", says = "connect \"example.com:443\"" },
   { policy = "{ loopback = { \"127.0.0.2\" } }", says = "loopback \"127.0.0.2\"" },
   { policy = "{ grants = { { calls = \"nest\" } } }", says = "calls \"nest\"" },
   { policy = "{ grants = { { path = \"/\", letters = \"ru\" } } }", says = "grant \"/\" has u" },

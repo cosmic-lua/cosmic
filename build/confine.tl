@@ -229,8 +229,8 @@ end
 --- naming the declaration that lets it.
 local function nests_refusal(program: string, module: string): string
   return string.format("%s cannot start in a root of its own: %s's worker is held by a " ..
-      "Landlock ruleset, under which the kernel refuses every mount; declare the promise " ..
-      "\"nest\" in its Test.policy", program, module)
+      "Landlock ruleset, under which the kernel refuses every mount; declare " ..
+      "the grant { calls = \"nest\" } in its Test.policy", program, module)
 end
 
 --- `wanted`, each relative path taken from the directory this process
@@ -400,7 +400,7 @@ end
 --- Whether this platform has a sandbox at all (core/process.h's
 --- `sandbox_platform`): Linux has, whatever this host then refuses of
 --- it; another platform has none to give or to check. Only the probe of
---- the host asks ([`build.tree_checks`]' `restricted`): a test declares
+--- the host asks ([`build.tree_checks.declares`]' `restricted`): a test declares
 --- `requires`, or ends itself with [`Test.skip`].
 function confine.sandbox_platform(): boolean
   local ok, _, _ = sandbox_platform()

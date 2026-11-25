@@ -25,10 +25,9 @@ local ChildPolicy = require("build.child_policy_fixture")
 --- those of the servers, and the one the worker's own loopback is.
 Test.policy{
   profiles = { "cosmic" },
-  promises = { "nest" },
   loopback = { "127.0.0.1", "127.0.0.2" },
   env = { "TMPDIR" },
-  grants = { { path = "o/bin", letters = "rx" } },
+  grants = { { path = "o/bin", letters = "rx" }, { calls = "nest" } },
   requires = { "nest" },
 }
 

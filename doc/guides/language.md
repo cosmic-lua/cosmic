@@ -913,19 +913,22 @@ hi
 
 A schema's handles are made by [`Sqlite.open`] and [`Sqlite.memory`] alone: a table literal of `Notes`, `v is Notes` and a
 function written into `Notes` (`function Notes.f()`) are refused, since a handle's metatable is [`cosmic.sqlite`]'s. The
-value `Notes` has the field `ddl`. A module exports a schema as the type, `type Notes = Notes` in its record, and a
-function that opens a handle of it: another module that holds the value in a field holds a [`Sqlite.Schema`], which
-opens a plain handle.
+value `Notes` has the field `ddl`. A module exports a schema with `type Notes = Notes` in a record that takes no type
+parameters. The record's table then holds the value too, so another module opens a handle of it with `{ schema = Store.Notes }`. A field typed
+[`Sqlite.Schema`] holds a schema of no known tables, which opens a plain handle.
 
-The DDL may also be written `local schema Name = <exp>`, where the expression is string literals and `<const>` locals of
-the same block given them, joined with `..`: a schema of one piece per table reads as their join.
+The DDL may also be written `local schema Name = <exp>`. The expression joins its parts with `..`. A part is a string
+literal, a `<const>` local of the same block given one, or the `ddl` of another schema. That schema is a `local schema`
+declared above (`Notes.ddl`), or one a record names (`store.Notes.ddl`). So a schema of one piece per table reads as
+their join. A schema can also extend the schema of another module.
 
 ```teal
 local NOTES <const> = "CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT NOT NULL);"
 local TAGS <const> = "CREATE TABLE tags (note INTEGER NOT NULL, tag TEXT NOT NULL);"
 local schema Tagged = NOTES .. TAGS
+local schema Dated = Tagged.ddl .. "CREATE TABLE dates (note INTEGER NOT NULL, at INTEGER NOT NULL);"
 
-print(#Tagged.ddl > 0)
+print(Dated.ddl == NOTES .. TAGS .. "CREATE TABLE dates (note INTEGER NOT NULL, at INTEGER NOT NULL);")
 ```
 
 ```output

@@ -266,7 +266,7 @@ end
 -- A terminal as a policy's `relay_log` is refused naming the option.
 do
   local caller = new_caller()
-  local started, why = Child.start({ exe, "--help" }, { timeout_ns = Child.FOREVER, policy = { connect = { "127.0.0.2:9" } }, relay_log = caller.slave })
+  local started, why = Child.start({ exe, "--help" }, { timeout_ns = Child.FOREVER, policy = { grants = { { connect = "127.0.0.2:9" } } }, relay_log = caller.slave })
   assert(started == nil, "a terminal as the relay's log was taken")
   print("relay: refused: " .. tostring(why))
   finish(caller)

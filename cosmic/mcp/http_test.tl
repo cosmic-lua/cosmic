@@ -395,7 +395,7 @@ local function test_a_quiet_call_is_cancelled_soon_after_its_client_closes()
     call = function(_: {string: Json.Value}, call: Server.Call): (Mcp.ToolResult) | (nil, Failure)
       local until_ns = Clock.monotonic_ns() + Clock.seconds(10)
       while Clock.monotonic_ns() < until_ns do
-        local ok, _ = Poll.delay(Clock.ms(10))
+        local ok, _ = Clock.sleep(Clock.ms(10))
         if not ok or call.cancelled() then
           cancelled_ns = Clock.monotonic_ns()
           return nil, Failure.new("cancelled")
@@ -422,13 +422,13 @@ local function test_a_quiet_call_is_cancelled_soon_after_its_client_closes()
       got = got .. piece
     end
     assert(got:find("^HTTP/1%.1 200") ~= nil and got:find("text/event-stream", 1, true) ~= nil, got)
-    assert(Poll.delay(Clock.ms(300)))
+    assert(Clock.sleep(Clock.ms(300)))
     assert(cancelled_ns == nil, "the call was cancelled while its client was there")
     closed_ns = Clock.monotonic_ns()
     assert(conn:close())
     local until_ns = closed_ns + Clock.seconds(3)
     while cancelled_ns == nil and Clock.monotonic_ns() < until_ns do
-      assert(Poll.delay(Clock.ms(10)))
+      assert(Clock.sleep(Clock.ms(10)))
     end
   end)
   local at = assert(cancelled_ns, "the call was never cancelled")

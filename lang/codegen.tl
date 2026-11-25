@@ -1422,13 +1422,19 @@ local function integer_enum_table(node: Ast.Enum): string
 end
 
 --- The nested records and integer enums of `members`, written as the table `{ A = {}, B = { C = {} }, E = { X = 0 } }`.
-local function record_table(members: {Ast.Member}): string
+local function record_table(members: {Ast.Member}, schemas: boolean): string
   local pieces: mut {string} = {}
   for _, m in ipairs(members) do
     if (m.kind == "Record") then
-      pieces[#pieces + 1] = " " .. m.name.name .. " = " .. record_table(m.members)
+      pieces[#pieces + 1] = " " .. m.name.name .. " = " .. record_table(m.members, true)
     elseif (m.kind == "Enum") and m.numeric == true then
       pieces[#pieces + 1] = " " .. m.name.name .. " = " .. integer_enum_table(m)
+    elseif schemas and (m.kind == "Alias") and (m.type.kind == "TypeName") and #m.type.path == 1 then
+      -- `type Notes = Notes` of a `local schema` of the file: the schema is a value too, which the table holds.
+      local named = declaration_of(m.type)
+      if named ~= nil and (named.kind == "Class") and named.schema ~= nil then
+        pieces[#pieces + 1] = " " .. m.name.name .. " = " .. named.name.name
+      end
     end
   end
   if #pieces == 0 then
@@ -1470,7 +1476,7 @@ local function record_statement(node: Ast.Record): Output
   put(out, "local")
   add_child(out, text(line_of(node.name.first), node.name.name), " ")
   put(out, " =")
-  add_child(out, text(y, if #node.typeparams > 0 then "{}" else record_table(node.members) end), " ")
+  add_child(out, text(y, if #node.typeparams > 0 then "{}" else record_table(node.members, true) end), " ")
   return out
 end
 
@@ -1851,7 +1857,7 @@ local function class_statement(s: Ast.Class): Output
     put(out, ")")
     return out
   end
-  add_child(out, text(y, if #s.typeparams > 0 then "{}" else record_table(s.members) end), " ")
+  add_child(out, text(y, if #s.typeparams > 0 then "{}" else record_table(s.members, false) end), " ")
   put(out, "; " .. name .. ".__index = " .. name)
   refuse_nested_classes(s.members)
   for _, m in ipairs(s.members) do

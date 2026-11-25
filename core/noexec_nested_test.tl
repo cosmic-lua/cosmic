@@ -19,8 +19,7 @@ local this_program = require("build.this_program")
 --- permission to make the mount namespace the child binds in.
 Test.policy{
   profiles = { "cosmic" },
-  grants = { { path = "/noexec", letters = "rwc" } },
-  promises = { "nest" },
+  grants = { { path = "/noexec", letters = "rwc" }, { calls = "nest" } },
   requires = { "userns" },
 }
 

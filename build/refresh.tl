@@ -753,23 +753,20 @@ local function run(argv: {string}): integer
   end
   -- A file given as "-" is standard input, which is kept in a file of its own first: a dataset is read by path,
   -- an archive's members among them, and so is the binary.
-  local spooled: string? = nil
+  local spooled: Flags.Spool? = nil
   local _ <close> = Defer.new(function()
-    local dir = spooled
-    if dir ~= nil then local _, _ = Fs.remove_tree(dir) end
+    local spool = spooled
+    if spool ~= nil then spool:close() end
   end)
   -- A binary from standard input is written as one is run, mode 0755, which its copy keeps.
   local function from_stdin(name: string): string?, string
     local bytes, why = Flags.read("-")
     if bytes == nil then return nil, name .. ": " .. why end
-    local dir, dir_why = Fs.mkdtemp("cosmic-refresh-")
-    if dir == nil then return nil, tostring(dir_why) end
-    spooled = dir
     -- Named for the option, as the bill of materials records a file it read by its name ("file:cacert").
-    local path = dir .. "/" .. name:sub(3)
-    local wrote, write_why = Fs.write(path, bytes, if name == "--binary" then 0x1ed else nil end)
-    if not wrote then return nil, tostring(write_why) end
-    return path, ""
+    local spool, spool_why = Flags.spool(bytes, name:sub(3), if name == "--binary" then 0x1ed else nil end)
+    if spool == nil then return nil, name .. ": " .. spool_why end
+    spooled = spool
+    return spool.path, ""
   end
   for _, dataset in ipairs(refresh.datasets) do
     local given = parsed.values["--" .. dataset.name]

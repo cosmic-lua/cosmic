@@ -281,7 +281,7 @@ end
 --- the native suite's verdict rather than run the test twice, where the
 --- two give their workers the same environment ([`suite_env`]). A test
 --- module that reads the launcher or artifact without being
---- unsealed fails `cosmic fix --check .` (build/tree_checks.tl's
+--- unsealed fails `cosmic fix --check .` (build/tree_checks/build.tl's
 --- `sealed_launch`).
 ---
 --- Nor is the checked suite's file either's (`checked`): the local
@@ -1299,10 +1299,11 @@ local function checked_suite(c: Context, target: string, work: string,
   for _, word in ipairs(with_census(checked_run.words)) do
     checked_argv[#checked_argv + 1] = word
   end
-  -- The merge queue runs the suite in shares, each a job of its own
-  -- (COSMIC_CI_CHECKED_SHARD, `I/N`; ci.yml's `checked`). A share does not
-  -- check the C functions, which only a whole run checks; main's push
-  -- and the full runs run it whole.
+  -- The merge queue and a manual run of a branch run the suite in
+  -- shares, each a job of its own (COSMIC_CI_CHECKED_SHARD, `I/N`;
+  -- ci.yml's `checked`). A share does not check the C functions, which
+  -- only a whole run checks; main's push and the scheduled run run it
+  -- whole.
   s = logged(c, "checked suite", Orchestration.with_share(checked_argv, named("COSMIC_CI_CHECKED_SHARD")),
     diagnostics .. "/checked-test.out", diagnostics .. "/checked-test.err",
     checked_suite_timeout_ns, c.root, Orchestration.deadlined(checked_run.env, checked_suite_timeout_ns, checked_margin_ns))

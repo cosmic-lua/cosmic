@@ -40,7 +40,7 @@ local record PipelineCheck
   end
 
   --- The lines that tell where the pipeline and the tree's checks differ over the `count` files `row_at` returns by position.
-  --- `declared` and `checked` are the lines the checks of the tree return ([`tree_checks.declared`], [`tree_checks.checked`]).
+  --- `declared` and `checked` are the lines the checks of the tree return ([`build.tree_checks.checked`]'s `declared` and `checked`).
   --- `memo` keeps the result for a module under its key.
   --- A tree whose compared modules are not exactly the tree's own (every file but those of `ci/`, the declarations of the standard library apart) fails, since
   --- a comparison of a few agrees with everything. It says how many it compared.

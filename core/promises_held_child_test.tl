@@ -29,7 +29,7 @@ local type _ = require("cosmic.child")
 -- requires `nest` alone, once their helpers can be shared through a fixture
 -- the tree rules allow: today they ask for Landlock they do not use.
 Test.policy{
-  promises = { "nest" },
+  grants = { { calls = "nest" } },
   loopback = { "127.0.0.1" },
   requires = { "landlock", "nest" },
 }

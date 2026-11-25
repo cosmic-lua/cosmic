@@ -21,7 +21,7 @@ local function chunk_of(reader: Stream.Reader, max_bytes?: integer): string
   return chunk
 end
 
-Test.policy{ loopback = { "127.0.0.1" }, promises = { "fork" }, grants = { { path = "testdata/tls", letters = "r" } } }
+Test.policy{ loopback = { "127.0.0.1" }, grants = { { path = "testdata/tls", letters = "r" }, { calls = "fork" } } }
 
 --- The fixture `name` of testdata/tls.
 local function fixture(name: string): string

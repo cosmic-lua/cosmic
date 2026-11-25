@@ -209,8 +209,8 @@ moved path.
 
 A module declares what its tests read with one top-level
 `Test.policy { ... }` ([`Test.policy`]). Its fields are those of
-[`cosmic.sandbox`]'s `Policy`: `profiles`, `grants`, `env` and `loopback`,
-and `promises`, the system calls a policy grants as `{ calls = ... }`, and
+[`cosmic.sandbox`]'s `Policy`: `profiles`, `grants` (paths, and the system
+calls a test makes, `{ calls = "nest" }`), `env` and `loopback`, and
 `requires`, `cpu_features` and `store_text`, which only a test declares
 (below, and "the pure store"). The harness takes only some of the rest.
 
@@ -263,9 +263,8 @@ The rules:
 - The harness refuses a field it has no key for, and the build fails
   naming it. These fields are refused:
 
-  - a grant to write, run or connect to,
-  - `isolate`, `limits`, `set_env`, `set_env_digests`, `connect` and
-    `database`,
+  - a grant to write, run, or connect to (`{ connect = "host:port" }`),
+  - `isolate`, `limits`, `set_env`, `set_env_digests` and `database`,
   - `tmp = false`,
   - `user` and `group`.
 
@@ -390,8 +389,8 @@ refuses a module of the tree outside the closure.
   names, never by `o/...`.
 - To confine a process in a root of its own, or to start a
   `cosmic test` whose workers are sandboxed, declare
-  `promises = { "nest" }` (`nests`). Without it the kernel refuses the
-  mounts a root is made of, the start fails and names the promise.
+  the grant `{ calls = "nest" }` (`nests`). Without it the kernel refuses
+  the mounts a root is made of, the start fails and names the call.
 
 ### the pure store
 
@@ -1348,7 +1347,7 @@ Other rules:
 [`build.test_sandbox`]: ../build/test_sandbox.tl
 [`build.test_worker`]: ../build/test_worker.tl
 [`build.this_program`]: ../build/this_program.tl
-[`build.tree_checks`]: ../build/tree_checks.tl
+[`build.tree_checks`]: ../build/tree_checks/init.tl
 [`build/declared_key.tl`]: ../build/declared_key.tl
 [`build/dispatch_sites.tl`]: ../build/dispatch_sites.tl
 [`build/dispatched_features_test.tl`]: ../build/dispatched_features_test.tl

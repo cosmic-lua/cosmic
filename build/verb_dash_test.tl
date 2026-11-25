@@ -18,12 +18,10 @@ local no_dash <const>: {string:string} = {
   ["release get -o"] = "an executable, renamed into place once verified",
   ["release launcher -o"] = "an executable, renamed into place once verified",
   ["release pin -o"] = "an executable, renamed into place once verified",
-  ["sandbox --database"] = "a sealed SQLite database, opened by path; - is refused (it could be spooled, as refresh's are)",
   ["sandbox --read"] = "a grant of a path to the sandbox, not a file this reads",
   ["sandbox --run"] = "a grant of a path to the sandbox, not a file this reads",
   ["sandbox --write"] = "a grant of a path to the sandbox, not a file this writes",
   ["sql --at"] = "a path into a JSON document, not a file",
-  ["sql --db"] = "a SQLite database, opened by path; - is refused, and --from - reads one from standard input",
   ["tailscale cert --socket"] = "the daemon's Unix socket",
   ["tailscale file get --socket"] = "the daemon's Unix socket",
   ["tailscale file list --socket"] = "the daemon's Unix socket",
@@ -147,4 +145,18 @@ local function test_read_and_write_a_file(tmp: string)
   assert(text == "hello", tostring(text))
   local none, trouble = Flags.read(tmp .. "/missing")
   assert(none == nil and trouble:find("missing", 1, true) ~= nil, trouble)
+end
+
+local function test_a_spool_keeps_standard_input_in_a_file_until_closed()
+  local kept: string
+  do
+    local spool <close> = assert(Flags.spool("bytes", "stdin.db"))
+    kept = spool.path
+    assert(kept:find("/stdin.db$") ~= nil, kept)
+    local text, _ = Flags.read(kept)
+    assert(text == "bytes", tostring(text))
+  end
+  local Fs = require("cosmic.fs")
+  local status = assert(Fs.status(kept))
+  assert(not status.exists, kept .. " is left after the spool closed")
 end
