@@ -530,7 +530,7 @@ local function expire(res: Types.Response, cookie: string, opts: Session.Options
   -- A cookie that never was set over http cannot be Secure-less SameSite=None.
   if not secure and attrs.same_site == "None" then attrs.same_site = "Lax" end
   local line, why = Cookies.expire(cookie, attrs)
-  if line == nil then error("session: " .. why, 0) end
+  if line == nil then error("session: " .. tostring(why), 0) end
   Response.add_header(res, "Set-Cookie", line)
 end
 
@@ -556,12 +556,12 @@ function Session.middleware(opts: Session.Options): Types.Middleware
   -- unless `secure` is false, the plain one unless it is true (development
   -- mode over http, where SameSite=None is refused at the request).
   if opts_secure ~= false then
-    local _, why = Cookies.format(prefixed, "x", attributes(opts, true))
-    if why ~= "" then error("session: " .. why, 0) end
+    local made, why = Cookies.format(prefixed, "x", attributes(opts, true))
+    if made == nil then error("session: " .. tostring(why), 0) end
   end
   if opts_secure ~= true then
-    local _, why = Cookies.format(base, "x", attributes(opts, opts_secure == nil and opts.same_site == "None"))
-    if why ~= "" then error("session: " .. why, 0) end
+    local made, why = Cookies.format(base, "x", attributes(opts, opts_secure == nil and opts.same_site == "None"))
+    if made == nil then error("session: " .. tostring(why), 0) end
   end
   local clock = opts.now or function(): integer return Clock.now_ns() // 1000000000 end
   return function(inner: Types.Handler): Types.Handler
@@ -613,7 +613,7 @@ function Session.middleware(opts: Session.Options): Types.Middleware
         local attrs = attributes(opts, secure)
         attrs.max_age = math.max(st.data.expires - st.now, 1)
         local ok, format_why = Cookies.set(res, cookie, token, attrs)
-        if not ok then error("session: " .. format_why, 0) end
+        if not ok then error("session: " .. tostring(format_why), 0) end
       elseif st.invalidated or st.bad_cookie then
         expire(res, cookie, opts, secure)
       end
