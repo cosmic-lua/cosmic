@@ -792,11 +792,19 @@ function Fs.mkdirs(path: string, mode?: integer): (true) | (false, Failure)
   return false, Failure.system(number, path)
 end
 
---- A fresh, empty temporary directory under the system temp directory,
---- named with `prefix` and a random suffix: `mktemp -d`. `TMPDIR` picks the
---- temp directory when it is set, and `/tmp` otherwise.
+--- The system temp directory: `TMPDIR` when it is an absolute path, and
+--- `/tmp` when it is unset, empty or not absolute, as the sandbox's own
+--- start takes it.
+function Fs.temp_dir(): string
+  local given = Env.read("TMPDIR")
+  if given == nil or given:sub(1, 1) ~= "/" then return "/tmp" end
+  return given
+end
+
+--- A fresh, empty temporary directory under the system temp directory
+--- ([`Fs.temp_dir`]), named with `prefix` and a random suffix: `mktemp -d`.
 function Fs.mkdtemp(prefix: string): (string) | (nil, Failure)
-  local base = Env.read("TMPDIR") or "/tmp"
+  local base = Fs.temp_dir()
   local template = base .. "/" .. prefix .. "XXXXXX"
   local path, _, errno = sys.mkdtemp(template)
   if path == nil then return nil, Failure.system(errno, template) end
