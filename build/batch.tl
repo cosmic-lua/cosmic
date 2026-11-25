@@ -2,7 +2,6 @@
 --- merge queue as one pull request, one commit for each.
 ---
 ---     bin/cosmic build/batch.tl stack BRANCH N...
----     bin/cosmic build/batch.tl land BATCH
 ---     bin/cosmic build/batch.tl close BATCH
 ---
 --- `stack` checks out BRANCH fresh from origin's main and squashes each
@@ -21,11 +20,6 @@
 --- the batch changes. A batch that fails one says which, with the
 --- end of its output, and exits 1, so it is not pushed.
 ---
---- `land` merges batch pull request BATCH without the merge queue, by
---- rebase, so each member stays one commit on main: only while main is
---- still the commit the batch was stacked on, or one before it, and its
---- newest `ci` check is green. Then it closes the members, as `close`.
----
 --- `close` reads a merged batch pull request's commits, and closes each
 --- member whose head is still the one batched, with a comment that names
 --- the member's commit on main. A member pushed since it was batched
@@ -43,6 +37,13 @@ local REPO <const> = "cosmic-lua/cosmic"
 local TIMEOUT_NS <const> = 120 * 1000000000
 --- A check of the stacked batch: the whole suite takes minutes.
 local CHECK_TIMEOUT_NS <const> = 60 * 60 * 1000000000
+--- The tests of ci/'s suite that fail when it runs as root, as this
+--- container does, and pass in CI: a root caller's sandboxed child runs
+--- as another user, who cannot use a grant root owns.
+local ROOT_ONLY <const>: {string:boolean} = {
+  ["cosmic_ci.prerelease_test test_driver_stages_and_refuses_to_publish_without_a_token"] = true,
+  ["cosmic_ci.prerelease_test test_the_smoke_policy_keeps_a_program_from_writing_elsewhere"] = true,
+}
 --- How much of a failed check's output is said.
 local TAIL_LINES <const> = 40
 
@@ -101,7 +102,8 @@ local function say(text: string)
   local _, _ = Fs.put(Fs.stderr, "batch: " .. text .. "\n")
 end
 
-local function run(argv: {string}, input?: string, cwd?: string, timeout_ns?: integer): Ran
+local function run(argv: {string}, input?: string, cwd?: string, timeout_ns?: integer,
+                   env?: {string:string}): Ran
   local name = argv[1]
   if name == nil then return { ok = false, out = "", err = "no program" } end
   local path, missing = Proc.find(name, Env.get("PATH"))
@@ -109,7 +111,7 @@ local function run(argv: {string}, input?: string, cwd?: string, timeout_ns?: in
   local full: mut {string} = { path }
   for i = 2, #argv do full[#full + 1] = argv[i] end
   local result, failure = Child.run(full, { timeout_ns = timeout_ns or TIMEOUT_NS, stdout = "capture",
-    stderr = "capture", input = input, cwd = cwd })
+    stderr = "capture", input = input, cwd = cwd, env = env })
   if result == nil then return { ok = false, out = "", err = tostring(failure) } end
   return { ok = result.ok, out = result.stdout or "", err = result.stderr or "" }
 end
@@ -222,6 +224,19 @@ local function tail(text: string): string
   return table.concat(lines, "\n", first, #lines)
 end
 
+--- Whether every test that `text` says failed is one of ROOT_ONLY.
+local function only_root_fails(text: string): boolean
+  local any = false
+  for line in (text .. "\n"):gmatch("([^\n]*)\n") do
+    local name = line:match("^test: FAIL  ([%w_.]+ [%w_]+):")
+    if name ~= nil then
+      if ROOT_ONLY[name] ~= true then return false end
+      any = true
+    end
+  end
+  return any
+end
+
 --- Tests the checked-out batch, which changes the tree from `main`:
 --- true if every check passes; else it says the first that failed.
 local function checked(main: string): boolean
@@ -230,6 +245,7 @@ local function checked(main: string): boolean
     say("cannot find bin/cosmic: " .. tostring(unfound))
     return false
   end
+  local as_root = trimmed(run({ "id", "-u" }).out) == "0"
   local typed: mut {string} = { cosmic, "test", "--check-types" }
   for path in git({ "diff", "--name-only", "--diff-filter=d", main, "HEAD" }).out:gmatch("[^\n]+") do
     if path:match("_test%.tl$") ~= nil and path:match("^ci/") == nil then
@@ -240,12 +256,16 @@ local function checked(main: string): boolean
     name: string
     argv: {string}
     cwd?: string
+    env?: {string:string}
+    root_only?: boolean
   end
   local checks: mut {Check} = {
     { name = "fix --check at the root", argv = { cosmic, "fix", "--check", "." } },
     { name = "fix --check in ci/", argv = { cosmic, "fix", "--check", "." }, cwd = "ci" },
     { name = "the whole suite", argv = { cosmic, "test" } },
-    { name = "ci/'s suite", argv = { cosmic, "test" }, cwd = "ci" },
+    -- As CI's driver job runs it.
+    { name = "ci/'s suite", argv = { cosmic, "test", "cosmic_ci" }, cwd = "ci",
+      env = { COSMIC_VERDICT_CACHE = "0", COSMIC_TEST_SANDBOX = "0" }, root_only = true },
   }
   if #typed > 3 then
     checks[#checks + 1] = { name = "test --check-types on " .. tostring(#typed - 3) .. " changed test files",
@@ -253,8 +273,16 @@ local function checked(main: string): boolean
   end
   for _, check in ipairs(checks) do
     say("checking: " .. check.name)
-    local ran = run(check.argv, nil, check.cwd, CHECK_TIMEOUT_NS)
-    if not ran.ok then
+    local env: {string:string}? = nil
+    if check.env ~= nil then
+      local all = Env.all()
+      for name, value in pairs(check.env) do all[name] = value end
+      env = all
+    end
+    local ran = run(check.argv, nil, check.cwd, CHECK_TIMEOUT_NS, env)
+    if not ran.ok and check.root_only == true and as_root and only_root_fails(ran.out .. "\n" .. ran.err) then
+      say(check.name .. " passes but for the tests that fail only as root")
+    elseif not ran.ok then
       say("the batch fails " .. check.name .. ":\n" .. tail(ran.out .. "\n" .. ran.err))
       return false
     end
@@ -387,38 +415,6 @@ local function close(batch: string): integer
   return status
 end
 
-local function land(batch: string): integer
-  local pr, why = pull(batch)
-  if pr == nil then
-    say("#" .. batch .. " cannot be read: " .. why)
-    return 1
-  end
-  local refused = refusal(pr)
-  if refused ~= nil then
-    say("#" .. batch .. " is not landed: " .. refused)
-    return 1
-  end
-  local head = pr.head.sha
-  if not git({ "fetch", "-q", "origin", "main", head }).ok then
-    say("cannot fetch main and #" .. batch .. "'s head")
-    return 1
-  end
-  -- What lands is what was tested: main may not have moved past the
-  -- commit the batch was stacked on.
-  if not git({ "merge-base", "--is-ancestor", "origin/main", head }).ok then
-    say("#" .. batch .. " is not landed: main moved since it was stacked; stack it again")
-    return 1
-  end
-  local merged = run({ "gh", "api", "-X", "PUT", "repos/" .. REPO .. "/pulls/" .. batch .. "/merge",
-    "-f", "merge_method=rebase", "-f", "sha=" .. head })
-  if not merged.ok then
-    say("#" .. batch .. " could not be merged: " .. trimmed(merged.err .. " " .. merged.out))
-    return 1
-  end
-  say("#" .. batch .. " landed")
-  return close(batch)
-end
-
 return function(argv: {string}): integer
   local verb = argv[1]
   local first = argv[2]
@@ -438,11 +434,9 @@ return function(argv: {string}): integer
       end
     end
     return stack(first, numbers)
-  elseif verb == "land" and first ~= nil and #argv == 2 and first:match("^%d+$") ~= nil then
-    return land(first)
   elseif verb == "close" and first ~= nil and #argv == 2 and first:match("^%d+$") ~= nil then
     return close(first)
   end
-  say("usage: batch.tl stack BRANCH N... | land BATCH | close BATCH")
+  say("usage: batch.tl stack BRANCH N... | close BATCH")
   return 2
 end
