@@ -1,4 +1,4 @@
---- [`Child.start`]'s `policy` (cosmic/child.tl) on a live child: the kernel's
+--- [`Child.start`]'s `policy` (cosmic/child/init.tl) on a live child: the kernel's
 --- own verdict on the Landlock ruleset, the seccomp filter and the rlimits
 --- a policy is made into. The child is a fake ([`cosmic.fake`]) of
 --- build/child_policy_fake.tl, a static program whose first argument
