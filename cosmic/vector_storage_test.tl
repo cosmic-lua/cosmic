@@ -84,7 +84,7 @@ local function test_f16_refuses_numbers_it_cannot_hold_and_rounds_to_even()
   assert(assert(corpus:search(x, 1)).scores[1] == 65504)
   for _, big in ipairs({ 65520, -65520, 1e10, 3e38, -3e38 }) do
     local why = Test.raises(function() corpus:add(2, Vector.pack({ 1, big })) end)
-    assert(why:find("half", 1, true) ~= nil, why)
+    assert(tostring(why):find("half", 1, true) ~= nil, tostring(why))
     assert(Test.raises(function() corpus:add(2, Vector.pack({ big, 1 })) end):find("half", 1, true) ~= nil)
   end
   assert(corpus:count() == 1)
@@ -508,7 +508,7 @@ local function test_k_means_clusters_every_storage()
   end
   local nothing = Vector.corpus(2, { storage = "int8" })
   nothing:add(1, Vector.pack({ 1e-37, 1e-37 }))
-  assert(Test.raises(function() Vector.kmeans(nothing, 1) end):find("direction", 1, true) ~= nil)
+  assert(Test.raises(function() local _, _ = Vector.kmeans(nothing, 1) end):find("direction", 1, true) ~= nil)
 end
 
 --- A guard of cosmic.signal that has caught a signal ends a search or a
@@ -526,12 +526,12 @@ local function test_a_caught_signal_interrupts_every_storage()
     local guard = assert(Signal.guard())
     assert(sys.kill(sys.getpid(), sys.SIGTERM))
     local none, why = corpus:search(query, 5)
-    assert(none == nil and why == "interrupted", tostring(why))
+    assert(none == nil and tostring(why) == "interrupted", tostring(why))
     none, why = corpus:search(query, 5, { candidates = 50 })
-    assert(none == nil and why == "interrupted", tostring(why))
+    assert(none == nil and tostring(why) == "interrupted", tostring(why))
     local no_centroids: {string}?
     no_centroids, why = Vector.kmeans(corpus, 3, { seed = 4, iterations = 5 })
-    assert(no_centroids == nil and why == "interrupted", tostring(why))
+    assert(no_centroids == nil and tostring(why) == "interrupted", tostring(why))
     corpus:add(601, query)
     assert(corpus:count() == 601)
     assert(guard:take() == sys.SIGTERM)
@@ -657,7 +657,8 @@ local function test_load_takes_the_storage()
   assert(assert(Vector.load(db, sql)).storage == "f32")
   local huge, why = Vector.load(db, sql .. " UNION ALL SELECT 99, vector('[70000, 0]')", nil,
     { storage = "f16" })
-  assert(huge == nil and why:find("row 99", 1, true) ~= nil and why:find("half", 1, true) ~= nil, tostring(why))
-  assert(Vector.load(db, sql .. " UNION ALL SELECT 99, vector('[70000, 0]')", nil, { storage = "int8" }) ~= nil)
+  assert(huge == nil and tostring(why):find("row 99", 1, true) ~= nil and tostring(why):find("half", 1, true) ~= nil, tostring(why))
+  local squeezed, swhy = Vector.load(db, sql .. " UNION ALL SELECT 99, vector('[70000, 0]')", nil, { storage = "int8" })
+  assert(squeezed ~= nil, tostring(swhy))
   assert(db:close())
 end
