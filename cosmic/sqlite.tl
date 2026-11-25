@@ -1723,6 +1723,8 @@ end
 ---     ]]
 ---     local db = assert(Sqlite.open("notes.db", { writable = true, schema = Notes }))
 ---
+--- The DDL may be written `local schema Notes = A .. B`, string
+--- literals and `<const>` locals of the same block joined with `..`.
 --- The value is [`Sqlite.schema`] of the DDL. The type, `Notes`, is a
 --- class of the handles that hold its tables: `open` and `memory`
 --- give a `Notes` for `{ schema = Notes }`, and a `Notes` is a

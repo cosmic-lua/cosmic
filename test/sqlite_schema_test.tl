@@ -10,6 +10,16 @@ local schema Notes [[
   CREATE TABLE tags (note INTEGER NOT NULL, tag TEXT NOT NULL, PRIMARY KEY (note, tag));
 ]]
 
+local NOTE_TABLE <const> = "CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT NOT NULL)"
+local schema Joined = NOTE_TABLE .. "; " .. "CREATE TABLE tags (note INTEGER NOT NULL)"
+
+local function test_a_schema_of_joined_constants_holds_their_join()
+  assert(Joined.ddl == "CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT NOT NULL); CREATE TABLE tags (note INTEGER NOT NULL)")
+  local db = assert(Sqlite.memory({ schema = Joined }))
+  assert(db:run("INSERT INTO tags VALUES (1)"))
+  assert(db:close())
+end
+
 local function has(failure: Failure, text: string): boolean
   return failure.message:find(text, 1, true) ~= nil
 end

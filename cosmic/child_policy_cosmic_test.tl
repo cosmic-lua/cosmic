@@ -86,8 +86,8 @@ end
 local function test_this_program_under_nest_is_refused(tmp: string)
   local work = scripted(tmp, 'print("ran")\n')
   local result, why = Child.run({ (assert(Proc.executable())), work .. "/run.tl" },
-    { timeout_ns = Child.FOREVER, policy = { profiles = { "cosmic" }, isolate = { "file" }, promises = { "nest" },
-      grants = { { path = work, letters = "rwc" } } }, cwd = work })
+    { timeout_ns = Child.FOREVER, policy = { profiles = { "cosmic" }, isolate = { "file" },
+      grants = { { path = work, letters = "rwc" }, { calls = "nest" } } }, cwd = work })
   assert(result == nil and why.message:find("nest", 1, true) ~= nil and why.message:find("artifact and core", 1, true) ~= nil,
     tostring(why))
 end
@@ -150,8 +150,8 @@ local function test_a_child_with_no_x_cannot_run_its_own_core_again(tmp: string)
     '  print(if result == nil then "refused: " .. tostring(why) else "ran" end)',
     'end',
   }, "\n") .. "\n")
-  local result = ran({ work .. "/run.tl" }, { profiles = { "cosmic" }, promises = { "fork" },
-    grants = { { path = work, letters = "rwc" } } }, work)
+  local result = ran({ work .. "/run.tl" }, { profiles = { "cosmic" },
+    grants = { { path = work, letters = "rwc" }, { calls = "fork" } } }, work)
   local out = result.stdout or ""
   local _, refusals = out:gsub("refused: [^\n]*not permitted", "")
   assert(result.code == 0 and refusals == (if linux then 2 else 1 end),
