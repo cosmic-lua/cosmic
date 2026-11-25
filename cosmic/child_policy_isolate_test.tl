@@ -1,4 +1,4 @@
---- [`Child.start`]'s `policy` with isolation (cosmic/child.tl): `isolate`
+--- [`Child.start`]'s `policy` with isolation (cosmic/child/init.tl): `isolate`
 --- "file", a root of the child's own holding only what is granted, and
 --- "proc", a pid namespace and a /proc of its own; `loopback` and `u`
 --- grants, which give it a network namespace of its own. The kernel's own
