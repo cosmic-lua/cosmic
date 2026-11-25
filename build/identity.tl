@@ -9,6 +9,8 @@ local String = require("cosmic.string")
 local analysis_schema = require("build.analysis_schema")
 local bind = require("build.bind")
 local tree = require("build.tree")
+local type work_schema = require("build.work_schema")
+local type Database = work_schema.Database
 
 --- A row of the `meta` table the identity is recorded in.
 local record MetaRow
@@ -317,7 +319,7 @@ end
 
 --- The hash over some of the rows of `tool`, in path order.
 function identity.hash_over(db: Sqlite.Handle, where: string): string?, string
-  local rows, trouble = db:text_rows(
+  local rows, trouble = db:rows(
     "SELECT lower(hex(sha256(group_concat(path || ' ' || sha256, char(10) " ..
       "ORDER BY path)))) FROM tool WHERE " .. where)
   if rows == nil then
@@ -369,7 +371,7 @@ end
 --- `built_from`): only a boot or a rebuild, the acts that write a tool,
 --- record it. Returns the fingerprint written;
 --- [`identity.recorded_boot_hash`] reads it back.
-function identity.record_fingerprint(db: Sqlite.Handle, root: string): identity.Fingerprint?, string
+function identity.record_fingerprint(db: Database, root: string): identity.Fingerprint?, string
   local boot, boot_trouble = identity.hash_over(db, "1")
   if boot == nil then
     return nil, boot_trouble
@@ -416,7 +418,7 @@ end
 --- database holds no such row yet: a fresh build directory, or one nothing has
 --- staged for.
 function identity.recorded_boot_hash(db: Sqlite.Handle): string?, string
-  local rows, trouble = db:text_rows(
+  local rows, trouble = db:rows(
     "SELECT value FROM meta WHERE key = 'boot_hash'")
   if rows == nil then
     return nil, tostring(trouble)
@@ -424,7 +426,8 @@ function identity.recorded_boot_hash(db: Sqlite.Handle): string?, string
   if #rows == 0 then
     return nil, ""
   end
-  return rows[1]:text(1), ""
+  -- Read on a file whose tables are not held to the schema: the value may be of any type.
+  return rows[1]:as_text(1), ""
 end
 
 --- The pins and declarations of the compiler's basis, as one text: the pin
@@ -443,7 +446,7 @@ local pins <const> =
 --- What a module of the tree in the working database requires, as
 --- `requires` holds of its source: the walk [`identity.compiler_modules`] and
 --- [`identity.writer_modules`] take over it.
-local function requires_in(db: Sqlite.Handle): function(string): {string}?, string
+local function requires_in(db: Database): function(string): {string}?, string
   -- Every module's names are read at the first walk's first step: a query
   -- for each of the some three hundred modules a walk reaches took a tenth
   -- of a second a build.
@@ -451,7 +454,7 @@ local function requires_in(db: Sqlite.Handle): function(string): {string}?, stri
   return function(name: string): {string}?, string
     local all = held[1]
     if all == nil then
-      local rows, rows_trouble = db:text_rows(
+      local rows, rows_trouble = db:rows(
         "SELECT DISTINCT i.path, r.name FROM inputs i " ..
           "JOIN requires r ON r.source_hash = i.source_hash ORDER BY i.path, r.name")
       if rows == nil then return nil, tostring(rows_trouble) end
@@ -482,7 +485,7 @@ identity.lexed_by = function(): string? return Store.meta("boot_hash") end
 ---
 --- A module's hash is kept in `code_hashes` by its source's hash and the boot hash of the tool that lexed it, whose
 --- lexer the hash is of ([`identity.lexed_by`]), so a build of an unchanged tree lexes nothing.
-local function hash_of(db: Sqlite.Handle, names: {string}, extra: string): string?, string
+local function hash_of(db: Database, names: {string}, extra: string): string?, string
   local slots: mut {string} = {}
   local by = identity.lexed_by()
   local values: mut {Sqlite.Value} = { text(by or "") }
@@ -490,13 +493,13 @@ local function hash_of(db: Sqlite.Handle, names: {string}, extra: string): strin
     slots[#slots + 1] = "?" .. tostring(index + 1)
     values[#values + 1] = text(name)
   end
-  local rows, trouble = db:text_rows("SELECT i.path, i.file, i.source_hash, coalesce(c.code_hash, '') FROM inputs i " ..
+  local rows, trouble = db:rows("SELECT i.path, i.file, i.source_hash, coalesce(c.code_hash, '') FROM inputs i " ..
       "LEFT JOIN code_hashes c ON c.source_hash = i.source_hash AND c.by = ?1 WHERE i.path IN (" ..
       table.concat(slots, ", ") .. ") ORDER BY i.path, i.file", values)
   if rows == nil then
     return nil, tostring(trouble)
   end
-  local tail, tail_trouble = db:text_rows("SELECT " .. extra)
+  local tail, tail_trouble = db:rows("SELECT " .. extra)
   if tail == nil then
     return nil, tostring(tail_trouble)
   end
@@ -511,7 +514,7 @@ local function hash_of(db: Sqlite.Handle, names: {string}, extra: string): strin
       -- Its hash is its source's, and no row of `code_hashes`, which holds the code hashes of modules alone.
       code_hash = Hash.hex_sha256("source\n" .. source_hash)
     elseif code_hash == "" then
-      local sources = assert(db:text_rows("SELECT source FROM inputs WHERE source_hash = ?1 LIMIT 1",
+      local sources = assert(db:rows("SELECT source FROM inputs WHERE source_hash = ?1 LIMIT 1",
         { text(source_hash) }))
       local source = assert(sources[1], "an input's source_hash names its source"):text(1)
       code_hash = Hash.hex_sha256(require("build.code_text").of(source, file))
@@ -642,7 +645,7 @@ end
 --- importer_test's `test_the_compiler_modules_are_closed_under_require`
 --- checks the closed semantic boundary and classifies the coordinator's
 --- imports outside it.
-function identity.compiler_identity(db: Sqlite.Handle): string?, string
+function identity.compiler_identity(db: Database): string?, string
   local names, trouble = identity.compiler_modules(requires_in(db))
   if names == nil then
     return nil, trouble
@@ -723,7 +726,7 @@ end
 --- An edit to a module outside it -- build.todo_scan,
 --- the analyzer -- writes the same projection from the same rows, so
 --- it moves no signature and settles no rebuilt tool.
-local function writer_identity(db: Sqlite.Handle): string?, string
+local function writer_identity(db: Database): string?, string
   local names, trouble = identity.writer_modules(requires_in(db))
   if names == nil then
     return nil, trouble
@@ -735,8 +738,8 @@ end
 --- The runtime basis ([`Identities.runtime_basis`]) over what the working
 --- database holds now, recorded nowhere: the hash of Lua's pin and patches
 --- and the declarations the new checker types a program with.
-function identity.runtime_basis(db: Sqlite.Handle): string?, string
-  local rows, trouble = db:text_rows("SELECT lower(hex(sha256(" .. pins .. ")))")
+function identity.runtime_basis(db: Database): string?, string
+  local rows, trouble = db:rows("SELECT lower(hex(sha256(" .. pins .. ")))")
   if rows == nil then
     return nil, tostring(trouble)
   end
@@ -749,7 +752,7 @@ end
 --- ([`build.importer.derive`]) first: on a fresh working database the
 --- closure would otherwise stop at its roots, and keys
 --- made under that identity would match no later build's.
-function identity.record_identities(db: Sqlite.Handle): identity.Identities?, string
+function identity.record_identities(db: Database): identity.Identities?, string
   local compiler, compiler_trouble = identity.compiler_identity(db)
   if compiler == nil then
     return nil, compiler_trouble

@@ -2137,7 +2137,6 @@ local function test_the_writer_modules_are_closed_under_require()
   --- and why no projection's bytes turn on it.
   local neither: mut {string:string} = {
     ["build.work"] = "stages rows and owns transactions and history",
-    ["build.work_schema"] = "the working database's tables, build.work's; the projection holds rows, not this DDL",
     ["build.link_files"] = "stages prose links, whose rows the projection holds",
     ["build.c_tokens"] = "reads C comments for those staged links",
     ["build.importer"] = "coordinates semantic operations and cache transport, and renders diagnostics",
