@@ -234,6 +234,7 @@ local function test_each_request_is_kept_with_its_usage_and_cost()
   assert(body["model"] == "claude-opus-5-5" and body["tools"] ~= nil and body["messages"] == nil and
       body["system"] == nil, shaped:text(4))
   assert(Agent.cost("claude-sonnet-5-5", { output_tokens = 1000000 }) == 10)
+  assert(Agent.cost("claude-haiku-5-5", { input_tokens = 1000000, output_tokens = 1000000 }) == 0.6)
   -- A fallback's reply is priced by the model that served it.
   assert(Agent.cost("claude-opus-5", { input_tokens = 1000000, cache_read_input_tokens = 1000000 }) == 5.5)
   assert(Agent.cost("another", { output_tokens = 1 }) == nil)

@@ -414,11 +414,12 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     options.digests = digests -- checked: field_fixed
     local function download(interrupted: function(): boolean): integer
       options.cancelled = to.cancelled or interrupted -- checked: field_fixed
-      local result = Http.download_result(url, target, options)
-      if result.kind == "downloaded" then return bare.ok end
-      if result.kind == "http_status" then return failed_status(assert(result.status)) end
-      complain(verb.refusal(result.reason, options.redirect_protocols))
-      return if result.kind == "digest_mismatch" then bare.failed else bare.undone end
+      local downloaded, why = Http.download(url, target, options)
+      if downloaded then return bare.ok end
+      local status = why.code
+      if why.kind == "library" and status ~= nil then return failed_status(status) end
+      complain(verb.refusal(tostring(why), options.redirect_protocols))
+      return if why.kind == "mismatch" then bare.failed else bare.undone end
     end
     -- Held for the download and closed however it leaves, a raise of
     -- `complain` included: closing delivers a caught signal again, so the

@@ -6,6 +6,7 @@
 
 local Signal = require("cosmic.signal")
 local Codec = require("cosmic.codec")
+local Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
@@ -460,12 +461,12 @@ local function test_a_fragment_that_looks_like_a_checksum_is_refused()
 end
 
 local function test_download_status_uses_typed_code_instead_of_diagnostic_text(tmp: string)
-  local download = Http.download_result
-  Http.download_result = function(_url: string, _path: string, _opts?: Http.Options): Http.DownloadResult -- checked: field_fixed
-    return { kind = "http_status", status = 503, reason = "wording may change" }
+  local download = Http.download
+  Http.download = function(_url: string, _path: string, _opts: Http.Options): (true) | (false, Failure) -- checked: field_fixed
+    return false, Failure.coded("wording may change", 503)
   end
   local ran = run({ url, "-o", tmp .. "/got" }, {})
-  Http.download_result = download -- checked: field_fixed
+  Http.download = download -- checked: field_fixed
   assert(ran.code == 1 and ran.err == "cosmic: fetch: " .. url .. ": HTTP 503\n", ran.err)
   assert(ran.out == "" and #assert(Fs.list(tmp)) == 0)
 end

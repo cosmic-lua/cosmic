@@ -335,7 +335,7 @@ function importer.tree_code(handle: work.Handle): importer.Code?, string
   -- them -- no analyzer module requires, so the walk from the analyzer
   -- never reaches them.
   local function requires(name: string): {string}?, string
-    local rows, rows_trouble = db:text_rows(
+    local rows, rows_trouble = db:rows(
       "SELECT DISTINCT r.name FROM inputs i " ..
         "JOIN requires r ON r.source_hash = i.source_hash WHERE i.path = ?1 " ..
         "AND ?1 IN (SELECT path FROM inputs WHERE " .. analysis_schema.not_declaration("kind") .. ") " ..
@@ -351,7 +351,7 @@ function importer.tree_code(handle: work.Handle): importer.Code?, string
   -- What [`Store.source`] returns: a declaration's source ahead of a
   -- module's.
   local function source(name: string): string?, string
-    local rows, rows_trouble = db:text_rows(
+    local rows, rows_trouble = db:rows(
       "SELECT source FROM inputs WHERE path = ?1 " ..
         "ORDER BY " .. analysis_schema.declaration("kind") .. " DESC LIMIT 1", { text(name) })
     if rows == nil then
@@ -375,7 +375,7 @@ end
 --- they import, can only be named whole. What a parse runs is these
 --- modules and the Lua and declarations of the basis, and nothing else of
 --- the compiler's identity or of the code that checks ([`build.code_identity`]'s
---- `coded`): an edit to build.plans, build.tree or the checker (lang/check.tl,
+--- `coded`): an edit to build.plans, build.tree or the checker (lang/check/,
 --- build.driver, build.pipeline) compiles again and parses nothing again. An
 --- edit to the lexer, the parser or a reader of the syntax tree parses
 --- everything again.
@@ -455,7 +455,7 @@ end
 --- What `meta` names the analysis tables' rows as derived by, "" for
 --- none.
 local function recorded_analyzer(db: Sqlite.Handle): string?, string
-  local last, trouble = db:text_rows(
+  local last, trouble = db:rows(
     "SELECT value FROM meta WHERE key = 'analyzer'")
   if last == nil then
     return nil, tostring(trouble)
@@ -525,7 +525,7 @@ local function receivers_identity(db: Sqlite.Handle): string?, string
   for _, name in ipairs(CodeWalk.receivers_modules) do
     local source: string? = nil
     if booting then
-      local rows, trouble = db:text_rows("SELECT source FROM inputs WHERE path = ?1", { text(name) })
+      local rows, trouble = db:rows("SELECT source FROM inputs WHERE path = ?1", { text(name) })
       if rows == nil then
         return nil, tostring(trouble)
       end
@@ -559,7 +559,7 @@ local function forget_stale_receivers(db: Sqlite.Handle): boolean, string
   if identity == nil then
     return false, identity_trouble
   end
-  local last, last_trouble = db:text_rows("SELECT value FROM meta WHERE key = 'receivers'")
+  local last, last_trouble = db:rows("SELECT value FROM meta WHERE key = 'receivers'")
   if last == nil then
     return false, tostring(last_trouble)
   end
@@ -659,7 +659,7 @@ local function shared_analyzer(handle: work.Handle, shared: importer.Shared,
   local db = handle.db
   local roots: mut {string} = {}
   for _, name in ipairs(analyzer_roots) do roots[#roots + 1] = name end
-  local found, trouble = db:text_rows(
+  local found, trouble = db:rows(
     "SELECT DISTINCT source_hash FROM inputs WHERE " .. analysis_schema.not_declaration("kind") .. " " ..
       "AND path IN (SELECT value FROM json_each(?1)) ORDER BY source_hash",
     { text('["' .. table.concat(roots, '","') .. '"]') })
@@ -673,7 +673,7 @@ local function shared_analyzer(handle: work.Handle, shared: importer.Shared,
     hashes[#hashes + 1] = source.source_hash
     fresh[source.source_hash] = true
   end
-  local planned, planned_trouble = db:text_rows(
+  local planned, planned_trouble = db:rows(
     "SELECT path, source_hash FROM inputs WHERE " .. analysis_schema.not_declaration("kind"))
   if planned == nil then return nil, tostring(planned_trouble) end
   local hash_of: mut {string:string} = {}
@@ -693,7 +693,7 @@ local function shared_analyzer(handle: work.Handle, shared: importer.Shared,
         local names = guessed[hash]
         if fresh[hash] == true and names == nil then return name, "" end
         if names == nil then
-          local rows, rows_trouble = db:text_rows(
+          local rows, rows_trouble = db:rows(
             "SELECT name FROM requires WHERE source_hash = ?1 ORDER BY ordinal", { text(hash) })
           if rows == nil then return nil, tostring(rows_trouble) end
           names = {}
@@ -917,7 +917,7 @@ function importer.derive(handle: work.Handle, shared?: importer.Shared,
       return nil, "the 'cosmic' directory is reserved to cosmic's own tree, which only the tool built from it reads; " ..
         "run bin/cosmic, which runs that tool"
     end
-    local claimed, trouble = db:text_rows(
+    local claimed, trouble = db:rows(
       "SELECT path FROM files WHERE path GLOB 'cosmic/*' ORDER BY path LIMIT 1")
     if claimed == nil then
       return nil, tostring(trouble)
@@ -1167,7 +1167,7 @@ end
 --- standard-library module), or one whose only source does not parse,
 --- reaches no further.
 local function reach(db: Sqlite.Handle, target: string): {string:boolean}?, string
-  local rows, trouble = db:text_rows(
+  local rows, trouble = db:rows(
     "SELECT i.path, r.name FROM inputs i JOIN requires r ON r.source_hash = i.source_hash " ..
       "WHERE i.kind <> 'vendor' ORDER BY i.path, r.ordinal")
   if rows == nil then
@@ -1299,7 +1299,7 @@ local function compile_derived(handle: work.Handle, tool: string,
   end
   if lenient then
     for _, one in ipairs(broken or {}) do
-      local holders, holders_trouble = handle.db:text_rows(
+      local holders, holders_trouble = handle.db:rows(
         "SELECT path, file, kind FROM inputs WHERE source_hash = ?1 ORDER BY file", { text(one.source_hash) })
       if holders == nil then
         return nil, tostring(holders_trouble)
@@ -1328,7 +1328,7 @@ local function compile_derived(handle: work.Handle, tool: string,
     needed = reached
     for _, one in ipairs(broken or {}) do
       -- Each file holding the broken source: files alike are one source.
-      local holders, holders_trouble = handle.db:text_rows(
+      local holders, holders_trouble = handle.db:rows(
         "SELECT path, file FROM inputs WHERE source_hash = ?1 ORDER BY file", { text(one.source_hash) })
       if holders == nil then
         return nil, tostring(holders_trouble)
@@ -2030,7 +2030,7 @@ local kept: Held = { standing = nil }
 --- it: each staged file by its hash, each derived source, and the plan of
 --- modules and keys it wrote. Nil where the database will not say.
 local function tree_state(db: Sqlite.Handle): string?
-  local rows, _ = db:text_rows(
+  local rows, _ = db:rows(
     "SELECT lower(hex(sha256(" ..
       "coalesce((SELECT group_concat(path || char(0) || sha256, char(10)) FROM " ..
       "(SELECT path, sha256 FROM files ORDER BY path)), '') || char(1) || " ..
