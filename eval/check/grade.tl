@@ -2032,7 +2032,7 @@ local function relay_split(g: Grade, target: Target, port: integer)
   local _, _ = conn:shutdown("write")
   local deadline = Clock.monotonic_ns() + Clock.seconds(2)
   while #target.split == before and Clock.monotonic_ns() < deadline do
-    local _, _ = Poll.delay(Clock.ms(20))
+    local _, _ = Clock.sleep(Clock.ms(20))
   end
   local kept = target.split[before + 1]
   check(g, kept == "after", "what a client sends after its target half-closed still reaches it",
@@ -2054,7 +2054,7 @@ local function relay_stalled(g: Grade, port: integer)
       if not sent then return end
     end
   end)
-  local _, _ = Poll.delay(Clock.ms(300))
+  local _, _ = Clock.sleep(Clock.ms(300))
   local started = Clock.monotonic_ns()
   local other, otrouble = dial(port)
   local got, why = "", otrouble
@@ -2131,7 +2131,7 @@ local function relay_idle(g: Grade, target_port: integer)
       local _, _ = busy:write("a")
       local got, _ = read_n(busy, 1)
       echoed = echoed .. got
-      local _, _ = Poll.delay(Clock.ms(150))
+      local _, _ = Clock.sleep(Clock.ms(150))
     end
     local _, _ = busy:shutdown("write")
     local rest, ended = read_all(busy)
