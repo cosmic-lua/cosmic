@@ -151,6 +151,11 @@ that default records its checkout in `<key>.source` beside its state, and
 removes the state of every recorded checkout that is gone. A state with no
 record, as each made before records were, stays until deleted.
 
+Like gating CI, run-local sets `COSMIC_CI_FIXED_POINT=skip` unless the
+caller sets it, so `fixtures` skips the fixed-point regression. Gating CI
+skips it as its slowest fixture; on a host of four CPUs its compiles also
+outlast the 340 s per-test bound. Any other value, such as `run`, runs it.
+
 The `sandbox` phase writes what spawn's sandbox can hold on this machine
 (`build/sandbox_probe.tl`) to its log and the summary, and fails only when
 `COSMIC_CI_REQUIRE_SANDBOX=1` and a part a confined test needs did not hold:

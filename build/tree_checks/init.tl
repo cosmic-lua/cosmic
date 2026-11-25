@@ -88,7 +88,7 @@ end
 --- the database of what `cosmic docs` shows (`shown`).
 local record Check
   name: string
-  run: function(on: Build, shown: Sqlite.Handle, given: Given): {string}
+  run: function(on: Build, shown: Build, given: Given): {string}
 end
 
 --- What [`tree_checks.run`] passes each check besides the databases.
@@ -101,52 +101,52 @@ end
 
 --- The checks of the projection, slowest first, so the copies' shares are near alike.
 local checks: {Check} = {
-  { name = "rendered docs", run = function(_on: Build, shown: Sqlite.Handle, _g: Given): {string}
+  { name = "rendered docs", run = function(_on: Build, shown: Build, _g: Given): {string}
     return docs_checks.rendered(shown)
   end },
-  { name = "doc references", run = function(_on: Build, shown: Sqlite.Handle, g: Given): {string}
+  { name = "doc references", run = function(_on: Build, shown: Build, g: Given): {string}
     return docs_checks.references(shown, g.help)
   end },
-  { name = "public docs", run = function(on: Build, _s: Sqlite.Handle, _g: Given): {string}
+  { name = "public docs", run = function(on: Build, _s: Build, _g: Given): {string}
     return tree_docs.public_docs(on)
   end },
-  { name = "compiler readers", run = function(on: Build, _s: Sqlite.Handle, _g: Given): {string}
+  { name = "compiler readers", run = function(on: Build, _s: Build, _g: Given): {string}
     return tree_readers.meta_readers(on, "compiler")
   end },
-  { name = "doc anchors", run = function(on: Build, _s: Sqlite.Handle, _g: Given): {string}
+  { name = "doc anchors", run = function(on: Build, _s: Build, _g: Given): {string}
     return tree_docs.anchors(on)
   end },
-  { name = "plurals", run = function(on: Build, _s: Sqlite.Handle, g: Given): {string}
+  { name = "plurals", run = function(on: Build, _s: Build, g: Given): {string}
     return tree_docs.plurals(on, g.extra, nil, g.read)
   end },
-  { name = "image_hash readers", run = function(on: Build, _s: Sqlite.Handle, _g: Given): {string}
+  { name = "image_hash readers", run = function(on: Build, _s: Build, _g: Given): {string}
     return tree_readers.meta_readers(on, "image_hash")
   end },
-  { name = "text readers", run = function(on: Build, _s: Sqlite.Handle, _g: Given): {string}
+  { name = "text readers", run = function(on: Build, _s: Build, _g: Given): {string}
     return tree_readers.text_readers(on)
   end },
-  { name = "stand-ins", run = function(on: Build, _s: Sqlite.Handle, _g: Given): {string}
+  { name = "stand-ins", run = function(on: Build, _s: Build, _g: Given): {string}
     return tree_readers.stand_ins(on)
   end },
-  { name = "build directory", run = function(on: Build, _s: Sqlite.Handle, _g: Given): {string}
+  { name = "build directory", run = function(on: Build, _s: Build, _g: Given): {string}
     return tree_readers.build_directory(on)
   end },
-  { name = "unnamed types", run = function(on: Build, _s: Sqlite.Handle, _g: Given): {string}
+  { name = "unnamed types", run = function(on: Build, _s: Build, _g: Given): {string}
     return tree_docs.unnamed_types(on)
   end },
-  { name = "verbs", run = function(on: Build, _s: Sqlite.Handle, g: Given): {string}
+  { name = "verbs", run = function(on: Build, _s: Build, g: Given): {string}
     return tree_docs.verbs(on, g.quickstart)
   end },
-  { name = "docs queries", run = function(on: Build, _s: Sqlite.Handle, _g: Given): {string}
+  { name = "docs queries", run = function(on: Build, _s: Build, _g: Given): {string}
     return tree_docs.queries(on)
   end },
-  { name = "declarations", run = function(on: Build, _s: Sqlite.Handle, _g: Given): {string}
+  { name = "declarations", run = function(on: Build, _s: Build, _g: Given): {string}
     return tree_declares.declarations(on)
   end },
-  { name = "restricted", run = function(on: Build, _s: Sqlite.Handle, _g: Given): {string}
+  { name = "restricted", run = function(on: Build, _s: Build, _g: Given): {string}
     return tree_declares.restricted(on)
   end },
-  { name = "quieted", run = function(on: Build, _s: Sqlite.Handle, _g: Given): {string}
+  { name = "quieted", run = function(on: Build, _s: Build, _g: Given): {string}
     return tree_declares.quieted(on)
   end },
 }
@@ -172,9 +172,9 @@ local run_copy_bytes <const> = 256 * 1024 * 1024
 --- @param reopen where given, opens `db` and `carried` again for a copy of the process ([`build.compile_fanout`]), which
 ---   cannot use the process's own connections: the checks then run in copies, each its share, and a copy that does not
 ---   end well leaves its checks to the process. The lines are the same either way.
-function tree_checks.run(db: Build, quickstart: string?, extra?: {{string}}, carried?: Sqlite.Handle,
+function tree_checks.run(db: Build, quickstart: string?, extra?: {{string}}, carried?: Build,
                          help?: {string: string}, read?: {string: tree_checks.Plurals},
-                         reopen?: function(): Build?, Sqlite.Handle?): {string}
+                         reopen?: function(): Build?, Build?): {string}
   local given: Given = { quickstart = quickstart, extra = extra, help = help, read = read }
   local by_name: mut {string: Check} = {}
   for _, check in ipairs(checks) do by_name[check.name] = check end
@@ -361,12 +361,12 @@ function tree_checks.whole(given: tree_checks.Whole): tree_checks.Found
     findings[#findings + 1] = "tree checks: " .. help_trouble
   end
   tree_begin(timing, "the checks of the projection, docs and examples")
-  local function reopen(): Build?, Sqlite.Handle?
+  local function reopen(): Build?, Build?
     local projection, _ = Sqlite.open(paths.projection, { schema = build_schema.Build })
-    local shown: Sqlite.Handle? = nil
+    local shown: Build? = nil
     if carried ~= nil then
       -- A copy that cannot read the carried docs leaves its checks to the process, which can.
-      shown = assert(Sqlite.open(paths.docs_check))
+      shown = assert(Sqlite.open(paths.docs_check, { schema = build_schema.Build }))
     end
     return projection, shown
   end

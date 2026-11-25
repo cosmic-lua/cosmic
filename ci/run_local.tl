@@ -489,6 +489,10 @@ local function execute(argv: {string}, program: string): integer
   driver_env["GITHUB_RUN_ID"], driver_env["GITHUB_RUN_ATTEMPT"], driver_env["COSMIC_WORKER"] = "local", "1", "local"
   driver_env["TARGET"], driver_env["XDG_CACHE_HOME"] = target, state .. "/cache"
   driver_env["COSMIC_ZIG_CACHE_FROM"], driver_env["COSMIC_ZIG_GLOBAL_CACHE"] = seed, zig_global
+  -- Gating CI skips the fixed-point regression, its slowest fixture (ci.yml's
+  -- COSMIC_CI_FIXED_POINT). On a small host its compiles also outlast the per-test
+  -- bound. A caller's value, even "", is kept: any value but "skip" runs it.
+  if env["COSMIC_CI_FIXED_POINT"] == nil then driver_env["COSMIC_CI_FIXED_POINT"] = "skip" end
   for _, phase in ipairs(phases) do
     assert(phase:match("^[%w_-]+$"), "invalid phase: " .. phase)
     if phase == "build" then
