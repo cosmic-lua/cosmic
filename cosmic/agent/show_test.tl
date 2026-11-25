@@ -54,6 +54,19 @@ local function test_text_sends_words_on_the_way_to_err()
   assert(#errs == 1 and errs[1] == "looking", errs[1])
 end
 
+--- What a snippet changed shows after what it printed: an edit as a diff, a write as its line count.
+local function test_a_run_shows_the_files_its_snippet_changed()
+  local _, errs = shown({ { kind = "result", name = "run", result = { text = "done", is_error = false,
+    changes = { { path = "a.md", edits = { { old = "teh", new = "the" } } }, { path = "b.md", lines = 2 } } } } })
+  local whole = table.concat(errs, "\n")
+  assert(whole == "```output\ndone\n```\nedit a.md\n```diff\n@@\n-teh\n+the\n```\nwrite b.md (2 lines)", whole)
+  -- A snippet that raised shows its error, then what it changed, and a count of the changes the answer had no room for.
+  local _, failed = shown({ { kind = "result", name = "run", result = { text = "boom", is_error = true,
+    changes = { { path = "c.md", lines = 1 }, { path = "", more = 3 } } } } })
+  local told = table.concat(failed, "\n")
+  assert(told == "```error\nboom\n```\nwrite c.md (1 line)\n... 3 more changes not shown", told)
+end
+
 local function test_call_shows_code_commands_and_edits()
   local function joined(name: string, input: {string: Json.Value}): string
     return table.concat(Show.call(name, input), "|")
