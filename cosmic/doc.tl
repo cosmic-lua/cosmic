@@ -2742,10 +2742,33 @@ function Doc.uses(view: Doc.View, query: string): ({Doc.Use}) | (nil, Failure)
   return value
 end
 
+--- Whether the function `signature` writes has a parameter named `word` in its own list, not in a function type one of
+--- its parameters has.
+local function takes_name(signature: string, word: string): boolean
+  local open = signature:find("(", 1, true)
+  if open == nil then return false end
+  local depth = 0
+  local start = open + 1
+  for i = open + 1, #signature do
+    local c = signature:sub(i, i)
+    if c == "(" or c == "{" or c == "<" then
+      depth = depth + 1
+    elseif depth > 0 and (c == ")" or c == "}" or c == ">") then
+      depth = depth - 1
+    elseif depth == 0 and (c == "," or c == ")") then
+      local name = signature:sub(start, i - 1):match("^%s*([%w_]+)%??:")
+      if name == word then return true end
+      if c == ")" then return false end
+      start = i + 1
+    end
+  end
+  return false
+end
+
 --- The exported functions of `db` whose signature names a parameter `word` (`path` of `Fs.basename(path: string)`).
 local function taking_of(db: Sqlite.Handle, public: boolean, word: string): {Doc.Taking}?, string
   local rows, trouble = db:rows(
-    "SELECT module, symbol FROM docs WHERE kind = 'function' AND exported = 1 AND " ..
+    "SELECT module, symbol, signature FROM docs WHERE kind = 'function' AND exported = 1 AND " ..
       symbols.public_only("module", public) .. " AND (" ..
       "instr(signature, '(' || ?1 || ':') > 0 OR instr(signature, '(' || ?1 || '?:') > 0 OR " ..
       "instr(signature, ', ' || ?1 || ':') > 0 OR instr(signature, ', ' || ?1 || '?:') > 0) ORDER BY module, symbol",
@@ -2755,7 +2778,9 @@ local function taking_of(db: Sqlite.Handle, public: boolean, word: string): {Doc
   end
   local out: mut {Doc.Taking} = {}
   for _, row in ipairs(rows) do
-    out[#out + 1] = { module = row:text(1), symbol = row:text(2) }
+    if takes_name(row:text(3), word) then
+      out[#out + 1] = { module = row:text(1), symbol = row:text(2) }
+    end
   end
   return out, ""
 end
