@@ -334,6 +334,41 @@
           "continue-on-error": true,
           run: "cosmic-driver cosmic_ci/driver.tl verdicts-merge \"${{ runner.temp }}/queue-verdicts\"",
         },
+        # A merge-queue run takes in what the last failed try of its pull
+        # request, built on main with the same change, reached (cosmic_ci/queue_verdicts.tl's
+        # `find_tried`): the queue keeps no cache, so this is all a try
+        # the deadline stopped keeps. None of the three fails the job.
+        {
+          name: "find this pull request's last failed try in the merge queue",
+          id: "tried-run",
+          if: "github.event_name == 'merge_group'",
+          shell: "sh",
+          "continue-on-error": true,
+          env: {HEAD_REF: "${{ github.event.merge_group.head_ref }}", BASE_SHA: "${{ github.event.merge_group.base_sha }}", SHA: "${{ github.sha }}", ARTIFACT: "queue-tried-verdicts-${{ matrix.name }}", RUN_ID: "${{ github.run_id }}", GH_TOKEN: "${{ github.token }}"},
+          run: "cosmic-driver cosmic_ci/driver.tl queue-tried-run",
+        },
+        {
+          name: "download the last failed try's verdicts",
+          id: "tried-download",
+          # By the id the lookup checked: a run attempted again holds a
+          # newer artifact of the same name.
+          if: "steps.tried-run.outputs.artifact != ''",
+          "continue-on-error": true,
+          uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
+          with: {
+            "artifact-ids": "${{ steps.tried-run.outputs.artifact }}",
+            "merge-multiple": true,
+            path: "${{ runner.temp }}/tried-verdicts",
+            "run-id": "${{ steps.tried-run.outputs.run }}",
+            "github-token": "${{ github.token }}",
+          },
+        },
+        {
+          name: "take in the last failed try's verdicts",
+          if: "steps.tried-download.outcome == 'success'",
+          "continue-on-error": true,
+          run: "cosmic-driver cosmic_ci/driver.tl verdicts-merge \"${{ runner.temp }}/tried-verdicts\"",
+        },
         {
           name: "restore compiles and parses",
           id: "compiles-restore",
@@ -584,14 +619,31 @@
           if: "always() && steps.driver.outcome == 'success' && (env.COSMIC_CI_SAVES == 'true' || github.event_name == 'merge_group')",
           run: "cosmic-driver cosmic_ci/driver.tl compiles-trim \"${{ steps.names.outputs.since }}\" \"${{ runner.temp }}/compiles-restored.db\"",
         },
-        # A run that failed keeps what it restored too (`whole`). Cut to
+        # A run that failed keeps what it restored too (`whole`), but in
+        # the merge queue, which saves no cache, only what it used. Cut to
         # the rows this run used, named by their digest: for main's save,
-        # and in the merge queue for main's push of the commit.
+        # and in the merge queue for main's push of the commit or the pull
+        # request's next try.
         {
           name: "keep only this run's test verdicts",
           id: "verdicts-trim",
           if: "always() && steps.driver.outcome == 'success' && (env.COSMIC_CI_SAVES == 'true' || github.event_name == 'merge_group')",
-          run: "cosmic-driver cosmic_ci/driver.tl verdicts-trim ${{ job.status == 'success' && steps.names.outputs.since || 'whole' }}",
+          run: "cosmic-driver cosmic_ci/driver.tl verdicts-trim ${{ (job.status == 'success' || github.event_name == 'merge_group') && steps.names.outputs.since || 'whole' }}",
+        },
+        # Read by this pull request's next try in the merge queue ("find
+        # this pull request's last failed try"): the rows a failed try
+        # used.
+        {
+          name: "upload what this failed try in the merge queue reached",
+          if: "always() && github.event_name == 'merge_group' && job.status == 'failure' && steps.verdicts-trim.outputs.digest != ''",
+          "continue-on-error": true,
+          uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
+          with: {
+            name: "queue-tried-verdicts-${{ matrix.name }}",
+            path: "${{ runner.temp }}/verdicts/*.db",
+            "if-no-files-found": "ignore",
+            "retention-days": 1,
+          },
         },
         # The cache the verdicts belong in, named by this host, for the
         # relay (relay.yml), which runs on a host of its own.

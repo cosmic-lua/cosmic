@@ -562,6 +562,23 @@ queue run whose ref holds one (`driver.tl queue-ref-caches`), and the
 `ci` gate lists them again once every job has run, for a cache written
 while the run ran. A cache GitHub evicted before the second listing goes
 unseen.
+
+A queue leg that failed uploads the rows it used too
+(`queue-tried-verdicts-<job>`, kept a day), and the next try of the same
+pull request finds the newest failed run that has ended and holds that
+job's artifact (`driver.tl queue-tried-run`) and merges it in before its
+suites, so a suite the deadline stopped (COSMIC_TEST_DEADLINE) keeps its
+passes for that try. The code a run ran can write any row, so it takes a
+run only where GitHub's record shows that run ran merged code and this
+try's change: the commit its entry was put on is on main (a queue commit
+holds the entries ahead of it too, and one dropped from the queue never
+merges), and its commit changes the same files, by name, name before and
+content, as this try's does (an earlier head of the pull request never
+merges either). The run's `queue-ref` job and the gate's second listing
+must both have passed, and its ref must hold no cache now. Only a run's
+first attempt counts (an attempt again keeps the earlier one's artifacts
+and jobs), and the download takes the one artifact the lookup checked,
+by its id.
 The queue's format job, where its check passed, seals the memo of the
 tree checks (the shared rows of `build/check_memo.tl`, in the cache
 directory: `driver.tl checks-seal` keeps the rows the run used, in one
