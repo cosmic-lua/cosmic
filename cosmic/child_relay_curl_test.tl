@@ -15,12 +15,11 @@ local ChildPolicy = require("build.child_policy_fixture")
 
 Test.policy{
   profiles = { "cosmic", "system" },
-  promises = { "nest" },
   loopback = { "127.0.0.1" },
   env = { "TMPDIR", "PATH" },
   grants = {
     { path = "o/bin", letters = "rx" },
-    { path = "o/cosmic.db", letters = "r" },
+    { path = "o/cosmic.db", letters = "r" }, { calls = "nest" },
   },
   requires = { "nest", "program:curl" },
 }

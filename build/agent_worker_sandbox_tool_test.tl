@@ -9,8 +9,8 @@ local Test = require("cosmic.test")
 local Worker = require("cosmic.agent.worker")
 
 --- This program, which the worker runs, and a root of its own for it, which needs the nest promise.
-Test.policy{ profiles = { "cosmic", "system" }, grants = { { path = "o/bin", letters = "rx" } }, env = { "PATH", "TMPDIR" },
-  promises = { "nest" }, requires = { "nest" } }
+Test.policy{ profiles = { "cosmic", "system" }, grants = { { path = "o/bin", letters = "rx" }, { calls = "nest" } }, env = { "PATH", "TMPDIR" },
+  requires = { "nest" } }
 
 --- `answer` as JSON text, for an assertion's message.
 local function shown(answer: Worker.Answer): string

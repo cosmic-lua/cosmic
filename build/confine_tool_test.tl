@@ -21,9 +21,8 @@ local type raw_process = require("cosmic.internal.process")
 --- given the program (the TODO above build.confine's `forbid_running`).
 Test.policy{
   profiles = { "cosmic", "proc" },
-  grants = { { path = "o/bin", letters = "rx" } },
-  promises = { "nest" },
-}
+  grants = { { path = "o/bin", letters = "rx" }, { calls = "nest" } },
+  }
 
 --- A stand-in program built under `tmp` (build/stand_in.tl), which runs
 --- the script its first argument holds: a static executable that reads

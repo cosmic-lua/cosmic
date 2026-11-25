@@ -22,9 +22,8 @@ local support = require("build.test_support_fixture")
 --- run (`nests`), which a host that refuses them runs unsandboxed.
 Test.policy{
   profiles = { "cosmic" },
-  grants = { { path = "o/bin", letters = "rx" } },
-  promises = { "nest" },
-}
+  grants = { { path = "o/bin", letters = "rx" }, { calls = "nest" } },
+  }
 
 --- Makes `tmp`/scratch, a scratch directory laid out as build.test_key's
 --- `scratch` lays one out -- `real`, and `tmp` a link to it -- and

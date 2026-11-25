@@ -18,8 +18,7 @@ local Test = require("cosmic.test")
 Test.policy{
   profiles = { "system", "cosmic", "proc" },
   grants = { { path = "o/bin", letters = "rx" }, { path = "/dev/urandom", letters = "r" },
-    { path = "/usr/bin/env", letters = "r" } },
-  promises = { "nest" },
+    { path = "/usr/bin/env", letters = "r" }, { calls = "nest" } },
   requires = { "path:/usr/bin/env" },
 }
 

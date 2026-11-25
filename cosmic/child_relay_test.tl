@@ -34,12 +34,11 @@ local fixture = require("build.child_policy_database_fixture")
 --- a program is told to leave direct.
 Test.policy{
   profiles = { "cosmic" },
-  promises = { "nest" },
   loopback = { "127.0.0.1", "127.0.0.2" },
   env = { "TMPDIR" },
   grants = {
     { path = "o/bin", letters = "rx" },
-    { path = "o/cosmic.db", letters = "r" },
+    { path = "o/cosmic.db", letters = "r" }, { calls = "nest" },
   },
   requires = { "nest" },
 }

@@ -9,11 +9,15 @@
 ---     print(found.system) -- true
 
 local record test_policy
-  --- One path a test may reach, and how: [`cosmic.sandbox`]'s [`Grant`].
+  --- One thing a test may do, as [`cosmic.sandbox`]'s [`Grant`] says it: reach a path (`path` and `letters`), or
+  --- make system calls beyond its basics (`calls`), each told by the field it alone has.
   record Grant
     --- A path of the tree, relative to its root (the worker's directory),
     --- or an absolute path of the host's.
     mut path?: string
+    --- System calls beyond the basics: "nest" is `nests`; "fork", "jit" and "fattr" are accepted and change nothing
+    --- yet. A grant with `calls` has no other field.
+    mut calls?: string
     --- What the test may do there: letters of "rwxcu". Only "r" takes
     --- effect so far.
     mut letters?: string
@@ -50,9 +54,6 @@ local record test_policy
     mut grants?: {Grant}
     --- How far the worker is isolated. Not yet taken.
     mut isolate?: {string}
-    --- What the tests may do beyond their basics: "nest" is `nests`;
-    --- "fork", "jit" and "fattr" are accepted and change nothing yet.
-    mut promises?: {string}
     --- The hosts the tests reach. Refused: no test reaches a host but
     --- loopback.
     mut connect?: {string}
@@ -136,7 +137,7 @@ end
 --- list of grants ("grants"), the limits ("limits"), an integer ("id"), whole
 --- seconds ("seconds") or a path ("string").
 local KINDS <const>: {string:string} = {
-  profiles = "list", grants = "grants", isolate = "list", promises = "list",
+  profiles = "list", grants = "grants", isolate = "list",
   connect = "list", loopback = "list", env = "list", set_env = "map",
   set_env_digests = "map", tmp = "flag", limits = "limits", user = "id", group = "id",
   database = "string", requires = "list", timeout = "seconds", cpu_features = "flag",
@@ -154,6 +155,16 @@ local NAMES <const> = table.concat(names, ", ")
 --- @return string|nil What it takes
 function test_policy.kind_of(name: string): string?
   return KINDS[name]
+end
+
+--- Why `name` is no field of a [`Policy`]: the fields it has, and for `promises`, gone, what to write instead.
+--- @param name string The field's name
+--- @return string Why, beginning "has no field"
+function test_policy.no_field(name: string): string
+  if name == "promises" then
+    return "has no field promises: a promise is a grant now, `grants = { { calls = \"nest\" } }`"
+  end
+  return "has no field " .. name .. "; it has " .. NAMES
 end
 
 --- The names of the fields of a [`Policy`], sorted and joined by ", ".
@@ -218,7 +229,7 @@ local function parent_fault(relative: string): string
   return ""
 end
 
---- The promises a policy makes: "nest" is `nests`; the others are
+--- The calls a policy's grants make: "nest" is `nests`; the others are
 --- accepted and change nothing, since no worker holds them yet.
 local PROMISES <const>: {string:boolean} = { nest = true, fork = true, jit = true, fattr = true }
 
@@ -226,7 +237,7 @@ local PROMISES <const>: {string:boolean} = { nest = true, fork = true, jit = tru
 --- the tree and host files (grants of "r"), the variables, loopback
 --- addresses, the program (profile "cosmic": `lua`; with the grant of
 --- o/bin, `tool`), the system (profile "system"), /proc (profile
---- "proc", in `host`) and nesting (promise "nest"). What it cannot say is
+--- "proc", in `host`) and nesting (the grant `{ calls = "nest" }`). What it cannot say is
 --- refused rather than accepted as a declaration that moves no key:
 --- `isolate`, `set_env`, `limits`, a grant of more than "r" or from
 --- another path, `tmp = false`. `connect`, `set_env_digests`, `database`,
@@ -257,6 +268,17 @@ function test_policy.declared(policy: test_policy.Policy,
   end
   for i, grant in ipairs(policy.grants or {}) do
     local at = "grants[" .. tostring(i) .. "]"
+    local calls = grant.calls
+    if calls ~= nil then
+      if grant.path ~= nil or grant.letters ~= nil or grant.from ~= nil then
+        return nil, at .. " names calls and a path: a grant is one or the other"
+      end
+      if PROMISES[calls] == nil then
+        return nil, at .. ".calls: no calls " .. calls .. "; the calls are fattr, fork, jit, nest"
+      end
+      if calls == "nest" then nests = true end
+      continue
+    end
     local path, letters = grant.path or "", grant.letters or ""
     if path == "" then return nil, at .. ".path takes a path" end
     if letters == "" or letters:find("^r?w?x?c?u?$") == nil then
@@ -293,12 +315,6 @@ function test_policy.declared(policy: test_policy.Policy,
       local list = if path:sub(1, 1) == "/" then host else reads end
       list[#list + 1] = path
     end
-  end
-  for _, promise in ipairs(policy.promises or {}) do
-    if PROMISES[promise] == nil then
-      return nil, "promises: no promise " .. promise .. "; the promises are fattr, fork, jit, nest"
-    end
-    if promise == "nest" then nests = true end
   end
   if #(policy.isolate or {}) > 0 then return nil, "isolate " .. NOT_YET end
   local limits = policy.limits

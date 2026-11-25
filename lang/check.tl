@@ -219,6 +219,8 @@ Check.advice = {
   ["cosmic.json Json.Value"] = "for a record or a class of your own, call `Json.encode_any`, which takes any value",
   ["cosmic.sandbox.policy rules.Policy .promises"] = "a promise is a grant now: write `grants = { { calls = \"fork\" } }`, " ..
     "and read them with `Sandbox.calls(policy)`",
+  ["cosmic.internal.test_policy test_policy.Policy .promises"] = "a promise is a grant now: write " ..
+    "`grants = { { calls = \"nest\" } }`",
 }
 
 -- State ----------------------------------------------------------------------------------

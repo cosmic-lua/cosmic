@@ -18,7 +18,7 @@ local ChildPolicy = require("build.child_policy_fixture")
 --- own paths, whose profile one test reads; and `nests`, since a start of
 --- these policies is a root of its own where it gets as far as a child, which
 --- a worker held by a Landlock ruleset cannot make.
-Test.policy{ env = { "TMPDIR" }, promises = { "nest" }, profiles = { "system" } }
+Test.policy{ env = { "TMPDIR" }, grants = { { calls = "nest" } }, profiles = { "system" } }
 
 --- Ends the test where this host holds a child by Seatbelt, which refuses
 --- what it cannot hold in words of its own, in cosmic/child_seatbelt_test.tl:

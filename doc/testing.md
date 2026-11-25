@@ -390,8 +390,8 @@ refuses a module of the tree outside the closure.
   names, never by `o/...`.
 - To confine a process in a root of its own, or to start a
   `cosmic test` whose workers are sandboxed, declare
-  `promises = { "nest" }` (`nests`). Without it the kernel refuses the
-  mounts a root is made of, the start fails and names the promise.
+  the grant `{ calls = "nest" }` (`nests`). Without it the kernel refuses
+  the mounts a root is made of, the start fails and names the call.
 
 ### the pure store
 
