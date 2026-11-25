@@ -4,7 +4,7 @@
 //! in `__sancov_pcs` naming the block's address; both are in link order.
 //! This reads a linked core's PC table, resolves each block's address to
 //! the line it begins on through the core's DWARF (in an ELF core itself;
-//! in the objects a Mach-O core's debug map names), and writes the answer
+//! in the objects a Mach-O core's debug map names), and writes the result
 //! as C indexed by block, with whether each block is its function's entry
 //! and, for an entry, its function's name from the first link's symbols:
 //!

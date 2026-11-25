@@ -1,6 +1,6 @@
 --- The policy layer cosmic.sandbox and cosmic.sandbox.seatbelt share: the types
 --- of a policy, the check of its values, the profiles it names and the
---- merge of policies into one. Use [`cosmic.sandbox`], which answers all of
+--- merge of policies into one. Use [`cosmic.sandbox`], which offers all of
 --- it under its own name and documents it there. Apart from cosmic.sandbox
 --- only so that cosmic.sandbox.seatbelt, which cosmic.sandbox requires, can require
 --- this.
@@ -190,8 +190,8 @@ local record rules
   end
 end
 
---- What a failure of this module answers: nil and `why` under the name
---- "sandbox", as [`cosmic.sandbox`]'s own failures are.
+--- What a function returns for a failure of this module: nil and `why`
+--- under the name "sandbox", as [`cosmic.sandbox`]'s own failures are.
 local function refuse(why: string): nil, string
   return nil, "sandbox: " .. why
 end
@@ -576,7 +576,7 @@ end
 
 --- The "proc" profile: `r` on the host's /proc where there is one (Linux),
 --- the kernel's process information, and nothing on macOS, where sysctl
---- answers with no file to grant. As the "system" profile does, it grants
+--- reports it with no file to grant. As the "system" profile does, it grants
 --- only a path the host has, so a Linux host with no /proc mounted gets none.
 local function proc_profile(): rules.Policy
   if rules.on_macos() or not present("/proc") then return {} end

@@ -13,7 +13,7 @@ local this_program = require("build.this_program")
 --- ([`build.standalone`]).
 Test.policy{ profiles = { "cosmic" } }
 
---- Runs `body` as a standalone script and answers what it wrote.
+--- Runs `body` as a standalone script and returns what it wrote.
 local function run(tmp: string, body: string): string, string
   local script = tmp .. "/script.tl"
   assert(Fs.write(script, 'local Log = require("cosmic.log")\n' .. body))

@@ -151,8 +151,8 @@ function refresh.cacert_date(pem: string): string?
 end
 
 --- The URL of the page after this one, by the `Link` header GitHub
---- answers a paginated listing with (`<url>; rel="next"`), or nil on the
---- last page.
+--- responds to a paginated listing with (`<url>; rel="next"`), or nil
+--- on the last page.
 function refresh.next_page(link: string?): string?
   if link == nil then
     return nil
@@ -237,7 +237,7 @@ function refresh.fetching(): Http.Options
   return { timeout_ns = Http.FOREVER, roots = "minimal" }
 end
 
---- The body `url` answers, refusing anything but a 2xx.
+--- The body the server at `url` responds with, refusing anything but a 2xx.
 local function fetch_text(url: string): string?, string
   local got, trouble = Http.get(url, refresh.fetching())
   if got == nil then
@@ -519,7 +519,7 @@ local function recorded(db: Sqlite.Handle, name: string): Recorded?, string
 end
 
 --- Replaces `dataset`'s rows in `db` with the release at `source` and
---- records it. Answers one line saying what changed.
+--- records it. Returns one line saying what changed.
 local function apply(db: Sqlite.Handle, dataset: refresh.Dataset, source: refresh.Source,
                      scratch: string): string?, string
   local bytes, trouble = Fs.read(source.path)
@@ -580,7 +580,7 @@ end
 
 --- The executable at `binary` with each dataset of `chosen` replaced from its
 --- source (`sources[name]`, a file, or fetched upstream when that is
---- nil), written to `out`. Answers a line per dataset saying what
+--- nil), written to `out`. Returns a line per dataset saying what
 --- changed. With `every`, a dataset the binary records no component for
 --- -- one built before cosmic carried it, whose core reads none -- is
 --- passed over, saying so; else that refuses the refresh.

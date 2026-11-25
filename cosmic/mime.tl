@@ -1,5 +1,5 @@
 --- Content types by file name, for the files a web program serves. The
---- build stores the answer beside each embedded asset, so this module
+--- build stores the result beside each embedded asset, so this module
 --- requires only the standard library and a program that never loads
 --- [`cosmic.web`] carries the same types.
 
@@ -108,7 +108,7 @@ end
 --- smaller. Level 9 and a header with no time make the bytes a function of
 --- `data` alone, so a reproducible build stays so. Nil where gzip is not
 --- worth it, and nil with the encoder's trouble where it failed, which a
---- caller that keeps the answer must not keep.
+--- caller that keeps the result must not keep.
 --- @param path string A file name or path
 --- @param data string The file's bytes
 --- @return string | nil The gzip, or nil

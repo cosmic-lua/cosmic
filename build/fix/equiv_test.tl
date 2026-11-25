@@ -1,5 +1,5 @@
 --- What it takes for two sources to be the same ([`build.fix.equiv`]), and the changes a faulty layout could make
---- that it must find. A check that answered "same" to everything would turn off the guard of [`build.fix.format`]
+--- that it must find. A check that said "same" to everything would turn off the guard of [`build.fix.format`]
 --- without a trace, so each case here is a change a layout could plausibly make (a token dropped or altered, a
 --- comment lost, moved across code or parted from its declaration, the tree changed) and each must be found. The
 --- cases of whitespace and breaks go the other way: a layout changes those, and the check must not refuse it for that.

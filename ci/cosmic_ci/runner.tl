@@ -114,7 +114,7 @@ local function release(descriptors: {integer})
 end
 
 --- What a call run under `pcall` came to: what it raised, else its result,
---- or why it answered none.
+--- or why it returned none.
 local record Called
   mut raised?: string
   mut result?: Child.Result
@@ -323,7 +323,7 @@ function Runner.reap(running: Runner.Running): Runner.Outcome
   local called: Called = {}
   local ok, raised = pcall(function()
     local result, trouble = handle:wait()
-    -- In words, as the pinned release's handle answers them too.
+    -- In words, as the pinned release's handle returns them too.
     called.result, called.trouble = result, if result == nil then tostring(trouble) else "" end
   end)
   if not ok then called.raised = tostring(raised) end
@@ -362,7 +362,7 @@ function Runner.step(c: Runner.Context, phase: string,
   end)
 end
 
---- The status a phase's action answered, kept where the function that runs it under `pcall` can set it.
+--- The status a phase's action returned, kept where the function that runs it under `pcall` can set it.
 local record Reached
   mut code: integer
 end

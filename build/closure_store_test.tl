@@ -337,7 +337,7 @@ end
 
 --- A store that holds its closure's text holds which of the closure's
 --- modules are public, so a worker that reads the store as a public source
---- finds their docs, where an empty table would answer nothing for any.
+--- finds their docs, where an empty table would give nothing for any.
 local function test_a_closure_store_records_which_of_its_modules_are_public(tmp: string)
   local root = tmp .. "/a"
   local handle = build_and_write(root, "world", tmp .. "/whole.db")
@@ -609,7 +609,7 @@ end
 
 --- A closure store carries `image_hash` only where its closure holds a
 --- reader of it: a store of a closure that holds none has no such row, so
---- a worker's [`Store.meta`] of that row answers nil there, and neither
+--- a worker's [`Store.meta`] of that row returns nil there, and neither
 --- its address nor its bytes move when the projection's row does; one
 --- that holds a reader has the row, and both move. The base store (no
 --- module) and the pure store follow the same rule.

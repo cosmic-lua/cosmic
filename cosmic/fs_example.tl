@@ -159,7 +159,7 @@ function Example.data_dir()
   assert(Fs.remove_tree(home))
 end
 
---- Each path [`Fs.walk`] answers is relative to the root it was given,
+--- Each path [`Fs.walk`] returns is relative to the root it was given,
 --- with no leading `./`, so a file is opened as `root .. "/" .. path`.
 function Example.walk()
   local dir = assert(Fs.mkdtemp("cosmic-fs-example-"))

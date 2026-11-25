@@ -1,6 +1,6 @@
 -- JSON at the Lua boundary, as the core (core/json.c, over yyjson)
 -- provides it. cosmic/json.tl documents the contract. A fallible
--- function answers `value, ""` on success and `nil, error` on failure.
+-- function returns `value, ""` on success and `nil, error` on failure.
 --- @kind binding
 
 local record json
@@ -58,7 +58,7 @@ local record json
   -- sorted by their bytes; `pretty` lays it out two spaces a level. Raises
   -- when `max_depth` is outside 1 to `depth_limit`.
   encode: function(value: any, pretty?: boolean, max_depth?: integer, ascii?: boolean): string?, string
-  -- Marks `t`, or a new table, as a JSON array and answers it. Raises
+  -- Marks `t`, or a new table, as a JSON array and gives it back. Raises
   -- when `t` has another metatable.
   array: function(): {any}
   array: function<T>(t: {T}): {T}
@@ -67,7 +67,7 @@ local record json
   array: function(t: {integer: any}): {any}
   array: function<T>(t: {integer: T}): {T}
   -- Marks `t`, a table with no metatable, as an array that may have
-  -- holes when `holey` is true, else as an array, and answers it.
+  -- holes when `holey` is true, else as an array, and gives it back.
   with_holes: function<T>(t: {integer: T}, holey: boolean): {integer: T}
   -- Whether `v` is a table carrying either array mark.
   is_array: function(v: any): boolean

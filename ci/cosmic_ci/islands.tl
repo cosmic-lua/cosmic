@@ -190,7 +190,7 @@ function Islands.command(argv: {string}): integer
   return 0
 end
 
---- What [`Islands.command`] answers for the listed files of the checkout `root`, before the check of `ci/` as a whole.
+--- What [`Islands.command`] returns for the listed files of the checkout `root`, before the check of `ci/` as a whole.
 function Islands.verdict(root: string): integer
   local list = root .. "/ci/islands.txt"
   local text, trouble = Fs.read(list)

@@ -117,8 +117,8 @@ end
 --- The merged policy `merged` as the sandbox runs it: unchanged where
 --- its `connect` names nothing of the tailnet, and else with those
 --- targets resolved ([`tailnet.resolved`]) against the status `daemon`
---- answers ([`Tailscale.connect`]; the machine's own when nil). Nil and why,
---- naming the target, where they cannot be, where one names no peer
+--- reports ([`Tailscale.connect`]; the machine's own when nil). Nil and
+--- why, naming the target, where they cannot be, where one names no peer
 --- (a typo, or a tag no node carries yet, which would start the program
 --- with less than it was meant to reach).
 function tailnet.policy(merged: rules.Policy, daemon?: Tailscale.Daemon): rules.Policy?, string
@@ -141,7 +141,7 @@ function tailnet.policy(merged: rules.Policy, daemon?: Tailscale.Daemon): rules.
 end
 
 --- `policy` with the `connect` of `merged`, the policy [`tailnet.policy`]
---- answered: what macOS's start compiles its profile from.
+--- returned: what macOS's start compiles its profile from.
 function tailnet.applied(policy: rules.Policy, merged: rules.Policy): rules.Policy
   if policy.connect == merged.connect then return policy end
   return rules.with_connect(policy, merged.connect or {})

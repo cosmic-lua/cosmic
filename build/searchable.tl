@@ -12,7 +12,7 @@ end
 
 --- Adds search for every user to `dir` and each directory above it that
 --- lacks it and this process may change; the others stay as they are.
---- Answers `dir`.
+--- Returns `dir`.
 function searchable.open(dir: string): string
   local above = dir
   while above ~= "/" and above ~= "." do
@@ -27,7 +27,7 @@ end
 
 --- Adds read, write and, for a directory, search for every user to `path`,
 --- which a test grants writable: the user of a root caller's child owns
---- nothing there. Answers `path`.
+--- nothing there. Returns `path`.
 function searchable.share(path: string): string
   local st, _ = sys.stat(path)
   if st ~= nil then

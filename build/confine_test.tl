@@ -73,7 +73,7 @@ end)
 --- Runs the child `worker` in a worker of this very program, sandboxed to
 --- [`confine.worker_unveil`]'s paths as a worker whose module declares
 --- nothing of the system's is, with `tmp` its scratch, where the
---- stand-in the chunk starts is built. Answers the lines it said; skips the
+--- stand-in the chunk starts is built. Returns the lines it said; skips the
 --- test where there is no portable artifact to start again or no sandbox
 --- to be had.
 local function sandboxed_worker(tmp: string): {string}

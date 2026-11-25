@@ -1,6 +1,6 @@
 --- Tests of [`build.syntax_contracts`]: each program is read by the new checker and the breaches of each rule it says
 --- are the ones the test names, and the programs that keep the rules get none, with the places where the checker's types
---- make the answer differ named in a test of their own.
+--- make the result differ named in a test of their own.
 local Rules = require("build.contract_rules")
 local Fixture = require("build.syntax_typed_fixture")
 local SyntaxContracts = require("build.syntax_contracts")
@@ -83,7 +83,7 @@ local function test_a_method_is_judged_by_the_function_the_checker_took_for_it()
   breaches("o:fetch: its error slot is dropped", { record_source .. "use(o:fetch())", record_source .. "local v = o:fetch()\nuse(v)" })
   breaches("o.fetch: its failure is ignored", { record_source .. "o.fetch(o)" })
   keeps({ record_source .. "local a, b = o:fetch()\nuse(a, b)", record_source .. "o:count()\nuse(o:count())" })
-  -- a chained call is judged by the answer of the one before it
+  -- a chained call is judged by the result of the one before it
   breaches("its failure is ignored", {
     "local function mk(): function(): boolean, string return put end\nmk()()",
   })
@@ -366,7 +366,7 @@ local function test_a_binding_the_program_holds_without_a_table_is_told_by_name(
 end
 
 --- A declaration that declares itself a binding (`--- @kind binding`) is held to the contract as the generated tables are:
---- an exported function that answers a bare boolean over one of its calls (rule 11) is a breach through it and none
+--- an exported function that returns a bare boolean over one of its calls (rule 11) is a breach through it and none
 --- through a declaration without the line.
 local function test_a_declaration_that_declares_itself_a_binding_is_held_to_the_contract()
   local declaration = "local record Drv\n  poke: function(string): boolean, string, integer\nend\nreturn Drv\n"
@@ -398,7 +398,7 @@ local function test_an_exported_bare_boolean_over_a_binding_is_flagged()
     -- a binding called from a function nested in it is that function's
     sys .. "function M.later(p: string): boolean\n  use(function(): boolean\n    local ok, _ = sys.unlink(p)\n    return ok\n  end)\n" ..
       "  return true\nend\nreturn M",
-    -- a local wrapper is not the module's answer
+    -- a local wrapper is not what the module returns
     sys .. "local function rm(p: string): boolean\n  local ok, _ = sys.unlink(p)\n  return ok\nend\nuse(rm)\nreturn M",
   })
   local exempt = sys .. "function M.rm(p: string): boolean\n  local ok, _ = sys.unlink(p)\n  return ok\nend\nreturn M"
@@ -428,7 +428,7 @@ local function test_a_function_stored_into_a_table_of_c_bindings_keeps_the_bindi
   local stand_in = "function(p: string): boolean, string, integer\n"
   keeps({
     sys .. "sys.unlink = " .. stand_in .. "  return unlink(p)\nend\n",
-    -- one that hands the binding's whole answer on as three names is not read for rule 2 either
+    -- one that hands the binding's whole result on as three names is not read for rule 2 either
     sys .. "sys.unlink = " .. stand_in .. "  local a, b, c = unlink(p)\n  return a, b, c\nend\n",
   })
   breaches(third, { "local t: {string: function(string): boolean, string, integer} = {}\nt.unlink = function(p: string): boolean, string, integer\n" ..
@@ -436,7 +436,7 @@ local function test_a_function_stored_into_a_table_of_c_bindings_keeps_the_bindi
 end
 
 --- Deliberate difference of what a function is: an overloaded callee is judged by the overload taken (but for `assert`, which
---- answers what it is given).
+--- returns what it is given).
 local function test_an_overloaded_callee_is_judged_by_the_overload_taken_but_assert_is_never_a_failure_of_its_own()
   local found = Fixture.port(Fixture.PRELUDE .. "assert(put())\nassert(get())\n", LOG_MODULES)
   assert(#found.problems == 0, table.concat(found.problems, "\n"))
@@ -497,7 +497,7 @@ local function test_an_exported_field_that_may_be_any_of_several_function_types_
     assert(#found.problems == 1 and first_problem(found):find("M.either: " .. ONE_RESULT, 1, true) ~= nil,
       field .. "\n" .. table.concat(found.problems, "\n"))
   end
-  -- two members that answer several results are one problem
+  -- two members that return several results are one problem
   local twice = exported(before .. "local type Third = function(string): integer, integer\n", "either: Spread | Third")
   assert(#twice.problems == 1, table.concat(twice.problems, "\n"))
   local kept = exported(before .. "local type Other = function(string): string?, string\n", "either: One | Other")
@@ -516,7 +516,7 @@ local function test_an_exported_field_of_a_function_type_that_answers_one_result
     -- a name that is no function type
     { before = "local record Other\n  n: integer\nend\n", field = "other: Other" },
     { before = "local type Names = {string}\n", field = "names: Names" },
-    -- the function it answers is a value: its definition is judged where it is written, by the rules of any function
+    -- the function it returns is a value: its definition is judged where it is written, by the rules of any function
     { before = "local type Pair = function(): string, string\n", field = "make: function(): Pair" },
   }
   for _, form in ipairs(allowed) do

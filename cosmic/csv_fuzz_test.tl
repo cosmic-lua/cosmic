@@ -3,7 +3,7 @@ local Array = require("cosmic.array")
 --- [`Csv.encode`] writes `parse` reads back, in any of the delimiters;
 --- `parse` and `table` are total on any bytes, and what they read is a fixed point
 --- of writing and reading again; and a defect put into well-formed text is
---- refused naming the line and column it was put at; and `table` answers
+--- refused naming the line and column it was put at; and `table` reports
 --- the line each row was written to begin on; `records` refuses what `parse`
 --- refuses, reads its records, and puts each at the line `table` gives its row;
 --- and `load`, reading through SQLite's CSV table, copies what `table` reads.

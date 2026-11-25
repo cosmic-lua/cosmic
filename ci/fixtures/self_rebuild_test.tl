@@ -586,7 +586,7 @@ end
 -- `fix`, which writes the working database and so waits for a run that
 -- holds it. `docs` and `todos` only read, and wait for no run
 -- (build/reboot.tl's `stale_exit`): one started while another holds the
--- working database says so and answers at once, from what that run last
+-- working database says so and prints at once, from what that run last
 -- committed.
 local function test_self_rebuild_by_concurrent_runs(tmp: string)
   local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")

@@ -1,13 +1,14 @@
 --- The client's side of [`cosmic.internal.relay_wire`]'s SOCKS5: the greeting and
 --- the request a client writes, and the readers of the server's method
---- choice and of its answer. The request is checked against the relay's
+--- choice and of its reply. The request is checked against the relay's
 --- own reader of it, and each reader at every cut of its input.
 
 local Fixture = require("build.relay_wire_fixture")
 local Wire = require("cosmic.internal.relay_wire")
 
---- What `feed`, a fresh reader's, answers to `input` fed whole, in every
---- cut into two pieces and a byte at a time, which must all be the same.
+--- What `feed`, a fresh reader's, returns for `input` fed whole, in
+--- every cut into two pieces and a byte at a time, which must all be the
+--- same.
 local function same_in_pieces(fresh: function(): function(string): string, input: string): string
   local whole = fresh()(input)
   for cut = 0, #input do
@@ -176,7 +177,7 @@ local function test_a_reply_that_is_no_success_is_an_answer_with_its_code()
     local expected = ("done|10|nil|%d|%s"):format(code - 1, name)
     assert(same_in_pieces(answer_fresh, Wire.socks_reply(name as Wire.SocksReply)) == expected, name) -- checked: cast_refused
   end
-  -- A code the protocol does not define is still the server's answer.
+  -- A code the protocol does not define is still the server's reply.
   assert(same_in_pieces(answer_fresh, "\5\99\0\1\0\0\0\0\0\0") == "done|10|nil|99|nil")
 end
 

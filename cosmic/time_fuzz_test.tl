@@ -1,10 +1,10 @@
 --- Fuzz properties for [`cosmic.time`]'s RFC 3339 text: what
 --- `format_rfc3339` writes, in UTC or moved to any offset, parses back
 --- to the moment it came from; and `parse_rfc3339` is total -- whatever
---- bytes it is handed, it answers a moment or a failure and never
+--- bytes it is handed, it returns a moment or a failure and never
 --- raises, and a moment it accepts formats back to text naming the same
 --- one. The same holds for the date-only text and the HTTP dates, in
---- all three of RFC 9110's forms. `between` answers a duration of one
+--- all three of RFC 9110's forms. `between` returns a duration of one
 --- sign for any two moments in any zone, which text round trips, and in
 --- a zone whose offset is fixed `add_calendar` adds back to the second
 --- moment. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
@@ -138,7 +138,7 @@ end
 local DAY_NS <const> = 86400 * NS
 local MONTHS <const> = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct",
   "Nov", "Dec" }
--- [`Time.civil`] answers a weekday from 1 (Monday) to 7, as many as `DAYS` holds.
+-- [`Time.civil`]'s weekday runs from 1 (Monday) to 7, as many as `DAYS` holds.
 local DAYS <const> = { "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
   "Sunday" }
 

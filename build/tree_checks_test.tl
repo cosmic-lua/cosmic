@@ -190,7 +190,7 @@ local function test_a_build_directory_spelled_by_hand_is_refused(dir: string)
 end
 
 --- A function whose doc comment names the command it stands in for is
---- what `cosmic docs <command>` answers first; one whose doc comment
+--- what `cosmic docs <command>` shows first; one whose doc comment
 --- stopped naming it is refused.
 local function test_a_stand_in_that_stops_naming_its_command_is_refused(dir: string)
   local function proc(doc: string): string
@@ -219,8 +219,8 @@ local function test_a_stand_in_that_stops_naming_its_command_is_refused(dir: str
       nil, table.concat(found, "\n"))
 end
 
---- A query a compile's failure points to is answered by a worked
---- example of that name; one no example answers is refused.
+--- A query a compile's failure points to is resolved by a worked
+--- example of that name; one no example resolves is refused.
 local function test_a_query_no_example_answers_is_refused(dir: string)
   local db = fixture.database(dir, {
     ["cosmic/thing.tl"] = source(
@@ -991,7 +991,7 @@ local function test_a_public_doc_naming_internals_is_refused(dir: string)
   found = tree_checks.public_docs(db, excused)
   assert(#found == 1 and found[1]:find("^cosmic.thing e path: exempt, but") ~= nil,
     table.concat(found, "\n"))
-  -- Held to some files, the docs of the rest say nothing, nor does an exemption nothing named answers to.
+  -- Held to some files, the docs of the rest say nothing, nor does an exemption nothing named matches.
   found = tree_checks.public_docs(db, { ["cosmic.thing a path"] = "a", ["cosmic.thing x path"] = "unneeded" },
     { ["cosmic/thing.tl"] = true })
   assert(#found == 5 and found[1]:find("^cosmic/thing%.tl:7: .*%(todo rule%)") ~= nil, table.concat(found, "\n"))
@@ -1119,7 +1119,7 @@ end
 
 --- The plurals of some files, as a run of `cosmic fix` over some paths holds them: each file the whole tree's check reads
 --- is held to it, an exemption still counts, a file the check does not read is passed over, and an exemption nothing
---- named answers to is no line, since the files not named may answer to it.
+--- named matches is no line, since the files not named may match it.
 local function test_the_plurals_of_some_files_are_the_whole_checks_lines_for_them()
   local counting = source("local n = 2", "return n .. \" tests\"")
   local found = tree_checks.plurals_of({
@@ -1269,7 +1269,7 @@ local function test_the_trees_checks_read_no_file_of_ci_and_refuse_a_require_int
   assert(table.concat(tree_checks.declared(root), "\n"):find("ci/", 1, true) == nil)
 end
 
---- Files that require each other reach the same modules, and keep their own answers.
+--- Files that require each other reach the same modules, and keep their own results.
 local function test_files_that_require_each_other_keep_their_own_answers_in_the_memo(dir: string)
   local root = dir .. "/declarecycle"
   assert(Fs.mkdirs(root .. "/build"))
@@ -1296,7 +1296,7 @@ local function test_a_file_that_does_not_parse_and_a_testdata_file_count_no_erro
   assert(#tree_checks.declared(root) == 0, table.concat(tree_checks.declared(root), "\n"))
 end
 
---- The answer for a file is kept under the sources of every module it requires: a change to a module it
+--- The result for a file is kept under the sources of every module it requires: a change to a module it
 --- imports, however far, misses; an unrelated file does not.
 local function test_a_memo_answers_the_declaration_check_until_a_module_a_file_requires_changes(dir: string)
   local root = dir .. "/declarememo"
@@ -1313,7 +1313,7 @@ local function test_a_memo_answers_the_declaration_check_until_a_module_a_file_r
   assert(table.concat(tree_checks.declared(root, memo), "\n") == plain)
   local count = assert(memo:rows("SELECT count(*) FROM check_memo WHERE kind = 'declared'"))
   assert(support.nth(count, 1):integer(1) == 5, "the four files and the code")
-  -- Plant another answer under every key: a run that finds it did not lower.
+  -- Plant another result under every key: a run that finds it did not lower.
   assert(memo:run("UPDATE check_memo SET value = ?1 WHERE kind = 'declared'", { { text = "N\nE\tkey_type\t7\t9\tplanted\tdo it" } }))
   local hit = table.concat(tree_checks.declared(root, memo), "\n")
   assert(hit:find("build/top.tl:7:9: planted (key_type): do it", 1, true) ~= nil and not hit:find("float_key", 1, true), hit)
@@ -1326,7 +1326,7 @@ local function test_a_memo_answers_the_declaration_check_until_a_module_a_file_r
 end
 
 --- What a file reads of a module it requires is its tokens, not its comments or its blank lines: an edit to either of a
---- module misses the module's own answer alone, and an edit to a token misses the files that require it as well.
+--- module misses the module's own result alone, and an edit to a token misses the files that require it as well.
 local function test_a_comment_in_a_module_misses_its_own_answer_and_no_other_file_of_the_declaration_check(dir: string)
   local root = dir .. "/declareshape"
   assert(Fs.mkdirs(root .. "/build"))
@@ -1411,7 +1411,7 @@ local function test_a_mistake_in_a_body_is_refused_with_its_fix_and_held_by_its_
       both:find("1 error of not_assignable in its bodies on line 3, marked 0", 1, true), both)
 end
 
---- The phases of a check that lowered files are timed, and a run the memo answers times none.
+--- The phases of a check that lowered files are timed, and a run the memo settles times none.
 local function test_the_phases_of_a_check_are_timed_for_the_files_the_memo_lacked(dir: string)
   local root = dir .. "/checkphases"
   assert(Fs.mkdirs(root .. "/build"))
@@ -1426,7 +1426,7 @@ local function test_the_phases_of_a_check_are_timed_for_the_files_the_memo_lacke
   assert(memo:close())
 end
 
---- The answer for a file is kept under the sources of every module it requires and of the checker: a change to a
+--- The result for a file is kept under the sources of every module it requires and of the checker: a change to a
 --- module it imports, however far, or to the checker misses; an unrelated file does not.
 local function test_a_memo_answers_the_body_check_until_a_module_a_file_requires_or_the_checker_changes(dir: string)
   local root = dir .. "/checkmemo"
@@ -1491,7 +1491,7 @@ local function test_a_memo_answers_the_scope_check_for_a_file_that_has_not_chang
   assert(table.concat(tree_checks.scoped(root, memo), "\n") == plain)
   local count = assert(memo:rows("SELECT count(*) FROM check_memo WHERE kind = 'scoped'"))
   assert(support.nth(count, 1):integer(1) == 2, "the two files")
-  -- Plant another answer under the key: a run that finds it did not scope.
+  -- Plant another result under the key: a run that finds it did not scope.
   local planted = "C\t\nE\tshadows\t7\t9\tplanted\tdo it"
   assert(memo:run("UPDATE check_memo SET value = ?1", { { text = planted } }))
   local hit = table.concat(tree_checks.scoped(root, memo), "\n")
@@ -1553,7 +1553,7 @@ local function test_the_tree_checks_and_the_drivers_held_give_one_verdict_over_t
   end
 end
 
---- A `.d.tl` edited under a warm memo changes the answer for the modules that read it.
+--- A `.d.tl` edited under a warm memo changes the result for the modules that read it.
 local function test_an_edit_of_the_declaration_of_a_module_given_as_declaration_and_source_misses_the_memo(dir: string)
   local root = dir .. "/declpair"
   assert(Fs.mkdirs(root .. "/p"))
@@ -1610,7 +1610,7 @@ local function test_a_call_the_checker_could_type_no_function_for_is_held_by_its
       stale:find("on line 2, marked 0", 1, true), stale)
 end
 
---- The checks of the declarations, the bodies and the untyped calls give the same findings, and keep the same answers,
+--- The checks of the declarations, the bodies and the untyped calls give the same findings, and keep the same results,
 --- where copies of the process ([`build.compile_fanout`]) lower the files as where the process lowers them all.
 local function test_the_checks_find_the_same_in_copies_of_the_process(dir: string)
   if Proc.cpu_count() < 2 then

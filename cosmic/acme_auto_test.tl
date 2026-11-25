@@ -65,8 +65,8 @@ local function auto_of(dir: string, ca: FakeCa, names?: {string}): Acme.Auto
   })
 end
 
---- What a server of `auto` answered, once it served: the body over
---- HTTPS, and the clear listener's answer to a plain request.
+--- What a server of `auto` sent, once it served: the body over
+--- HTTPS, and the clear listener's response to a plain request.
 local record Served
   mut https: string
   mut redirect: string
@@ -74,8 +74,8 @@ local record Served
 end
 
 --- Serves `auto` at a TLS port and the clear port `clear_port` until
---- one HTTPS request and one plain one have been made; answers what
---- they saw, and what [`Server.serve`] answered.
+--- one HTTPS request and one plain one have been made; returns what
+--- they saw, and what [`Server.serve`] returned.
 local function serve(auto: Acme.Auto, clear_port: integer): Served, boolean, string
   local served: Served = { https = "", redirect = "", ready = false }
   local ok, why = Server.serve{
@@ -136,7 +136,7 @@ local function test_a_kept_certificate_that_misses_a_name_is_issued_again(tmp: s
   local kept = assert(Fs.read(dir .. "/certificate.pem"))
   -- `d.pem` names localhost alone, not other.test.
   local asked = false
-  -- Loaded with no server, so nothing answers a check: the CA passes it.
+  -- Loaded with no server, so nothing responds to a check: the CA passes it.
   local ca = fake_ca(port)
   ca.check = function(_domain: string, _token: string): string return "valid" end
   local request = ca.request

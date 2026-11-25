@@ -133,7 +133,7 @@ local record Srp
   --- What a side holds once it has computed the shared key.
   record Session
     --- The key `K`, a digest's length of bytes. It is not yet proved to
-    --- be shared: a client uses it once [`Client`]'s `verify` answers
+    --- be shared: a client uses it once [`Client`]'s `verify` returns
     --- true, and a server gets a session only from a proof that was
     --- right.
     key: string
@@ -153,12 +153,12 @@ local record Srp
     --- A public value of zero modulo the prime, or a `u` of zero, would
     --- let a server that does not know the verifier choose the key, and
     --- no honest server sends a number that is not below the prime.
-    --- Give up the login then: `verify` answers for no earlier session.
+    --- Give up the login then: `verify` checks no earlier session.
     prove: function(self: Client, salt: string, server_public: string): Session?, string
 
     --- Whether `server_proof` is the proof of the session `prove`
-    --- answered, which only a server holding the verifier can send.
-    --- Raises when `prove` has answered no session.
+    --- returned, which only a server holding the verifier can send.
+    --- Raises when `prove` has returned no session.
     verify: function(self: Client, server_proof: string): boolean
   end
 
@@ -168,13 +168,13 @@ local record Srp
     public: string
 
     --- The session, given the public value and the proof the client
-    --- sent, and "": its `proof` is the answer that shows the client
+    --- sent, and "": its `proof` is the reply that shows the client
     --- the server holds the verifier. nil and why when `client_proof`
     --- is wrong, which is what a wrong password looks like, when
     --- `client_public` is not a number from 1 to the prime less 1, or
-    --- when `u` is zero. A client that failed is answered with nothing
+    --- when `u` is zero. A client that failed gets a reply with nothing
     --- computed from the key, or it could try passwords against the
-    --- answer at leisure. Each proof tests one guess at the password:
+    --- reply at leisure. Each proof tests one guess at the password:
     --- the caller limits how many an identity gets.
     verify: function(self: Server, client_public: string, client_proof: string): Session?, string
   end

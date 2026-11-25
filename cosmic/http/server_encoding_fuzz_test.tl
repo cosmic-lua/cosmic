@@ -1,6 +1,6 @@
 --- Fuzz properties for [`Server.encoding`], which reads the
 --- Accept-Encoding header any client sends: it is total over any bytes;
---- and for a header drawn from well-formed elements it answers what a
+--- and for a header drawn from well-formed elements it returns what a
 --- reading of RFC 9110 section 12.5.3 written apart from the module
 --- says. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
@@ -34,7 +34,7 @@ local function thousandths(text: string): integer
     (math.tointeger(tonumber((fraction .. "00"):sub(1, 3))) or 0)
 end
 
--- An answer is a coding offered, "identity" or nil, whatever the bytes.
+-- A result is a coding offered, "identity" or nil, whatever the bytes.
 local function test_encoding_is_total_over_any_header(tmp: string)
   Fuzz.run({
     name = "http encoding total",
@@ -55,9 +55,9 @@ local function test_encoding_is_total_over_any_header(tmp: string)
   })
 end
 
--- For a well-formed header, the answer is acceptable (a weight above 0,
+-- For a well-formed header, the result is acceptable (a weight above 0,
 -- by its own element or `*`; identity unless refused), no coding offered
--- weighs more, and the answer is "identity" only where no coding is
+-- weighs more, and the result is "identity" only where no coding is
 -- acceptable or identity is named with a weight above every coding's.
 local function test_encoding_follows_the_weights(tmp: string)
   Fuzz.run({

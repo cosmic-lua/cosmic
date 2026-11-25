@@ -1,5 +1,5 @@
 --- The declarations of the tool's own modules tell the truth about nil: a
---- function declared to answer a value answers nil only where its type
+--- function declared to return a value returns nil only where its type
 --- says so, and a parameter a caller may leave out is optional. Each test drives the
 --- paths where a value may be nil and asks a checked run
 --- (`cosmic test --check-types`) whether a value crossed a typed boundary
@@ -33,8 +33,8 @@ local function honest(what: string, fn: function())
   assert(#found == 0, what .. ": " .. tostring(#found) .. " violations:\n" .. table.concat(found, "\n"))
 end
 
---- A line that is no comment, a comment that carries on, and one that does
---- not answer a comment at all: the TODO scan reads each.
+--- A line that is no comment, a comment that carries on, and one that
+--- holds no comment at all: the TODO scan reads each.
 local function test_the_todo_scan_answers_a_comment_or_none()
   honest("todo_scan", function()
     local found = todo_scan.scan(table.concat({
@@ -50,7 +50,7 @@ local function test_the_todo_scan_answers_a_comment_or_none()
   end)
 end
 
---- A selector that names no one test has no test name to answer.
+--- A selector that names no one test has no test name to give.
 local function test_a_selector_naming_no_test_is_as_declared()
   honest("test selectors", function()
     assert(test.matches("build/x_test.tl", "build/x_test.tl", "build/x_test.tl"))

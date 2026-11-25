@@ -158,7 +158,7 @@ local function test_a_facts_value_read_once_answers_check_and_rewrite()
 end
 
 --- Only the lines of comment blocks have a scope settled; a line outside every block is a fault in the caller and is
---- refused, not answered as if nothing were declared there.
+--- refused, not treated as if nothing were declared there.
 local function test_a_line_outside_every_comment_block_is_refused()
   local source = lines("local record Box", "  n: integer", "end", "--- Holds [`Box`].", "local function f() end")
   local chunk = assert(Node.parse(source, "/p/a.tl"))

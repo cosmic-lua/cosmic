@@ -413,7 +413,7 @@ local function kept_graph(db: Sqlite.Handle, tool: string): {string:KeptKeys}?, 
   return keys, digests
 end
 
---- Replaces what [`kept_graph`] answers with `out` and `fragments`, under
+--- Replaces what [`kept_graph`] returns with `out` and `fragments`, under
 --- `tool`. A failure costs only the next run's compute.
 local function keep_graph(db: Sqlite.Handle, tool: string, modules: {Module}, out: {string:Keys},
                           fragments: {string:Fragment})

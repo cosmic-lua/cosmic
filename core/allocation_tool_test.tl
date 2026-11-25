@@ -31,7 +31,7 @@ local function spawn_again(chunk: string): integer
     relaunch.fds)))
 end
 
---- A child is reaped only once its answer can be made: a refusal before
+--- A child is reaped only once its result can be built: a refusal before
 --- it leaves the child to wait for again, never its status lost.
 local function test_waitpid_never_loses_a_status_to_a_failed_allocation()
   -- A chunk that exits 7: a real status to reap.

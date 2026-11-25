@@ -3,7 +3,7 @@
 --- module, no two doc anchors sharing a name, every
 --- reader of the compiler's identity named, every familiar command
 --- finding what stands in for it, every docs query a compile advertises
---- answered, every quieted method one a module declares, every member
+--- resolved, every quieted method one a module declares, every member
 --- kept to a few files used by those alone, every
 --- declaration's requires declared, every requirement a test module
 --- declares promised by a CI leg, every verb's spec listed and
@@ -18,7 +18,7 @@
 --- suite's `store` declaration is kept to), so these are not tests.
 --- `cosmic fix` runs them when it covers all of cosmic's own tree
 --- (`cosmic fix --check .`, which CI runs), after building the
---- projection afresh (`projection`), and each line a check answers
+--- projection afresh (`projection`), and each line a check returns
 --- fails the run. A `cosmic fix` of some paths does not run them, and a
 --- tree that does not build fails them all.
 ---
@@ -275,8 +275,8 @@ local anchors_expected: {string} = { "cosmic.layout Layout", "cosmic.entrypoint 
 --- sorted, and then each of `expected` (by default the tree's own
 --- anchors) that is no longer taken for one.
 ---
---- Every name `cosmic docs <name>` resolves to a doc anchor answers
---- with that one anchor (doc/design.md, principle 8). A bare name
+--- For a name that resolves to a doc anchor, `cosmic docs <name>`
+--- shows that one anchor alone (doc/design.md, principle 8). A bare name
 --- matches every symbol ending in it -- `cosmic docs read` lists each
 --- `X.read`, by design -- so a real member that shares an anchor's name
 --- ([`Proc.Relaunch.argv`] beside [`Entrypoint.argv`]) is listed beside it
@@ -369,9 +369,9 @@ end
 --- any row. A declaration of the
 --- function is none of these.
 ---
--- TODO: see a read of a row in SQL over a handle [`Store.databases`] answers,
+-- TODO: see a read of a row in SQL over a handle [`Store.databases`] returns,
 -- which a scan of lines cannot tell from one over any other database, once
--- the checker answers which module opens a handle from the store's databases.
+-- the checker tells which module opens a handle from the store's databases.
 -- Until then the store's loud refusal ([`Store.meta`] raises for a withheld
 -- row) is the backstop for a read by name; a query of the handle finds no row.
 local function reads(line: string, entry: key_parts.MetaReaders): boolean
@@ -410,7 +410,7 @@ end
 ---
 --- A worker is given such a row only where its closure holds a reader the
 --- map names ([`build.key_parts`]'s `reads_meta`): the compiler's identity
---- is answered by the running tool and held in the key of that test alone,
+--- is given by the running tool and held in the key of that test alone,
 --- and a closure store carries `image_hash` for it alone. A reader the map
 --- misses would leave a verdict standing that turned on a value no key
 --- held, or be given no row.
@@ -558,7 +558,7 @@ local stand_ins_expected: {{string}} = {
 --- Each of `cases` (by default the tree's own), a command or call and
 --- the function that stands in for it, that `cosmic docs <command>`,
 --- looked up the way a project sees the standard library in `db`, does
---- not answer with that function first, after any raw [`cosmic.sys`]
+--- not show that function first, after any raw [`cosmic.sys`]
 --- binding of that name. What a newcomer types first is the command or
 --- call they would have used elsewhere, so a doc comment that stops
 --- naming its command is caught here, not by the next person who writes
@@ -611,7 +611,7 @@ local function queries_expected(): {string}
 end
 
 --- Each of `wanted` (by default what a compile's failure points to) that
---- `cosmic docs` does not answer from `db`.
+--- `cosmic docs` does not resolve from `db`.
 function tree_checks.queries(db: Sqlite.Handle, wanted?: {string}): {string}
   local looked, trouble = docs.view({ db }, { true })
   if looked == nil then
@@ -764,7 +764,7 @@ function tree_checks.requirers(db: Sqlite.Handle, rules?: {string: Restriction})
 end
 
 --- Each declaration of `db` that requires a name no declaration of `db`
---- answers for, as `<declaration> requires <name>`: a closure store
+--- covers, as `<declaration> requires <name>`: a closure store
 --- follows a declaration's requires among declarations alone
 --- ([`build.closure_store`]'s `declared`), so a module one required would
 --- be neither carried nor in the store's address.
@@ -1398,7 +1398,7 @@ local doc_rules: {DocRule} = {
 --- text, that carries a `TODO:` or cites an implementation path, one
 --- line per hit as `<file>:<line>: <module> <symbol>: ...` with the
 --- fix, and then each name in `excused` (by default `doc_exempt`) that
---- nothing answers to any more.
+--- nothing matches any more.
 ---
 --- A doc is what `cosmic docs` shows a caller ([`link_text.unlinked`]:
 --- no definition a code span's link reads), in a binary that carries
@@ -1410,7 +1410,7 @@ local doc_rules: {DocRule} = {
 --- `cosmic/internal/`, `vendor/` and a C file's name (`foo.c`, not a
 --- header in angle brackets). `build.zig` is a file name, not a module.
 --- @param files where given, the files (paths from the tree's root) whose docs are checked, as a run of `cosmic fix` over
----   some paths checks them: no word is said of an exemption, since the files not named may answer to it
+---   some paths checks them: no word is said of an exemption, since the files not named may match it
 function tree_checks.public_docs(db: Sqlite.Handle, excused?: {string: string}, files?: {string: boolean}): {string}
   excused = excused or doc_exempt
   local named = ""
@@ -1514,7 +1514,7 @@ local function plural_file(file: string): boolean
 end
 
 --- The lines [`plurals`] says of `sources` (`{file, source}` pairs), and the `<file>:<noun>` keys found, which an exemption in
---- `excused` answers to; `read` as [`plurals`] takes it.
+--- `excused` matches; `read` as [`plurals`] takes it.
 local function plural_lines(sources: {{string}}, excused: {string: string}, read?: {string: tree_checks.Plurals}):
     mut {string}, {string: boolean}
   local out: mut {string} = {}
@@ -1567,8 +1567,8 @@ end
 --- `cosmic/` of `db` (a test's excepted), and in `extra` (`{file,
 --- source}` pairs, [`ci_sources`]'s), that puts a literal plural noun
 --- after a number, as `<file>:<line>: ...` with the fix, and then each
---- name in `excused` (by default `plural_exempt`) that nothing answers
---- to any more.
+--- name in `excused` (by default `plural_exempt`) that nothing matches
+--- any more.
 ---
 --- The two spellings refused are a value that is not provably a string
 --- joined to a literal by `..` (`#rows .. " tests"`, `tostring(n) ..
@@ -1610,7 +1610,7 @@ function tree_checks.plurals(db: Sqlite.Handle, extra?: {{string}}, excused?: {s
 end
 
 --- [`plurals`] over `sources` alone (`{file, source}` pairs, each file a path from the tree's root), with no word on an
---- exemption nothing answers to: what a run of `cosmic fix` over some paths holds them to, where the whole tree's check
+--- exemption nothing matches: what a run of `cosmic fix` over some paths holds them to, where the whole tree's check
 --- takes its sources from the projection. A file [`plurals`] does not read is passed over.
 function tree_checks.plurals_of(sources: {{string}}, excused?: {string: string}): {string}
   local read: mut {{string}} = {}
@@ -1719,7 +1719,7 @@ function tree_checks.ci_testdata(root: string): {string}
           if code == nil or msg == nil or fix == nil then
             -- The checker's own count of a code ("2 errors of x in its bodies") is told again, by the markers, below.
             -- TODO: take the findings of [`Pipeline.checked_alone`] as the spots of [`build.ceilings.marked`] and not parse its
-            -- prose here, once it answers them beside its lines; a changed wording tells a count twice, which fails closed.
+            -- prose here, once it returns them beside its lines; a changed wording tells a count twice, which fails closed.
             if line:match("^[^:]+: %d+ errors? of [%a_]+ in its %a+ on line %d+; follow the fix above$") == nil then
               out[#out + 1] = if line:sub(1, #name + 1) == name .. ":" then file .. line:sub(#name + 1) else line end
             end
@@ -1842,9 +1842,9 @@ end
 
 --- Shares the rows of this process's memoed checks with the host's other checkouts ([`build.check_memo`]), under the
 --- code this tool checks with: the bytecode of the modules `cosmic fix` loads, read from the tool's own database and
---- not a projection attached ahead of it, and every byte of the tool ahead of that database. Answers whether they are
+--- not a projection attached ahead of it, and every byte of the tool ahead of that database. Returns whether they are
 --- shared, and why not where the tool could not be read or the shared file not opened; a run that shares none by
---- its environment answers false and "".
+--- its environment returns false and "".
 function tree_checks.share_checks(): boolean, string
   local path = check_memo.shared_path()
   if path == nil then return check_memo.share(nil) end
@@ -1955,7 +1955,7 @@ local function kept_rows(outcome: DeclareOutcome): {{string}}
   return kept
 end
 
---- A file of the tree to lower: its module, the modules it requires and what its answer is keyed by.
+--- A file of the tree to lower: its module, the modules it requires and what its result is keyed by.
 local record DeclareFile
   file: string
   source: string
@@ -2037,7 +2037,7 @@ local function shaping_of(root: string, memo: Sqlite.Handle?): Shaping
   return { memo = memo, salt = check_memo.salt(root, { "lang/lexer.tl", "build/shape_key.tl", "build/check_memo.tl" }, "shape 1") }
 end
 
---- The files of `files` that a lowering covers, each with the key its answer is kept under: `salt`, its dialect and
+--- The files of `files` that a lowering covers, each with the key its result is kept under: `salt`, its dialect and
 --- its source and the sources of every module it requires, however far. `written` are the sources the build writes from
 --- other files ([`TreeProgram.derived_of`]), which count as files of the tree, named for the file each comes from.
 local function tree_of(given: {{string}}, salt: string, bindings?: {{string}}, written?: {{string}},
@@ -2172,7 +2172,7 @@ end
 --- the syntax and the declarations of the modules it lowers.
 local check_copy_bytes <const> = 1024 * 1024 * 1024
 
---- What [`fanned`] answers: the memo text `judge` gave each file of the rows, by file, and the problems the build met,
+--- What [`fanned`] returns: the memo text `judge` gave each file of the rows, by file, and the problems the build met,
 --- in the order one process meets them.
 local record Fanned
   texts: {string: string}
@@ -2303,7 +2303,7 @@ local function findings_of(list: {Driver.Problem}): {Finding}
   return out
 end
 
---- The files of `tree` whose answer `memo` does not hold, with the answers it does.
+--- The files of `tree` whose result `memo` does not hold, with the results it does.
 local function kept_outcomes(memo: Sqlite.Handle?, kind: string, tree: Tree,
                              read: function(text: string, file: string): DeclareOutcome?
 ): mut {string: DeclareOutcome}, {DeclareFile}
@@ -2321,7 +2321,7 @@ local function kept_outcomes(memo: Sqlite.Handle?, kind: string, tree: Tree,
   return outcomes, missed
 end
 
---- Takes what a fan ([`fanned`]) answered for each row of `rows` into `outcomes`, and into `memo` under `kind`, each text
+--- Takes what a fan ([`fanned`]) returned for each row of `rows` into `outcomes`, and into `memo` under `kind`, each text
 --- read as `read` reads a memo's; one that does not read leaves its file unjudged.
 local function kept_fanned(fan: Fanned, rows: {DeclareFile}, outcomes: mut {string: DeclareOutcome}, memo: Sqlite.Handle?,
                            kind: string, read: function(text: string, file: string): DeclareOutcome?)
@@ -2359,7 +2359,7 @@ end
 --- checker's grammar, but for the files of a `testdata` directory, and counting nothing of a file that does not parse:
 --- the errors are the ones its markers hold ([`build.ceilings`]), no more: one with no marker on its line is listed with its
 --- place and fix, and a marker that holds more than its line has is stale. The declaration files [`lang/prelude.d.tl`] and [`lang/stdlib.d.tl`] declare the
---- globals; every other file imports the modules it names from the whole tree, so the answer for a file is
+--- globals; every other file imports the modules it names from the whole tree, so the result for a file is
 --- kept in `memo` under the sources of every module it requires, directly or not.
 function tree_checks.declared(root: string, memo?: Sqlite.Handle, marking?: Ceilings.Marking): {string}
   local files, trouble = sources_of(root)
@@ -2404,7 +2404,7 @@ end
 --- ([`lang.check`]): every expression and statement of its bodies typed, without flow. The files left out are those
 --- of [`declared`], the declaration files (which have no bodies) and the files that do not parse. The
 --- errors are the ones its markers hold ([`build.ceilings`]), no more: one with no marker on its line is listed with its place
---- and fix, and a marker that holds more than its line has is stale. The answer for a file is kept in `memo` under the sources of every module it requires,
+--- and fix, and a marker that holds more than its line has is stale. The result for a file is kept in `memo` under the sources of every module it requires,
 --- directly or not, and of the checker. `phases`, when given, gets the nanoseconds spent parsing and scoping
 --- (`prepare`), lowering (`lower`) and checking (`check`) the files the memo lacked.
 function tree_checks.checked(root: string, memo?: Sqlite.Handle, phases?: {string: integer},
@@ -2456,7 +2456,7 @@ function tree_checks.checked(root: string, memo?: Sqlite.Handle, phases?: {strin
 end
 
 --- Whether the build's own pipeline ([`build.pipeline`]) holds each module of the tree as the checks of the tree do, and
---- names the modules it refuses for more than a count ([`build.pipeline_check`] has the rules). `memo` keeps the answer for
+--- names the modules it refuses for more than a count ([`build.pipeline_check`] has the rules). `memo` keeps the result for
 --- a module under the key `checked` keeps its own.
 function tree_checks.pipeline(root: string, build_db: Sqlite.Handle, memo?: Sqlite.Handle):
     {string}
@@ -2795,7 +2795,7 @@ end
 --- The calls the new checker gave no function, which no rule of the discipline judged ([`build.syntax_contracts`]'s
 --- `untyped`), held by the markers at the lines of the calls (`-- untyped: call`): a call with no marker on its line is listed,
 --- as the build itself refuses it ([`build.pipeline`]'s `generate`), and a marker that holds more than its line has is stale. The count is the port's alone, over the program the pipeline reads ([`build.tree_program`],
---- its calls of [`Shape.record_of`] resolved). The answer for a
+--- its calls of [`Shape.record_of`] resolved). The result for a
 --- file is kept in `memo` under its source and those of every module it requires, and of the checker.
 function tree_checks.untyped(root: string, memo?: Sqlite.Handle, marking?: Ceilings.Marking): {string}
   local files, trouble = sources_of(root)
@@ -3035,7 +3035,7 @@ local text_read_allowed <const>: {string:string} = {
   ["cosmic.errors"] = "asks the catalog for the guidance on an error; a pure store has no catalog and the lookup raises there ([`Errors.guidance_in`]); a standard-library module, which cannot require a module of the build",
 }
 
--- TODO: see a table named at run time (`"FROM " .. name`), which a scan of literals cannot, once the checker answers
+-- TODO: see a table named at run time (`"FROM " .. name`), which a scan of literals cannot, once the checker tells
 -- the value a string expression holds.
 
 --- Each module of `db` that is no test and reads module text without declaring it, as `<module> reads text (<how>) and
@@ -3046,7 +3046,7 @@ local text_read_allowed <const>: {string:string} = {
 --- most readers early. A module declares what it reads by requiring one of [`build.code_walk`]'s `markers` by value (a
 --- `local type` require is erased), which a test's closure follows ([`build.closure_store`]'s pure store keeps what the
 --- closure declares); `excusing` (by default [`text_read_allowed`]) excuses a reader with a reason. The reads taken as
---- text: [`Store.source`] and [`Store.withheld`], which answer a module's source; and SQL that reads a table of
+--- text: [`Store.source`] and [`Store.withheld`], which return a module's source; and SQL that reads a table of
 --- [`text_tables`] or the source of a module, in any module that names it (a handle handed on is read by whoever
 --- queries it). A module that runs a statement it is handed (`cosmic sql`) cannot be told apart by what it names, and
 --- declares [`build.reads.all`] by hand.

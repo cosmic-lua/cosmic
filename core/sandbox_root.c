@@ -569,7 +569,7 @@ static int place_proc (const char *target, int *own, int strict) {
  * process table's `waitpid` removing a directory its `spawn` handed the
  * reaped child's pid.
  * A UTS namespace would change nothing a child sees: its host's name
- * and kernel stay what `uname` answers, which no key holds. */
+ * and kernel stay what `uname` returns, which no key holds. */
 static int build_root (const char *root, char *const *paths, char *const *names,
                        const char *const *at, const int *writable, const int *noexec,
                        const int *idmapped, int count, int mapped, int noexec_scratch, int strict,
@@ -1228,7 +1228,7 @@ static int idmapped_tree (const struct spawn_plan *plan, const char *path, int t
  * child ([`start_program`]): signalled, stopped and reaped as any child
  * is, with the exit status its own, rather than a pid 1's, from which a
  * signal the program does not catch -- a SIGTERM, its own abort() --
- * would be dropped. Its pid is the one `spawn` answers. So the
+ * would be dropped. Its pid is the one `spawn` returns. So the
  * program's own processes see, and signal, none but each other and
  * that init, which ignores them. The init is the parent's child too
  * (CLONE_PARENT), so no subreaper adopts it when this process ends, as
@@ -1337,7 +1337,7 @@ static _Noreturn void start_unveiled (const struct spawn_plan *plan, const int *
     }
   }
   /* Its own copies of what the init took: the ready pipe then ends
-   * when the init has answered, or has died. */
+   * when the init has written its result, or has died. */
   if (started[0] >= 0) close(started[0]);
   if (ready[1] >= 0) close(ready[1]);
   if (start.exe >= 0) close(start.exe);

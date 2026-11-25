@@ -175,7 +175,7 @@ local function canonical(value: any, where: string): string?, string
 end
 
 --- One decode, under pcall: nil and why when it broke its contract,
---- else what it answered.
+--- else what it returned.
 local function decode_once(input: string, opts: Json.DecodeOptions, where: string): boolean, Json.Value?, string
   local ok, value, err = pcall(function(): Json.Value?, Failure?
     local v, why = Json.decode(input, opts)
@@ -275,7 +275,7 @@ local function decode_holds(input: string): boolean, string
       local once_ok, once_value, once_err = decode_once(input, { null_value = Json.null, json5 = json5,
         big_numbers_as_strings = big }, where .. " refusing duplicate keys")
       if not once_ok then return false, once_err end
-      -- Whether a text that reads holds a key twice is answered from
+      -- Whether a text that reads holds a key twice is decided from
       -- the members `format` writes, not by decode's own check.
       -- `format` reads a text as `decode` reads it without
       -- big_numbers_as_strings, so a number past a double's range
@@ -461,7 +461,7 @@ local function test_decode_is_total_on_mutated_json(tmp: string)
     shares = { decoded = 0.2, ["decoded as JSON5"] = 0.2, ["oracle saw no key twice"] = 0.2 } })
 end
 
---- Texts that hold a key twice, or do not, with the answer known from
+--- Texts that hold a key twice, or do not, with the result known from
 --- how each was drawn: a member's key is written where the text records
 --- it, so the first key to repeat one of its own object's, in text
 --- order, is the one decode must name, with the line and column it
@@ -705,7 +705,7 @@ end
 
 --- An input for [`repeating_holds`], packed with [`Fuzz.pack`]: a text,
 --- whether it is JSON5, the options to read it under, what decode must
---- answer (empty for a text with no key twice) and the labels for what
+--- return (empty for a text with no key twice) and the labels for what
 --- the repeat is. The top object has the size that decides how
 --- core/json.c looks for a key twice: at most 8 members, 9 to 64, or 65
 --- and more, with the edges of each drawn on their own; and sits bare,
@@ -827,7 +827,7 @@ local function test_a_refusal_for_a_key_twice_is_exactly_a_key_twice(tmp: string
 end
 
 --- What the text-to-text functions hold to on `input`, read as RFC
---- 8259 and as JSON5: `check` answers what `decode` does; `format`
+--- 8259 and as JSON5: `check` agrees with `decode`; `format`
 --- reads what `decode` reads, with its messages, refusing beyond it only
 --- NaN and the infinities, writes text that decodes to the same value and formats
 --- to itself, compact or laid out; `canonical` is a fixed point, the

@@ -48,13 +48,13 @@ local record Channel
     overflow?: Channel.Overflow
   end
 
-  --- A queue of `T`, a type that is never nil, answered by [`Channel.new`]. Items leave in the
-  --- order they were queued. A closed queue is an answer, not a
-  --- failure: [`send`] answers false and a drained [`receive`] answers
+  --- A queue of `T`, a type that is never nil, returned by [`Channel.new`]. Items leave in the
+  --- order they were queued. A closed queue is an outcome, not a
+  --- failure: [`send`] returns false and a drained [`receive`] returns
   --- false, so an item is never false (nor nil): a `Queue<boolean>`
   --- carries only `true`. A call that has to
   --- wait does so in a [`Poll.Notifier`] wait: it raises outside a task,
-  --- and answers nil and a [`Failure`] of kind "timeout" or "cancelled"
+  --- and returns nil and a [`Failure`] of kind "timeout" or "cancelled"
   --- as every wait does.
   ---
   --- Waiters are noticed longest first, but a notice is no reservation:
@@ -75,7 +75,7 @@ local record Channel
     --- nanoseconds (no limit when nil): nil and a Failure of kind
     --- "timeout" or "cancelled".
     send: function(self: Queue<T>, item: T, timeout_ns?: integer): (true) | (false) | (nil, Failure)
-    --- [`send`] that never waits: under "block" a full queue answers
+    --- [`send`] that never waits: under "block", on a full queue it returns
     --- nil and a Failure whose message is [`Channel.FULL`] instead.
     try_send: function(self: Queue<T>, item: T): (true) | (false) | (nil, Failure)
     --- The oldest item, waiting for one at most `timeout_ns`
@@ -85,8 +85,8 @@ local record Channel
     --- "cancelled" otherwise.
     receive: function(self: Queue<T>, timeout_ns?: integer): (T | false) | (nil, Failure)
     --- Closes the queue: every task waiting to send or receive wakes, a
-    --- [`send`] after it answers false, and a [`receive`] drains what is
-    --- queued and then answers false. Closing again does nothing.
+    --- [`send`] after it returns false, and a [`receive`] drains what is
+    --- queued and then returns false. Closing again does nothing.
     --- It never waits, so a `<close>` handler may call it.
     close: function(self: Queue<T>)
     --- How many items are queued.
@@ -98,7 +98,7 @@ local record Channel
     dropped: function(self: Queue<T>): integer
   end
 
-  --- The message of the Failure [`Channel.Queue.try_send`] answers when
+  --- The message of the Failure [`Channel.Queue.try_send`] returns when
   --- a "block" queue has no room.
   FULL: string
 
@@ -178,7 +178,7 @@ local function offer<T is Some>(self: State<T>, item: T): string
   return "full"
 end
 
--- A false item would read as the closed queue's answer to `receive`.
+-- A false item would read as what `receive` returns for a closed queue.
 local function need_item<T is Some>(item: T)
   if item == nil then error("channel: send of nil", 3) end
   if rawequal(item, false) then error("channel: send of false", 3) end

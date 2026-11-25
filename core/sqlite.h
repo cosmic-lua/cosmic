@@ -25,7 +25,7 @@ int cosmic_open_sqlite (lua_State *L);
 void cosmic_sqlite_push_borrowed (lua_State *L, sqlite3 *db);
 
 /* Readies `db` as every handle this module opens is, so a connection
- * opened elsewhere (the store's) answers the same queries under the same
+ * opened elsewhere (the store's) accepts the same queries under the same
  * rules: turns PRAGMA trusted_schema off, so the views and triggers a
  * database file holds may call only what SQLite marks innocuous, turns
  * SQLite's defensive mode on, so no SQL it runs can write the schema or a
@@ -49,8 +49,8 @@ int cosmic_sqlite_functions (sqlite3 *db);
  * SQLite's status. */
 int cosmic_sqlite_hold_to_queries (sqlite3 *db, int *denied);
 
-/* Whether any of an SQL function's arguments is NULL, which the functions of
- * this module and of vector.h answer with NULL. */
+/* Whether any of an SQL function's arguments is NULL, for which the
+ * functions of this module and of vector.h return NULL. */
 static inline bool cosmic_any_null (int argc, sqlite3_value **argv) {
   for (int i = 0; i < argc; i++) {
     if (sqlite3_value_type(argv[i]) == SQLITE_NULL) {

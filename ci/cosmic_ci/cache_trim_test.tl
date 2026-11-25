@@ -52,7 +52,7 @@ local record Tried
   mut err: string
 end
 
---- [`CacheTrim.run`] of `request` while the driver answers `payload` (and
+--- [`CacheTrim.run`] of `request` while the driver prints `payload` (and
 --- exits `code`, and says it truncated its report), a raise caught.
 local function trying(request: CacheTrim.Request, env: {string:string}, payload: string,
                       code?: integer, truncated?: boolean): Tried

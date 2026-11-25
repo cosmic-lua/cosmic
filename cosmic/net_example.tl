@@ -30,13 +30,13 @@ function Example.listen()
   end
 end
 
---- A request and its answer: `shutdown("write")` tells the server the
+--- A request and its response: `shutdown("write")` tells the server the
 --- request is whole while the client still reads what comes back. This
 --- suits a request that ends at end of file. After a framed request (HTTP,
 --- a length prefix) do not half-close: a server may take the half-close as
---- the client closing and answer nothing. For HTTP over a unix socket use
---- [`Http.request`] with `via`. The server's end is closed when its block
---- ends, which the client's read of the answer waits for.
+--- the client closing and send nothing back. For HTTP over a unix socket
+--- use [`Http.request`] with `via`. The server's end is closed when its
+--- block ends, which the client's read of the response waits for.
 function Example.connect()
   local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))
   local client <close> = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
@@ -66,7 +66,7 @@ end
 
 --- UDP: [`Net.datagram`] binds a socket, and each `send` and `receive`
 --- is one whole datagram, to or from an address of its own. Nothing is
---- connected, so the receiver answers the address its packet came from.
+--- connected, so the receiver replies to the address its packet came from.
 function Example.datagram()
   local server <close> = assert(Net.datagram(Net.udp("127.0.0.1", 0)))
   local client <close> = assert(Net.datagram(Net.udp("127.0.0.1", 0)))
@@ -152,9 +152,9 @@ function Example.accept()
   end)
 end
 
---- A line-echo server on the loopback, each connection served in a
---- task of its own until [`Server.stop`]: here `on_ready`, called once
---- the server listens, is its client, and stops it once answered.
+--- A line-echo server on the loopback, each connection served in a task of
+--- its own until [`Server.stop`]: here `on_ready`, called once the server
+--- listens, is its client, and stops it once the server has replied.
 function Example.serve()
   assert(Net.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },

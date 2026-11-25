@@ -103,8 +103,8 @@ function Example.decode_refuses()
 end
 
 --- Bytes from a peer are held to bounds: how many fields a message may hold and how deep messages may nest.
---- Past either the answer is nil and why. A reader that walks whatever it is sent, as this one follows field 1
---- down, is stopped by the depth and not by its stack.
+--- Past either, decoding returns nil and why. A reader that walks whatever it is sent, as this one follows
+--- field 1 down, is stopped by the depth and not by its stack.
 function Example.bounds()
   print(Protobuf.default_fields, Protobuf.default_depth)
   local flood = ("\x08\x01"):rep(1000)

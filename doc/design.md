@@ -51,12 +51,12 @@ these argues with the principle, not with the reviewer.
    the errno where a system call failed, and a `kind` (`other`,
    `system`, `parse`, `library`, `timeout`, `cancelled`), so a caller
    acts on the cause and never matches the words. a call that asks
-   whether something is there answers that as a value ([`Fs.status`]'s
+   whether something is there returns that as a value ([`Fs.status`]'s
    `exists`, [`Store.holds`]), not as a failure. the stdlib moves to this
-   shape a module at a time; a module not yet moved answers `T?,
+   shape a module at a time; a module not yet moved returns `T?,
    string` and `boolean, string`, which the checks on callers hold as
    well. intended: one operation is one function, with no twin beside
-   it that raises or that answers a classified record
+   it that raises or that returns a classified record
    ([`Http.download_result`] goes once its module moves;
    [`Proc.find`]'s failure carries the errno a shell's 126 and 127
    tell apart). the raw binding table [`cosmic.sys`] is
@@ -1314,11 +1314,15 @@ the grammar is Teal's, made smaller and explicit.
   an integer enum is also the table of them, with `E.of(n): E?` and
   `E.name(v): string`. a module returns one of them, or a local
   declared with its type.
+- `e!`, written on a name, a call or an index, is `assert(e)`: the
+  value of a call that answers `T` or `nil, Failure`, or a raise with
+  the reason; on a value that may be nil, the value.
 - an optional type is `T?`, and an optional field `name?: T`.
   `T | nil` is refused.
 - a field is fixed unless declared `mut`. a collection parameter is a
   view unless declared `mut {T}`.
-- there are no casts (`as`), no `;`, and no `goto` but a continue.
+- there are no casts (`as`) and no `goto` but a continue. a `;` may
+  end a statement, as in Lua, and `cosmic fix` deletes it.
 - there is no `setmetatable`: a class's methods are written as
   methods, and the compiler writes its metatable. the one exception is
   the weak table `setmetatable({}, { __mode = "k" })`, the `mut` map
@@ -1414,7 +1418,8 @@ the rules the checker holds, each with its own codes, are these.
   over every string ends a function.
 - a record that is not a class is tested by `is` only where the
   run-time Lua can tell it apart. that is as the one table a value may
-  be, or by the tag of a tagged union, which `is` then reads.
+  be, by the tag of a tagged union, which `is` then reads, or by a
+  required field only that record of the union declares.
 - there is no implicit conversion. `integer` is not concatenated
   without `tostring`, and a number does not compare with a string.
 - the error-slot discipline of the third principle

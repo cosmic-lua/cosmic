@@ -220,7 +220,7 @@ static int cipher_x25519 (lua_State *L) {
   if (status == PSA_SUCCESS) {
     /* Defence in depth, which no input reaches: the library refuses a
      * point of low order before it computes. It stays so that the
-     * contract, that an all-zero secret is never answered, does not
+     * contract, that an all-zero secret is never returned, does not
      * depend on which of the library's paths computed the secret. Every
      * byte is read, with no branch on one. */
     volatile unsigned char any = 0;

@@ -219,7 +219,7 @@ local function test_a_missing_input_is_refused()
 end
 
 --- Runs `mode` for a checkout at `workspace`, asserting it succeeds, and
---- answers the lines it printed.
+--- returns the lines it printed.
 local function place(workspace: string, mode: string, leg?: string, declared?: string): {string}
   local given, out, err = host(environment(SHA, leg or "linux-x86_64", "push", declared, workspace))
   assert(PlaceTree.run(given, mode) == 0, table.concat(err, "\n"))

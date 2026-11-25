@@ -58,7 +58,7 @@ local function draw_message(src: Fuzz.Source, response: boolean): string
   return table.concat(lines, "\r\n") .. "\r\n\r\n" .. encoded
 end
 
---- One answer of any reader, alike enough to be read as one.
+--- One result of any reader, alike enough to be read as one.
 local record Answer
   status: Message.Status
   --- When `done`, the kind of message read.
@@ -105,7 +105,7 @@ local function response_answer(read: Message.ResponseRead): Answer
       got.body }, "\n"), body = got.body }
 end
 
---- What a reader of either kind answers, as the reader of its kind
+--- What a reader of either kind returns, as the reader of its kind
 --- would.
 local function either_answer(read: Message.Read): Answer
   local request, response = read.request, read.response
@@ -165,7 +165,7 @@ end
 --- What reading every message of `data`, fed in pieces of `sizes` and
 --- then the rest whole, gives, as text: each message, the bytes it took,
 --- and how reading ended. Raises where reading is not total and bounded:
---- an answer that does not say what its status asks, a body past its
+--- a result that does not say what its status asks, a body past its
 --- limit, or bytes a message neither took nor left.
 local function transcript(data: string, sizes: {integer}, kind: string, protocol: string): string
   local out: mut {string} = {}

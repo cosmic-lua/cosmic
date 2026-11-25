@@ -40,7 +40,7 @@ test_child.register("shadowing", function(argv: {string}): integer
   local db = assert(Sqlite.open((argv[1] or ""), { writable = true }))
   assert(db:exec("CREATE TABLE modules (path TEXT, bytecode BLOB, " ..
       "kind TEXT, source TEXT, file TEXT); CREATE TABLE meta (key TEXT, value TEXT)"))
-  -- An impostor answers its first argument, which the real loader never does.
+  -- An impostor returns its first argument, which the real loader never does.
   local impostor = string.dump(function(...: any): any return ... end)
   local names: mut {string} = { ordinary }
   for _, name in ipairs(wrappers) do table.insert(names, name) end

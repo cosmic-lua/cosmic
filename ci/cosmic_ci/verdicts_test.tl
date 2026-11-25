@@ -2,7 +2,7 @@ local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Verdicts = require("cosmic_ci.verdicts")
 
---- [`Verdicts.command`], its answer as three values.
+--- [`Verdicts.command`], what it returns as three values.
 local function verdicts_command(argv: {string}, env: {string:string}): integer, string, string
   local command = Verdicts.command(argv, env)
   return command.code, command.out, command.err

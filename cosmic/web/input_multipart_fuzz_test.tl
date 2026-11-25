@@ -1,5 +1,5 @@
 --- Fuzz property for the web layer's multipart read, which writes what a
---- client sends to disk: whatever the body and the caps, the read answers a
+--- client sends to disk: whatever the body and the caps, the read returns a
 --- value within the caps or a refusal with one of the statuses of the
 --- package, never raises, and leaves no file in the upload directory once
 --- the request is over.

@@ -826,7 +826,7 @@ local function test_entries_of_a_reader_closed_first_fail_as_next_does()
   assert(again == nil and again_trouble == trouble, "a failed listing is not kept")
 end
 
---- A failing Writer's own words are what the writer answers, as they
+--- A failing Writer's own words are returned by the writer as they
 --- are; a failing body Reader's are told what the writer was doing.
 local function test_a_failing_underlying_writer_is_answered_as_it_said_it()
   local function closed(_self: Stream.Writer): (true) | (false, Failure) return true end
@@ -907,7 +907,7 @@ local function zstd_zip_by_hand(payload: string, crc: integer, usize: integer): 
     le32(#body) .. le16(0)
 end
 
---- What reading entry "f" of `raw` to its end answers.
+--- What reading entry "f" of `raw` to its end returns.
 local function read_f(raw: string): string?, string
   local r = assert(Zip.open_string(raw))
   local body = assert(by_path(entries_of(r), "f"):open())

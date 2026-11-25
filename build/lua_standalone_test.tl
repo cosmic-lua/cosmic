@@ -31,7 +31,7 @@ local function skip_unless_sandboxed()
       "its children run")
 end
 
---- Runs `words` after this program, past its launcher, and answers
+--- Runs `words` after this program, past its launcher, and returns
 --- whether it exited 0, and what it wrote to stdout and stderr.
 local function run(words: {string}): boolean, string, string
   local ran = TestSandboxFixture.run_words(words)

@@ -1,8 +1,7 @@
 --- Fuzz properties for [`cosmic.protobuf`], whose decoder takes the bytes anyone sends: it never raises, it
---- answers a message or a reason and never both, every read of what it accepts answers or says why, and what it
---- accepts is written back and read again as the same fields; [`Protobuf.describe`] is as total, and answers where
---- decode does. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
---- (build/fuzz/init.tl).
+--- returns a message or a reason and never both, every read of what it accepts returns a value or says why, and
+--- what it accepts is written back and read again as the same fields; [`Protobuf.describe`] is as total, and
+--- succeeds where decode does. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
 local Fuzz = require("build.fuzz")
 local Protobuf = require("cosmic.protobuf")
@@ -101,7 +100,7 @@ local function shape_trouble(what: string, absent: boolean, why: string): string
   return ""
 end
 
---- Every read of every number `message` holds, and of the messages inside it. "" where each answers as its
+--- Every read of every number `message` holds, and of the messages inside it. "" where each returns what its
 --- doc says, or what did not. `budget` bounds the messages visited, which a hostile input could otherwise
 --- multiply: each length-delimited field is read as a message once merged and once by itself.
 local record Walk
@@ -129,7 +128,7 @@ local function read_all(message: Protobuf.Message, walk: Walk): string
     if not message:has(number) then return ("field %d is listed and is not had"):format(number) end
     local varint, four, eight, len = last[number * 8 + Protobuf.VARINT], last[number * 8 + Protobuf.FIXED32],
       last[number * 8 + Protobuf.FIXED64], last[number * 8 + Protobuf.LEN]
-    -- A read of one value answers the last field of its wire type, and nil where there is none.
+    -- A read of one value returns the last field of its wire type, and nil where there is none.
     if message:int(number) ~= (if varint ~= nil then varint.value else nil end) then
       return ("int(%d) is not the last varint"):format(number)
     end

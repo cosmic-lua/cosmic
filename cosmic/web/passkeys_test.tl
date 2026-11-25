@@ -154,7 +154,7 @@ local function post(client: Web.TestClient, path: string, body?: {string: Json.V
   return client:post("/auth/passkey" .. path, { json = if body == nil then NONE else body end, headers = headers })
 end
 
---- The challenge of a begin's answer.
+--- The challenge of a begin's response.
 local function challenge_of(res: Web.TestResponse): string
   assert(res.status == 200, res.body)
   local options = assert(Json.to_object((res:json())))
@@ -251,7 +251,7 @@ local function test_a_challenge_is_used_once()
 end
 
 --- A signed cookie cannot forget a challenge: a copy of the cookie from
---- before the login, with the answer captured, is refused all the same.
+--- before the login, with the response kept, is refused all the same.
 local function test_a_copied_cookie_does_not_replay_a_login()
   local rig = rig_of()
   local key = key_new()
@@ -382,7 +382,7 @@ local function test_a_login_unverified_says_so()
   assert(client:get("/"):text() == "handle-ada")
 end
 
---- A request the router turned away is not answered here.
+--- A request the router turned away is not handled here.
 local function test_a_bad_host_is_not_answered()
   local rig = rig_of({ trusted_hosts = { "example.com" } })
   local client = browser(rig.app)
@@ -413,8 +413,8 @@ local record Ticking
   mut slow: string
 end
 
---- An answer replayed, with a copy of the cookie from before the login,
---- at the last second its challenge could be answered: the store still
+--- A response replayed, with a copy of the cookie from before the login,
+--- at the last second its challenge was good for: the store still
 --- holds the challenge as spent, even where the checks take a second,
 --- and one that lapses while the store is asked is refused, as another
 --- request's spend may have forgotten it.
@@ -605,7 +605,7 @@ local function test_the_endpoints_take_json_posts_from_the_origin_alone()
   assert(got.status == 405 and got.headers["allow"] == "POST", got.body)
   local junk = client:post("/auth/passkey/login/finish", { body = "[1]", content_type = "application/json" })
   assert(junk.status == 400, junk.body)
-  -- A path past the prefix it does not answer goes on to the app.
+  -- A path past the prefix it does not handle goes on to the app.
   assert(client:get("/auth/passkey/other").status == 404)
 end
 

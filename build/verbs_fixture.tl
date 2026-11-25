@@ -18,7 +18,7 @@ end
 
 --- A tree under `tmp` with a passing test, a failing one and a file
 --- `fix` would change; beside it a module that does not type-check, and
---- an empty directory. Answers the tree.
+--- an empty directory. Returns the tree.
 function verbs_fixture.write_tree(tmp: string): string
   local tree = tmp .. "/tree"
   assert(Fs.mkdirs(tree .. "/good"))

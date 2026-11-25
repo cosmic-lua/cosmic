@@ -84,7 +84,7 @@ local sys = require("cosmic.sys")
 local type Server = require("cosmic.http.server")
 
 local record Acme
-  --- The kinds of challenge [`Acme.Client.issue`] can answer.
+  --- The kinds of challenge [`Acme.Client.issue`] can complete.
   enum ChallengeType
     "http-01"
     "dns-01"
@@ -168,7 +168,7 @@ local record Acme
   record IssueOptions
     --- The certificate's key: its public key goes in the request.
     key: Key.Secret
-    --- The challenge type to answer, "http-01" when nil.
+    --- The challenge type to complete, "http-01" when nil.
     challenge?: ChallengeType
     --- Publishes a challenge's response before the server checks it:
     --- true, or false and why, which stops the issue. The server checks
@@ -176,7 +176,7 @@ local record Acme
     --- reachable: a dns-01 record has spread to the zone's servers.
     present: function(challenge: Challenge): boolean, string
     --- Withdraws what `present` published, once the authorization is
-    --- settled either way. Its answer is not checked.
+    --- settled either way. Whether it worked is not checked.
     cleanup?: function(challenge: Challenge)
   end
 
@@ -220,9 +220,9 @@ local record Acme
   --- What [`Acme.AutoOptions.dns`] takes: dns-01 in place of http-01.
   record DnsHooks
     --- Puts the TXT record `challenge.dns_name` with the value
-    --- `challenge.dns_value` in the zone, and returns only once the
-    --- zone's servers answer it: true, or false and why, which stops
-    --- the issue.
+    --- `challenge.dns_value` in the zone. Returns true only once the
+    --- zone's servers respond with it, or false and why, which stops the
+    --- issue.
     present: function(challenge: Challenge): boolean, string
     --- Removes it, once the authorization is settled either way.
     cleanup?: function(challenge: Challenge)
@@ -250,7 +250,7 @@ local record Acme
     --- [`Key.read`] or [`Key.generate`] made. A new P-256 key for each
     --- certificate when nil.
     key?: Key.Secret
-    --- Answers dns-01 through these hooks in place of http-01.
+    --- Hooks that complete dns-01 in place of http-01.
     dns?: DnsHooks
     --- As [`Acme.ClientOptions.request`].
     request?: Request
@@ -272,7 +272,7 @@ local record Acme
     --- The response an http-01 check of this server asks for at
     --- `path`, while one is pending; nil otherwise.
     answer: function(self: Auto, path: string): string?
-    --- A handler for a server's `handle` that answers the http-01 checks
+    --- A handler for a server's `handle` that handles the http-01 checks
     --- of the requests that came in the clear and redirects their
     --- others to HTTPS (308), handing every request over TLS to `after`
     --- (404 when nil).
@@ -295,8 +295,8 @@ local record Acme
     --- `terms` for the terms of service when the server has one.
     directory: function(self: Client): {string: string}?, string
     --- The account's URL, created (or, with `only_existing`, found)
-    --- under the client's key, and kept for every later request. A key
-    --- with an account already answers that account.
+    --- under the client's key, and kept for every later request. For a
+    --- key with an account already, it returns that account.
     account: function(self: Client, opts?: AccountOptions): string?, string
     --- A new order for the DNS names `names`.
     order: function(self: Client, names: {string}): Order?, string
@@ -307,16 +307,16 @@ local record Acme
     --- Tells the server to check the challenge: true, or false and why.
     respond: function(self: Client, challenge: Challenge): boolean, string
     --- Polls the order or authorization at `url` until its status is
-    --- not "pending" or "processing", and answers that status. Nil and
+    --- not "pending" or "processing", and returns that status. Nil and
     --- why when the time runs out.
     wait: function(self: Client, url: string, opts?: WaitOptions): string?, string
     --- Sends the DER certificate signing request `csr` to the order's
-    --- `finalize` URL, and answers the order as it stands after.
+    --- `finalize` URL, and returns the order as it stands after.
     finalize: function(self: Client, order: Order, csr: string): Order?, string
     --- The certificate chain at `url`, as PEM.
     certificate: function(self: Client, url: string): string?, string
     --- A certificate for the DNS names `names` under `opts.key`: the
-    --- whole flow, as the module's doc says. Answers the chain as PEM,
+    --- whole flow, as the module's doc says. Returns the chain as PEM,
     --- once its leaf is found to certify `opts.key` for exactly `names`.
     issue: function(self: Client, names: {string}, opts: IssueOptions): string?, string
   end
@@ -1105,7 +1105,7 @@ end
 
 --- A certificate for `opts.names` from an ACME CA, kept in `opts.dir`
 --- and renewed, for a server: its `certs` is the server's `tls`, and
---- its `handler` answers the CA's http-01 check on the server's
+--- its `handler` handles the CA's http-01 check on the server's
 --- `clear` listener, which is port 80 for a public CA.
 ---
 ---     local auto = Acme.auto({ names = { "example.com" }, dir = "/var/lib/app/acme",

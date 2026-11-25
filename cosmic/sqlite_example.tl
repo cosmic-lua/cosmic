@@ -44,7 +44,7 @@ function Example.typed_row()
 end
 
 --- A row is read a column at a time, by the type the caller expects. A
---- column of another type raises, so a query that does not answer what
+--- column of another type raises, so a query that does not yield what
 --- the reader assumed fails where it is read; ask `is_null` or `kind`
 --- first where a column may hold something else.
 function Example.read_a_row()
@@ -60,8 +60,8 @@ function Example.read_a_row()
   assert(db:close())
 end
 
---- A record per row: `map` runs a projection over each row and gives the
---- list of what it answered, or nil and why the query failed.
+--- A record per row: `map` runs a projection over each row and returns
+--- the projection's results as a list, or nil and why the query failed.
 function Example.map()
   local db = assert(Sqlite.memory())
   assert(db:exec("CREATE TABLE t (name TEXT, n INTEGER); INSERT INTO t VALUES ('a', 1), ('b', 2)"))
@@ -118,9 +118,9 @@ function Example.query()
   assert(db:close())
 end
 
---- Two inserts that stand or fall together. When the work answers `false`
---- nothing is kept, and `transact` answers why; when it raises, the
---- rollback happens first and the same error is raised again.
+--- Two inserts that stand or fall together. When the work returns `false`
+--- nothing is kept and `transact` returns false and why; when it raises,
+--- the rollback happens first and the same error is raised again.
 function Example.transact()
   local db = assert(Sqlite.memory())
   assert(db:exec("CREATE TABLE t (n INTEGER)"))
@@ -167,7 +167,7 @@ end
 
 --- Vector search in SQL: store each chunk's embedding as a blob of
 --- floats, normalized once, then rank by distance under any filter. A
---- real program stores what an embedding API answers; these three
+--- real program stores what an embedding API responds with; these three
 --- dimensions stand in for its hundreds.
 function Example.vector_search()
   local db = assert(Sqlite.memory())
