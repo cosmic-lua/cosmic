@@ -264,7 +264,7 @@ end
 --- earlier format's table of either kind, in one transaction. A file
 --- that has them all is only read.
 local function prepare(db: Sqlite.Handle): boolean, string
-  local rows, trouble = db:text_rows(
+  local rows, trouble = db:rows(
     "SELECT name FROM sqlite_schema WHERE type = 'table' AND " ..
       "(name GLOB 'compiled_v*' OR name GLOB 'parsed_v*')")
   if rows == nil then return false, tostring(trouble) end
@@ -405,7 +405,7 @@ end
 --- the most lately used first.
 function shared_compiles.analyzers(cache: shared_compiles.Cache,
                                    hashes: {string}): {string}?, string
-  local rows, trouble = cache.db:text_rows(
+  local rows, trouble = cache.db:rows(
     "SELECT analyzer FROM " .. parsed .. " WHERE source_hash IN " ..
       "(SELECT value FROM json_each(?1)) GROUP BY analyzer " ..
       "HAVING count(DISTINCT source_hash) = ?2 ORDER BY max(used_ns) DESC, analyzer",
@@ -423,7 +423,7 @@ end
 --- source's requires are the same whether its lines are mapped or not.
 function shared_compiles.requires(cache: shared_compiles.Cache, analyzer: string,
                                   hashes: {string}): {string:{string}}?, string
-  local rows, trouble = cache.db:text_rows(
+  local rows, trouble = cache.db:rows(
     "SELECT source_hash, requires FROM " .. parsed .. " WHERE analyzer = ?1 " ..
       "AND source_hash IN (SELECT value FROM json_each(?2))",
     { text(analyzer), text(json_list(hashes)) })
@@ -478,7 +478,7 @@ local function evict(db: Sqlite.Handle, now_ns: integer, bound_bytes: integer): 
       { { integer = now_ns - kept_ns } })
     if not aged then return false, tostring(age_trouble) end
   end
-  local over, trouble = db:text_rows(
+  local over, trouble = db:rows(
     "SELECT tab, id FROM (SELECT tab, id, SUM(size) OVER (ORDER BY used_ns DESC, tab, id) " ..
       "AS total FROM (SELECT 'c' AS tab, rowid AS id, size, used_ns FROM " .. compiled ..
       " UNION ALL SELECT 'p', rowid, size, used_ns FROM " .. parsed .. ")) WHERE total > ?1",
@@ -488,7 +488,7 @@ local function evict(db: Sqlite.Handle, now_ns: integer, bound_bytes: integer): 
   local parsed_ids: mut {string} = {}
   for _, row in ipairs(over) do
     local tab = row:text(1)
-    local second = row:text(2)
+    local second = tostring(row:integer(2))
     if tab == "c" then
       compiled_ids[#compiled_ids + 1] = second
     elseif tab == "p" then
