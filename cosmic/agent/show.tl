@@ -4,8 +4,9 @@
 --- as the verb does, or wraps one to show more.
 ---
 --- [`Show.text`] is the verb's at a terminal: the turn's answer to one
---- writer, and each tool call, each that failed, and what the model says
---- on the way, to another.
+--- writer, and each tool call, the first lines of what run and bash
+--- answered, each call that failed, and what the model says on the way,
+--- to another.
 --- [`Show.json`] is its `--json` and its rpc: a line of JSON an event.
 ---
 ---     local agent = Agent.new({ sign = sign, cwd = cwd })
@@ -23,7 +24,7 @@ local Tools = require("cosmic.agent.tools")
 local record Show
   --- Lays out a run call's code for showing, or answers nil to show it as the model wrote it. `cosmic agent` gives
   --- the layout `cosmic fix` writes.
-  type Layout = function(code: string): string?
+  type Arrange = function(code: string): string?
 end
 
 --- `text` cut to one line of at most 80 bytes.
@@ -60,27 +61,36 @@ local function lines_of(text: string): {string}
   return out
 end
 
---- `line` cut to 120 bytes.
+--- `line` cut to 120 bytes, its control bytes but tab taken out first: what a file or a program says must not move
+--- the terminal's cursor or send it escape sequences.
 local function cut(line: string): string
-  if #line > 120 then return String.cut(line, 117) .. "..." end
-  return line
+  local plain = line:gsub("[%z\1-\8\11-\31\127]", "")
+  if #plain > 120 then return String.cut(plain, 117) .. "..." end
+  return plain
 end
 
 -- At most this many lines show of what a call answered.
 local MOST_ANSWER_LINES <const> = 6
 
 --- `lines` in a Markdown code fence of `info`, each behind `lead`, cut to `most` lines and each line to 120 bytes,
---- to `err`.
+--- to `err`. The fence is a backtick longer than the longest run of backticks in the lines it shows, so no line
+--- closes it.
 local function fenced(err: function(line: string), info: string, lines: {string}, lead: string, most: integer)
-  err("```" .. info)
+  local shown: mut {string} = {}
+  local ticks = 3
   for i, line in ipairs(lines) do
-    if i > most then
-      err("... " .. String.counted(#lines - most, "more line"))
-      break
+    if i > most then break end
+    local one = lead .. cut(line)
+    shown[#shown + 1] = one
+    for run in one:gmatch("`+") do
+      if #run >= ticks then ticks = #run + 1 end
     end
-    err(lead .. cut(line))
   end
-  err("```")
+  local fence = string.rep("`", ticks)
+  err(fence .. info)
+  for _, line in ipairs(shown) do err(line) end
+  if #lines > most then err("... " .. String.counted(#lines - most, "more line")) end
+  err(fence)
 end
 
 --- What an edit changes, as diff lines: the lines of `old` and `new`
@@ -122,7 +132,7 @@ end
 --- statement for sql, else the name and [`Show.input`].
 ---
 ---     for _, l in ipairs(Show.call("read", { path = "a.tl", offset = 3 })) do print(l) end -- read a.tl, from line 3
-function Show.call(name: string, input: Tools.Object, layout?: Show.Layout): {string}
+function Show.call(name: string, input: Tools.Object, layout?: Show.Arrange): {string}
   local out: mut {string} = {}
   local function put(line: string) out[#out + 1] = line end
   local path = input["path"]
@@ -167,7 +177,7 @@ end
 --- it what the call answered: the first lines of what run or bash said,
 --- in a code fence named output, and of what any call that failed said,
 --- in one named error. The other events show nothing.
-function Show.text(out: function(line: string), err: function(line: string), layout?: Show.Layout):
+function Show.text(out: function(line: string), err: function(line: string), layout?: Show.Arrange):
     function(event: Agent.Event)
   return function(e: Agent.Event)
     if e.kind == "text" then

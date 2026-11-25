@@ -73,9 +73,12 @@ One thing I noticed: the README's Configuration link points to `docs/config.md`,
 The tool calls go to standard error, as Markdown: each call's code in a
 fence named for the tool, laid out as `cosmic fix` lays out a file, and
 the first lines of what it printed in a fence named `output` (`error`
-for a call that failed). `run` is the agent's main tool. Each call is a
-short program in the cosmic environment. The agent checks it, then runs
-it in the sandbox. [`Host.find`], [`Host.cat`],
+for a call that failed). A line and column in an error count in the
+code as the model wrote it, not as shown. What a call printed shows at
+the terminal and in any log of standard error, so a secret a call reads
+shows there too; `--json` shows none of it. `run` is the agent's main
+tool. Each call is a short program in the cosmic environment. The agent
+checks it, then runs it in the sandbox. [`Host.find`], [`Host.cat`],
 [`Host.grep`] and the like work much as the commands they are named
 for, but give values in place of text. The answer goes to standard
 output, so `cosmic agent ask '...' > answer.md` keeps only the answer.
@@ -137,11 +140,11 @@ I fixed two broken links:
 There's a third broken link I left alone. `docs/faq.md` links to `usage.md#undo`, but `docs/usage.md` has no Undo section and doesn't mention `--undo` at all. To fix it, I could either add an "Undo" section to `usage.md` (which needs to say how `--undo` behaves, and I don't know that) or remove the `#undo` part of the link. Which do you want?
 ````
 
-Each edit shows as diff lines, in a fence named `diff`. `@@` starts each
-replacement, `-` marks what it takes out, and `+` what it puts in. A line that starts with a
-space is unchanged context. Read the answer as a colleague's report: ask again to check
-the work (`now check every link`), or look with your own tools
-(`git diff`).
+Each edit shows as diff lines, in a fence named `diff`. `@@` starts
+each replacement, `-` marks what it takes out, and `+` what it puts in.
+A line that starts with a space is unchanged context. Read the answer
+as a colleague's report: ask again to check the work (`now check every
+link`), or look with your own tools (`git diff`).
 
 Each session is kept in `sessions.db`, in `$XDG_DATA_HOME/cosmic/agent`
 (by default `~/.local/share/cosmic/agent`). After the change, the list

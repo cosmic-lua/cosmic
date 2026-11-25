@@ -94,6 +94,17 @@ local function test_call_shows_code_commands_and_edits()
   assert(table.concat(outs, "|") == "```output|1|2|3|4|5|6|... 3 more lines|```", table.concat(outs, "|"))
 end
 
+local function test_a_fence_outlasts_the_backticks_it_holds()
+  local _, errs = shown({ { kind = "result", name = "bash", result = { text = "```\nhi\n````", is_error = false } } })
+  local joined = table.concat(errs, "|")
+  assert(joined == "`````output|```|hi|````|`````", joined)
+  -- What a program says reaches the terminal with no control bytes but tab.
+  local _, plain = shown({ { kind = "result", name = "run",
+    result = { text = "\27[31mred\27[0m\r\nover\27]52;c;aGk=\7\tend", is_error = false } } })
+  joined = table.concat(plain, "|")
+  assert(joined == "```output|[31mred[0m|over]52;c;aGk=\tend|```", joined)
+end
+
 local function test_diff_keeps_one_line_of_context()
   local d = table.concat(Show.diff("1\n2\n3\n4\n5", "1\n2\nthree\n4\n5"), "|")
   assert(d == " 2|-3|+three| 4", d)
