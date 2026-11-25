@@ -329,7 +329,9 @@ local function test_the_middleware_asks_a_daemon_in_the_requests_own_run(tmp: st
         timeout_ns = Clock.seconds(5) }))
       local seen = new_seen()
       local client = Web.test_client(app_of(seen, {
-        whois = function(address: string): (Tailscale.WhoIs | false) | (nil, Failure) return ts:whois(address) end,
+        whois = function(address: string): (Tailscale.WhoIs | false) | (nil, Failure)
+          return ts:whois(address)
+        end,
       }))
       local peer = Net.tcp("100.64.0.2", 50123)
       local home = client:get("/", { peer = peer }).body

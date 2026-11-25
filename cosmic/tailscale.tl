@@ -8,7 +8,7 @@
 ---     local Tailscale = require("cosmic.tailscale")
 ---     local ts = assert(Tailscale.connect())
 ---     local who, why = ts:whois("100.101.102.103")
----     if who == nil then error(why) end
+---     if who == nil then error(tostring(why)) end
 ---     if who ~= false then print(who.user.login_name, who.node.name, who.tagged) end
 ---     local status = assert(ts:status())
 ---     print(status.self.dns_name, #status.peers)
@@ -1281,7 +1281,7 @@ local class Client
   --- own permissions there:
   ---
   ---     local who, why = ts:whois(peer)
-  ---     if who == nil then error(why) end
+  ---     if who == nil then error(tostring(why)) end
   ---     if who == false or who.caps["example.com/cap/admin"] == nil then return forbidden() end
   ---
   --- It is false where the daemon knows no node at the address, as for
