@@ -11,29 +11,24 @@ local Sessions = require("cosmic.agent.sessions")
 local Test = require("cosmic.test")
 local Tools = require("cosmic.agent.tools")
 local Worker = require("cosmic.agent.worker")
-local agent_worker = require("build.agent_worker")
-local test_child = require("build.test_child")
 local _ = require("build.standalone")
+--- What `cosmic agent worker` loads, which the store of this module's run must hold: the tests start that verb of
+--- this program.
+local _ = require("build.agent")
+local _ = require("build.agent_worker")
+local _ = require("build.verb_list")
+local _ = require("cosmic.cli.agent")
 --- What the MCP server script requires, as its standalone run loads it.
 local type _ = require("cosmic.mcp.server")
 local this_program = require("build.this_program")
 
-Test.policy{ profiles = { "cosmic" }, grants = { { path = "/bin/sh", letters = "r" }, { path = "/bin/sleep", letters = "r" }, { path = "/usr/bin/sleep", letters = "r" }, { path = "/usr/bin/setsid", letters = "r" } },
-  -- Most tests start a worker, whose first snippet loads the checker: 1.6 s alone here, 3.5 s beside four others,
-  -- and past 10 s on a loaded macOS runner (test_a_snippet_keeps_a_value_for_a_later_one, 2026-11-24). A test that
-  -- hangs still ends at the bound.
-  timeout = 30 }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "/bin/sh", letters = "r" }, { path = "/bin/sleep", letters = "r" }, { path = "/usr/bin/sleep", letters = "r" }, { path = "/usr/bin/setsid", letters = "r" } } }
 
---- The worker, as `cosmic agent worker` runs it, in a child of this module.
-test_child.register("worker", function(_args: {string}): integer
-  return agent_worker.main()
-end)
-
---- A set whose worker is this program, as a test starts it.
+--- A set whose worker is `cosmic agent worker` of this program, as the agent starts it. Its first snippet answers in
+--- about 60 ms; a child of this module ([`build.test_child`]) took 1.3 s, checking its `-e` chunk and loading the
+--- module, and past 30 s on a loaded macOS runner.
 local function set_of_worker(): Worker.Set
-  local dir = assert(Fs.mkdtemp("agent-worker-store-"))
-  local started = this_program.program(test_child.words(dir, "build.agent_worker_tool_test", "worker"),
-    { env = this_program.environment(), timeout_ns = -1 })
+  local started = this_program.program({ "agent", "worker" }, { env = this_program.environment(), timeout_ns = -1 })
   return Worker.new(started.argv, started.options)
 end
 
