@@ -189,14 +189,14 @@ end
 --- A new id.
 local function new_id(): string?, string
   local bytes, why = Rand.entropy(ID_BYTES)
-  if bytes == nil then return nil, "no entropy for a session id: " .. why end
+  if bytes == nil then return nil, "no entropy for a session id: " .. tostring(why) end
   return Codec.base64url(bytes), ""
 end
 
 --- A new public id.
 local function new_public_id(): string?, string
   local bytes, why = Rand.entropy(PUBLIC_BYTES)
-  if bytes == nil then return nil, "no entropy for a session's public id: " .. why end
+  if bytes == nil then return nil, "no entropy for a session's public id: " .. tostring(why) end
   return Codec.base64url(bytes), ""
 end
 
