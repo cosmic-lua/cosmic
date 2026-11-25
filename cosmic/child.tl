@@ -466,7 +466,7 @@ local record Options
   --- and the exec filter where no grant is left with `x`), so a child
   --- whose policy has no `x` runs no program, its own core included, and
   --- one that starts this program again grants its file by name. Under
-  --- `isolate` file and `nest` the core does not.
+  --- `nest` the core does not.
   ---
   --- With a `database` (see [`Sandbox.Policy`]) the program is this
   --- program's core run on that file (`core --database <path>`) whatever
@@ -582,6 +582,23 @@ local record Options
   --- the platform has neither Landlock and seccomp nor Seatbelt the start
   --- fails. Nothing is printed about grants.
   policy?: Rules.Policy
+  --- More policies the child is held to, as layers stacked on `policy`:
+  --- the start holds it to their intersection with `policy`
+  --- ([`Sandbox.intersect`]), what every one of them grants, so its checks
+  --- and errors see the policy the child really has. With no `policy`,
+  --- the layers alone. Given layers, each grant of a path without `from`,
+  --- of `policy` and of each layer, is first named by its real path, from
+  --- `cwd` where it is relative, as the kernel meets it: a link in one
+  --- meets the file it names in another, and a grant whose name does not
+  --- resolve is refused ([`Sandbox.real`]). An empty list is refused, as
+  --- it would hold the child to nothing; so is a list whose layers name
+  --- different setup (`set_env`, `user`, `group`, `database`).
+  ---
+  ---     local base = { grants = { { path = "/srv", letters = "rwc" }, { calls = "fork" } } }
+  ---     local tool = { grants = { { path = "/srv/data", letters = "r" } } }
+  ---     -- The child reads /srv/data and nothing else, and does not fork.
+  ---     Child.run({ "/bin/true" }, { timeout_ns = Child.FOREVER, policy = base, layers = { tool } })
+  layers?: {Rules.Policy}
   --- The IDs and privilege limits for this launch. Excludes `policy` and
   --- sandbox unveil, offline, user and group. Child setup errors precede exec;
   --- a parent dumpability restoration error can follow exec and ends
@@ -2084,8 +2101,11 @@ local function validate(argv: {string}, opts: Options)
   if logged is integer and (logged < 0 or logged > INT_MAX) then
     error("child: relay_log must be \"null\", \"inherit\" or a descriptor", 3)
   end
-  local policy = opts.policy
-  if policy ~= nil then
+  local layers = opts.layers
+  if layers ~= nil and #layers == 0 then
+    error("child: layers is empty, which holds the child to nothing: give a layer, or leave layers out", 3)
+  end
+  if opts.policy ~= nil or layers ~= nil then
     if opts.env ~= nil then
       error("child: policy and env exclude each other: the policy's env and set_env are the " ..
           "child's whole environment", 3)
@@ -2333,8 +2353,9 @@ local record Held
   --- /tmp is a tmpfs of the sandbox's own.
   wants_tmp: boolean
   --- The grants the core of a cosmic child holds itself to at boot, the
-  --- policy's without the start's `rx` on that core ([`layer_text`]); nil
-  --- for a host program, and under `isolate` file or `nest`.
+  --- policy's without the start's `rx` on that core ([`layer_text`]), by
+  --- the names the root binds them at under `isolate` file; nil for a host
+  --- program, and under `nest`.
   layer?: mut {raw_process.Grant}
   --- Whether it promises `nest`, which no descriptor to a directory or to a
   --- file open for less than both may be handed to ([`nest_descriptors`]).
@@ -2485,6 +2506,30 @@ end
 --- Whether `letters` holds `letter`.
 local function lettered(letters: string, letter: string): boolean
   return letters:find(letter, 1, true) ~= nil
+end
+
+--- Whether `copy`, the core a child starts by, is a copy of this
+--- process's own core ([`shared_core`]) that one of `grants` other than
+--- `core_grant` gives `x` on by the file it copies; their names are from
+--- `base` where it is given.
+local function copies_granted_core(copy: string, grants: {Rules.Path}, core_grant: Rules.Path?, base?: string): boolean
+  local started, _ = Proc.relaunch()
+  if started == nil then return false end
+  local own = started.argv[1]
+  if own == nil or own == copy then return false end
+  local own_real, _ = sys.realpath(own)
+  if own_real == nil then return false end
+  for _, grant in ipairs(grants) do
+    if grant ~= core_grant and lettered(grant.letters, "x") then
+      local at = grant.from or grant.path
+      if base ~= nil and at:sub(1, 1) ~= "/" then at = base .. "/" .. at end
+      local real, _ = sys.realpath(at)
+      if real ~= nil and (real == own_real or own_real:sub(1, #real + 1) == real .. "/") then
+        return true
+      end
+    end
+  end
+  return false
 end
 
 --- Whether the start may grant `file`, a file a host program needs to
@@ -3338,10 +3383,13 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
   local grants: mut {raw_process.Grant} = {}
   -- A cosmic child's core holds itself at boot to the grants without its
   -- own `rx`, so a policy with no `x` runs no program, the core included.
-  -- Under `isolate` file a grant's name in the root is not its host path,
-  -- and under `nest` no ruleset holds the child.
-  -- TODO: a layer at boot under `isolate` file too, by the names the root
-  -- binds each grant at.
+  -- Under `isolate` file the layer names each grant where the root binds
+  -- it: a grant with `from` at its `path`, from the directory the program
+  -- starts in, and one without at the real path of that name, where the
+  -- root places it (a link at the name may be missing). It holds
+  -- what the root makes of its own beside them: its /proc to read and the
+  -- /tmp of `tmp`, as the first ruleset does (core/sandbox_root.c's
+  -- `own_rules`). Under `nest` no ruleset holds the child.
   -- A policy that runs this program again from the child grants its file by name: that grant is the child's.
   local layer: mut {raw_process.Grant} = {}
   local unix = false
@@ -3349,13 +3397,40 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
     local at = grant.from or grant.path
     if base ~= nil and at:sub(1, 1) ~= "/" then at = base .. "/" .. at end -- checked: compare_disjoint
     grants[#grants + 1] = { path = at, access = grant.letters }
-    -- The child reads each path from where it starts, so it is handed
-    -- the real one, not one relative to this process's directory.
-    local real, _ = sys.realpath(at)
     if grant ~= core_grant then
-      layer[#layer + 1] = { path = real or at, access = grant.letters }
+      if file then
+        local name = named(grant.path, base)
+        local placed: string = name
+        if grant.from == nil then
+          local real, _ = sys.realpath(name)
+          placed = real or name
+        end
+        layer[#layer + 1] = { path = placed, access = grant.letters }
+      else
+        -- The child reads each path from where it starts, so it is handed
+        -- the real one, not one relative to this process's directory.
+        local real, _ = sys.realpath(at)
+        layer[#layer + 1] = { path = real or at, access = grant.letters }
+      end
     end
     if lettered(grant.letters, "u") then unix = true end
+  end
+  -- A root caller's child runs a copy of the core ([`shared_core`]), and
+  -- runs that copy again where it runs this program: a grant of `x` on
+  -- this process's own core is a grant of the copy the child runs.
+  if relaunch ~= nil then
+    local copy = assert(relaunch.argv[1], "a relaunch leads with its core")
+    if copies_granted_core(copy, Rules.paths(merged), core_grant, base) then
+      layer[#layer + 1] = { path = copy, access = "rx" }
+    end
+  end
+  if root ~= nil then
+    for _, read in ipairs(root.reads) do
+      if read == "/proc" then layer[#layer + 1] = { path = "/proc", access = "r" } end
+    end
+    if root.tmp ~= nil then
+      layer[#layer + 1] = { path = "/tmp", access = if root.tmp_exec == true then "rwxc" else "rwc" end }
+    end
   end
   local env: mut {string:string} = {}
   for _, name in ipairs(merged.env or {}) do
@@ -3436,7 +3511,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
     if not holds then return nil, "sandbox: " .. held_why end
   end
   return { path = path, env = env, tmp = "", wants_tmp = merged.tmp == true and not file, -- checked: nil_not_allowed
-    layer = if relaunch ~= nil and not file and not nest then layer else nil end,
+    layer = if relaunch ~= nil and not nest then layer else nil end,
     sandbox = sandbox, cwd = if file then base else nil end, user = user, drop = drop, nests = nest,
     argv = run_argv, fds = if relaunch ~= nil then relaunch.fds else nil end,
     relay = if relayed then Rules.connects(merged) else nil end }, ""
@@ -3455,6 +3530,15 @@ local function seatbelt_credentials(merged: Rules.Policy): string
   return Seatbelt.credentials_unmet(merged, effective_user(), effective_group())
 end
 
+--- `p` with `grants` in place of its own. Field by field: a record has
+--- no copy that keeps its type, so a field [`Sandbox.Policy`] gains is
+--- copied here too.
+local function grants_replaced(p: Rules.Policy, grants: {Rules.Grant}): Rules.Policy
+  return { profiles = p.profiles, grants = grants, isolate = p.isolate, loopback = p.loopback, env = p.env,
+    set_env = p.set_env, set_env_digests = p.set_env_digests, tmp = p.tmp, limits = p.limits, user = p.user,
+    group = p.group, database = p.database }
+end
+
 --- `p` with `extra` grants beside its own, every other field as it is:
 --- the policy a profile is compiled from once the start grants its
 --- program's start files, unmerged, as [`Seatbelt.compile`] takes it.
@@ -3462,13 +3546,7 @@ local function with_grants(p: Rules.Policy, extra: {Rules.Path}): Rules.Policy
   local grants: mut {Rules.Grant} = {}
   for _, grant in ipairs(p.grants or {}) do grants[#grants + 1] = grant end
   for _, grant in ipairs(extra) do grants[#grants + 1] = grant end
-  local result: Rules.Policy = {
-    grants = grants, isolate = p.isolate,
-    loopback = p.loopback, env = p.env, set_env = p.set_env,
-    set_env_digests = p.set_env_digests, tmp = p.tmp, limits = p.limits,
-    user = p.user, group = p.group, database = p.database, profiles = p.profiles,
-  }
-  return result
+  return grants_replaced(p, grants)
 end
 
 --- A policy's start on macOS: the profile [`Seatbelt.compile`] makes of
@@ -3940,6 +4018,61 @@ local function await_relay(launch: RelayLaunch, log: RelayLog | integer): boolea
   return true, ""
 end
 
+--- `layer` merged, each grant of a path without `from` named by its real
+--- path ([`Sandbox.real`]), from `base` where it is relative: what the
+--- kernel meets, which [`Sandbox.intersect`] meets as written. So a link
+--- in one layer meets the file it names in another, never more than both
+--- give, and a relative grant meets an absolute one.
+local function resolved(layer: Rules.Policy, base: string): Rules.Policy?, string
+  local merged, why = Rules.union(layer)
+  if merged == nil then return nil, why end
+  local grants: mut {Rules.Grant} = {}
+  for _, grant in ipairs(merged.grants or {}) do
+    if grant is Rules.Path and grant.from == nil then
+      local real, real_why = Rules.real(named(grant.path, base))
+      if real == nil then return nil, real_why end
+      grants[#grants + 1] = { path = real, letters = grant.letters }
+    else
+      grants[#grants + 1] = grant
+    end
+  end
+  return grants_replaced(merged, grants), ""
+end
+
+--- The policy `opts` holds a child to: `policy` met with each of
+--- `layers` ([`Sandbox.intersect`]), each first resolved ([`resolved`]);
+--- nil and "" for none, or nil and why where a layer is refused or the
+--- layers do not meet.
+local function policy_of(opts: Options): Rules.Policy?, string
+  local layers = opts.layers
+  if layers == nil then return opts.policy, "" end
+  local base, base_why = sys.realpath(opts.cwd or ".")
+  if base == nil then return nil, "sandbox: cwd " .. (opts.cwd or ".") .. ": " .. base_why end
+  local all: mut {Rules.Policy} = {}
+  local given = opts.policy
+  if given ~= nil then
+    local held, why = resolved(given, base)
+    if held == nil then return nil, "sandbox: policy: " .. why end
+    all[1] = held
+  end
+  for i, layer in ipairs(layers) do
+    local held, why = resolved(layer, base)
+    if held == nil then return nil, "sandbox: layers[" .. tostring(i) .. "]: " .. why end
+    all[#all + 1] = held
+  end
+  local met, why = Rules.intersect(table.unpack(all))
+  if met == nil then return nil, "sandbox: layers: " .. why end
+  return met, ""
+end
+
+--- The policy [`Child.start`] of `opts` holds its child to: `policy`, or
+--- with `layers` their intersection, each grant of a path named by its
+--- real path ([`Options.layers`]). Nil and "" for a start with neither,
+--- nil and why where the layers are refused or do not meet.
+function Child.policy_of(opts: Options): Rules.Policy?, string
+  return policy_of(opts)
+end
+
 --- [`Child.start`] on options already validated. With `pty`, one that
 --- [`Child.start_on_pty`] has just made, the standard streams it names are
 --- its slave, which is not refused as a terminal is; stream 0 among them
@@ -3949,7 +4082,9 @@ local begin_relay: function(RelayPrep, integer?): RelayLaunch?, string
 local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: integer, relays?: boolean): Handle?, string -- checked: not_assigned
   -- Refuse an explicit terminal before inspecting any platform policy:
   -- it needs a relay even on a host that cannot apply that policy.
-  if opts.policy ~= nil then
+  local policy, layered_why = policy_of(opts)
+  if policy == nil and layered_why ~= "" then return refuse("start: " .. layered_why) end
+  if policy ~= nil then
     local streams: {integer: integer | string} = { [0] = opts.stdin, [1] = opts.stdout, [2] = opts.stderr } -- checked: nil_not_allowed*3
     for number, stream in pairs(streams) do
       if stream is integer and isatty(stream) then
@@ -3958,7 +4093,6 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
     end
   end
   local held: Held?
-  local policy = opts.policy
   if policy ~= nil then
     local made: Held?
     local why: string
@@ -4335,7 +4469,8 @@ local function paths_of(grants?: {raw_process.Grant}): mut {Rules.Path}
   return out
 end
 
---- The kernel layers [`Child.start`] of `argv` under `opts.policy` would
+--- The kernel layers [`Child.start`] of `argv` under `opts.policy` and
+--- `opts.layers` would
 --- hold the child to, read from the very plan the start hands its spawn,
 --- with nothing started ([`Sandbox.Layers`]): the Landlock ruleset with
 --- the start's own `rx` grants, the second one a cosmic child's core
@@ -4356,7 +4491,8 @@ end
 --- where a Seatbelt profile holds the child instead.
 function Child.layers(argv: {string}, opts: Options): Rules.Layers?, string
   validate(argv, opts)
-  local policy = opts.policy
+  local policy, layered_why = policy_of(opts)
+  if policy == nil and layered_why ~= "" then return nil, "child: layers: " .. layered_why end
   if policy == nil then return nil, "child: layers: a start with no policy is held by no layer" end
   if holds_by_seatbelt() then
     return nil, "child: layers: on macOS a Seatbelt profile holds the child, not Landlock and seccomp"

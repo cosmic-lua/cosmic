@@ -167,3 +167,17 @@ local function test_a_version_2_trailer_is_carried_through_a_rewrite(tmp: string
     "a rewrite changed the trailer's version or the head")
   assert(ArtifactRow.meta(rewritten, tmp .. "/c.db")["built_from"] == "/elsewhere")
 end
+
+--- A call that exited 0 but whose settle left remains did not succeed,
+--- as the runner judges it, and the refusal names the remains.
+local function test_a_call_that_left_remains_did_not_succeed(tmp: string)
+  assert(Fs.write(tmp .. "/out", ""))
+  assert(Fs.write(tmp .. "/err", ""))
+  local remains = "child: process group 7 still has members after SIGKILL"
+  local ok, raised = pcall(Fixture.succeeded, "left", {
+    result = { ok = true, code = 0, stdout = "", stderr = "", truncated = false,
+      timed_out = false, captured = {}, remains = remains },
+    out = tmp .. "/out", err = tmp .. "/err" })
+  assert(not ok, "a call that left remains succeeded")
+  assert(tostring(raised):find(remains, 1, true), tostring(raised))
+end

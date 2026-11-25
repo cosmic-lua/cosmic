@@ -21,7 +21,7 @@ The checker refuses, so write:
 - A table you fill is declared: `local out: mut {string} = {}`, `local n: mut {string: integer} = {}`; append with `out[#out + 1] = v`.
 - A local that is or may become nil (a page cursor) is optional: `local cursor: string? = nil`, `local page: integer? = 1`; test it with `if cursor ~= nil then`. A local of a plain type is never compared with nil.
 - A local function declares its parameters and results: `local function f(x: integer): string`.
-- A read that may be nil (`t[i]`, `m[k]`, `s:match(...)`, `tonumber(s)`) is tested, given a default (`m[k] or 0`, in sums and comparisons too: `counts[k] = (counts[k] or 0) + 1`, `(counts[a] or 0) > (counts[b] or 0)`) or taken with `!` (`t[i]!`), which raises where it is nil. Walk a list with ipairs, a map with pairs.
+- A read that may be nil (`t[i]`, `m[k]`, `s:match(...)`, `tonumber(s)`) is tested, given a default (`m[k] or 0`, in sums and comparisons too: `counts[k] = (counts[k] or 0) + 1`, `(counts[a] or 0) > (counts[b] or 0)`) or taken with `!` (`t[i]!`), which raises where it is nil. Walk a list with ipairs, a map with pairs. In `for i = 1, #t do`, `t[i]` is a value while the body only calls print, tostring, string.* and math.* on strings and numbers, compares with literals, has no `for ... in`, and assigns neither `t` nor `i`.
 - A field its record does not mark `?` is never nil: `for _, item in ipairs(page.items) do`, not `page.items or {}`.
 - A condition is a boolean or an optional of no boolean: `if s ~= "" then`; for a {string: boolean} set, `if seen[k] == nil then`.
 - `if c then a else b end`, with its `end` even inside a call, in place of `c and a or b`.

@@ -1153,7 +1153,9 @@ end
 function Server.serve(spec: Server.ServeSpec): boolean, string
   checked_spec(spec)
   if Poll.in_task() then
-    error("http: serve runs a Poll.run of its own, and cannot be called in a task of another", 2)
+    error("http: serve runs a Poll.run of its own, and cannot be called in a task of another: to send it requests " ..
+        "from the same program, call serve outside any Poll.run and make them in a task that `spec.on_ready` spawns " ..
+        "(`Poll.spawn`), ending with `server:stop()`", 2)
   end
   local listeners = spec.listeners
   assert(listeners, "http: checked_spec refuses a spec without listeners")

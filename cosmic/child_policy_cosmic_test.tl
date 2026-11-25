@@ -16,13 +16,15 @@ local searchable = require("build.searchable")
 local build_paths = require("build.paths")
 local ChildPolicy = require("build.child_policy_fixture")
 
---- The temporary directory, and this program, which the child runs. Every
+--- The temporary directory, this program, which the child runs, and
+--- `nest`, since a child of `isolate` file is a root of its own, which a
+--- worker held by a Landlock ruleset cannot make. Every
 --- test starts a child under a policy, which a host with no sandbox to give
 --- cannot: the module is not applicable off Linux and skipped where Linux
 --- refuses it.
 Test.policy{
   profiles = { "cosmic" },
-  grants = { { path = "o/bin", letters = "rx" } },
+  grants = { { path = "o/bin", letters = "rx" }, { calls = "nest" } },
   env = { "TMPDIR" },
   requires = { "sandbox" },
 }
@@ -146,4 +148,58 @@ local function test_a_child_with_no_x_cannot_run_its_own_core_again(tmp: string)
   local _, refusals = out:gsub("refused: [^\n]*not permitted", "")
   assert(result.code == 0 and refusals == (if linux then 2 else 1 end),
     tostring(result.code) .. ": " .. out .. tostring(result.stderr))
+end
+
+--- Under `isolate` file a cosmic child's core holds itself at boot to the
+--- grants by their names in the root, without the start's `rx` on itself:
+--- a policy with no `x` runs no program, its own core included, by its
+--- path or by /proc/self/exe. The root's own /proc and the /tmp of `tmp`
+--- are in that layer too, so the child still reads the one and writes the
+--- other.
+local function test_a_cosmic_child_under_isolate_file_cannot_run_its_own_core_again(tmp: string)
+  local work = scripted(tmp, table.concat({
+    'local Child = require("cosmic.child")',
+    'local Fs = require("cosmic.fs")',
+    'local Proc = require("cosmic.proc")',
+    'for _, program in ipairs({ "/proc/self/exe", assert(Proc.executable()) }) do',
+    '  local result, why = Child.run({ program, "--version" }, { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })',
+    '  print(if result == nil then "refused: " .. tostring(why) else "ran" end)',
+    'end',
+    'local wrote, _ = Fs.write("/tmp/x", "hi")',
+    'print("tmp: " .. tostring(wrote == true))',
+    'local status, _ = Fs.read("/proc/self/status")',
+    'print("proc: " .. tostring(status ~= nil))',
+  }, "\n") .. "\n")
+  local held = ran({ work .. "/run.tl" },
+    { isolate = { "file" }, tmp = true, grants = { { path = work, letters = "r" }, { calls = "fork" } } }, work)
+  local out = held.stdout or ""
+  local _, refusals = out:gsub("refused: [^\n]*not permitted", "")
+  assert(held.code == 0 and refusals == 2, tostring(held.code) .. ": " .. out .. tostring(held.stderr))
+  assert(out:find("tmp: true\n", 1, true) ~= nil and out:find("proc: true\n", 1, true) ~= nil, out)
+end
+
+--- Under `isolate` file the root places a grant with no `from` at its
+--- real path and reaches its name by a link, which it cannot make where a
+--- shorter grant beneath the name was placed first: the core's layer
+--- names the real path, as the root places it, so the grant still reads
+--- there.
+local function test_a_linked_grant_reads_under_isolate_file_beside_a_grant_beneath_it(tmp: string)
+  local proj = assert(Fs.absolute(tmp)) .. "/work/very/long/long/path/proj"
+  local work = scripted(tmp, 'local Fs = require("cosmic.fs")\n' ..
+      'local text, _ = Fs.read(' .. string.format("%q", proj .. "/f") .. ')\nprint("read: " .. tostring(text))\n')
+  assert(Fs.mkdirs(proj))
+  assert(Fs.mkdirs(work .. "/q/s"))
+  assert(Fs.mkdirs(work .. "/z"))
+  assert(Fs.write(proj .. "/f", "hi"))
+  assert(Fs.symlink(proj, work .. "/z/l"))
+  assert(Fs.symlink(work .. "/q/s", proj .. "/s"))
+  for _, path in ipairs({ work .. "/very", work .. "/very/long", work .. "/very/long/long",
+      work .. "/very/long/long/path", proj, proj .. "/f", work .. "/q", work .. "/q/s", work .. "/z" }) do
+    searchable.share(path)
+  end
+  local held = ran({ work .. "/run.tl" }, { isolate = { "file" }, grants = {
+    { path = work .. "/run.tl", letters = "r" }, { path = "z/l", letters = "r" },
+    { path = "z/l/s", letters = "r" } } }, work)
+  local out = held.stdout or ""
+  assert(held.code == 0 and out == "read: hi\n", tostring(held.code) .. ": " .. out .. tostring(held.stderr))
 end

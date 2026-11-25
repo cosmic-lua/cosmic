@@ -31,6 +31,8 @@
 --- with the rest is section 4.2.1's core deterministic encoding.
 --- @public
 
+local Failure = require("cosmic.failure")
+
 local record Cbor
   --- What kind of item an [`Item`] is.
   enum Kind
@@ -413,14 +415,14 @@ local function read(r: Reader, depth: integer): Item
 end
 
 --- The first item of `text` from byte `at` (1, and no less), and where
---- the bytes after it start; nil and why for bytes that do not start
---- with an item. Raises on a `max_depth` out of its range.
+--- the bytes after it start; nil and a [`Failure`] for bytes that do
+--- not start with an item. Raises on a `max_depth` out of its range.
 ---
 ---     local first = assert(Cbor.decode_first("\x01\x02"))
 ---     assert(first.item.integer == 1 and first.next == 2)
-function Cbor.decode_first(text: string, at?: integer, opts?: Cbor.DecodeOptions): Cbor.Decoded?, string
+function Cbor.decode_first(text: string, at?: integer, opts?: Cbor.DecodeOptions): (Cbor.Decoded) | (nil, Failure)
   local start = at or 1
-  if start < 1 then return nil, "cbor: at is from 1" end
+  if start < 1 then return nil, Failure.new("cbor: at is from 1") end
   local depth = (opts or {}).max_depth or DEFAULT_DEPTH
   if math.type(depth) ~= "integer" or depth < 1 or depth > MAX_DEPTH then
     error(("cbor: max_depth is from 1 to %d"):format(MAX_DEPTH), 2)
@@ -429,27 +431,27 @@ function Cbor.decode_first(text: string, at?: integer, opts?: Cbor.DecodeOptions
   failure = nil
   match pcall(read, r, 1) do
   | (true, item) then
-    return { item = item, next = r.at }, ""
+    return { item = item, next = r.at }
   | (false, why) then
     local stopped = failure
     if stopped == nil then error(why, 0) end
     failure = nil
-    return nil, "cbor: " .. stopped
+    return nil, Failure.new("cbor: " .. stopped)
   end
 end
 
---- The one item `text` holds; nil and why for bytes that are not
---- exactly one item.
+--- The one item `text` holds; nil and a [`Failure`] for bytes that are
+--- not exactly one item.
 ---
 ---     local item = assert(Cbor.decode("\x83\x01\x02\x03"))
 ---     assert(#item.items == 3)
-function Cbor.decode(text: string, opts?: Cbor.DecodeOptions): Cbor.Item?, string
+function Cbor.decode(text: string, opts?: Cbor.DecodeOptions): (Cbor.Item) | (nil, Failure)
   local first, why = Cbor.decode_first(text, 1, opts)
   if first == nil then return nil, why end
   if first.next <= #text then
-    return nil, ("cbor: more follows the item, from byte %d"):format(first.next)
+    return nil, Failure.new(("cbor: more follows the item, from byte %d"):format(first.next))
   end
-  return first.item, ""
+  return first.item
 end
 
 --- The value of `map` at `key`, an integer or a text key; nil where

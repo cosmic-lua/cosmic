@@ -2446,6 +2446,7 @@ local function stat(ctx: Ctx, s: Ast.Stat)
         report(ctx, "failure_ignored", c, subject(ctx, c) .. " answers one of " .. tostring(#alts) .. " lists of values, " ..
             "one of which may be a failure, and as a statement it drops which one it answered, so a failure would pass unseen",
           "bind its values and test the first (`local " .. Naming.bound(alts) .. " = " .. call .. "`), match the call, " ..
+            (if ValueLists.asserted(ctx, alts) ~= nil then "raise where it fails with `" .. call .. "!`, " else "" end) ..
             "or discard them on purpose: `local " .. Naming.bound(alts, true) .. " = " .. call .. "`")
       end
     end

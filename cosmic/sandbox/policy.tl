@@ -213,16 +213,18 @@ local record rules
     --- The paths of a second ruleset a cosmic child's core applies to
     --- itself at boot, before any module loads: the policy's grants
     --- without the start's `rx` on that core, so the kernel holds the
-    --- child to the policy alone. Empty where there is none: a host
-    --- program, `isolate` file, `nest`, and [`Sandbox.restrict`].
+    --- child to the policy alone; under `isolate` file by the names the
+    --- root binds the grants at, with the root's own /proc and /tmp. Empty
+    --- where there is none: a host program, `nest`, and
+    --- [`Sandbox.restrict`].
     boot: {rules.Path}
     --- The groups of system calls a seccomp filter allows beyond the
     --- basics.
     calls: {rules.Promise}
     --- Whether a filter of its own refuses execve and execveat: no `x`
     --- in the last ruleset (`boot` where there is one). A host program
-    --- and a child of `isolate` file or `nest` keep `rx` on their start
-    --- files, so it is false for them.
+    --- and a child of `nest` keep `rx` on their start files, so it is
+    --- false for them.
     exec_refused: boolean
     --- The socket families the filter lets the process make: "unix" for a
     --- child with a `u` grant, "inet" for one with `loopback` or a
@@ -365,14 +367,14 @@ local function invalid(p: rules.Policy, exact: boolean): string
     if grant is rules.Connect then
       local target = grant.connect
       local tailnet, wrong = Grant.tailnet(target)
-      if tailnet == nil and wrong ~= "" then
-        return at({ "grants", i, "connect" }, "\"" .. target .. "\" is not a tailnet target: " .. wrong ..
+      if tailnet == nil then
+        return at({ "grants", i, "connect" }, "\"" .. target .. "\" is not a tailnet target: " .. tostring(wrong) ..
             " (tag:<tag>:<port> or user:<login>:<port>, the port from 1 to 65535 or \"*\" for any)")
       end
       local why = ""
-      if tailnet == nil then
+      if tailnet == false then
         local _, wrong_target = Grant.parse(target)
-        why = wrong_target
+        if wrong_target ~= nil then why = tostring(wrong_target) end
       end
       if why ~= "" then
         return at({ "grants", i, "connect" }, "\"" .. target .. "\" is not a target the relay can use: " ..
@@ -895,7 +897,9 @@ end
 
 local function reach_of(target: string): Reach?
   local node, _ = Grant.tailnet(target)
-  if node ~= nil then return { kind = node.kind, host = node.name, port = node.port } end
+  if node ~= nil and node ~= false then
+    return { kind = node.kind, host = node.name, port = node.port }
+  end
   local read, _ = Grant.parse(target)
   if read == nil then return nil end
   return { kind = read.kind, host = read.host, port = read.port }
