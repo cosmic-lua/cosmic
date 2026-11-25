@@ -291,6 +291,17 @@ local CASES <const>: {Case} = {
     msg = "`p` is `integer` and `nil` is `nil`, which share no value: the test is never false",
     fix = "declare `p` `integer?` where it is declared (`local p: integer? = ...`), so it may be nil, or remove the test",
   },
+  -- A miscounted prefix: the range is shorter than the string it is tested against.
+  {
+    code = "compare_disjoint", source = "local l = \"x\"\nif l:sub(1, 3) == \"abcd\" then\nend\n",
+    msg = "`l:sub(1, 3)` has at most 3 bytes and `\"abcd\"` has 4: the test is never true",
+    fix = "write `l:sub(1, 4)`, which is as long as the string",
+  },
+  {
+    code = "compare_disjoint", source = "local l = \"x\"\nif \"abcd\" ~= l:sub(-3) then\nend\n",
+    msg = "`l:sub(-3)` has at most 3 bytes and `\"abcd\"` has 4: the test is never false",
+    fix = "write `l:sub(-4)`, which is as long as the string",
+  },
   {
     code = "nil_not_allowed", source = "local p = 1\np = nil\n", at = { line = 2, column = 5 },
     msg = "nil is given in the assignment to `p`, where `integer` is wanted",
@@ -2851,4 +2862,11 @@ local function test_a_write_to_a_view_that_may_leave_a_hole_names_the_map_that_r
   assert(has(fix_of("local buf: {number} = {}\nbuf[#buf + 1] = 1\nlocal _ = buf\n"), "`mut {number}`"))
   -- and the destination it names is clean
   assert(codes_of("local buf: mut {integer: number} = {}\nbuf[3] = 1\nlocal _ = buf\n") == "")
+end
+
+local function test_a_range_as_long_as_its_string_or_not_literal_is_not_a_dead_test()
+  local head = "local l = \"x\"\nlocal n = 2\n"
+  assert(codes_of(head .. "assert(l:sub(1, 4) == \"abcd\" or l:sub(-4) ~= \"abcd\" or l:sub(1, 9) == \"ab\")\n") == "")
+  -- a bound that is not a literal, or bounds of two signs, can answer any length
+  assert(codes_of(head .. "assert(l:sub(1, n) == \"abcd\" or l:sub(2, -1) == \"abcd\" or l:sub(2) == \"abcd\")\n") == "")
 end

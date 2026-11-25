@@ -4953,6 +4953,50 @@ local function optional_fix(ctx: Ctx, node: Ast.Binary, left: Type, right: Type)
     "? = ...`), so it may be nil, or remove the test"
 end
 
+--- The integer an integer literal or its negation (`-1`) writes, else nil.
+local function literal_integer(e: Ast.Node): integer?
+  local at = peel(e)
+  if (at.kind == "Integer") then return at.value end
+  if (at.kind == "Unary") and at.op == "-" then
+    local inner = peel(at.operand)
+    if (inner.kind == "Integer") then return -inner.value end
+  end
+  return nil
+end
+
+--- The bounds of `s:sub(i, j)` when both are literals of one sign (`sub(1, 19)`, `sub(-3)`), else 0, 0 (never a bound
+--- of one sign).
+local function literal_range(e: Ast.Node): integer, integer
+  local at = peel(e)
+  if not ((at.kind == "MethodCall") and at.name == "sub") or #at.args < 1 or #at.args > 2 then
+    return 0, 0
+  end
+  local i = literal_integer(assert(at.args[1]))
+  local j = if #at.args == 2 then literal_integer(assert(at.args[2])) else -1 end
+  if i == nil or j == nil or (i > 0) ~= (j > 0) or i == 0 or j == 0 then return 0, 0 end
+  return i, j
+end
+
+--- `s:sub(1, 19) == "local function test_"`: a literal longer than the range is never what the range answers, which
+--- finds a miscounted prefix.
+local function short_range(ctx: Ctx, node: Ast.Binary)
+  local range, literal = peel(node.left), peel(node.right)
+  if not (literal.kind == "String") then range, literal = literal, range end
+  if not (literal.kind == "String") or not (range.kind == "MethodCall") then return end
+  local i, j = literal_range(range)
+  if i == 0 then return end
+  local most, n = math.max(0, j - i + 1), #literal.value
+  if n <= most then return end
+  local object = text_of(ctx, range.object)
+  local fix = if i > 0 then "write `" .. object .. ":sub(" .. tostring(i) .. ", " .. tostring(i + n - 1) .. ")`"
+    elseif j == -1 then "write `" .. object .. ":sub(" .. tostring(-n) .. ")`"
+    else "make the range " .. tostring(n) .. " bytes long" end
+  report(ctx, "compare_disjoint", node, subject(ctx, range) .. " has at most " .. tostring(most) .. " bytes and " ..
+      subject(ctx, literal) .. " has " .. tostring(n) .. ": the test is never " ..
+      (if node.op == "==" then "true" else "false" end),
+    fix .. ", which is as long as the string")
+end
+
 --- `a == b` and `a ~= b`: both sides overlap, else the test is dead.
 function Operators.equality(ctx: Ctx, node: Ast.Binary, left: Type, right: Type)
   if not Operands.overlaps(ctx, left, right) then
@@ -4961,6 +5005,8 @@ function Operators.equality(ctx: Ctx, node: Ast.Binary, left: Type, right: Type)
         (if node.op == "==" then "true" else "false" end),
       optional_fix(ctx, node, left, right) or "compare values of one type, or remove the test",
       { show(ctx, left), show(ctx, right) })
+  elseif left.tag == "string" or right.tag == "string" then
+    short_range(ctx, node)
   end
 end
 
