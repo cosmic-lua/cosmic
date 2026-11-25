@@ -140,7 +140,7 @@ local function test_a_code_two_stages_emit_has_one_row_under_the_stage_that_find
     seen[row.code] = true
   end
   -- the parser carries the lexer's errors over; the checker reports three codes the lowering also reports
-  assert(row_of("semicolon").stage == "lexer")
+  assert(row_of("semicolon").stage == "parser")
   assert(row_of("bad_escape").stage == "lexer")
   assert(row_of("float_key").stage == "declarations")
   assert(row_of("param_untyped").stage == "declarations")

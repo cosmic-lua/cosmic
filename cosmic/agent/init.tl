@@ -679,7 +679,7 @@ local function record(s: Agent.Session, call: string, tool: string, input: Tools
   if result.raw == nil or tool == "sql" then return result.text, "" end
   local sql, run = Tools.find(s.tools, "sql"), Tools.find(s.tools, "run")
   local how = if sql ~= nil and Tools.for_model(sql) then "use sql"
-    elseif run ~= nil and Tools.for_model(run) then "read it with Host.history in run"
+    elseif run ~= nil and Tools.for_model(run) then "read it in run with Host.output(" .. tostring(output) .. ")"
     else "" end
   if how == "" then return result.text, "" end
   local shown = result.text .. "\n\n[The whole output is kept as output " .. tostring(output) .. ": " .. how .. ".]"

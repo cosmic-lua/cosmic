@@ -5,7 +5,7 @@
 --- JSON, so a later command can go on with it (`--continue`,
 --- `--session`). Each tool's whole output is a row of `outputs` too,
 --- indexed for full-text search (FTS5, trigram), so the model reads a
---- short part of it and finds the rest, with Host.history in run (or
+--- short part of it and reads the rest, with Host.output or Host.history in run (or
 --- the sql tool), when it needs it.
 ---
 --- cosmic agent keeps each conversation in sessions.db, in its data

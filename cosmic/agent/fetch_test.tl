@@ -19,6 +19,19 @@ local function test_a_body_past_the_most_is_cut()
   assert(got.cut and #got.body == AgentFetch.MOST_BYTES)
 end
 
+--- A status of 400 or more fails, naming the method, URL, status and the start of the body, unless any status is
+--- asked for.
+local function test_an_error_status_fails_unless_any_status_is_asked_for()
+  local gone = "HTTP/1.1 410 Gone\r\nContent-Length: 13\r\n\r\nserved\n once\n"
+  local _, why = AgentFetch.fetch({ url = "http://example.com/log" }, { script = { gone } })
+  assert(tostring(why):find("host: fetch: GET http://example.com/log: status 410: served once; give {any_status = true}",
+    1, true) ~= nil, tostring(why))
+  local _, posted = AgentFetch.fetch({ url = "http://example.com/log", body = "x" }, { script = { gone } })
+  assert(tostring(posted):find("POST http://example.com/log: status 410", 1, true) ~= nil, tostring(posted))
+  local got = assert(AgentFetch.fetch({ url = "http://example.com/log", any_status = true }, { script = { gone } }))
+  assert(got.status == 410 and got.body == "served\n once\n")
+end
+
 local function test_what_no_request_is_made_for()
   for _, url in ipairs({ "file:///etc/passwd", "ftp://example.com/", "example.com" }) do
     local _, why = AgentFetch.fetch({ url = url }, { script = { OK } })
