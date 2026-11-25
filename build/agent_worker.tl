@@ -288,19 +288,19 @@ local PRELUDE <const>: {{string}} = { { "Host", "cosmic.agent.host" }, { "Fs", "
 
 --- Whether `code` binds `name` itself, as a local (`local Json = ...`, `local A, Json = ...`) or a local function.
 local function binds(code: string, name: string): boolean
-  for names in code:gmatch("%f[%w_]local%s+([%w_,%s]-)%s*[=<\n]") do
+  for names in code:gmatch("%f[%w_]local%s+([%w_,%s]-)%s*[=<:\n]") do
     if (", " .. names .. ","):find("[,%s]" .. name .. "%s*,") ~= nil then return true end
   end
   return code:find("%f[%w_]local%s+function%s+" .. name .. "%f[^%w_]") ~= nil
 end
 
---- The requires of each [`PRELUDE`] module `code` reads a field of and does not bind itself, on one line: "" where
---- it reads none.
-local function prelude_of(code: string): string
+--- The requires of each [`PRELUDE`] module `code` reads a field of and does not bind itself (each it reads, where
+--- `whole`), on one line: "" where it reads none.
+local function prelude_of(code: string, whole?: boolean): string
   local bound: mut {string} = {}
   for _, entry in ipairs(PRELUDE) do
     local name, module = entry[1] or "", entry[2] or ""
-    if code:find("%f[%w_]" .. name .. "%s*[%.:]") ~= nil and not binds(code, name) then
+    if code:find("%f[%w_]" .. name .. "%s*[%.:]") ~= nil and (whole == true or not binds(code, name)) then
       bound[#bound + 1] = "local " .. name .. " = require(\"" .. module .. "\") "
     end
   end
@@ -327,11 +327,22 @@ local function unshifted(lines: {string}, width: integer): {string}
   return out
 end
 
---- What `kept` made of `code` and its prelude ([`prelude_of`]). Where that is refused and the snippet alone is not
---- (it binds a name of the prelude itself), the snippet alone; where both are, the refusal of the
---- one with the prelude, unless it tells of a name the prelude declares (`declared at 1:C`, C within the prelude).
+--- What `kept` made of `code` and its prelude ([`prelude_of`]). Where the snippet binds a name of the prelude itself,
+--- the prelude without it, else the whole one, else the refusal of the first. Otherwise, where that is refused and the
+--- snippet alone is not, the snippet alone; where both are, the refusal of the one with the prelude, unless it tells
+--- of a name the prelude declares (`declared at 1:C`, C within the prelude).
 local function snippet_check(kept: Pipeline.Kept, code: string): Pipeline.Alone
   local prelude = prelude_of(code)
+  local whole = prelude_of(code, true)
+  -- [`binds`] reads no comment or string apart: where it takes one for a binding and the snippet is refused for it,
+  -- the whole prelude is tried.
+  if whole ~= prelude then
+    local fewer = kept:check(prelude .. code)
+    if fewer.code ~= nil then return fewer end
+    local all = kept:check(whole .. code)
+    if all.code ~= nil then return all end
+    return { code = nil, lines = unshifted(fewer.lines, #prelude), stages = fewer.stages }
+  end
   if prelude == "" then return kept:check(code) end
   local made = kept:check(prelude .. code)
   if made.code ~= nil then return made end

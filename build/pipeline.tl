@@ -376,23 +376,13 @@ function Pipeline.carried_own(): Driver.Provider
   end, declared)
 end
 
---- `meant`, and where it names nothing for a `cosmic.*` name, what the binary's docs say it may have meant
---- ([`StandardMeant.of`]).
-local function with_standard(meant: function(name: string, file: string): {string}): function(name: string, file: string): {string}
-  return function(name: string, file: string): {string}
-    local found = meant(name, file)
-    if #found > 0 then return found end
-    return StandardMeant.of(name)
-  end
-end
-
 function Pipeline.over(entries: {{string}}, kinds: {string: string}, options: Pipeline.Options, stubs?: {string: string}):
     Pipeline.Built
   local index = TreeProgram.index(entries, kinds)
   local standard = options.standard or Pipeline.carried()
   return {
     build = TreeProgram.build(index, options.globals, options.types, nil, standard,
-      with_standard(TreeProgram.meant(index, options.project ~= true))), index = index,
+      StandardMeant.wrap(TreeProgram.meant(index, options.project ~= true))), index = index,
     globals = options.globals, standard = standard, types = options.types, given = stubs or {}, stubs = nil, stubbed = nil,
     project = options.project, standing = {},
   }

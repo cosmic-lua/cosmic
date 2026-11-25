@@ -76,6 +76,7 @@ local Lexer = require("lang.lexer")
 local Literals = require("lang.literals")
 local LoadOrder = require("lang.load_order")
 local Relation = require("lang.relation")
+local NearNames = require("lang.near_names")
 local Scopes = require("lang.scopes")
 local type Sql = require("lang.sql")
 local Types = require("lang.types")
@@ -1149,30 +1150,6 @@ local function names_of(ctx: Ctx, n: Named): {string}
       out[#out + 1] = name
     end
     table.sort(out)
-  end
-  return out
-end
-
---- The names of `names` that the unknown `name` may mean, beyond the one nearest it: those it begins with or that begin
---- with it (`read_file` with `read`, `parse` with `parse_date`), and those that share a part of four letters or more
---- with it, parts split at `_`; in the order of `names`.
-local function related(name: string, names: {string}): {string}
-  local function parts(s: string): {string: boolean}
-    local out: mut {string: boolean} = {}
-    for part in s:lower():gmatch("[^_]+") do
-      if #part >= 4 then out[part] = true end
-    end
-    return out
-  end
-  local mine = parts(name)
-  local out: mut {string} = {}
-  for _, other in ipairs(names) do
-    local shared = false
-    for part in pairs(parts(other)) do
-      if mine[part] == true then shared = true end
-    end
-    local begins = (#other >= 3 and name:sub(1, #other) == other) or (#name >= 3 and other:sub(1, #name) == name)
-    if other ~= name and (begins or shared) then out[#out + 1] = other end
   end
   return out
 end
@@ -2985,18 +2962,8 @@ local function member_types(ctx: Ctx, t: Named, name: string): {Member}?
   return held
 end
 
--- At most this many members a refusal shows with their types, and this many more by name.
---- `text` cut to `most` bytes, `...` at its end where it was longer.
-local function cut_text(text: string, most: integer): string
-  if #text <= most then return text end
-  return text:sub(1, most - 3) .. "..."
-end
-
-local MEMBERS_TYPED <const> = 4
-local MEMBERS_NAMED <const> = 40
-
 --- What `t` (named) has, for a read of the field `name` it does not have: the members `name` may mean ([`nearest`]
---- `close`, then [`related`] ones) with their types, then the names of the others; nil where it has none.
+--- `close`, then [`NearNames.related`] ones) with their types, then the names of the others; nil where it has none.
 local function members_told(ctx: Ctx, t: Type, name: string, close: string): string?
   if not (t.tag == "named") then return nil end
   local index = members_index(ctx, t.decl, t.value)
@@ -3006,25 +2973,26 @@ local function members_told(ctx: Ctx, t: Type, name: string, close: string): str
   local picked: mut {string} = {}
   local taken: mut {string: boolean} = {}
   local function pick(n: string)
-    if n ~= "" and taken[n] == nil and #picked < MEMBERS_TYPED then
+    if n ~= "" and taken[n] == nil and #picked < NearNames.TYPED then
       picked[#picked + 1] = n
       taken[n] = true
     end
   end
   pick(close)
-  for _, n in ipairs(related(name, names)) do pick(n) end
+  for _, n in ipairs(NearNames.related(name, names)) do pick(n) end
   local typed: mut {string} = {}
   for _, n in ipairs(picked) do
     local list = index.by_name[n]
     local first = if list ~= nil then list[1] else nil end
-    local shown = if first ~= nil then cut_text(show(ctx, first.type), 120) else "?" end
-    typed[#typed + 1] = "`" .. n .. ": " .. shown .. "`"
+    local shown = if first ~= nil then NearNames.cut(show(ctx, first.type), 120) else "" end
+    -- A type that holds a type variable of the checker's own (`?0.0`) is shown by its name alone.
+    typed[#typed + 1] = if shown ~= "" and shown:find("%?%d") == nil then "`" .. n .. ": " .. shown .. "`" else quoted(n) end
   end
   local rest: mut {string} = {}
   local more = 0
   for _, n in ipairs(names) do
     if taken[n] == nil then
-      if #rest < MEMBERS_NAMED then rest[#rest + 1] = n else more = more + 1 end
+      if #rest < NearNames.NAMED then rest[#rest + 1] = n else more = more + 1 end
     end
   end
   local owner = quoted(Types.decl_name(t.decl))
@@ -3117,13 +3085,10 @@ local function field_unknown(ctx: Ctx, node: Ast.Node, t: Type, name: string)
     declare = told or ("`cosmic docs " .. t.decl.module .. "` lists what " .. owner .. " has")
   end
   local advised = if (t.tag == "named") then Check.advice[t.decl.module .. " " .. t.decl.name .. " ." .. name] else nil end
-  if advised ~= nil and told ~= nil then
-    -- Advice for a guessed name, then what the record has.
-    advised = advised .. "; " .. told
-  end
   report(ctx, "field_unknown", node, owner .. " has no field " .. quoted(name) ..
       (if close ~= "" then ", nearest " .. quoted(close) else "" end),
-    if advised ~= nil then advised elseif close ~= "" then "write " .. quoted(close) .. ", or " .. declare else declare end,
+    if advised ~= nil then advised elseif close ~= "" then
+      "write " .. quoted(close) .. (if told ~= nil then "; " else ", or " end) .. declare else declare end,
     { show(ctx, t) })
 end
 

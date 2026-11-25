@@ -166,7 +166,9 @@ local function test_a_tool_for_code_is_called_from_a_snippet_alone()
   local first = agent_fixture.said(a, 1)
   assert(first:find('"name":"stamp"', 1, true) == nil, first)
   local second = agent_fixture.said(a, 2)
-  assert(second:find("Tool stamp not found", 1, true) ~= nil, second)
+  -- The answer names the tools the model is offered, and not the one kept for snippets.
+  local unknown = second:match("Tool stamp not found: the tools are ([%w_, ]+)")
+  assert(unknown ~= nil and unknown:find("run", 1, true) ~= nil and unknown:find("stamp", 1, true) == nil, second)
   local answer = agent_fixture.said(a, 3)
   -- after made the answer the snippet read; before blocked the call it refused.
   assert(answer:find("STAMPED HI", 1, true) ~= nil, answer)
