@@ -2,7 +2,6 @@
 --- symbol each one demonstrates and run by `cosmic test` like any
 --- other test -- see doc/design.md's `examples` table.
 
-local type Failure = require("cosmic.failure")
 local Codec = require("cosmic.codec")
 local Rand = require("cosmic.rand")
 
@@ -22,7 +21,7 @@ end
 --- never the same twice.
 function Example.entropy()
   local bytes, err = Rand.entropy(16)
-  assert(bytes ~= nil, err)
+  assert(bytes ~= nil, tostring(err))
   assert(#bytes == 16)
   print(Codec.hex(bytes))
 end
@@ -31,7 +30,7 @@ end
 --- version 7 opens with the clock, so later ones sort after earlier ones.
 function Example.uuid()
   local id, err = Rand.uuid()
-  assert(id ~= nil, err)
+  assert(id ~= nil, tostring(err))
   print(id)
   assert(#id == 36 and id:sub(15, 15) == "4")
   local first = assert(Rand.uuid(7))
@@ -53,6 +52,7 @@ end
 --- A maker draws from the entropy and the clock it is given, which pins
 --- a test's version 7 values: 1700000000000 ms is 0x18bcfe56800.
 function Example.uuid_maker()
+  local type Failure = require("cosmic.failure")
   local draw = Rand.uuid_maker(function(count: integer): (string) | (nil, Failure)
     return ("\0"):rep(count)
   end, function(): integer return 1700000000000 * 1000000 end)
