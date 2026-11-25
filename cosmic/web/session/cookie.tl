@@ -60,7 +60,7 @@ function SessionCookie.store(opts: SessionCookie.Options): Session.Store
   local keys: mut {string} = {}
   for i, key in ipairs(supplied) do
     local ok, why = Secret.check(key)
-    if not ok then error(("session: key %d: %s"):format(i, why), 2) end
+    if not ok then error(("session: key %d: %s"):format(i, tostring(why)), 2) end
     keys[#keys + 1] = key
   end
   -- The newest key signs; the count was checked above.

@@ -43,8 +43,8 @@ end
 
 --- Opens `url` over `script`, reads the whole body, and returns the
 --- response (closed), its body, and what curl sent.
-local function fetch(script: {string}, opts?: Http.Options): Http.Response, string, string
-  local given: Http.Options = opts or { timeout_ns = Clock.seconds(60) }
+local function fetch(script: {string}, opts?: Http.OpenOptions): Http.Response, string, string
+  local given: Http.OpenOptions = opts or { timeout_ns = Clock.seconds(60) }
   local response = assert(Http.open(url, { ...given, script = script }))
   local parts: mut {string} = {}
   while true do
@@ -365,7 +365,7 @@ local function test_a_post_body_outlives_the_options_that_held_it()
   -- the far end have to be the ones given. The reply leaves the
   -- connection open, or curl would stop sending once it was read.
   local size = 8 * 1024 * 1024
-  local opts: Http.Options? = { timeout_ns = Clock.seconds(60), method = "POST", body = string.rep("A", size),
+  local opts: Http.OpenOptions? = { timeout_ns = Clock.seconds(60), method = "POST", body = string.rep("A", size),
     headers = { Expect = "" }, script = { "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok" } }
   local response = assert(Http.open(url, opts))
   opts = nil
@@ -391,7 +391,7 @@ local function test_a_script_without_enough_connections_fails_cleanly()
 end
 
 local function test_a_non_string_option_throws()
-  local function raises(opts: Http.Options): boolean
+  local function raises(opts: Http.OpenOptions): boolean
     local ok, _ = pcall(function() local _, _ = Http.open(url, opts) end)
     return not ok
   end
@@ -609,7 +609,7 @@ local function test_a_method_with_a_nul_is_refused()
 end
 
 --- The message [`Http.open`] raises with for `opts`.
-local function raised(opts: Http.Options): string
+local function raised(opts: Http.OpenOptions): string
   local ok, err = pcall(function()
     local _, _ = Http.open(url, { ...opts, script = opts.script or {} })
   end)
@@ -637,34 +637,35 @@ end
 local function test_a_refused_option_is_raised_at_the_callers_line()
   -- Each returns a value, which a raise leaves `pcall` the message in
   -- place of.
-  local entries: {string: function(Http.Options, string): string} = {
-    open = function(opts: Http.Options, mark: string): string
+  local entries: {string: function(Http.OpenOptions, string): string} = {
+    open = function(opts: Http.OpenOptions, mark: string): string
       if mark == "ahead" then error("mark") end
       local _, _ = Http.open(url, opts)
       if mark == "behind" then error("mark") end
       return ""
     end,
-    get = function(opts: Http.Options, mark: string): string
+    get = function(opts: Http.OpenOptions, mark: string): string
       if mark == "ahead" then error("mark") end
-      local _, _ = Http.get(url, opts)
+      local _, _ = Http.get(url, { timeout_ns = opts.timeout_ns, follow = opts.follow, script = opts.script })
       if mark == "behind" then error("mark") end
       return ""
     end,
-    request = function(opts: Http.Options, mark: string): string
+    request = function(opts: Http.OpenOptions, mark: string): string
       if mark == "ahead" then error("mark") end
-      local _, _ = Http.request("PUT", url, opts)
+      local _, _ = Http.request("PUT", url, { timeout_ns = opts.timeout_ns, follow = opts.follow, script = opts.script })
       if mark == "behind" then error("mark") end
       return ""
     end,
-    download = function(opts: Http.Options, mark: string): string
+    download = function(opts: Http.OpenOptions, mark: string): string
       if mark == "ahead" then error("mark") end
-      local _, _ = Http.download(url, "never-written", opts)
+      local _, _ = Http.download(url, "never-written",
+        { timeout_ns = opts.timeout_ns, follow = opts.follow, script = opts.script })
       if mark == "behind" then error("mark") end
       return ""
     end,
   }
   --- Where `entry` raises, given `opts` and `mark`: its file and line.
-  local function raised_at(entry: function(Http.Options, string): string, opts: Http.Options,
+  local function raised_at(entry: function(Http.OpenOptions, string): string, opts: Http.OpenOptions,
                            mark: string): string, integer
     local ok, err = pcall(entry, opts, mark)
     assert(not ok, mark .. ": expected a raise")
@@ -674,10 +675,10 @@ local function test_a_refused_option_is_raised_at_the_callers_line()
   end
   -- A limit out of range, and none at all, which the type checker
   -- refuses where the literal is written.
-  local unlimited = { follow = false } as Http.Options -- checked: cast_refused
-  local refusals: {Http.Options} = { { timeout_ns = -5, script = {} }, unlimited }
+  local unlimited = { follow = false } as Http.OpenOptions -- checked: cast_refused
+  local refusals: {Http.OpenOptions} = { { timeout_ns = -5, script = {} }, unlimited }
   for name, entry in pairs(entries) do
-    local good: Http.Options = { timeout_ns = Clock.seconds(60), script = {} }
+    local good: Http.OpenOptions = { timeout_ns = Clock.seconds(60), script = {} }
     local file, ahead = raised_at(entry, good, "ahead")
     local _, behind = raised_at(entry, good, "behind")
     for _, refusing in ipairs(refusals) do
@@ -687,7 +688,7 @@ local function test_a_refused_option_is_raised_at_the_callers_line()
           tostring(ahead) .. " and " .. tostring(behind))
     end
   end
-  local _, why = pcall(function() local _, _ = Http.get(url, unlimited) end)
+  local _, why = pcall(function() local _, _ = Http.open(url, unlimited) end)
   assert(tostring(why):find("http: opts.timeout_ns is required", 1, true) ~= nil, tostring(why))
 end
 
@@ -957,7 +958,7 @@ local function test_a_download_status_is_typed(tmp: string)
   local path = tmp .. "/got"
   assert(Fs.write(path, "old"))
   for _, status in ipairs({ 302, 404, 503 }) do
-    local options: Http.Options = { timeout_ns = Clock.seconds(60), follow = false,
+    local options: Http.DownloadOptions = { timeout_ns = Clock.seconds(60), follow = false,
       script = { reply(tostring(status) .. " sha256 mismatch", "", "ignored") } }
     local ok, why = Http.download(url, path, options)
     assert(not ok and why.kind == "library" and why.code == status, why)
@@ -972,7 +973,7 @@ local function test_a_download_checksum_mismatch_is_typed(tmp: string)
   local algorithms: {Hash.Algorithm} = { "sha256", "sha512" }
   for _, algorithm in ipairs(algorithms) do
     for _, expected in ipairs({ "ABC", "not HEX", string.rep("0", if algorithm == "sha256" then 64 else 128 end) }) do
-      local options: Http.Options = { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "body") },
+      local options: Http.DownloadOptions = { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "body") },
         digests = { [algorithm] = expected } }
       local actual = Codec.hex(Hash.digest(algorithm, "body"))
       local reason = path .. ": " .. algorithm .. " mismatch: want " .. expected:lower() .. ", got " .. actual
@@ -987,7 +988,7 @@ end
 local function test_a_download_with_a_bad_checksum_shape_raises_before_publication(tmp: string)
   local path = tmp .. "/got"
   local digests: {Hash.Algorithm:string} = { ["sha256"] = true as string } -- checked: cast_refused
-  local options: Http.Options = { timeout_ns = Clock.seconds(60), digests = digests, script = {} }
+  local options: Http.DownloadOptions = { timeout_ns = Clock.seconds(60), digests = digests, script = {} }
   local ok, _ = pcall(function() local _, _ = Http.download(url, path, options) end)
   assert(not ok and #assert(Fs.list(tmp)) == 0)
 end
@@ -1018,7 +1019,7 @@ end
 
 local function test_a_download_refuses_a_digest_of_no_known_algorithm(tmp: string)
   local path = tmp .. "/got"
-  local options: Http.Options = { timeout_ns = Clock.seconds(60), script = {},
+  local options: Http.DownloadOptions = { timeout_ns = Clock.seconds(60), script = {},
     digests = { ["sha999"] = "ab" } as {Hash.Algorithm:string} } -- checked: cast_refused
   local why = Test.raises(function() local _, _ = Http.download(url, path, options) end,
     "opts.digests names sha999, which is no Hash.Algorithm")
@@ -1096,7 +1097,7 @@ local function test_a_download_cancel_and_callback_exception_keep_target(tmp: st
     assert(not ok and why.kind == "cancelled" and why.message == "interrupted", why)
     assert(assert(Fs.read(path)) == "old" and #assert(Fs.list(tmp)) == 1)
   end
-  local options: Http.Options = { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "body") },
+  local options: Http.DownloadOptions = { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "body") },
     cancelled = function(): boolean error("callback failed") end }
   Test.raises(function() local _, _ = Http.download(url, path, options) end, "callback failed")
   assert(assert(Fs.read(path)) == "old" and #assert(Fs.list(tmp)) == 1)
@@ -1132,15 +1133,12 @@ local function test_a_download_digest_failure_is_not_a_mismatch(tmp: string)
   assert(assert(Fs.read(path)) == "old" and #assert(Fs.list(tmp)) == 1)
 end
 
-local function test_a_download_preserves_underlying_url_text_without_classifying_it(tmp: string)
-  local open = Http.open
-  local reason = url .. ": HTTP 404; sha256 mismatch in transport diagnostic"
-  Http.open = function(_url: string, _opts?: Http.Options): (Http.Response) | (nil, Failure) -- checked: field_fixed
-    return nil, Failure.new(reason)
-  end
-  local ok, why = Http.download(url, tmp .. "/got", { timeout_ns = Clock.seconds(60) })
-  Http.open = open -- checked: field_fixed
-  assert(not ok and is_other(why) and tostring(why) == reason and #assert(Fs.list(tmp)) == 0, why)
+--- A download that cannot open keeps the open's failure as it was, of
+--- kind "other", and writes nothing.
+local function test_a_download_keeps_the_failure_of_its_open(tmp: string)
+  local ok, why = Http.download("http://127.0.0.1:1/", tmp .. "/got", { timeout_ns = Clock.seconds(60) })
+  assert(not ok and is_other(why) and tostring(why):find("127.0.0.1", 1, true) ~= nil, why)
+  assert(#assert(Fs.list(tmp)) == 0)
 end
 
 local function test_a_download_guard_interruption_stays_available(tmp: string)
@@ -1195,44 +1193,28 @@ local function test_request_sends_its_method()
   assert(get == nil, "a GET read a body that never came")
 end
 
---- The request is the one asked for, or none: an empty method, an
---- `opts.method` that differs from the argument, and a body with GET or
---- HEAD raise before anything is sent.
+--- The request is the one asked for, or none: an empty method, and a
+--- body with GET or HEAD, raise before anything is sent.
 local function test_request_refuses_what_it_would_not_send_as_asked()
   local script = { reply("200 OK", "") }
-  for method, opts in pairs({ -- checked: cast_refused, literal_shape
-      [""] = { script = script },
-      PUT = { method = "POST", script = script },
-      GET = { body = "x", script = script },
-      HEAD = { body = "x", script = script },
-  } as {string:Http.Options}) do
+  local refused: {string:Http.RequestOptions} = {
+    [""] = { timeout_ns = Clock.seconds(60), script = script },
+    GET = { timeout_ns = Clock.seconds(60), body = "x", script = script },
+    HEAD = { timeout_ns = Clock.seconds(60), body = "x", script = script },
+  }
+  for method, opts in pairs(refused) do
     local ok, why = pcall(function() local _, _ = Http.request(method, url, opts) end)
     assert(not ok and tostring(why):find("Http.request", 1, true) ~= nil, method .. ": " .. tostring(why))
   end
-  local got, trouble = Http.request("PUT", url, { timeout_ns = Clock.seconds(60), method = "PUT", script = script })
+  local got, trouble = Http.request("PUT", url, { timeout_ns = Clock.seconds(60), script = script })
   assert(got ~= nil and got.status == 200, trouble)
 end
 
 --- The options a caller passes are left as they were.
 local function test_request_leaves_its_options_alone()
-  local opts: Http.Options = { timeout_ns = Clock.seconds(60), body = "x", script = { reply("204 No Content", "") } }
+  local opts: Http.RequestOptions = { timeout_ns = Clock.seconds(60), body = "x", script = { reply("204 No Content", "") } }
   assert(Http.request("PUT", url, opts))
-  assert(opts.method == nil and opts.body == "x")
-end
-
---- Http.get sends a GET: another method, or a body, which would make it
---- a POST, raises and names Http.request.
-local function test_get_refuses_another_method_and_a_body()
-  local script = { reply("200 OK", "") }
-  for _, opts in ipairs({ -- checked: cast_refused
-      { method = "PUT", script = script },
-      { method = "HEAD", script = script },
-      { body = "x", script = script },
-  } as {Http.Options}) do
-    Test.raises(function() local _, _ = Http.get(url, opts) end, "Http.request")
-  end
-  local got, trouble = Http.get(url, { timeout_ns = Clock.seconds(60), method = "GET", script = script })
-  assert(got ~= nil and got.status == 200, trouble)
+  assert(opts.body == "x" and opts.max_bytes == nil)
 end
 
 --- `plain` compressed as `coding` names it, through cosmic.compress.
@@ -1407,17 +1389,6 @@ local function test_request_and_download_decompress_too(tmp: string)
   local path = tmp .. "/decoded"
   assert(Http.download(url, path, { timeout_ns = Clock.seconds(60), decompress = true, digests = { ["sha256"] = Hash.hex_sha256(plain) }, script = script }))
   assert(assert(Fs.read(path)) == plain)
-end
-
---- A `false` where a method is wanted is a method that is not GET, not an
---- absent one: both raise as any other method does.
-local function test_a_method_that_is_false_is_refused_not_taken_for_none()
-  local script = { reply("200 OK", "") }
-  local opts = { method = false, script = script } as any as Http.Options -- checked: cast_refused*2
-  local ok, why = pcall(function() local _, _ = Http.get(url, opts) end)
-  assert(not ok and tostring(why):find("Http.request", 1, true) ~= nil, tostring(why))
-  ok, why = pcall(function() local _, _ = Http.request("PUT", url, opts) end)
-  assert(not ok and tostring(why):find("leave opts.method out", 1, true) ~= nil, tostring(why))
 end
 
 --- Request headers for the redirect tests: six that may be credentials,

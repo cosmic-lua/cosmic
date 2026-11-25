@@ -10,10 +10,11 @@ local Example = {} -- checked: literal_needs_type
 --- pass.
 function Example.generate()
   local key = Secret.generate()
-  print(#key, Secret.check(key))
-  assert(#key == 64 and Secret.check(key))
+  local passed, trouble = Secret.check(key)
+  print(#key, passed)
+  assert(#key == 64 and passed, tostring(trouble))
   local ok, why = Secret.check("changeme")
-  print(why)
+  print(tostring(why))
   assert(not ok)
 end
 
@@ -28,9 +29,9 @@ end
 --- A variable that is not set is a refusal, never a default key.
 function Example.keys_from_env()
   local keys, why = Secret.keys_from_env("COSMIC_EXAMPLE_KEYS_NOT_SET")
-  print(why)
+  print(tostring(why))
   assert(keys == nil)
-  assert(why:find("not set", 1, true))
+  assert(tostring(why):find("not set", 1, true))
 end
 
 return Example -- checked: export_not_declared

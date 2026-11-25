@@ -321,7 +321,7 @@ end
 --- `count` random bytes as base64url.
 local function random(count: integer): (string) | (nil, Failure)
   local bytes, why = Rand.entropy(count)
-  if bytes == nil then return nil, Failure.new("mcp: oauth: " .. why) end
+  if bytes == nil then return nil, Failure.new("mcp: oauth: " .. tostring(why)) end
   return Codec.base64url(bytes)
 end
 

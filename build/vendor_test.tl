@@ -341,13 +341,13 @@ end
 --- The download is held to every digest the PIN gives, whoever serves it, and trusts every root: a fetch without
 --- them would take a vendored archive from a host on its word.
 local record Seen
-  mut options?: Http.Options
+  mut options?: Http.DownloadOptions
 end
 
 local function test_fetch_holds_the_download_to_every_digest_the_pin_gives(dir: string)
   local seen: Seen = {}
   local real = Http.download
-  Http.download = function(_url: string, _path: string, options?: Http.Options): (true) | (false, Failure) -- checked: field_fixed
+  Http.download = function(_url: string, _path: string, options?: Http.DownloadOptions): (true) | (false, Failure) -- checked: field_fixed
     seen.options = options
     return false, Failure.new("stop here")
   end

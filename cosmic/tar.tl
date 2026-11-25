@@ -99,14 +99,10 @@ end
 
 local BLOCK <const> = 512
 
---- What a function of this module returns when it fails: nil and `why`
---- under the module's name.
-local function refuse(why: string): nil, string
-  return nil, "tar: " .. why
-end
-
---- `refuse`, as a [`Failure`].
-local function refused(why: string): nil, Failure
+--- What a function of this module returns when it refuses what it
+--- read or was asked: nil and a Failure of `why` under the module's
+--- name. A failure it met (a read's, a write's) is passed on as it is.
+local function refuse(why: string): nil, Failure
   return nil, Failure.new("tar: " .. why)
 end
 
@@ -171,8 +167,8 @@ local function numeric_at(block: string, off: integer, len: integer): integer?
 end
 
 --- The refusal of a header whose `what` field `numeric` returned nil for.
-local function out_of_range(what: string): string
-  return "tar: header " .. what .. " field is a base-256 value past the integer range"
+local function out_of_range(what: string): Failure
+  return Failure.new("tar: header " .. what .. " field is a base-256 value past the integer range")
 end
 
 --- The NUL-terminated text of the `len`-byte field at `off`, which may
@@ -194,17 +190,15 @@ end
 -- reading
 ------------------------------------------------------------------
 
---- One 512-byte block, `false` and no error; nil, true, "" at a clean
---- end of stream before any of it arrived; or nil, false, an error --
---- including a short read that never reaches a full block.
-local function read_block_or_eof(raw: Stream.Reader): string?, boolean, string
+--- One 512-byte block; false at a clean end of stream before any of it
+--- arrived; or nil and a Failure: `raw`'s own, or this module's for a
+--- short read that never reaches a full block.
+local function read_block_or_eof(raw: Stream.Reader): (string | false) | (nil, Failure)
   local block, trouble = Stream.read_up_to(raw, BLOCK)
-  -- TODO: give the caller Stream's Failure, its kind kept, once this
-  -- module's readers return a Failure rather than words.
-  if block == nil then return nil, false, tostring(trouble) end
-  if block == "" then return nil, true, "" end
-  if #block < BLOCK then return nil, false, "tar: truncated header block" end
-  return block, false, ""
+  if block == nil then return nil, trouble end
+  if block == "" then return false end
+  if #block < BLOCK then return refuse("truncated header block") end
+  return block
 end
 
 local function is_zero_block(block: string): boolean
@@ -217,16 +211,16 @@ end
 
 --- Reads `size` raw bytes and the padding after them, up to the next
 --- block boundary, for an `L`/`K`/`x`/`g` special entry's own body.
-local function read_special_body(raw: Stream.Reader, size: integer): string?, string
+local function read_special_body(raw: Stream.Reader, size: integer): (string) | (nil, Failure)
   if size < 0 or size > SPECIAL_BODY_LIMIT then
     return refuse("a long-name or pax header body of " .. String.counted(size, "byte") ..
         " is over the " .. tostring(SPECIAL_BODY_LIMIT) .. "-byte limit")
   end
   local data, trouble = Stream.read_exact(raw, size)
-  if data == nil then return nil, tostring(trouble) end
+  if data == nil then return nil, trouble end
   local skipped, strouble = Stream.skip(raw, padding_of(size))
-  if not skipped then return nil, tostring(strouble) end
-  return data, ""
+  if not skipped then return nil, strouble end
+  return data
 end
 
 --- The refusal of `text`, which `what` names, when it holds a NUL
@@ -238,11 +232,11 @@ local function nul_refusal(text: string, what: string): string
 end
 
 --- A GNU `L`/`K` body: a name with trailing NULs, which are dropped.
-local function long_field(data: string): string?, string
+local function long_field(data: string): (string) | (nil, Failure)
   local name = data:gsub("%z+$", "")
   local refusal = nul_refusal(name, "inside a GNU long name")
-  if refusal ~= "" then return nil, refusal end
-  return name, ""
+  if refusal ~= "" then return nil, Failure.new(refusal) end
+  return name
 end
 
 --- The `key=value` records of a pax extended header body, each
@@ -290,15 +284,15 @@ local record Fields
   mut sparse: boolean
 end
 
-local function apply_pax(fields: {string:string}, f: Fields): boolean, string
+local function apply_pax(fields: {string:string}, f: Fields): (true) | (false, Failure)
   for key, value in pairs(fields) do
     if key == "path" or key == "linkpath" then
       local refusal = nul_refusal(value, "inside a pax " .. key)
-      if refusal ~= "" then return false, refusal end
+      if refusal ~= "" then return false, Failure.new(refusal) end
       if key == "path" then f.name = value else f.linkname = value end
     elseif key == "size" then
       local n = math.tointeger(tonumber(value))
-      if n == nil or n < 0 then return false, "tar: bad pax size '" .. value .. "'" end
+      if n == nil or n < 0 then return false, Failure.new("tar: bad pax size '" .. value .. "'") end
       f.size = n
     elseif key == "mtime" then
       f.mtime = math.tointeger(math.floor(tonumber(value) or f.mtime)) or f.mtime
@@ -310,7 +304,7 @@ local function apply_pax(fields: {string:string}, f: Fields): boolean, string
       f.sparse = true
     end
   end
-  return true, ""
+  return true
 end
 
 local function kind_of(typeflag: string): Stream.EntryKind
@@ -325,10 +319,10 @@ end
 --- checked. `long_name` and `long_link` are those of the `L` and `K`
 --- headers before it, and the pax records of an `x` header before it
 --- (`pax_local`) and of every `g` header so far (`pax_global`) are
---- applied over what the block says, the entry's own first. Nil and why
---- when a field is refused.
+--- applied over what the block says, the entry's own first. Nil and a
+--- Failure when a field is refused.
 local function parse_header(block: string, long_name: string?, long_link: string?,
-                            pax_local: {string:string}?, pax_global: {string:string}): Fields?, string
+                            pax_local: {string:string}?, pax_global: {string:string}): (Fields) | (nil, Failure)
   local name = long_name
   if name == nil then
     name = text_at(block, 1, 100)
@@ -353,8 +347,11 @@ local function parse_header(block: string, long_name: string?, long_link: string
     mode = raw_mode & 0xFFF, typeflag = typeflag, sparse = false,
   }
   local ok, trouble = apply_pax(pax_global, f)
-  if ok and pax_local ~= nil then ok, trouble = apply_pax(pax_local, f) end
   if not ok then return nil, trouble end
+  if pax_local ~= nil then
+    local local_ok, local_trouble = apply_pax(pax_local, f)
+    if not local_ok then return nil, local_trouble end
+  end
   if f.size < 0 then return refuse("negative entry size") end
   -- Its padding added, a size this near the integer limit could wrap
   -- negative, and `next` would skip none of its body; a block below the
@@ -363,7 +360,7 @@ local function parse_header(block: string, long_name: string?, long_link: string
     return refuse("entry size " .. tostring(f.size) .. " is too large")
   end
   f.kind = if (typeflag == "S" or f.sparse) then "other" else kind_of(typeflag) end
-  return f, ""
+  return f
 end
 
 --- How much a reader asks of its underlying Reader at a time.
@@ -469,11 +466,11 @@ local class ReadEntry is Tar.Entry
 
   function open(self): (Stream.Reader) | (nil, Failure)
     local r = self.reader
-    if self ~= r.current then return refused("entry is no longer current") end
+    if self ~= r.current then return refuse("entry is no longer current") end
     -- A second `open` on the same entry would share `left` and
     -- `pending_skip` with the first and read wherever that one
     -- left off, silently -- refuse it.
-    if r.opened then return refused("entry already opened once") end
+    if r.opened then return refuse("entry already opened once") end
     r.opened = true
     local body: BodyReader = {
       state = r, generation = r.generation, left = r.size, failed = nil, closed = false, skip = nil,
@@ -482,10 +479,9 @@ local class ReadEntry is Tar.Entry
   end
 end
 
---- Keeps `trouble` as the reader's failure, or "tar: read failed" when
---- it is "", and returns it.
-local function fail(self: EntryReader, trouble: string): nil, Failure
-  local why = Failure.new(if trouble ~= "" then trouble else "tar: read failed" end)
+--- Keeps `why` as the reader's failure, which every later `next`
+--- returns, and returns it.
+local function fail(self: EntryReader, why: Failure): nil, Failure
   self.failed = why
   return nil, why
 end
@@ -513,7 +509,7 @@ local class EntryReader is Tar.Reader
   function next(self): (Tar.Entry | false) | (nil, Failure) -- declared: interface_disagrees
     local failed = self.failed
     if failed then return nil, failed end
-    if self.closed then return refused("the reader is closed") end
+    if self.closed then return refuse("the reader is closed") end
     if self.ended then return false end
     local src = self.src
     self.generation = self.generation + 1
@@ -523,7 +519,7 @@ local class EntryReader is Tar.Reader
     -- The skip's own reason says whether the archive ended early or a
     -- read failed; this says what was being done.
     if not skipped then
-      return fail(self, "tar: cannot skip to the next entry: " .. tostring(dtrouble))
+      return fail(self, Failure.within(dtrouble, "tar: cannot skip to the next entry"))
     end
 
     local long_name: string?
@@ -531,21 +527,21 @@ local class EntryReader is Tar.Reader
     local pax_local: {string:string}?
 
     while true do
-      local block, at_eof, trouble = read_block_or_eof(src)
-      if at_eof then
+      local block, trouble = read_block_or_eof(src)
+      if block == nil then return fail(self, trouble) end
+      if block == false then
         self.ended = true
         return false
       end
-      if block == nil then return fail(self, trouble) end
       local chksum = numeric_at(block, 149, 8)
       if chksum == 0 and is_zero_block(block) then
-        local _second, _second_eof, strouble = read_block_or_eof(src)
-        if strouble ~= "" then return fail(self, strouble) end
+        local second, strouble = read_block_or_eof(src)
+        if second == nil then return fail(self, strouble) end
         self.ended = true
         return false
       end
       if header_sum(block) ~= chksum then
-        return fail(self, "tar: bad header checksum")
+        return fail(self, Failure.new("tar: bad header checksum"))
       end
       local typeflag = block:sub(157, 157)
       if typeflag == "L" or typeflag == "K" or typeflag == "x" or typeflag == "g" then
@@ -766,7 +762,7 @@ local class EntryWriter is Tar.Writer
         -- A failed write is the sink's already, said as the Writer said it.
         local usable, failure = sink:usable()
         if not usable then return false, failure end
-        return sink:fail("tar: add_file: " .. tostring(copy_trouble))
+        return sink:fail(Failure.within(copy_trouble, "tar: add_file"))
       end
     end
     return sink:put(pad_bytes(size))

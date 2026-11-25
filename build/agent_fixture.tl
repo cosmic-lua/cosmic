@@ -159,7 +159,7 @@ function agent_fixture.api(replies: {Json.Value}): Api
   local sent: mut {{string: Json.Value}} = {}
   local bodies: mut {string} = {}
   local headers: mut {{string: string}} = {}
-  local function send(url: string, opts: Http.Options): Agent.Reply?, string
+  local function send(url: string, opts: Http.OpenOptions): Agent.Reply?, string
     assert(opts.method == "POST" and url == "https://api.test/v1/messages", url)
     local body = assert(Json.decode_object(opts.body or ""))
     sent[#sent + 1] = body

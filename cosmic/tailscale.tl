@@ -748,7 +748,7 @@ end
 -- `watch` waits as a task does.
 
 --- The options of `watch`'s request to `endpoint`. `timeout_ns` is the call's limit, `default_ns` by default; 0 is none.
-local function options(endpoint: Endpoint, default_ns: integer, method: string, body?: string, timeout_ns?: integer): Http.Options
+local function options(endpoint: Endpoint, default_ns: integer, method: string, body?: string, timeout_ns?: integer): Http.OpenOptions
   local headers: mut {string: string} = {
     -- Over a port the URL names 127.0.0.1, which the daemon takes only
     -- with a token; this one it always takes, as its own client sends.
