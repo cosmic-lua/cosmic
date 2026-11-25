@@ -5,6 +5,7 @@
 --- `checked`.
 
 local Compress = require("cosmic.compress")
+local type Failure = require("cosmic.failure")
 local testing = require("cosmic.internal.testing")
 local Test = require("cosmic.test")
 
@@ -20,7 +21,8 @@ local function test_a_decoder_that_stops_consuming_fails_the_ratio_check()
   local packed = assert(Compress.encode("raw", "hello, cosmic!"))
   testing.fail_at("tinfl_decompress")
   local dec = assert(Compress.decoder("raw"))
-  local out, trouble: string?, string?
+  local out: string?
+  local trouble: Failure?
   for _ = 1, 64 do
     out, trouble = dec:update(packed)
     if out == nil or not dec:pending() then break end
@@ -37,8 +39,12 @@ local function test_a_raise_inside_update_leaves_the_stream_finished()
   local raised = 0
   for after = 0, 100000 do
     local dec = gzip_decoder()
+    -- Made before allocations are refused: the closure is an allocation too.
+    local function feed()
+      local _, _ = dec:update(packed, 1 << 20)
+    end
     testing.fail_allocations(after)
-    local ok = pcall(dec.update, dec, packed, 1 << 20) -- checked: alternatives_as_value
+    local ok, _ = pcall(feed)
     local refused = testing.allow_allocations()
     if refused == 0 then
       assert(ok)
@@ -46,7 +52,7 @@ local function test_a_raise_inside_update_leaves_the_stream_finished()
     end
     if not ok then
       raised = raised + 1
-      local again, why = pcall(dec.update, dec, "")
+      local again, why = pcall(function() local _, _ = dec:update("") end)
       assert(not again and tostring(why):find("finished", 1, true) ~= nil, tostring(why))
     end
   end

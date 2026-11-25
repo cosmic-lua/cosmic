@@ -608,7 +608,7 @@ local class DecodingReader is Stream.Reader
       chunk, self.head = self.head, ""
     end
     local out, trouble = codec:update(chunk, max_bytes)
-    if out == nil then return nil, self:fail(trouble) end
+    if out == nil then return nil, self:fail(tostring(trouble)) end
     return out
   end
 
@@ -641,7 +641,7 @@ local class DecodingReader is Stream.Reader
           end
           if codec == nil then return nil, self:fail("no codec") end
           local last, trouble = codec:finish()
-          if last == nil then return nil, self:fail(trouble) end
+          if last == nil then return nil, self:fail(tostring(trouble)) end
           if codec:rest() ~= "" then
             return nil, self:fail("bytes follow the compressed data")
           end

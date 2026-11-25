@@ -242,6 +242,8 @@ local record Member
   type: Type
   mut: boolean
   method: boolean
+  --- The names its parameters were declared with, where it is a function ([`Types.Field.params`]).
+  params?: {string}
 end
 
 --- A declaration's members by name, and its array part.
@@ -1072,19 +1074,19 @@ local function members_index(ctx: Ctx, decl: Decl, value: boolean): Members?
     -- A function field that every value holds and no statement gives the table of the functions is not in that table.
     if not (value and (decl.kind == "class" or absent[f.name] == true)) then
       local list = index.by_name[f.name] or {}
-      list[#list + 1] = { type = f.type, mut = f.mut == true, method = false } -- checked: view_written
+      list[#list + 1] = { type = f.type, mut = f.mut == true, method = false, params = f.params } -- checked: view_written
       index.by_name[f.name] = list
     end
   end
   for _, m in ipairs(body.methods) do
     local list = index.by_name[m.name] or {}
-    list[#list + 1] = { type = m.type, mut = false, method = true } -- checked: view_written
+    list[#list + 1] = { type = m.type, mut = false, method = true, params = m.params } -- checked: view_written
     index.by_name[m.name] = list
   end
   if not value then
     -- A declaration that lists an interface has the fields it leaves out from it.
     for _, f in ipairs(Declarations.inherited(ctx.store, ctx.judge, decl)) do
-      index.by_name[f.name] = { { type = f.type, mut = f.mut == true, method = false } }
+      index.by_name[f.name] = { { type = f.type, mut = f.mut == true, method = false, params = f.params } }
     end
   end
   if value and decl.kind == "integer_enum" then
@@ -1104,7 +1106,7 @@ local function members_index(ctx: Ctx, decl: Decl, value: boolean): Members?
   if value then
     for name, f in pairs(ctx.program.statics[decl] or {}) do
       local list = index.by_name[name] or {}
-      list[#list + 1] = { type = f.type, mut = false, method = false } -- checked: view_written
+      list[#list + 1] = { type = f.type, mut = false, method = false, params = f.params } -- checked: view_written
       index.by_name[name] = list
     end
   else
@@ -3015,7 +3017,8 @@ function Naming.members_told(ctx: Ctx, t: Type, name: string, close: string): st
   for _, n in ipairs(picked) do
     local list = index.by_name[n]
     local first = if list ~= nil then list[1] else nil end
-    local shown = if first ~= nil then NearNames.cut(show(ctx, first.type), 120) else "" end
+    local shown = if first ~= nil then
+      NearNames.cut(Types.display(first.type, ctx.binders, ctx.fn_names, first.params), 120) else "" end
     -- A type that holds a type variable of the checker's own (`?0.0`) is shown by its name alone.
     typed[#typed + 1] = if shown ~= "" and shown:find("%?%d") == nil then "`" .. n .. ": " .. shown .. "`" else quoted(n) end
   end

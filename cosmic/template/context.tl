@@ -201,28 +201,41 @@ end
 local record Context
 end
 
---- Sets `ctx` on every interpolation of `template`, or refuses the first
---- slot that has no escaping.
+--- Sets `ctx` on every interpolation of `template`, its body's and each
+--- `{{define}}`'s, or refuses the first slot that has no escaping. Each
+--- starts where a template starts and must end where it began, since what
+--- it writes is put in other places as markup.
 --- @param template types.Template The tree, changed in place
 --- @param name string The template's name, for messages
---- @param end_line integer The line the template's source ends on
---- @param end_col integer The column just after its last byte
 --- @param attributes dialect.Table What the template's dialects say of its attributes
 --- @return boolean True when every slot has a place
 --- @return string The reason, as `name:line:col: ...`, on a refusal
-function Context.annotate(template: types.Template, name: string, end_line: integer, end_col: integer,
-                          attributes: dialect.Table): boolean, string
+function Context.annotate(template: types.Template, name: string, attributes: dialect.Table): boolean, string
   if template.mode == "text" then
     return true, ""
   end
-  local after, why = walk({ name = name, seen = {} }, template.body, markup.start(attributes), {})
-  if after == nil then
+  local w: Walk = { name = name, seen = {} }
+  local function whole(body: {types.Node}, end_line: integer, end_col: integer, what: string): string
+    local after, why = walk(w, body, markup.start(attributes), {})
+    if after == nil then
+      return why
+    end
+    local open = markup.ending(after)
+    if open ~= "" then
+      return refuse(name, end_line, end_col,
+        what .. " ends " .. open .. ": it would put what follows it in another template into that place")
+    end
+    return ""
+  end
+  local why = whole(template.body, template.body_end_line, template.body_end_col, "the template")
+  if why ~= "" then
     return false, why
   end
-  local open = markup.ending(after)
-  if open ~= "" then
-    return false, refuse(name, end_line, end_col,
-      "the template ends " .. open .. ": it would put what follows it in another template into that place")
+  for _, define in ipairs(template.defines) do
+    why = whole(define.body, define.end_line, define.end_col, "{{define " .. define.name .. "}}")
+    if why ~= "" then
+      return false, why
+    end
   end
   return true, ""
 end
