@@ -41,7 +41,8 @@ it names. The id is shown, so check first that the user may end it, or pass
 the user as `subject`, which ends it only where it is theirs.
 `session:label("M's iPad")` gives a session a name to show beside it, and
 [`SessionSqlite.label`] renames one by its id. [`SessionSqlite.info`] returns
-the request's own session (from `session:id()`), to mark it on the page.
+the request's own session (from `session:id()`), to mark it on the page, or
+false where it is not live.
 
 With `seen_interval`, the store notes when and from which client address
 each session was last used. It writes after a request that reads or saves
@@ -163,7 +164,9 @@ local function store(): (Session.Store?, string)
   if path ~= nil then
     local db, why = Sqlite.open(path)
     if db == nil then return nil, why.message end
-    return SessionSqlite.store(db)
+    local made, made_why = SessionSqlite.store(db)
+    if made == nil then return nil, tostring(made_why) end
+    return made, ""
   end
   local keys, trouble = Secret.keys_from_env("VISITS_KEYS")
   if keys == nil then return nil, tostring(trouble) end

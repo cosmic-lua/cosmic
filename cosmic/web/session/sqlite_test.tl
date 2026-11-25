@@ -7,8 +7,6 @@ local SessionSqlite = require("cosmic.web.session.sqlite")
 local Sqlite = require("cosmic.sqlite")
 local Web = require("cosmic.web")
 
---- A client acting as a browser on an https page, which sends the Secure
---- session cookie back.
 --- The info [`SessionSqlite.info`] gives, or false where `token` names
 --- no live session; fails the test on a Failure.
 local function info_or_false(store: Session.Store, token: string, now: integer): SessionSqlite.Info | false
@@ -24,6 +22,8 @@ local function live_info(store: Session.Store, token: string, now: integer): Ses
   return info
 end
 
+--- A client acting as a browser on an https page, which sends the Secure
+--- session cookie back.
 local function browser(app: Web.App): Web.TestClient
   local client = Web.test_client(app)
   client.scheme = "https"
