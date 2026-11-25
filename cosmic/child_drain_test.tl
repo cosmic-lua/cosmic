@@ -352,35 +352,56 @@ assert(Fs.close(1)) assert(Fs.take(0, 1))]],
   assert(not assert(h:try_wait()).finished)
 end
 
-local function escaped(script: string): Child.Handle
+--- A child whose own child, the writer, runs `script` with the child's stdout, in no group of a handle's own, and is
+--- left running when the child exits. The child writes the writer's pid to `tmp`/writer.pid first.
+local function escaped(tmp: string, script: string): Child.Handle
   local chunk = [[
 local Child = require("cosmic.child")
+local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
-local program = require("build.this_program").program({ "-e", ... }, { timeout_ns = -1, process_group = false })
-assert(Child.start(program.argv, program.options))
+local program = require("build.this_program").program({ "-e", SCRIPT }, { timeout_ns = -1, process_group = false })
+local writer = assert(Child.start(program.argv, program.options))
+assert(Fs.write(PIDS, tostring(writer.pid)))
 sys.exit(0)
 ]]
-  return start((chunk:gsub("%.%.%.", function(): string return string.format("%q", script) end)),
-    { timeout_ns = Child.FOREVER, stdout = "stream", process_group = false })
+  chunk = chunk:gsub("SCRIPT", function(): string return string.format("%q", script) end)
+  chunk = chunk:gsub("PIDS", function(): string return string.format("%q", tmp .. "/writer.pid") end)
+  return start(chunk, { timeout_ns = Child.FOREVER, stdout = "stream", process_group = false })
 end
 
-local function test_escaped_writer_is_drained_after_the_leader_exits()
-  local h <close> = escaped([[
+--- Ends the writer [`escaped`] started in `tmp`, once its child has exited, and waits until it is gone. No group a
+--- handle owns holds it, and this process adopts it only if it started a group first, so neither its group's end
+--- nor [`Child.end_strays`] reaches it.
+local function end_writer(tmp: string)
+  local pid = assert(math.tointeger(tonumber(assert(_Fs.read(tmp .. "/writer.pid")))))
+  local _, _ = sys.kill(pid, sys.SIGKILL)
+  local deadline = Clock.monotonic_ns() + Clock.seconds(5)
+  while true do
+    local alive, _, errno = sys.kill(pid, 0)
+    if not alive and errno == sys.ESRCH then return end
+    assert(alive, "the writer " .. tostring(pid) .. " cannot be signaled: errno " .. tostring(errno))
+    assert(Clock.monotonic_ns() < deadline, "the writer " .. tostring(pid) .. " did not end")
+    assert(Clock.sleep(Clock.ms(1)))
+  end
+end
+
+local function test_escaped_writer_is_drained_after_the_leader_exits(tmp: string)
+  local h <close> = escaped(tmp, [[
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local _, _ = Clock.sleep(Clock.ms(50)) assert(Fs.put(1, "late"))]])
   local out = Stream.collect()
   assert(finish(h, options(out)) == 4 and out:result() == "late")
   assert(assert(h:wait()).ok)
-  Child.end_strays()
+  end_writer(tmp)
 end
 
-local function test_silent_escaped_writer_obeys_deadline_without_ending_child()
-  local h <close> = escaped('local _, _ = require("cosmic.clock").sleep(require("cosmic.clock").seconds(10))')
+local function test_silent_escaped_writer_obeys_deadline_without_ending_child(tmp: string)
+  local h <close> = escaped(tmp, 'local _, _ = require("cosmic.clock").sleep(require("cosmic.clock").seconds(10))')
   local got = h:drain(options(Stream.collect(), nil, Clock.ms(20)))
   assert(got ~= nil and got.kind == "timeout" and got.bytes == 0) -- checked: compare_disjoint
-  Child.end_strays()
   assert(assert(h:wait()).ok)
+  end_writer(tmp)
 end
 
 local function test_a_single_write_never_exceeds_the_chunk_bound()
@@ -447,8 +468,8 @@ assert(Fs.put(1, "output")) assert(Fs.put(2, "error"))]],
   assert(out:result() == "output" and err:result() == "error")
 end
 
-local function test_reader_abandonment_of_escaped_writer_is_not_drain_eof()
-  local h <close> = escaped('local _, _ = require("cosmic.clock").sleep(require("cosmic.clock").seconds(10))')
+local function test_reader_abandonment_of_escaped_writer_is_not_drain_eof(tmp: string)
+  local h <close> = escaped(tmp, 'local _, _ = require("cosmic.clock").sleep(require("cosmic.clock").seconds(10))')
   assert(assert(h:wait()).ok)
   local reader = assert(h.stdout_stream)
   local data, _ = reader:read()
@@ -457,7 +478,7 @@ local function test_reader_abandonment_of_escaped_writer_is_not_drain_eof()
   assert(got ~= nil and got.kind == "failed" and got.reason == "child: the reader is closed") -- checked: compare_disjoint
   data, _ = reader:read()
   assert(data == false, "ordinary Reader retains its legacy EOF")
-  Child.end_strays()
+  end_writer(tmp)
 end
 
 local function test_sink_cannot_change_the_calls_validated_bounds()
