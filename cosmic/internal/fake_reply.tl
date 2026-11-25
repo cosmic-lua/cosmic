@@ -15,7 +15,7 @@ local record Reply
   code?: integer
 end
 
-local REPLIES <const> = Shape.map(Shape.record_of("Reply").spec)
+local REPLIES <const> = Shape.map(Shape.record_of("Reply"):strict().spec)
 
 --- Says `why` on stderr and ends with status 127, as a shell does for a
 --- command it cannot run.
