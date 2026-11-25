@@ -2264,3 +2264,13 @@ local function test_a_suite_stops_starting_tests_before_its_bound()
   assert(env["COSMIC_TEST_DEADLINE"] == "510" and env["COSMIC_TEST_TIMEOUT"] == "10",
     tostring(env["COSMIC_TEST_DEADLINE"]))
 end
+
+--- A command that exited nonzero says nothing more of how it ended,
+--- unless its settle left remains, which the kept line names.
+local function test_the_ended_line_names_the_remains_of_a_failed_exit()
+  local Orchestration = require("cosmic_ci.orchestration")
+  assert(Orchestration.ended_line("build", { status = "exit", code = 2, elapsed_ns = 0 }) == "")
+  local line = Orchestration.ended_line("build", { status = "exit", code = 2, elapsed_ns = 0,
+    trouble = "child: process group 7 still has members after SIGKILL" })
+  assert(line == "\nerror: build: exit: child: process group 7 still has members after SIGKILL\n", line)
+end

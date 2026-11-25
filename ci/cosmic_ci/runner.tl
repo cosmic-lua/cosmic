@@ -337,16 +337,25 @@ end
 
 --- Ends `running` and its process group if it still runs, SIGTERM, a
 --- grace period, then SIGKILL, waits for it to go and records it as
---- "cancelled" (status 130). A command that already ended keeps its outcome.
+--- "cancelled" (status 130), with any `remains` its settle left. A
+--- command that already ended keeps its outcome.
 function Runner.stop(running: Runner.Running): Runner.Outcome
   local handle = running.handle
   if handle == nil then return Runner.reap(running) end
   local polled, _ = handle:try_wait()
   if polled ~= nil and polled.finished then return Runner.reap(running) end
-  local _, _ = handle:close()
+  local closed, _ = handle:close()
+  -- Only a close that worked has settled the child: a wait after a
+  -- failed one could block on a child that never ends.
+  local trouble = "stopped before it ended"
+  if closed then
+    local settled, _ = handle:wait()
+    local remains = if settled ~= nil then settled.remains else nil end
+    if remains ~= nil then trouble = limited(trouble .. "; " .. remains) end
+  end
   local elapsed = Clock.monotonic_ns() - running.recording.started
   return settle(running, { status = "cancelled", code = 130, elapsed_ns = elapsed,
-    trouble = "stopped before it ended" })
+    trouble = trouble })
 end
 
 --- Records `work`, done in this process, as one operation named `phase`,
