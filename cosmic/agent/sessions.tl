@@ -5,8 +5,8 @@
 --- JSON, so a later command can go on with it (`--continue`,
 --- `--session`). Each tool's whole output is a row of `outputs` too,
 --- indexed for full-text search (FTS5, trigram), so the model reads a
---- short part of it and reads the rest, with Host.output or Host.history in run (or
---- the sql tool), when it needs it.
+--- short part of it and reads the rest, with Host.output or Host.history in run,
+--- when it needs it.
 ---
 --- cosmic agent keeps each conversation in sessions.db, in its data
 --- directory ($XDG_DATA_HOME/cosmic/agent, or ~/.local/share/cosmic/agent), as
@@ -58,7 +58,7 @@
 ---     kept          session, key, value (JSON): what a snippet of the
 ---                   run tool kept for a later one (cosmic.agent.host's
 ---                   store), which a resumed session reads again; the
----                   history and sql read every session's
+---                   history call reads every session's
 ---
 --- A database of version 1 is made version 2 as it opens. There is no
 --- way back: an older cosmic refuses a newer one's database.
@@ -263,7 +263,7 @@ function Sessions.open(path: string): Sqlite.Handle?, string
   -- waits for the lock, then finds the schema made.
   local migrated, migrate_why = db:migrate({ SCHEMA, KEPT })
   if migrated == nil then return refused(tostring(migrate_why)) end
-  -- WAL lets a reader (the sql tool, sqlite3) in beside a writer, once the
+  -- WAL lets a reader (Host.history, sqlite3) in beside a writer, once the
   -- file is known to be ours; a database busy past the wait may refuse the
   -- switch, which is no reason to fail.
   local _, _ = db:wal()

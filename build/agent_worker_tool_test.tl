@@ -431,7 +431,8 @@ print(tostring(long))
   Worker.close(w)
 end
 
---- A snippet reads sessions.db through the agent (Host.history), which answers it read-only, as the sql tool does, row by row.
+--- A snippet reads sessions.db through the agent (Host.history), which answers it read-only, row by row: a write, a
+--- copy (VACUUM INTO) and an attach are refused.
 local function test_a_snippet_queries_the_sessions_through_the_agent()
   local w = set_of_worker()
   local dir = assert(Fs.mkdtemp("agent-worker-"))
@@ -446,15 +447,22 @@ local row = assert(rows[1])
 print(row["tool"], row["text"], row["r"], row["z"] == require("cosmic.json").null, row["here"])
 local refused, why = pcall(Host.history, "DELETE FROM outputs")
 print(not refused, tostring(why))
+for _, statement in ipairs({ "VACUUM INTO 'COPY'", "ATTACH 'COPY' AS b" }) do
+  local copied, _ = pcall(Host.history, statement)
+  print("refused", not copied)
+end
 local again = Host.history("SELECT count(*) AS n FROM outputs")
 return assert(again[1])["n"]
 ]]
-  local ran = Tools.run("run", { code = code }, context)
+  local copy = dir .. "/copy.db"
+  local ran = Tools.run("run", { code = (code:gsub("COPY", copy)) }, context)
   assert(not ran.is_error, ran.text)
   assert(ran.text:find("bash\ta\u{FFFD}b\t1.5\ttrue\t" .. tostring(id) .. "\n", 1, true) ~= nil, ran.text)
   assert(ran.text:find("true\thost: history: not authorized", 1, true) ~= nil and ran.text:find("refuses a write", 1, true) ~= nil,
     ran.text)
   assert(ran.text:find("Returned: 1", 1, true) ~= nil, ran.text)
+  local _, refusals = ran.text:gsub("refused\ttrue", "")
+  assert(refusals == 2 and not assert(Fs.status(copy)).exists, ran.text)
   local big = Tools.run("run", { code = "local Host = require(\"cosmic.agent.host\")\n" ..
       "local _, why = pcall(Host.history, \"SELECT printf('%.1000c', 'x') AS x FROM generate_series(1, 1000)\")\n" ..
       "return tostring(why)\n" }, context)
