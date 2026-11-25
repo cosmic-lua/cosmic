@@ -178,7 +178,7 @@ local function reply_of(channel: Channel, call: integer): ({string: Json.Value})
   end
 end
 
---- How a snippet's calls ([`cosmic.agent.host`]) reach the agent on `channel`: a line `{"id":1,"call":"sql",
+--- How a snippet's calls ([`cosmic.agent.host`]) reach the agent on `channel`: a line `{"id":1,"call":"history",
 --- "call_id":1,"args":{...}}` out, and the reply, `{"call_id":1,"reply":...}` or `{"call_id":1,"failed":"..."}`, in.
 --- Calls made from tasks of one run ([`Poll.run`]) are out at once, and the agent answers each as it can.
 local function transport_of(channel: Channel): Host.Transport
@@ -281,44 +281,6 @@ local function provide(modules: Modules, code: string): string?
   return nil
 end
 
---- `code` with each `;` the checker's `lines` tell of (semicolon) made a space, and the lines that held one, when
---- each is a `;` and none comes before a `(`, where a space would make two statements one call; nil where there is
---- none. A `;` only ends a statement, so the snippet means the same without it, and the model's habit costs no
---- refusal.
-local function without_semicolons(code: string, lines: {string}): (string, {string: boolean}) | (nil)
-  local at: mut {string: boolean} = {}
-  local rows: mut {string: boolean} = {}
-  local told = false
-  for _, line in ipairs(lines) do
-    local row, column = line:match("^run%.tl:(%d+):(%d+): ")
-    if row ~= nil and column ~= nil and line:find("(semicolon)", 1, true) ~= nil then
-      at[row .. ":" .. column] = true
-      rows[row] = true
-      told = true
-    end
-  end
-  if not told then return nil end
-  local out: mut {string} = {}
-  local row, start = 0, 0
-  for line in (code .. "\n"):gmatch("([^\n]*)\n") do
-    row = row + 1
-    local chars: mut {string} = {}
-    for column = 1, #line do
-      local char = line:sub(column, column)
-      if at[tostring(row) .. ":" .. tostring(column)] ~= nil then
-        -- What follows the `;`, past spaces and newlines, would join the expression before it where it is a call's
-        -- argument (`(`, a string, a table) or an index (`[`): there the `;` stays, and is told of.
-        if char ~= ";" or code:find("^%s*[%(\"'{%[]", start + column + 1) ~= nil then return nil end
-        char = " "
-      end
-      chars[#chars + 1] = char
-    end
-    out[#out + 1] = table.concat(chars)
-    start = start + #line + 1
-  end
-  return table.concat(out, "\n"):sub(1, #code), rows
-end
-
 --- The modules a snippet may use with no require, each by the name it is given: where a snippet reads a field of one
 --- ([`Host.cat`], `Fs:...`), the require goes before its first line, on that line, so the lines the checker tells of
 --- stay the snippet's own.
@@ -337,30 +299,6 @@ local function prelude_of(code: string): string
   -- the prelude first.
   if #bound > 0 then bound[#bound + 1] = "do end " end
   return table.concat(bound)
-end
-
---- What `kept` made of `code`, with a statement's `;` mended ([`without_semicolons`]). Where the mended code is
---- refused too, its refusal, which tells of what else is wrong; where that tells of a line that held a `;` (one in a
---- table, say), the first's lines of the `;` before it.
-local function mended_check(kept: Pipeline.Kept, code: string): Pipeline.Alone
-  local made = kept:check(code)
-  if made.code ~= nil then return made end
-  local mended, rows = without_semicolons(code, made.lines)
-  if mended == nil then return made end
-  local again = kept:check(mended)
-  if again.code ~= nil then return again end
-  for _, line in ipairs(again.lines) do
-    local row = line:match("^run%.tl:(%d+):")
-    if row ~= nil and rows[row] == true then
-      local both: mut {string} = {}
-      for _, first in ipairs(made.lines) do
-        if first:find("(semicolon)", 1, true) ~= nil then both[#both + 1] = first end
-      end
-      for _, second in ipairs(again.lines) do both[#both + 1] = second end
-      return { code = nil, lines = both, stages = again.stages }
-    end
-  end
-  return again
 end
 
 --- `lines` with a column of line 1 told as the snippet's own, `width` bytes of prelude before it taken off.
@@ -385,10 +323,10 @@ end
 --- one with the prelude, unless it tells of a name the prelude declares (`declared at 1:C`, C within the prelude).
 local function snippet_check(kept: Pipeline.Kept, code: string): Pipeline.Alone
   local prelude = prelude_of(code)
-  if prelude == "" then return mended_check(kept, code) end
-  local made = mended_check(kept, prelude .. code)
+  if prelude == "" then return kept:check(code) end
+  local made = kept:check(prelude .. code)
   if made.code ~= nil then return made end
-  local alone = mended_check(kept, code)
+  local alone = kept:check(code)
   if alone.code ~= nil then return alone end
   for _, line in ipairs(made.lines) do
     for column in line:gmatch("declared at 1:(%d+)") do

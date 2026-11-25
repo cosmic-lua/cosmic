@@ -180,7 +180,7 @@ local insert_bound =
 --- each planned module and each declaration ([`cosmic.sys`]'s only source
 --- is the C header it is generated from), in module order and then
 --- source order. Which of them a reader sees is [`cosmic.doc`]'s to
---- decide: it answers a project only for the public standard library.
+--- decide: it shows a project only the public standard library.
 --- `id` is left for SQLite to assign in that order, so it is the same on
 --- every build of the same tree.
 local insert_docs =
@@ -660,7 +660,7 @@ local function says(rows: Sqlite.Rows?, answer: string): boolean
   return row ~= nil and row:text(1) == answer
 end
 
---- Whether the first column of the first row of `rows` is `1`: the answer
+--- Whether the first column of the first row of `rows` is `1`: the result
 --- of a `SELECT` of a condition, false where there was none.
 local function holds(rows: Sqlite.Rows?): boolean
   return says(rows, "1")
@@ -697,7 +697,7 @@ local base_meta <const> = "('image_hash', 'compiler', 'runtime_basis', 'writer')
 --- `out`, and it holds the same declarations by path, but for the two
 --- the checker is given ([`build.checker_declarations`]). Each of those decides
 --- some row a module's own inputs do not, so where any differs, or cannot
---- be read, the answer is false and the projection is written whole.
+--- be read, the result is false and the projection is written whole.
 local function usable_base(db: Sqlite.Handle, by: string, tool: string): boolean
   local function schema_rows(from: string, other: string): string
     return "(SELECT count(*) FROM (SELECT type, name, tbl_name, sql FROM " .. from ..
@@ -740,7 +740,7 @@ local function extraction(reusing: boolean): {string}
   return { insert_catalog_extracted, insert_docs, insert_uses, insert_typed_uses, insert_examples }
 end
 
---- Fills `temp.reused` ([`make_reused`]) from the base, and answers
+--- Fills `temp.reused` ([`make_reused`]) from the base, and returns
 --- whether it did; a failure leaves the write whole.
 local function find_reused(db: Sqlite.Handle): boolean
   for _, statement in ipairs(make_reused) do
@@ -1049,7 +1049,7 @@ end
 --- one the projection records being made from (`boot_hash`), runs that
 --- tree's code, so its writer is that tree's, which the projection
 --- records beside it (`writer`); any other names the `writer` it
---- carries, or its whole boot hash. Answers the one that differs, as
+--- carries, or its whole boot hash. Returns the one that differs, as
 --- what is said names it; nil where both are this process's own.
 ---
 --- These name the code, not the whole tool's boot hash as the working
@@ -1124,7 +1124,7 @@ end
 --- @param reader the verb of a lookup's build ([`rebuild.here`]), which
 --- waits for no run holding the rebuild lock: where one does, it leaves
 --- the projection there as it is, says so once
---- ([`rebuild_lock.try_hold`]), and answers true
+--- ([`rebuild_lock.try_hold`]), and returns true
 function writer.write_result(handle: work.Handle, out: string,
                              result: importer.Result, tree_code?: boolean,
                              library?: link_index.Library, reader?: string): boolean, string
@@ -1372,7 +1372,7 @@ local carry: {string} = {
   --
   -- A user guide ([`symbols.guide_module`]) is a generated test module, so
   -- `dropped` names it, but its own row -- the guide's prose -- is what
-  -- `cosmic docs quickstart` answers with.
+  -- `cosmic docs quickstart` shows.
   --
   dropped_modules .. carried_alias_signatures ..
     "INSERT INTO main.docs (module, symbol, source_symbol, exported, " ..

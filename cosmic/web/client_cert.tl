@@ -19,7 +19,7 @@
 ---     }
 ---
 --- A certificate the handshake did not verify -- a server with
---- `required = false` serves such a client -- is never answered here, and
+--- `required = false` serves such a client -- never appears here, and
 --- [`Web.require_client_cert`] refuses it; nor is one that has expired
 --- since, on a connection kept open. Behind a proxy that ends TLS itself
 --- (`trusted_proxy`, Serve) no request has one, so every one is refused.
@@ -44,7 +44,7 @@ function ClientCert.peer(req: Types.Request): Tls.Peer?
   return peer
 end
 
---- Middleware that answers 403 to a request whose client presented no
+--- Middleware that responds 403 to a request whose client presented no
 --- verified certificate, or one `accept` (when given) refuses: put it on
 --- the app, a mount or a route.
 function ClientCert.require(accept?: function(peer: Tls.Peer): boolean): Types.Middleware

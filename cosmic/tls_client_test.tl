@@ -41,10 +41,10 @@ local function trusting(opts?: Tls.ClientOptions): Tls.Client
 end
 
 --- Serves `pair` over TLS at a port of 127.0.0.1, with ALPN offering
---- "h2" and "http/1.1", each connection answered with the version and
---- ALPN protocol its handshake settled and then what it sent, until it
---- ends; runs `body` with the port in a task of the server's run, and
---- stops the server once it returns.
+--- "h2" and "http/1.1", replying on each connection with the version
+--- and ALPN protocol its handshake settled and then what it sent,
+--- until it ends; runs `body` with the port in a task of the server's
+--- run, and stops the server once it returns.
 local function served(pair: Tls.Pair, body: function(port: integer))
   assert(Net.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },

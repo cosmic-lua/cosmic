@@ -187,7 +187,7 @@ end
 --- `list` as a query string: each [`Url.Pair`] written `name=value`
 --- with both halves escaped as by [`Html.url_part`] but for the dot
 --- rule, joined by `&`, in order. A name may repeat. It takes the pairs
---- [`Url.encode_query`] takes and [`Url.decode_query`] answers (a
+--- [`Url.encode_query`] takes and [`Url.decode_query`] returns (a
 --- [`Url.Query`]'s `pairs`), and differs from that encoding only in
 --- writing a space `%20`, as a URL in a page does, not `+`. Raises,
 --- blaming its caller, for a [`Url.Pair`] whose name or value is not a
@@ -224,7 +224,7 @@ function Html.escape_css_attr(s: string | number): Html.SafeAttr
   return raw.escape_css_attr(s)
 end
 
---- `value` as JSON text, from [`Json.encode`]. Answers `nil` and a
+--- `value` as JSON text, from [`Json.encode`]. Returns `nil` and a
 --- Failure where it cannot be encoded (a function, a cycle, NaN, ...).
 ---
 ---     Html.raw_json(assert(Html.json({ id = 7 }))) -- '{"id":7}'
@@ -235,7 +235,7 @@ function Html.json(value: any): (Html.SafeJson) | (nil, Failure)
 end
 
 --- `text` as JSON text already encoded, if [`Json.check`] reads it.
---- Answers `nil` and a Failure otherwise.
+--- Returns `nil` and a Failure otherwise.
 function Html.json_text(text: string): (Html.SafeJson) | (nil, Failure)
   local ok, why = json.check(text)
   if not ok then return nil, Failure.new("json: " .. why) end

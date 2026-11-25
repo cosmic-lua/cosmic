@@ -77,7 +77,7 @@ local function bare(): McpServer.Call
     keep = function(_: string) end }
 end
 
---- What the tool answers for `path`; skips the test where the host gives no sandbox.
+--- What the tool returns for `path`; skips the test where the host gives no sandbox.
 local function called(spec: McpServer.ToolSpec, path: string): Mcp.ToolResult
   local result, why = spec.call({ path = path }, bare())
   if result == nil then

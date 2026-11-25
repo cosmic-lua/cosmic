@@ -25,9 +25,9 @@ end
 
 --- `handler` with `stack` folded around it: the first of `stack` is
 --- outermost, as it sees the request first and the response last. A
---- [`Web.abort`] raised by a middleware or by what is below it is answered
---- at that layer, so the middleware outside it sees the error page as a
---- response (any other raise passes through).
+--- [`Web.abort`] raised by a middleware or by what is below it becomes a
+--- response at that layer, so the middleware outside it sees the error
+--- page as a response (any other raise passes through).
 --- @param stack {Types.Middleware} The middleware, outermost first
 --- @param handler Types.Handler The handler they wrap
 --- @return Types.Handler The wrapped handler

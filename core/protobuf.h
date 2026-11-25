@@ -1,5 +1,5 @@
 /* The Protocol Buffers wire format, read by number: nanopb reads the
- * bytes, this core indexes the fields and answers each by its type. */
+ * bytes, this core indexes the fields and returns each by its type. */
 
 #ifndef COSMIC_PROTOBUF_H
 #define COSMIC_PROTOBUF_H

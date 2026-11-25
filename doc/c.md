@@ -45,13 +45,13 @@ When writing or reviewing C, check for:
   `cosmic_fail` for one declared a value, never `boolean|nil`. (checked:
   what a binding returns, against its declaration in
   [`core/syscalls.h`])
-- A header's function returning `int` that only ever answers 0, 1 or a
+- A header's function returning `int` that only ever returns 0, 1 or a
   truth: it is a pass or a fail, so it returns `bool`, true for success.
   One forwarding a library's status stays `int`, its contract said where
   it is declared. (checked)
 - A function of external linkage returning the same constant on every
   path: it returns `void`. (checked)
-- A binding that answers `true` and nothing else on every path: it answers
+- A binding that returns `true` and nothing else on every path: it returns
   nothing. (checked)
 - A function a header declares that only its own file refers to: it is
   `static` there and out of the header. (checked, only when every C file

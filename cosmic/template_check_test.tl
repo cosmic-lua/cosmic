@@ -141,7 +141,7 @@ fmt["end"] = fmt.bracket
 return fmt
 ]]
 
---- A stage that answers two values, a value that may be absent and its reason, which is the only shape of more than one result
+--- A stage that returns two values, a value that may be absent and its reason, which is the only shape of more than one result
 --- an exported function may have (the discipline of the new checker refuses any other).
 local MULTI <const> = [[
 local record multi
@@ -216,7 +216,7 @@ local function esc_attr(s: string): string
 end
 
 -- TODO: once a `load` environment can hold a module and a function together without `any` (or a test can hand
--- `require` the real [`cosmic.html`] another way), [`load_module`] answers it typed and loses its `any_use`.
+-- `require` the real [`cosmic.html`] another way), [`load_module`] returns it typed and loses its `any_use`.
 
 --- The module `path` of `lua`, loaded against the real [`cosmic.html`].
 local function load_module(lua: {string: string}, path: string): any
@@ -708,7 +708,7 @@ local function test_a_block_that_adds_a_bare_attribute_renders_it_only_when_its_
       '<option value="c&quot;">x</option><br/>\n<input readonly name="b">', off)
 end
 
---- A stage that counts its calls, and one that answers the count.
+--- A stage that counts its calls, and one that returns the count.
 local COUNTER <const> = [[
 local record counter
   mut calls: integer

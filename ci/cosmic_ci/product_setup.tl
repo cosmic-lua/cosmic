@@ -92,7 +92,7 @@ function ProductSetup.build(root: string, product: string, tmp: string): string
 end
 
 --- Which of `product`'s files differs from `recorded`, the text of the
---- hashes.sha256 `build` wrote for it. Answers "hashes.sha256" where
+--- hashes.sha256 `build` wrote for it. Returns "hashes.sha256" where
 --- that file does not hold `recorded`, the name of the first file that
 --- differs, or nil where none does. A file differs where it is not a
 --- regular file, or its bytes are not the ones recorded, or, for the

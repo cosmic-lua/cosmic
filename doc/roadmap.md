@@ -155,12 +155,12 @@ The sandbox's own next steps, none of which a caller needs yet:
   refuses SOCKS5's UDP ASSOCIATE, so a program held to `connect` reaches no
   host over UDP.
 - forward plain HTTP. The relay ([`cosmic.internal.relay_server`]) takes
-  only CONNECT and SOCKS5's CONNECT, and answers a proxy request for an
-  `http://` URL 405.
+  only CONNECT and SOCKS5's CONNECT, and responds to a proxy request for an
+  `http://` URL with 405.
 - a transparent network mode, for a program that ignores the proxy
   variables: its connections carried to the relay without them, where
   today such a program reaches nothing.
-- a DNS stub in the sandbox that answers the names the policy grants, for
+- a DNS stub in the sandbox that resolves the names the policy grants, for
   a program that resolves a name before it uses the proxy. The sandbox has
   no DNS of its own ([`cosmic.internal.relay_config`]).
 - nested sandboxes through a broker outside the sandbox, which starts a
@@ -198,11 +198,11 @@ promises lean on come first:
 - convert the sites that still read a decoded JSON value without a
   [`cosmic.shape`] check. None casts it in a function that
   build/contracts.tl's `casts` names; what is left:
-  - [`ci/cosmic_ci/prerelease.tl`] narrows the `gh` answers with `is` and an
-    `assert` per field (`draft_ids`, `target`, `workflows_moved`,
-    `asset_names`, `flag`). `prerelease_test.tl` pins `draft_ids`'
-    messages, and it asks for an `id` only of the drafts that carry the tag,
-    which a record would ask of every release.
+  - [`ci/cosmic_ci/prerelease.tl`] narrows the GitHub API's JSON
+    responses with `is` and an `assert` per field (`draft_ids`, `target`,
+    `workflows_moved`, `asset_names`, `flag`). `prerelease_test.tl` pins
+    `draft_ids`' messages, and it asks for an `id` only of the drafts that
+    carry the tag, which a record would ask of every release.
   - the workflow files, read as JSON5 and cast to maps in
     [`build/workflows_test.tl`] and
     `ci/cosmic_ci/orchestration_test.tl`: a record per job, step and matrix
@@ -263,7 +263,7 @@ promises lean on come first:
   headers are still most of the dump.
 - the lint design.md's teal section plans: refuse `v is R` for a record `R`
   on an `any`, which compiles to a table check, and point at [`cosmic.shape`].
-- record `shape`'s decisions in design.md: the answer is a copy, a null
+- record `shape`'s decisions in design.md: the result is a copy, a null
   stand-in and a list's hole are missing values, and `integer` is the one
   conversion.
 - measure `into`'s copy on a large payload (a big NDJSON file) against
@@ -272,8 +272,8 @@ promises lean on come first:
   caller needs one (`cosmic refresh` posting a large artifact, say). It
   needs a streaming path in C: a read callback that pauses the transfer,
   `Expect:` suppressed, and a given or chunked length. A 307 or 308 with a streamed body
-  needs the caller to hand the body over again (a function answering a
-  fresh Reader) behind `CURLOPT_SEEKFUNCTION`; curl answers "necessary data
+  needs the caller to hand the body over again (a function returning a
+  fresh Reader) behind `CURLOPT_SEEKFUNCTION`; curl fails with "necessary data
   rewind was not possible" without one.
 - [`cosmic.http.message`] past the message, each once a caller needs it:
   RTSP's interleaved binary frames (RFC 2326 10.12: `$`, a channel byte and a
@@ -305,7 +305,7 @@ promises lean on come first:
   ([`Server.ServeSpec.tls`]), each once a caller needs it: HTTP/2;
   routing, a table of methods and path patterns to
   handlers in place of one handler's `if`s; static files, a directory
-  served by [`Url.segments`] with types, answering ranges
+  served by [`Url.segments`] with types, honoring ranges
   ([`Server.range`]) and conditional requests ([`Server.none_match`]);
   and a reply compressed at a level of its own, and in brotli, where
   `compress` writes zstd and gzip at their defaults.
@@ -386,7 +386,7 @@ promises lean on come first:
     packet.
   - The header and the whole records of a truncated response. A server that
     cuts a response mid-record sets the truncated bit, and [`Dns.decode`]
-    answers nil and a reason for it, as for any message whose counts pass its
+    returns nil and a reason for it, as for any message whose counts pass its
     bytes: the caller learns neither the id nor that `truncated` was set, so
     it cannot tell "ask again over TCP" from garbage.
   - EDNS (RFC 6891): the OPT pseudo-record read into fields (the payload
@@ -407,7 +407,7 @@ promises lean on come first:
     they nest.
 
 - [`cosmic.mdns`] past a search made once, each once a caller needs it:
-  - The rest of publishing a service, where [`Mdns.responder`] only answers:
+  - The rest of publishing a service, where [`Mdns.responder`] only responds:
     probing for its names before it uses them, announcing its records,
     saying goodbye as it stops and settling a conflict with another
     responder (RFC 6762 sections 8 to 10); leaving out the answers a
@@ -448,7 +448,7 @@ promises lean on come first:
 - [`cosmic.plist`] past the binary and XML forms read and written whole,
   each once a caller needs it:
   - The old ASCII form (OpenStep's, `{ key = value; }`), which Xcode still
-    writes for a project file and `defaults` prints. [`Plist.form`] answers
+    writes for a project file and `defaults` prints. [`Plist.form`] returns
     nil for it and [`Plist.decode`] refuses it. It holds strings, data,
     arrays and dicts alone, so reading it needs no new kind of value.
   - A keyed archive (NSKeyedArchiver) read as the objects it archives:
@@ -471,7 +471,7 @@ promises lean on come first:
     a stream, which the XML form allows and the binary form, whose trailer
     is at its end, does not.
 
-- `cosmic lsp` ([`build/lsp/session.tl`]) answers diagnostics, hover, go to definition, completion and formatting. Definition and completion read
+- `cosmic lsp` ([`build/lsp/session.tl`]) gives diagnostics and responds to hover, go to definition, completion and formatting requests. Definition and completion read
   the open document's last check, [`check.read`] and [`check.last`] (its tree, scopes and types), and the working database for
   the other modules: the `places` rows for a declaration's position ([`build/lsp/source.tl`]), the docs for a member's text.
   The direction is for the server to read the working database for all per-source data, extending it and triggering its

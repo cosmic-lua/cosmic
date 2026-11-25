@@ -97,11 +97,11 @@ local record Test
     mut env?: {string}
     --- The loopback addresses the tests reach, each a dotted quad of
     --- 127/8, `127.a.b.c`, as a request names it: a sandboxed worker
-    --- runs offline, with a loopback of its own that answers them, and
+    --- runs offline, with a loopback of its own that carries them, and
     --- is keyed like any other. No test reaches another host: what one
-    --- answered, no key could hold, so a test that needs a service
+    --- replied, no key could hold, so a test that needs a service
     --- starts its own on 127.0.0.1. Any other name or address -- `::1`
-    --- and `localhost` among them, whose answer turns on how the host
+    --- and `localhost` among them, whose resolution turns on how the host
     --- sets up IPv6 -- and a spelling no request's host is (a port,
     --- brackets, a leading zero) are refused, naming this rule, as the
     --- build refuses them before the module runs.
@@ -241,7 +241,7 @@ local record Test
   end
 
   --- What the run of a test does that makes the same work cost more than
-  --- a plain run does: what [`Test.mode`] answers. A test that holds one
+  --- a plain run does: what [`Test.mode`] returns. A test that holds one
   --- piece of work to a multiple of another ([`lang.speed`]) reads it to
   --- give each mode a limit of its own, since a mode need not slow both
   --- sides alike.
@@ -267,7 +267,7 @@ end
 --- that module has loaded refused: a table whose `handed` is called with
 --- the [`Needs`] the policy stands for, whose `loaded` the runner sets once the
 --- module has loaded, and whose `skipped` is called with the reason
---- each `skip` is given and answers the value `skip` raises to end the
+--- each `skip` is given and returns the value `skip` raises to end the
 --- test (nothing, to let it go on). Nil when none is installed.
 local function runner_in(module: any): {string:any}?
   if module is {string:any} then -- checked: is_on_record
@@ -649,7 +649,7 @@ end
 --- [`Test.policy`] (`nest`, `proc`, `program:jq`, ...), and the runner
 --- decides before a worker starts: the tests are counted not applicable
 --- (`N n/a`) where the platform never has it, skipped where this host
---- lacks it, and run, under a key that holds the answer, where it is
+--- lacks it, and run, under a key that holds the result, where it is
 --- present. A test that returns silently for a missing host tool or
 --- platform feature passes having made no call to `assert`, which
 --- `cosmic test` lists as having made no call to `assert` and a held run fails. Raises for an

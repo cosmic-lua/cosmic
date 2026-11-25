@@ -1,4 +1,4 @@
---- [`Shape.record_of`] in modules the build compiled: the check the build wrote off a record answers the record, and the
+--- [`Shape.record_of`] in modules the build compiled: the check the build wrote off a record returns the record, and the
 --- node it describes the fields with is what the binders read. Which records
 --- the build refuses is build/shape_specs_test.tl's.
 local Json = require("cosmic.json")
@@ -95,7 +95,7 @@ local function test_the_check_answers_the_record_and_drops_what_it_does_not_name
   assert((profile as {string: any}).unlisted == nil, "a key the record lacks was kept") -- checked: cast_refused
 end
 
---- `into` answers the record's own type: no annotation chooses it.
+--- `into` returns a value of the record's own type: no annotation chooses it.
 local function test_into_answers_the_records_type()
   local value, err = Json.decode(GOOD, { null_value = Json.null })
   assert(err == nil, err)
@@ -137,4 +137,57 @@ end
 local function test_a_syntax_error_does_not_carry_the_records_name()
   local profile, err = PROFILE:decode_into("{bad")
   assert(profile == nil and err ~= "" and not err:find("^Profile: "), err)
+end
+
+local record Reach
+  path: string
+  letters: string
+end
+
+local record Call
+  calls: string
+end
+
+--- A list of records each told by a field it alone declares.
+local record Granted
+  grants: {Reach | Call}
+end
+
+local GRANTED <const> = Shape.record_of("Granted")
+
+--- One union field, required, and one that may be missing.
+local record Single
+  one: Reach | Call
+  maybe?: Reach | Call
+end
+
+local SINGLE <const> = Shape.record_of("Single")
+
+local function test_a_union_of_records_is_the_one_whose_own_field_the_value_holds()
+  local granted, why = GRANTED:decode_into([[{"grants": [{"path": "/tmp", "letters": "r"}, {"calls": "fork"}]}]])
+  assert(granted ~= nil, why)
+  local first, second = granted.grants[1], granted.grants[2]
+  assert(first is Reach and first.path == "/tmp" and first.letters == "r")
+  assert(second is Call and second.calls == "fork")
+  local _, none = GRANTED:decode_into([[{"grants": [{"letters": "r"}]}]])
+  assert(none == 'Granted: $.grants[0]: want a record with one of the fields "calls", "path"', none)
+  local _, missing = GRANTED:decode_into([[{"grants": [{"path": "/tmp"}]}]])
+  assert(missing == "Granted: $.grants[0].letters: missing", missing)
+  -- the fields of two records leave it none of them
+  local _, both = GRANTED:decode_into([[{"grants": [{"path": "/tmp", "letters": "r", "calls": "fork"}]}]])
+  assert(both == 'Granted: $.grants[0]: holds both "calls" and "path", which tell different records apart; keep one', both)
+  -- strict, a record of the union refuses a key it does not name
+  local _, extra = GRANTED:strict():decode_into([[{"grants": [{"calls": "fork", "letters": "r"}]}]])
+  assert(extra == "Granted: $.grants[0].letters: unknown key", extra)
+  local node = described(GRANTED.spec)
+  local grants = assert(node.fields)["grants"]
+  local union = assert(assert(grants).of)
+  assert(union.kind == "union" and table.concat(assert(union.by), ",") == "calls,path", union.kind)
+end
+
+local function test_a_required_union_field_is_missing_where_absent_and_an_omittable_one_is_nil()
+  local _, missing = SINGLE:decode_into("{}")
+  assert(missing == "Single: $.one: missing", missing)
+  local single, why = SINGLE:decode_into([[{"one": {"calls": "fork"}}]])
+  assert(single ~= nil and single.one is Call and single.maybe == nil, why)
 end

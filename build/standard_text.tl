@@ -12,12 +12,12 @@ local record standard_text
     stubbed: boolean
   end
 
-  --- What the checker reads for the standard-library module `name`: what [`Store.source`] answers, a declaration's source or
+  --- What the checker reads for the standard-library module `name`: what [`Store.source`] returns, a declaration's source or
   --- the module's, but for a module with no declaration whose stub ([`build.syntax_stub`]) the binary's own database carries;
   --- nil for a name the binary holds neither of. A declaration wins: a stub is held to its module's source, never to a
   --- declaration beside it. It says which it is, so a compile keyed on one is never taken for one keyed on the other. A
   --- stub keeps every position of its source, so either is served under the module's own file name. A database without the
-  --- table (a sealed worker's, or a tool's from before it) answers sources.
+  --- table (a sealed worker's, or a tool's from before it) gives sources.
   mut of: function(name: string): Standard?
 
   --- What the checker reads for the module `name` of the running binary, whatever its name: the tool's own modules beside the

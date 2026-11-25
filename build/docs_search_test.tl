@@ -1,6 +1,6 @@
 --- Searches in words, over the standard library's own documentation as
 --- a project outside cosmic's tree sees it: each query a person would
---- type finds the symbol they meant among its first three answers. Kept
+--- type finds the symbol they meant among its first three results. Kept
 --- in a module of its own because it reads every module's rows
 --- (`store`), so it runs again on any edit to a doc comment.
 
@@ -21,7 +21,7 @@ local record Query
 end
 
 --- The queries, each with the symbols any one of which must be among the
---- first three answers. A trailing `.` names every symbol under a
+--- first three results. A trailing `.` names every symbol under a
 --- prefix (`Hash.` is any of `Hash`'s).
 local QUERIES: {Query} = {
   { query = "read a file", reaches = { "Fs.read" } },
@@ -53,7 +53,7 @@ end
 
 --- What a person types finds what they meant: the words are stemmed
 --- ("reading files" finds a comment that says "a file"), a query that no one
---- symbol answers whole still finds the ones that answer part of it, and
+--- symbol matches whole still finds the ones that match part of it, and
 --- a member named for a word comes before prose that only says it.
 local function test_a_search_in_words_finds_the_symbol_meant()
   local databases: {Sqlite.Handle} = Store.databases()
@@ -80,8 +80,8 @@ end
 --- else: a module of the library any module may require, a declaration of
 --- it that is no module ([`cosmic.sys`]), and no internal module, no test,
 --- and no module a closed directory keeps to itself (`cosmic.web.router`,
---- where `cosmic.web.input` says `--- @public`). A public source answers
---- for exactly these.
+--- where `cosmic.web.input` says `--- @public`). A public source covers
+--- exactly these.
 local function test_the_tool_records_the_public_library()
   local databases: {Sqlite.Handle} = Store.databases()
   local binary = assert(databases[#databases], "the tool has a database")
@@ -102,7 +102,7 @@ local function test_the_tool_records_the_public_library()
   assert(row:text(4) == "0", "a module directly under cosmic/ is not recorded: " .. row:text(4))
   -- Every module of the library a closed directory keeps. One more here is a module whose docs a project has lost:
   -- say `--- @public` in it, or name it here on purpose.
-  local kept = "cosmic.agent.prompt_data cosmic.agent.prompt_text cosmic.http.wire cosmic.mcp.wire cosmic.sandbox.policy cosmic.template.codegen cosmic.template.context " ..
+  local kept = "cosmic.agent.prompt_data cosmic.agent.prompt_text cosmic.agent.run_text cosmic.agent.run_text_data cosmic.http.wire cosmic.mcp.wire cosmic.sandbox.policy cosmic.template.codegen cosmic.template.context " ..
     "cosmic.template.dialect.html cosmic.template.lex cosmic.template.markup cosmic.template.parse " ..
     "cosmic.web.builtin cosmic.web.errors cosmic.web.negotiate cosmic.web.request cosmic.web.router"
   assert(row:text(5) == kept, "the modules the library keeps to itself: " .. row:text(5))

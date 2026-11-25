@@ -1,7 +1,8 @@
 --- @public
 --- The tools of `cosmic agent`: pi's four, read, write, edit and bash; run,
 --- which checks and runs a snippet of Teal; and sql, over the sessions and
---- outputs it keeps. Each is a definition the model reads (its name, description
+--- outputs it keeps (offered when asked for: run's Host.history reads the
+--- same). Each is a definition the model reads (its name, description
 --- and input schema), a line for the system prompt, and a function that
 --- does it. A tool never raises: what goes wrong is its result, marked
 --- as an error, for the model to read and act on.
@@ -81,6 +82,7 @@ local Jobs = require("cosmic.agent.jobs")
 local Failure = require("cosmic.failure")
 local Json = require("cosmic.json")
 local Proc = require("cosmic.proc")
+local RunText = require("cosmic.agent.run_text")
 local Sandbox = require("cosmic.sandbox")
 local Sessions = require("cosmic.agent.sessions")
 local Sqlite = require("cosmic.sqlite")
@@ -90,6 +92,13 @@ local Worker = require("cosmic.agent.worker")
 local record Tools
   --- A JSON object.
   type Object = {string: Json.Value}
+
+  --- Who may call a tool: the model, code (a snippet of run, by [`Host.use`]), or both.
+  enum Callers
+    "model"
+    "code"
+    "both"
+  end
 
   --- What a tool answers: the text the model reads, and whether it is
   --- an error.
@@ -140,10 +149,12 @@ local record Tools
     --- What a snippet's call of the agent is asked first (the agent's
     --- `before`, as a call by code): nil lets it run, a string is why
     --- not, raised in the snippet; a raise blocks it too. `name` is the
-    --- call's: sql, store.get, store.put, mcp.servers, mcp.tools or
-    --- mcp.call, a name the snippet chose only among those. `input` is
+    --- call's: history, store.get, store.put, mcp.servers, mcp.tools or
+    --- mcp.call, or the name of a tool code may call ([`Tools.for_code`])
+    --- that the snippet called by [`Host.use`], a name the snippet chose
+    --- only among those. `input` is
     --- the arguments it sent, `{}` where they are no object, unchecked:
-    --- sql's `{query}`, store's `{key, value?}` (put with no value or
+    --- history's `{query}`, store's `{key, value?}` (put with no value or
     --- null lets the key go), mcp's `{server?, tool?, arguments?}`.
     --- Calls may come at once, from a snippet's tasks, and while its
     --- time runs.
@@ -195,6 +206,13 @@ local record Tools
     --- hook to check ([`Check.paths`]); nil for a tool that touches none
     --- the hook can see.
     paths?: function(input: Object, cwd: string): {Touch}
+    --- Who may call it; "model" where nil. A tool code may call is called from a snippet of run with
+    --- `Host.use(name, input)`, under the same `before` and `after` as the model's calls, as a call by code; one
+    --- for code alone is not offered to the model, which reads of it only in the system prompt. A call by code
+    --- runs in the agent, outside the snippet's sandbox, so the tool checks its paths itself ([`Sandbox.permits`]), as
+    --- read does; it is held to the snippet's time (`stopped`, `deadline_ns`) and given no worker; and the tasks of
+    --- one snippet may call it at once. A name of a host call (history, store.get, ...) is refused to code.
+    callers?: Callers
   end
 end
 
@@ -220,6 +238,16 @@ function Tools.find(tools: {Tools.Tool}, name: string): Tools.Tool?
     if t.name == name then return t end
   end
   return nil
+end
+
+--- Whether the model may call `t` ([`Tools.Callers`]).
+function Tools.for_model(t: Tools.Tool): boolean
+  return t.callers ~= "code"
+end
+
+--- Whether code, a snippet of run, may call `t` ([`Tools.Callers`]).
+function Tools.for_code(t: Tools.Tool): boolean
+  return t.callers == "code" or t.callers == "both"
 end
 
 --- `path` from `cwd`: absolute as given, `~` as HOME, else under `cwd`.
@@ -327,6 +355,84 @@ local function permitted(context: Tools.Context, full: string, actions: {string}
   return real, ""
 end
 
+--- The directory that holds `full`, held with no link on its path ([`Fs.dir`]), and the name in it, under a policy:
+--- the real name [`permitted`] checked is what is opened, as a link swapped in on it after the check is met, not
+--- followed. `missing` names the directories above `full` to make, outermost first, each in the one above it: the
+--- ones the caller checked, so a directory removed since is not made unchecked. Nil and why where the directory
+--- cannot be held.
+local record Held
+  --- The directory, held.
+  dir: Fs.Dir
+  --- The name in it.
+  name: string
+end
+
+local function held(full: string, missing?: {string}): Held?, string
+  local dir = Fs.dirname(full)
+  for _ in ipairs(missing or {}) do dir = Fs.dirname(dir) end
+  local d, why = Fs.dir(dir)
+  if d == nil then return nil, tostring(why) end
+  for _, name in ipairs(missing or {}) do
+    local made, made_why = d:mkdir(name)
+    local inner, inner_why = d:dir(name)
+    d:close()
+    if inner == nil then return nil, tostring(if made then inner_why else made_why end) end
+    d = inner
+  end
+  return { dir = d, name = Fs.basename(full) }, ""
+end
+
+--- The bytes of `full`, a file: through [`held`] under a policy, by its name where there is none.
+local function read_file(full: string, path: string, policy?: Sandbox.Policy): string?, string
+  if policy == nil then
+    -- A device or a pipe may never end: only a file is read whole.
+    local status, _ = Fs.status(full)
+    local st = status and status.stat
+    if st ~= nil and st.kind ~= "file" then
+      return nil, path .. " is no file (" .. st.kind .. "): read reads files"
+    end
+    local body, why = Fs.read(full)
+    if body == nil then return nil, tostring(why) end
+    return body, ""
+  end
+  local at, why = held(full)
+  if at == nil then return nil, why end
+  local d, name = at.dir, at.name
+  local status, status_why = d:status(name)
+  local st = status and status.stat
+  if st ~= nil and st.kind ~= "file" then
+    d:close()
+    return nil, path .. " is no file (" .. st.kind .. "): read reads files"
+  end
+  if status == nil then
+    d:close()
+    return nil, tostring(status_why)
+  end
+  local body, read_why = d:read(name)
+  d:close()
+  if body == nil then return nil, tostring(read_why) end
+  return body, ""
+end
+
+--- Writes `content` to `full`: through [`held`] under a policy, making `missing` there, the directories above it that
+--- the caller checked; by its name where there is none, making what is missing.
+local function write_file(full: string, content: string, policy?: Sandbox.Policy, missing?: {string}): boolean, string
+  if policy == nil then
+    local made, made_why = Fs.mkdirs(Fs.dirname(full))
+    if not made then return false, tostring(made_why) end
+    local wrote, wrote_why = Fs.write(full, content)
+    if not wrote then return false, tostring(wrote_why) end
+    return true, ""
+  end
+  local at, why = held(full, missing)
+  if at == nil then return false, why end
+  local d, name = at.dir, at.name
+  local wrote, wrote_why = d:write(name, content)
+  d:close()
+  if not wrote then return false, tostring(wrote_why) end
+  return true, ""
+end
+
 local function read(input: Tools.Object, context: Tools.Context): Tools.Result
   local path, why = text_of(input, "path")
   if path == nil then return fail(why) end
@@ -335,14 +441,8 @@ local function read(input: Tools.Object, context: Tools.Context): Tools.Result
   if offset_why ~= "" or limit_why ~= "" then return fail(offset_why .. limit_why) end
   local full, refused = permitted(context, resolve(path, context.cwd), { "read" })
   if full == nil then return fail(refused) end
-  -- A device or a pipe may never end: only a file is read whole.
-  local status, _ = Fs.status(full)
-  local st = status and status.stat
-  if st ~= nil and st.kind ~= "file" and st.kind ~= "link" then
-    return fail(path .. " is no file (" .. st.kind .. "): read reads files")
-  end
-  local body, read_why = Fs.read(full)
-  if body == nil then return fail(tostring(read_why)) end
+  local body, read_why = read_file(full, path, context.policy)
+  if body == nil then return fail(read_why) end
   local line = math.max(offset or 1, 1)
   local offered = context.tools
   local hint = if offered == nil or Tools.find(offered, "bash") ~= nil then
@@ -360,6 +460,7 @@ local function write(input: Tools.Object, context: Tools.Context): Tools.Result
   if full == nil then return fail(refused) end
   -- Each directory the write makes is made in the one above it: each asks c there, not only the last.
   local policy = context.policy
+  local missing: mut {string} = {}
   if policy ~= nil then
     local dir = Fs.dirname(full)
     while dir ~= Fs.dirname(dir) do
@@ -369,13 +470,12 @@ local function write(input: Tools.Object, context: Tools.Context): Tools.Result
       if made_here == nil then
         return fail("The sandbox does not let the agent create " .. dir .. ": " .. why_not)
       end
+      table.insert(missing, 1, Fs.basename(dir))
       dir = Fs.dirname(dir)
     end
   end
-  local made, made_why = Fs.mkdirs(Fs.dirname(full))
-  if not made then return fail(tostring(made_why)) end
-  local wrote, wrote_why = Fs.write(full, content)
-  if not wrote then return fail(tostring(wrote_why)) end
+  local wrote, wrote_why = write_file(full, content, policy, missing)
+  if not wrote then return fail(wrote_why) end
   return ok(string.format("Successfully wrote %s to %s", String.counted(#content, "byte"), path))
 end
 
@@ -416,12 +516,12 @@ local function edit(input: Tools.Object, context: Tools.Context): Tools.Result
   if edits == nil then return fail(edits_why) end
   local full, refused = permitted(context, resolve(path, context.cwd), { "read", "write", "create" })
   if full == nil then return fail(refused) end
-  local raw, read_why = Fs.read(full)
-  if raw == nil then return fail(tostring(read_why)) end
+  local raw, read_why = read_file(full, path, context.policy)
+  if raw == nil then return fail(read_why) end
   local edited, made = AgentEdit.apply(raw, edits, path, "oldText")
   if edited == nil then return fail(made) end
-  local wrote, wrote_why = Fs.write(full, edited)
-  if not wrote then return fail(tostring(wrote_why)) end
+  local wrote, wrote_why = write_file(full, edited, context.policy)
+  if not wrote then return fail(wrote_why) end
   return ok(string.format("Successfully replaced %d block(s) in %s.", made, path))
 end
 
@@ -711,11 +811,11 @@ local function sql(input: Tools.Object, context: Tools.Context): Tools.Result
   return r
 end
 
---- The most bytes of the JSON of the rows a snippet's sql call is answered: well within the line of 1MB the
+--- The most bytes of the JSON of the rows a snippet's history call is answered: well within the line of 1MB the
 --- worker's answer may be, should the snippet return them.
 local MAX_REPLY <const> = 512 * 1024
 
---- The rows of `query` on `db`, each an object of its columns, for a snippet's sql call; `?1` is `session`. It stops
+--- The rows of `query` on `db`, each an object of its columns, for a snippet's history call; `?1` is `session`. It stops
 --- between rows once `over` is true: the snippet's time ran out, or the user stopped the turn; a step that runs past
 --- the time `db` was given, or that Ctrl-C stops, fails ([`Sqlite.Handle.time_limit`]).
 local function objects_of(db: Sqlite.Handle, query: string, session: integer?, over: function(): boolean):
@@ -818,13 +918,13 @@ local function stored(context: Tools.Context, name: string, given: {string: Json
   return true
 end
 
---- What answers the calls a snippet of `context` makes of the agent, as they come, with no guard: sql as the
---- sql tool runs it, store, and the MCP servers.
+--- What answers the calls a snippet of `context` makes of the agent, as they come, with no guard: history, a query
+--- as the sql tool runs it, store, and the MCP servers.
 local function served_unguarded(context: Tools.Context): Worker.Serve
   return function(name: string, args: Json.Value, budget: Worker.Budget): (Json.Value) | (nil, Failure)
     local fields, _ = Json.to_object(args)
     local given: {string: Json.Value} = fields or {}
-    if name == "sql" then
+    if name == "history" then
       local query = given["query"]
       if not (query is string) then return nil, Failure.new("the call has no query") end
       local reader, open_why = reader_of(context, budget.left())
@@ -837,7 +937,7 @@ local function served_unguarded(context: Tools.Context): Worker.Serve
     if name == "store.put" or name == "store.get" then return stored(context, name, given) end
     if name ~= "mcp.servers" and name ~= "mcp.tools" and name ~= "mcp.call" then
       return nil, Failure.new("the agent serves no call " .. Json.quote(String.as_utf8(name)) ..
-          ": it serves sql, store.put, store.get, mcp.servers, mcp.tools and mcp.call")
+          ": it serves history, store.put, store.get, mcp.servers, mcp.tools, mcp.call and use")
     end
     local set = context.mcp
     if name == "mcp.servers" then
@@ -879,7 +979,7 @@ end
 
 --- The calls a snippet may make of the agent, each by the name its guard and amend know it by.
 local SERVED <const>: {string: boolean} = {
-  ["sql"] = true, ["store.get"] = true, ["store.put"] = true,
+  ["history"] = true, ["store.get"] = true, ["store.put"] = true,
   ["mcp.servers"] = true, ["mcp.tools"] = true, ["mcp.call"] = true,
 }
 
@@ -907,15 +1007,81 @@ local function amended(context: Tools.Context, name: string, given: Tools.Object
   return value
 end
 
---- What answers the calls a snippet of `context` makes of the agent (sql as the sql tool runs it, store.get,
+--- What a tool code may call ([`Tools.for_code`]) answers a snippet of `context` that calls it with `args`,
+--- `{name, input}` ([`Host.use`]): its text, or its error result as a failure. The call is asked of the guard first,
+--- and given to the amend after, by the tool's own name, as the model's calls of it are.
+local function used(context: Tools.Context, args: Json.Value, budget: Worker.Budget): (Json.Value) | (nil, Failure)
+  local fields, _ = Json.to_object(args)
+  local given: {string: Json.Value} = fields or {}
+  local named = given["name"]
+  if not (named is string) then return nil, Failure.new("the call names no tool") end
+  local t = Tools.find(context.tools or {}, named)
+  -- A host call's name is the host call's: a hook told it could not tell the two apart.
+  if t ~= nil and Tools.for_code(t) and SERVED[named] == true then
+    return nil, Failure.new("the tool " .. named .. " has the name of a host call, so code cannot call it by Host.use")
+  end
+  if t == nil or not Tools.for_code(t) then
+    local callable: mut {string} = {}
+    for _, other in ipairs(context.tools or {}) do
+      if Tools.for_code(other) then callable[#callable + 1] = other.name end
+    end
+    return nil, Failure.new("no tool " .. Json.quote(String.as_utf8(named)) .. " is one code may call; " ..
+        (if #callable == 0 then "none is" else "these are: " .. table.concat(callable, ", ") end))
+  end
+  local none: {string: Json.Value} = {}
+  local stated = given["input"]
+  local input, _ = Json.to_object(if stated == nil then none else stated end)
+  if input == nil then return nil, Failure.new("the call's input is no object") end
+  local guard = context.guard
+  if guard ~= nil then
+    local guard_ran, reason = pcall(guard, named, input)
+    if not guard_ran then
+      return nil, Failure.new("Blocked: the agent's before hook failed: " .. tostring(reason))
+    end
+    if reason ~= nil then return nil, Failure.new("Blocked: " .. tostring(reason)) end
+  end
+  -- The tool runs in the agent, outside the snippet's sandbox, held to the snippet's time, with no worker: the
+  -- snippet that called it holds the worker until it answers.
+  Jobs.check(context.jobs)
+  local left = budget.left()
+  local deadline = context.deadline_ns
+  if left ~= nil then
+    local by_snippet = Clock.monotonic_ns() + left
+    if deadline == nil or by_snippet < deadline then deadline = by_snippet end
+  end
+  local scoped: Tools.Context = { ...context, stopped = budget.over, deadline_ns = deadline, worker = nil }
+  local tool_ran, answered = pcall(t.run, input, scoped)
+  local result: Tools.Result = if tool_ran then answered else
+    { text = "the tool " .. named .. " failed: " .. tostring(answered), is_error = true } end
+  local amend = context.amend
+  if amend ~= nil then
+    local amend_ran, made = pcall(amend, named, input, result)
+    if not amend_ran then
+      return nil, Failure.new("the agent's after hook failed: " .. tostring(made))
+    end
+    if not (made.text is string) then
+      return nil, Failure.new("the agent's after hook answered no text")
+    end
+    result = made
+  end
+  if result.is_error then return nil, Failure.new(result.text) end
+  if #result.text > MAX_REPLY then
+    return nil, Failure.new("the tool's answer is " .. String.counted(#result.text, "byte") .. ", more than the " ..
+        String.counted(MAX_REPLY, "byte") .. " a reply holds")
+  end
+  return result.text
+end
+
+--- What answers the calls a snippet of `context` makes of the agent (history, a query as the sql tool runs it, store.get,
 --- store.put, and mcp.servers, mcp.tools and mcp.call), each asked of its guard first and given to its amend
 --- after, failed or not. A call of no other name is refused before either is asked.
 local function served(context: Tools.Context): Worker.Serve
   local answer_of = served_unguarded(context)
   return function(name: string, args: Json.Value, budget: Worker.Budget): (Json.Value) | (nil, Failure)
+    if name == "use" then return used(context, args, budget) end
     if SERVED[name] ~= true then
       return nil, Failure.new("the agent serves no call " .. Json.quote(String.as_utf8(name)) ..
-          ": it serves sql, store.put, store.get, mcp.servers, mcp.tools and mcp.call")
+          ": it serves history, store.put, store.get, mcp.servers, mcp.tools, mcp.call and use")
     end
     local fields, _ = Json.to_object(args)
     local given: {string: Json.Value} = fields or {}
@@ -1034,6 +1200,13 @@ local function touches(actions: {string}): function(input: Tools.Object, cwd: st
   end
 end
 
+--- What sessions.db holds, as the sql tool and Host.history tell the model.
+local KEPT_TABLES <const> = "Tables: sessions (id, cwd, started (Unix time), model); messages (session, seq, " ..
+  "message: the JSON the API takes); outputs (id, session, tool, input (JSON), text (the whole output), is_error); " ..
+  "outputs_fts, FTS5 over outputs.text with the trigram tokenizer (rowid = outputs.id): " ..
+  "outputs_fts MATCH '\"some text\"' for text of 3 characters or more, with snippet(outputs_fts, 0, " ..
+  "'>>', '<<', '...', 64) and ORDER BY rank. ?1 is the current session's id."
+
 --- Every tool, in the order the system prompt lists them.
 local ALL <const>: {Tools.Tool} = {
   {
@@ -1069,56 +1242,10 @@ local ALL <const>: {Tools.Tool} = {
   {
     name = "run",
     snippet = "Run a checked cosmic program in place of many tool calls",
-    guidelines = {},
-    description = "Run a program in cosmic, a typed language of its own with a library of its own (its syntax is much like " ..
-      "Lua's), in a worker kept for the session, under the session's sandbox: one program in place of many tool calls, " ..
-      "printing only what you need; its locals end with it. It is " ..
-      "type-checked first: a refusal runs nothing, costs a turn, and gives the fix. Returns what it printed (its " ..
-      "start and end past " .. tostring(RUN_BYTES // 1024) .. "KB) and the JSON of what it returned.\n\n" ..
-      "Host (cosmic.agent.host), Fs (cosmic.fs) and Json (cosmic.json) need no require. Host's calls do as the " ..
-      "commands they are named for, and raise where they fail, so they need no assert:\n" ..
-      "- Host.find(dir, suffix?) -> {string}: every file under dir, sorted (`Host.find(\"src\", \".tl\")`).\n" ..
-      "- Host.cat(path) -> string; Host.lines(path) -> {string}; Host.wc(path) -> integer, its newlines as `wc -l`; " ..
-      "Host.write(path, text or {lines}); Host.exists(path) -> boolean.\n" ..
-      "- Host.grep(pattern, paths, plain?) -> {{path, line, text}}: the lines that hold a pattern " ..
-      "(`%d`, `%.`, `[^/]+`; no regex).\n" ..
-      "- Host.sed(path, pattern, replacement, plain?) -> integer: replaces every match, line by line (`%1` a " ..
-      "capture).\n" ..
-      "- Host.sort(list, by?) -> {string}, by the key `by(item)` gives where given; Host.uniq(keys) -> {string: integer}, each key's count; Host.top(counts, " ..
-      "n?) -> {{key, count}}, most first, ties by key.\n" ..
-      "- Host.bash(command) -> {output, ok, code}; " ..
-      "Host.sql(query) -> rows; Host.store(key, value) / Host.load(key).value.\n" ..
-      "- Host.fetch(url, {method?, headers?, body?}?) -> {status, headers, body}: no redirect followed; public " ..
-      "addresses with --network, and the targets of --connect.\n" ..
-      "- Host.sqlite(path, statement, {values}?) -> {row}: one SQL statement on a SQLite file, made where missing " ..
-      "(`?1` binds the first value; with no values, a script of several); a row's column is `row[\"name\"]`. " ..
-      "Host.sha256(path) -> hex.\n" ..
-      "- print(Host.modules()) lists the cosmic.* modules a snippet may require (not io or os); " ..
-      "print(Host.docs(\"cosmic.fs\")) shows one. Their calls that may fail answer a value, or nil and why: take it " ..
-      "with assert (`local text = assert(Fs.read(path))`), as a statement too (`assert(Fs.write(path, text))`).\n\n" ..
-      "The checker refuses, so write:\n" ..
-      "- A table you fill is declared: `local out: mut {string} = {}`, `local n: mut {string: integer} = {}`; " ..
-      "append with `out[#out + 1] = v`.\n" ..
-      "- A local that starts nil is optional: `local cursor: string? = nil`; test it with `if cursor ~= nil " ..
-      "then`. A local of a plain type is never compared with nil.\n" ..
-      "- A local function declares its parameters and results: `local function f(x: integer): string`.\n" ..
-      "- A read that may be nil (`t[i]`, `m[k]`, `s:match(...)`, `tonumber(s)`) is tested, given a default " ..
-      "(`m[k] or 0`) or taken with assert(...). Walk a list with ipairs, a map with pairs.\n" ..
-      "- A condition is a boolean or an optional of no boolean: `if s ~= \"\" then`; for a {string: boolean} " ..
-      "set, `if seen[k] == nil then`.\n" ..
-      "- `..` joins strings: `tostring(n)`; `%d` takes an integer: `math.floor(x)`.\n" ..
-      "- `if c then a else b end`, with its `end` even inside a call, in place of `c and a or b`.\n" ..
-      "- `{key: string, count: integer}` is a record type, `{string: integer}` a map, and `mut {{key: string}}` " ..
-      "a list one may add to. Host.top answers `{Host.Count}`.\n" ..
-      "- The first n of a list: `for i, v in ipairs(list) do if i > n then break end ... end`.\n" ..
-      "- Records, not tuples (`{A, B}`); `T?`, not `T | nil`; no `;`; no goto.\n\n" ..
-      "For example:\n" ..
-      "local exts: mut {string} = {}\n" ..
-      "for _, path in ipairs(Host.find(\".\")) do\n" ..
-      "  local ext = path:match(\"%.(%w+)$\")\n" ..
-      "  if ext ~= nil then exts[#exts + 1] = ext end\n" ..
-      "end\n" ..
-      "for _, c in ipairs(Host.top(Host.uniq(exts))) do print(c.key .. \" \" .. tostring(c.count)) end",
+    guidelines = { "Each tool's output is kept in sessions.db: read a cut one with Host.output(id), " ..
+        "or find what was seen before with Host.history, rather than running a command or fetching again." },
+    -- The words are the text template run_text.tmpl (cosmic.template).
+    description = RunText.render({ kb = RUN_BYTES // 1024, tables = KEPT_TABLES }),
     schema = schema({
       code = string_field("The cosmic program, as the body of a file"),
       timeout = integer_field("Seconds, " .. tostring(RUN_SECONDS) .. " by default, 0 for none; past it the " ..
@@ -1192,11 +1319,7 @@ local ALL <const>: {Tools.Tool} = {
     guidelines = { "Each tool's whole output is kept in sessions.db: use sql to find and read what was cut, " ..
         "or seen before, rather than running a command again." },
     description = "Run one read-only SQLite statement on sessions.db, where the agent keeps every session. " ..
-      "Tables: sessions (id, cwd, started (Unix time), model); messages (session, seq, message: the JSON " ..
-      "the API takes); outputs (id, session, tool, input (JSON), text (the whole output), is_error); " ..
-      "outputs_fts, FTS5 over outputs.text with the trigram tokenizer (rowid = outputs.id): " ..
-      "outputs_fts MATCH '\"some text\"' for text of 3 characters or more, with snippet(outputs_fts, 0, " ..
-      "'>>', '<<', '...', 64) and ORDER BY rank. ?1 is the current session's id. " ..
+      KEPT_TABLES .. " " ..
       "Returns the column names, then a line a row, cells split by tabs: at most " .. LIMIT .. ". " ..
       "A statement may run " .. String.counted(SQL_SECONDS, "second") .. ".",
     schema = schema({
@@ -1243,11 +1366,12 @@ function Tools.without(tools: {Tools.Tool}, names: {string}): mut {Tools.Tool}
   return out
 end
 
---- What an agent offers unless told: every tool but bash and jobs, so
---- no program runs: without bash a snippet's worker starts no process
+--- What an agent offers unless told: read, run, edit and write. No
+--- program runs: without bash a snippet's worker starts no process
 --- either ([`Worker.Options`] `commands`, on Linux under a sandbox).
+--- What is kept is read with Host.output and Host.history in run, so sql is left out.
 function Tools.default(): mut {Tools.Tool}
-  return Tools.without(ALL, { "bash", "jobs" })
+  return Tools.without(ALL, { "bash", "jobs", "sql" })
 end
 
 --- Runs `tool` on `input` in `context`, the background jobs looked at
@@ -1273,43 +1397,78 @@ function Tools.run(name: string, input: Tools.Object, context: Tools.Context): T
   return Tools.dispatch(ALL, name, input, context)
 end
 
---- The tools of `names`, a list such as "run,read,edit,write", "all" for every tool ([`Tools.all`]) or "default"
---- for [`Tools.default`]'s, in the order of [`Tools.all`]: or nil and why, for an empty list or a name no tool has.
-function Tools.named(names: string): ({Tools.Tool}) | (nil, string)
-  if names == "all" then return Tools.all() end
-  if names == "default" then return Tools.default() end
-  local picked: mut {string} = {}
-  local wanted: mut {string: boolean} = {}
-  for name in names:gmatch("[^,%s]+") do
+--- The names of `list`, split at commas and spaces, each checked against [`Tools.all`]; or nil and why.
+local function names_of(list: string): ({string}) | (nil, string)
+  local out: mut {string} = {}
+  for name in list:gmatch("[^,%s]+") do
     if Tools.find(ALL, name) == nil then
       local known: mut {string} = {}
       for _, t in ipairs(ALL) do known[#known + 1] = t.name end
       return nil, "no tool " .. name .. "; the tools are " .. table.concat(known, ", ")
     end
-    picked[#picked + 1] = name
-    wanted[name] = true
+    out[#out + 1] = name
   end
-  if #picked == 0 then return nil, "name at least one tool" end
+  return out
+end
+
+--- Those of `wanted` set to true, in the order of [`Tools.all`], or nil and why: none, or jobs without bash.
+local function picked(wanted: {string: boolean}): ({Tools.Tool}) | (nil, string)
   if wanted["jobs"] == true and wanted["bash"] ~= true then
     return nil, "jobs reads bash's background jobs: offer bash too"
   end
-  return Tools.only(ALL, picked)
+  local names: mut {string} = {}
+  for _, t in ipairs(ALL) do
+    if wanted[t.name] == true then names[#names + 1] = t.name end
+  end
+  if #names == 0 then return nil, "no tool is left to offer" end
+  return Tools.only(ALL, names)
 end
 
---- `tools` as the Messages API takes them. The last is a cache breakpoint: the tools come first in a request, and
+--- The tools of `names`, a list such as "run,read,edit,write", in the order of [`Tools.all`]: or nil and why, for an
+--- empty list or a name no tool has.
+function Tools.named(names: string): ({Tools.Tool}) | (nil, string)
+  local given, why = names_of(names)
+  if given == nil then return nil, why end
+  if #given == 0 then return nil, "name at least one tool" end
+  local wanted: mut {string: boolean} = {}
+  for _, n in ipairs(given) do wanted[n] = true end
+  return picked(wanted)
+end
+
+--- `tools` with those `with` names added and those `without` names taken out, each a list as [`Tools.named`] takes,
+--- in the order of [`Tools.all`]: or nil and why, for a name no tool has, jobs without bash, or no tool left.
+---
+---     for _, t in ipairs(assert(Tools.changed(Tools.default(), "bash,sql", "write"))) do print(t.name) end -- read bash run edit sql
+function Tools.changed(tools: {Tools.Tool}, with?: string, without?: string): ({Tools.Tool}) | (nil, string)
+  local adds, add_why = names_of(with or "")
+  if adds == nil then return nil, add_why end
+  local takes, take_why = names_of(without or "")
+  if takes == nil then return nil, take_why end
+  local wanted: mut {string: boolean} = {}
+  for _, t in ipairs(tools) do wanted[t.name] = true end
+  for _, n in ipairs(adds) do wanted[n] = true end
+  for _, n in ipairs(takes) do wanted[n] = nil end
+  return picked(wanted)
+end
+
+--- The tools of `tools` the model may call ([`Tools.for_model`]), as the Messages API takes them. The last is a cache breakpoint: the tools come first in a request, and
 --- are the same in every session of a model whatever its directory and prompt, so each session reads them from the
 --- cache another wrote, where the project's instructions in the system prompt and the messages after them differ.
 function Tools.definitions(tools: {Tools.Tool}): Json.Value
   local out: mut {Json.Value} = {}
   local offers_bash = Tools.find(tools, "bash") ~= nil
-  for i, t in ipairs(tools) do
-    -- Without bash a snippet runs no program, so run's description names no Host.bash.
-    local description = if t.name == "run" and not offers_bash then
-      (t.description:gsub("Host%.bash%(command%) %-> {output, ok, code}; ", "")) else t.description end
-    local def: mut {string: Json.Value} = { name = t.name, description = description, input_schema = t.schema }
-    if i == #tools then def["cache_control"] = { type = "ephemeral" } end
-    out[#out + 1] = def
+  local last: mut {string: Json.Value}? = nil
+  for _, t in ipairs(tools) do
+    if Tools.for_model(t) then
+      -- Without bash a snippet runs no program, so run's description names no Host.bash.
+      local description = if t.name == "run" and not offers_bash then
+        (t.description:gsub("Host%.bash%(command%) %-> {output, ok, code}; ", "")) else t.description end
+      local def: mut {string: Json.Value} = { name = t.name, description = description, input_schema = t.schema }
+      out[#out + 1] = def
+      last = def
+    end
   end
+  if last ~= nil then last["cache_control"] = { type = "ephemeral" } end
   return Json.array(out)
 end
 

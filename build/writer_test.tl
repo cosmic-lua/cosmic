@@ -109,7 +109,7 @@ local function test_a_file_another_binary_wrote_is_rewritten(tmp: string)
 end
 
 --- A project's own declaration ships its documentation alongside its
---- modules', so `cosmic docs` answers for a module the project only
+--- modules', so `cosmic docs` covers a module the project only
 --- declares.
 local function test_a_declaration_ships_its_docs(tmp: string)
   assert(Fs.mkdirs(tmp .. "/a"))
@@ -510,7 +510,7 @@ local function test_the_carried_internal_types_are_the_ones_a_public_signature_n
 end
 
 --- A user guide is a generated test module, which the tool does not
---- carry, but its prose is what `cosmic docs quickstart` answers with:
+--- carry, but its prose is what `cosmic docs quickstart` shows:
 --- its own doc row is carried, not the helpers its module declares, and
 --- a guide under `doc/guides/internal/` is left to the tree.
 local function test_the_carried_docs_hold_the_user_guides_prose(tmp: string)
@@ -819,7 +819,7 @@ local function write_again(handle: work.Handle, out: string)
   assert(writer.write_result(handle, out, result))
 end
 
---- The text of the first column of the one row `sql` answers from `db`.
+--- The text of the first column of the one row `sql` finds in `db`.
 local function scalar(db: Sqlite.Handle, sql: string): string
   return support.nth(assert(db:text_rows(sql)), 1):text(1)
 end

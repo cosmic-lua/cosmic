@@ -3,7 +3,7 @@
 --- for a program that speaks DNS itself, such as a server, a test's stand-in for one, or multicast DNS.
 ---
 --- [`Dns.decode`] reads a message and [`Dns.encode`] writes one. [`Dns.query`] makes the message that asks one
---- question and [`Dns.reply`] the empty answer to a query.
+--- question and [`Dns.reply`] the empty response to a query.
 ---
 --- A name is text: its labels joined by dots, with no dot at the end, and `.` alone for the root. A label is 1 to
 --- 63 bytes of any value, so the text escapes what would not read back, as a master file does (RFC 1035 section
@@ -63,9 +63,9 @@ local record Dns
     refresh: integer
     --- How long a secondary waits after a refresh that failed.
     retry: integer
-    --- How long a secondary answers for the zone without a refresh.
+    --- How long a secondary stays authoritative for the zone without a refresh.
     expire: integer
-    --- How long the answer that a name does not exist may be kept.
+    --- How long a response that a name does not exist may be kept.
     minimum: integer
   end
 
@@ -78,7 +78,7 @@ local record Dns
     --- The class, [`Dns.IN`] for the internet, from 0 to 32767: the low 15 bits of the class on the wire, so a
     --- class of 0xFFFF there reads as 32767 with `unicast_response` true.
     class: integer
-    --- Whether the answer is wanted by unicast. It is the top bit of the class on the wire, which multicast DNS
+    --- Whether the response is wanted by unicast. It is the top bit of the class on the wire, which multicast DNS
     --- alone gives a meaning (RFC 6762 section 5.4): any other query leaves it false.
     unicast_response: boolean
   end
@@ -128,15 +128,15 @@ local record Dns
     response: boolean
     --- The kind of query, from 0 to 15: 0 is a standard query, 2 a server's status, 4 a notify, 5 an update.
     opcode: integer
-    --- Whether the server that answers is an authority for the name.
+    --- Whether the responding server is an authority for the name.
     authoritative: boolean
     --- Whether the message was cut to fit its transport.
     truncated: boolean
-    --- Whether the server is asked to follow the question to its answer.
+    --- Whether the server is asked to resolve the question in full.
     recursion_desired: boolean
-    --- Whether the server that answers follows questions.
+    --- Whether the responding server offers recursion.
     recursion_available: boolean
-    --- Whether the server holds every record of the answer to be authentic (RFC 4035).
+    --- Whether the server holds every record of the response to be authentic (RFC 4035).
     authentic_data: boolean
     --- Whether the server is asked not to check signatures (RFC 4035).
     checking_disabled: boolean
@@ -145,7 +145,7 @@ local record Dns
     rcode: integer
     --- The questions.
     questions: {Dns.Question}
-    --- The records that answer the questions.
+    --- The answer section's records.
     answers: {Dns.Record}
     --- The records that name the authorities.
     authorities: {Dns.Record}
@@ -390,7 +390,7 @@ local function ipv6_text(bytes: string): string
 end
 
 --- Adds to `groups` the two bytes of each group of `side`, the groups of an IPv6 address on one side of its `::`,
---- and answers whether every one is a group. With `dotted`, the last may be an IPv4 address, which is two groups.
+--- and returns whether every one is a group. With `dotted`, the last may be an IPv4 address, which is two groups.
 local function ipv6_groups(side: string, groups: mut {string}, dotted: boolean): boolean
   if side == "" then return true end
   local pos = 1
@@ -918,7 +918,7 @@ end
 
 --- The query that asks for the records of type `rtype` and the internet class at `name`, with the identifier
 --- `id` and recursion desired, as a resolver's client sends it. Multicast DNS sends an `id` of 0; a query sent to a
---- server needs one that cannot be guessed, since the id is how its answer is told from a forged one.
+--- server needs one that cannot be guessed, since the id is how its response is told from a forged one.
 function Dns.query(name: string, rtype: integer, id: integer): Dns.Message
   return {
     id = id,

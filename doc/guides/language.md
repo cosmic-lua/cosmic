@@ -193,8 +193,11 @@ print(area({ kind = "square", side = 2 }))
 
 `s is Circle` tests the tag too: where `s` is the union, it runs as a test of `s.kind` against the strings of
 `Circle`'s tag, and narrows alike. `is` takes one type (`is_union`): test each record apart. A record that is
-the one table a value may be (`R | string`) is told by `type(v) == "table"`. Where no tag tells a record from the other
-tables a value may be, `is` is refused (`is_on_record`), and the fix is a tag field of a literal type in each record.
+the one table a value may be (`R | string`) is told by `type(v) == "table"`. Records with no field that every one types
+by an enum may be told apart by being there instead: each requires a fixed field, never nil, that no other member
+declares. `g is Path` in `Path | Calls`, where only `Path` declares `path`, runs as `g.path ~= nil`, and a literal is
+the one member that declares every field it names. Where neither tells a record from the other tables a value may be,
+`is` is refused (`is_on_record`), and the fix is a tag field of a literal type in each record, or a field of its own.
 
 A test of a place against a string narrows it. Where `k == "a"` holds, `k` is `"a"`. Where it fails, an enum or a union
 of literals keeps its other strings, so a chain of tests over every string of an enum ends the function, and the
@@ -882,6 +885,38 @@ print(numbers.value)
 2
 ```
 
+## a schema is a type of handle
+
+`local schema Name [[DDL]]` declares the tables a SQLite database holds. `Name` is two things: a value, which
+[`Sqlite.open`] and [`Sqlite.memory`] of [`cosmic.sqlite`] take as `schema`, and a class of the handles that hold the
+tables, which they give for it. A handle of `Name` is a [`Sqlite.Handle`] wherever one is wanted; a handle is no `Name`. The
+checker runs the DDL, and reads SQL sent to a handle of `Name` against it, through parameters and fields alike:
+
+```teal
+local Sqlite = require("cosmic.sqlite")
+
+local schema Notes [[CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT NOT NULL) STRICT]]
+
+local function body_of(db: Notes, id: integer): string
+  local row = assert(db:one("SELECT body FROM notes WHERE id = ?1", { id }))
+  return row:text(1)
+end
+
+local db = assert(Sqlite.memory({ schema = Notes }))
+assert(db:run("INSERT INTO notes (body) VALUES (?1)", { "hi" }))
+print(body_of(db, 1))
+```
+
+```output
+hi
+```
+
+A schema's handles are made by [`Sqlite.open`] and [`Sqlite.memory`] alone: a table literal of `Notes`, `v is Notes` and a
+function written into `Notes` (`function Notes.f()`) are refused, since a handle's metatable is [`cosmic.sqlite`]'s. The
+value `Notes` has the field `ddl`. A module exports a schema as the type, `type Notes = Notes` in its record, and a
+function that opens a handle of it: another module that holds the value in a field holds a [`Sqlite.Schema`], which
+opens a plain handle.
+
 ## a value or a failure
 
 A function that returns a value or a failure declares both lists of
@@ -894,7 +929,7 @@ which list the call returned.
 
 A type parameter with a bound is never nil, since no bound holds `nil`.
 `T is Some` says only that: it takes every type that is never nil, and
-gives the body nothing more. A generic function answers `(T) | (nil, E)`
+gives the body nothing more. A generic function returns `(T) | (nil, E)`
 with it, and `(T | false) | (nil, E)` where "none" is a value. A type
 that may be nil, or a type parameter with no bound, meets no `Some`
 (`bound_unmet`).
@@ -1005,9 +1040,14 @@ true	/no/such/file: No such file or directory
 [`cosmic.defer`]: ../../cosmic/defer.tl
 [`cosmic.failure`]: ../../cosmic/failure.tl
 [`cosmic.net`]: ../../cosmic/net.tl
+[`cosmic.sqlite`]: ../../cosmic/sqlite.tl
 [`Fs.close`]: ../../cosmic/fs.tl
 [`Fs.open_read`]: ../../cosmic/fs.tl
 [`Fs.read`]: ../../cosmic/fs.tl
 [`Fs.Scratch`]: ../../cosmic/fs.tl
 [`Http.open`]: ../../cosmic/http/init.tl
 [`Signal.guard`]: ../../cosmic/signal.tl
+[`Sqlite.Handle`]: ../../cosmic/sqlite.tl
+[`Sqlite.memory`]: ../../cosmic/sqlite.tl
+[`Sqlite.open`]: ../../cosmic/sqlite.tl
+[`Sqlite.Schema`]: ../../cosmic/sqlite.tl

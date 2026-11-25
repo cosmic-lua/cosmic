@@ -45,8 +45,9 @@ local function octal(text: string): integer
   return assert(math.tointeger(tonumber(text, 8)))
 end
 
---- The user ids a `Uid:` line of /proc/self/status lists, a stand-in's
---- answer to `status-field Uid`: real, effective, saved and filesystem.
+--- The user ids a `Uid:` line of /proc/self/status lists, as a stand-in
+--- prints them for `status-field Uid`: real, effective, saved and
+--- filesystem.
 local function uids(said: string): {integer}
   local found: mut {integer} = {}
   for number in said:gmatch("%d+") do

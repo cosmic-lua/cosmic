@@ -11,7 +11,7 @@ local LuaTail = require("build.lua_tail")
 local record MainLocals
   --- The most locals the main chunk of `lua` holds at one point, nested blocks included, if that is more than `limit`; else
   --- nil, as for `lua` that does not compile, or that Lua refuses for another reason than too many locals (such as too many
-  --- registers). One load answers the common case.
+  --- registers). One load settles the common case.
   over: function(lua: string, limit: integer): integer?
 end
 

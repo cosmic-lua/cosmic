@@ -146,9 +146,24 @@ local function names(tools: {Tools.Tool}): string
   return table.concat(out, " ")
 end
 
+local function test_the_run_description_is_its_template_filled()
+  local tool = assert(Tools.find(Tools.all(), "run"), "run is a tool")
+  -- The slot is filled, and `{{` written as text in the template stands as it is.
+  assert(tool.description:find("(its start and end past 8KB)", 1, true) ~= nil, tool.description)
+  assert(tool.description:find("-> {{path, line, text}}:", 1, true) ~= nil, tool.description)
+  assert(tool.description:find("^Run a program in cosmic, ") ~= nil, tool.description)
+  -- No line ending after the example's last line, as the words were before the template.
+  assert(tool.description:sub(-4) == " end", tool.description)
+end
+
 local function test_tools_are_values_to_pick_and_make()
   assert(names(Tools.all()) == "read bash run jobs edit write sql", names(Tools.all()))
-  assert(names(Tools.default()) == "read run edit write sql", names(Tools.default()))
+  assert(names(Tools.default()) == "read run edit write", names(Tools.default()))
+  -- With sql left out, run tells the model how to read what is kept.
+  local run_tool = assert(Tools.find(Tools.default(), "run"))
+  assert(run_tool.description:find("Host.history(query)", 1, true) ~= nil and
+      run_tool.description:find("Tables: sessions", 1, true) ~= nil, run_tool.description)
+  assert(table.concat(run_tool.guidelines, " "):find("Host.output(id)", 1, true) ~= nil)
   assert(names(Tools.only(Tools.all(), { "sql", "read", "nope" })) == "read sql")
   assert(names(Tools.without(Tools.all(), { "run" })) == "read bash jobs edit write sql")
   assert(assert(Tools.find(Tools.all(), "edit")).name == "edit" and Tools.find(Tools.default(), "bash") == nil)
@@ -190,7 +205,21 @@ end
 local function test_a_session_offers_the_tools_named()
   local offered = assert(Tools.named("run, read"))
   assert(names(offered) == "read run", names(offered))
-  assert(#assert(Tools.named("all")) == #Tools.all())
+  -- Tools.changed adds to and takes from a set: bash and jobs added, write taken out (sql is not there to take).
+  local more = assert(Tools.changed(Tools.default(), "bash,jobs"))
+  assert(names(more) == "read bash run jobs edit write", names(more))
+  local fewer = assert(Tools.changed(Tools.default(), nil, "sql, write"))
+  assert(names(fewer) == "read run edit", names(fewer))
+  local changed = names(assert(Tools.changed(Tools.default(), "bash,sql", "write")))
+  assert(changed == "read bash run edit sql", changed)
+  local _, none_why = Tools.changed(Tools.default(), nil, "read,run,edit,write")
+  assert(assert(none_why) == "no tool is left to offer")
+  local _, lone_why = Tools.changed(Tools.default(), "jobs")
+  assert(assert(lone_why):find("offer bash too", 1, true) ~= nil)
+  local _, typo_why = Tools.changed(Tools.default(), "bsh")
+  assert(assert(typo_why):find("no tool bsh", 1, true) == 1)
+  local _, all_why = Tools.named("all")
+  assert(assert(all_why):find("no tool all", 1, true) == 1)
   local _, unknown_why = Tools.named("run,nope")
   local unknown = assert(unknown_why)
   assert(unknown:find("no tool nope; the tools are read, bash", 1, true) == 1, unknown)

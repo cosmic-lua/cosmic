@@ -225,7 +225,7 @@ local function test_a_zone_made_by_hand_is_refused()
 end
 
 --- An empty name is no name a caller could mean: it raises, where any other
---- name that names no zone is answered nil and why. Text that may name
+--- name that names no zone gets nil and why. Text that may name
 --- nothing (a TZ of `:posix/`) is refused, not raised, as every zone read
 --- from text is.
 local function test_an_empty_zone_name_raises()
@@ -252,7 +252,7 @@ local function test_a_zone_failure_names_the_module_once()
   z, why = Time.zone("Nowhere/Nothing")
   assert(z == nil)
   named(tostring(why), "no time zone Nowhere/Nothing")
-  -- The second answer comes from the cache of refused names.
+  -- The second result comes from the cache of refused names.
   local again, again_why = Time.zone("Nowhere/Nothing")
   assert(again == nil and tostring(again_why) == tostring(why))
   named(tostring(again_why), "no time zone Nowhere/Nothing")
@@ -286,7 +286,7 @@ local function test_zone_names_are_checked_before_any_file_is_read()
   local names = assert(Store.zone_names())
   assert(names["America/New_York"] == true and names["Nowhere/Nothing"] ~= true)
   assert(not tostring(why):find("zoneinfo", 1, true), "the reason names no host path: " .. tostring(why))
-  -- Asked again, the answer is remembered rather than looked for.
+  -- Asked again, the result is remembered rather than looked for.
   local again, again_why = Time.zone("Nowhere/Nothing")
   assert(again == nil and tostring(again_why) == tostring(why))
 end
@@ -679,7 +679,7 @@ local function test_between_follows_the_zones_calendar()
 end
 
 --- A fold or a skipped day under the days or months a span steps over
---- must not flip its sign or leave it short of `to`: each answer has one
+--- must not flip its sign or leave it short of `to`: each result has one
 --- sign and `add_calendar` adds it back to `to`.
 local function test_between_holds_across_folds_and_skipped_days()
   local record Case

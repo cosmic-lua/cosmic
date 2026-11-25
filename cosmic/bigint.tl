@@ -82,7 +82,7 @@ local raw = require("cosmic.internal.bigint")
 
 local String = require("cosmic.string")
 
---- A secret: a number that the functions for secrets answer, held at
+--- A secret: a number that the functions for secrets return, held at
 --- the fixed width each gives. Only those functions, and
 --- [`Bigint.powmod`]'s exponent, take one, so a secret cannot reach a
 --- function whose time shows its value without a [`Bigint.reveal`] that
@@ -150,7 +150,7 @@ end
 --- says what shows). Raises on a modulus that is zero or even, and on a
 --- number over its limit.
 ---
---- The exponent may be a [`Bigint.Secret`], as the answer is public:
+--- The exponent may be a [`Bigint.Secret`], as the result is public:
 --- what a protocol sends.
 ---
 ---     local public = Bigint.powmod(generator, secret, prime)
@@ -273,7 +273,7 @@ end
 --- form a protocol hashes or sends a number in. nil and a message when
 --- the number needs more bytes than `width`. Zero fits in a width of 0,
 --- as "". Raises on a negative width. It reads no limit: a string of any
---- length is a number here, and the answer is `width` bytes however
+--- length is a number here, and the result is `width` bytes however
 --- large, so `width` is the caller's own and never a peer's.
 ---
 ---     local sent = assert(Bigint.pad(public, #prime))

@@ -18,8 +18,8 @@
 ---     local parts = assert(Url.parse(url))
 ---     print(parts.host, parts.path) -- example.com  /files/a%20b.txt
 ---
---- Nothing here raises on its text: a failure answers `nil` and why,
---- under the module's name.
+--- Nothing here raises on its text: a function that fails returns `nil`
+--- and why, under the module's name.
 
 local Failure = require("cosmic.failure")
 local String = require("cosmic.string")
@@ -82,7 +82,8 @@ local record Url
   end
 end
 
---- What a failure of this module answers: nil and `why` under its name.
+--- What a function of this module returns when it fails: nil and `why`
+--- under its name.
 local function refuse(why: string): nil, string
   return nil, "url: " .. why
 end
@@ -112,7 +113,7 @@ end
 
 --- `text` with every byte but the unreserved ones (A-Z a-z 0-9 `-` `.`
 --- `_` `~`) written as `%` and two uppercase hex digits. What it
---- answers is safe as a path segment, a query name or a query value:
+--- returns is safe as a path segment, a query name or a query value:
 --- a `/`, `?`, `&`, `=`, `#`, `+`, space or `%` in `text` is escaped
 --- too, so it reads back as itself and never as part of the URL's
 --- structure. [`Http.open`] escapes the bytes a URL never holds
@@ -149,7 +150,7 @@ end
 --- of either case, becomes the byte they name, which may be any byte
 --- (a NUL, a `/`). A `+` is left as it is: reading it as a space is a
 --- form's rule, not a URL's. A `%` not followed by two hex digits
---- answers `nil` and why, naming its byte.
+--- makes it return `nil` and why, naming its byte.
 --- @param text string The escaped text
 --- @return string | nil The bytes it spells
 --- @return Failure | nil Why it was refused
@@ -191,10 +192,10 @@ end
 --- The segments of a URL's `path`, unescaped, for a server to find a
 --- file or route by: the path is split on `/` before anything is
 --- unescaped, so an escaped `/` (`%2F`) never splits one. An empty
---- segment (from `//` or a trailing `/`) and a `.` are dropped, so "/"
---- answers `{}`. A segment that is `..` (`%2e%2e` included), or that
---- holds a `/` or a NUL once unescaped, answers `nil` and why, as does
---- a path that does not start with `/` or a malformed escape.
+--- segment (from `//` or a trailing `/`) and a `.` are dropped, so for
+--- "/" it returns `{}`. A segment that is `..` (`%2e%2e` included), or that
+--- holds a `/` or a NUL once unescaped, makes it return `nil` and why,
+--- as does a path that does not start with `/` or a malformed escape.
 ---
 --- So `root .. "/" .. table.concat(segments, "/")` names a path under
 --- `root` that cannot climb out of it by its name -- though a symbolic
@@ -277,7 +278,7 @@ end
 --- (`a=1&&b=2`) is skipped and not counted. A piece without `=` is a name
 --- with the value "", and one that starts with `=` a pair named "".
 ---
---- Answers `nil` and why when a `%` is not followed by two hex digits
+--- Returns `nil` and why when a `%` is not followed by two hex digits
 --- (naming its byte in `text`, as [`Url.segments`] does; `lenient` keeps
 --- it as a `%` instead), when a decoded name or value is not valid UTF-8
 --- (naming the pair; `utf8 = false` allows any bytes), or when the text
@@ -546,7 +547,7 @@ end
 --- that is a path alone (`/xl/workbook.xml`) resolves paths, as a
 --- package format resolves a part's relationships. Such a base starts
 --- with `/`: one that does not resolves as the RFC says, so `..` past its
---- first segment answers a path from the root (`/b.xml`), and a path
+--- first segment resolves to a path from the root (`/b.xml`), and a path
 --- whose first segment holds a `:` reads back as a scheme. Nothing is
 --- escaped or unescaped, and nothing is refused.
 ---
@@ -631,7 +632,7 @@ end
 --- host taken out of its brackets, the port a number from 0 to 65535,
 --- and the user info, path, query and fragment as written, still
 --- escaped ([`Url.segments`] reads a path, [`Url.unescape`] a piece).
---- Answers `nil` and why for anything else: a relative reference, a URL
+--- Returns `nil` and why for anything else: a relative reference, a URL
 --- without `//` (`mailto:`), one that names no host (`file:///`), more
 --- than one `@`, a `\` in the authority (which a browser reads as `/`),
 --- a host byte outside RFC 3986's reg-name or an escape in the host (a

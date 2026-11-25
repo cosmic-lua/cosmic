@@ -203,7 +203,7 @@ local function test_a_commit_is_in_the_file_while_its_run_goes_on(tmp: string)
   assert(#rows == 1 and assert(rows[1]):text(1) == "committed", tostring(#rows))
 end
 
---- An open that waits for no run answers at once, with no handle, while
+--- An open that waits for no run returns at once, with no handle, while
 --- another run holds the write lock, and opens the database once it is
 --- free.
 local function test_an_open_that_waits_for_no_run_finds_one_holding_it(tmp: string)
@@ -248,7 +248,7 @@ local function meta_of(path: string, key: string): string
 end
 
 --- An open that waits for no run, which may be a run of an older tool,
---- answers at once with no handle where the file is of another schema
+--- returns at once with no handle where the file is of another schema
 --- and another run holds its write lock, as a newer tool building in it
 --- would: it leaves the file where it is, for that run goes on writing
 --- to it.
@@ -309,7 +309,7 @@ end
 
 --- An open that waits for no run reads nothing of a file of another
 --- schema, holding its write lock or not: it neither removes it nor
---- writes this module's tables into it, and answers the schema it found.
+--- writes this module's tables into it, and returns the schema it found.
 local function test_an_open_that_waits_for_no_run_reads_nothing_of_another_schema(tmp: string)
   local path = of_another_schema(tmp)
   local before = inode_of(path)
@@ -361,7 +361,7 @@ local function test_a_remaking_open_leaves_a_file_a_run_holding_the_rebuild_lock
   assert(meta_of(path, "marker") == "kept", "the run's records were lost to a removed file")
 end
 
---- A read of the working database answers at once, with the last
+--- A read of the working database returns at once, with the last
 --- commit, while a run holds its write transaction open with more
 --- written than its cache holds. In rollback mode that run's spill holds
 --- the file whole, and the read would wait for the run to end; the
@@ -606,7 +606,7 @@ local function test_web_assets_are_hashed_replaced_whole_and_read_back(tmp: stri
   assert(older:close())
 end
 
---- Stages a tree laid out as cosmic's own and answers its `boot`
+--- Stages a tree laid out as cosmic's own and returns its `boot`
 --- fingerprint.
 local function boot_of(root: string): string
   local handle = assert(work.open(root))
@@ -854,7 +854,7 @@ local function test_tool_discovery_does_not_bless_an_addition_after_listing(tmp:
   assert(Fs.mkdirs(tmp .. "/core"))
   local handle = assert(work.open(tmp))
   local walk = Fs.walk
-  Fs.walk = function(root: string, opts?: Fs.WalkOptions | function(string, string, Fs.Kind): boolean): ({string}) | (nil, Failure) -- checked: field_fixed
+  Fs.walk = function(root: string, opts?: Fs.WalkOptions): ({string}) | (nil, Failure) -- checked: field_fixed
     local files = assert(walk(root, opts))
     assert(Fs.write(root .. "/core/late.h", "new\n"))
     return files
@@ -901,7 +901,7 @@ local function test_tool_discovery_tracks_symlink_retarget_with_equal_bytes(tmp:
   assert(work.close(handle))
 end
 
---- Stages a project of just `files` (path to bytes) and answers the
+--- Stages a project of just `files` (path to bytes) and returns the
 --- stage's result and trouble.
 local function stage_files(root: string, files: {string:string}): work.Staged?, string
   for path, data in pairs(files) do

@@ -70,7 +70,7 @@ local function test_a_bundle_parses_back_or_is_refused(tmp: string)
       for _, one in ipairs(found) do
         if one.der == "" then return false, "an empty certificate" end
         -- The TLS stack's own parse, on whatever bytes a bundle holds:
-        -- an answer, never a raise.
+        -- a result, never a raise.
         local readable, why = Http.check_certificate(one.der)
         Fuzz.label(if readable then "readable" else "unreadable" end)
         if not readable and tostring(why) == "" then return false, "unreadable without a reason" end

@@ -136,7 +136,8 @@ local function tokens_of(source: string): string
         next_at = next_at + 1
       end
       comments[#comments + 1] = string.format("%d:%s", #tokens + (if moved[next_at] == true then 1 else 0 end), item.text)
-    elseif not table_comma(items, i) then
+    elseif not table_comma(items, i) and item.text ~= ";" then
+      -- A `;` ends a statement and is no part of the tree: the layout deletes it.
       tokens[#tokens + 1] = item.kind .. ":" .. item.text
     end
   end
@@ -179,7 +180,7 @@ local function flags_of(source: string): {Flag}, {Flag}
       local flag = (if breaks then "n" else "-" end) .. (if item.blank then "b" else "-" end)
       if item.kind == "comment" then
         comments[#comments + 1] = { token = 0, flag = flag }
-      elseif not table_comma(items, i) then
+      elseif not table_comma(items, i) and item.text ~= ";" then
         tokens[#tokens + 1] = { token = item.token, flag = flag }
       end
       if item.kind == "token" then

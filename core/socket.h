@@ -4,7 +4,7 @@
  * module, which only that wrapper is handed. Every socket it makes is
  * closed on exec and nonblocking, so a wait is always `wait`'s, which
  * a deadline and a [`Signal.guard`] end; reading is [`cosmic.sys`]'s `read`.
- * Each is answered as a `Socket` that owns its descriptor from the
+ * Each is returned as a `Socket` that owns its descriptor from the
  * moment it is made, so a raise before the caller has wrapped it --
  * memory running out -- leaks nothing: the collector closes it.
  *
@@ -139,7 +139,7 @@ COSMIC_SYSCALL(multicast_loop, 2);
  * --- How a datagram socket sends to a multicast group, as the system holds it.
  * ---@class MulticastSettings
  * ---@field interface string|integer the interface its multicast leaves by: for an IPv4 socket an IPv4 address of it, "0.0.0.0" for the one the system chooses; for an IPv6 socket its index, 0 for the one the system chooses
- * ---@field hops integer how many hops its multicast datagrams live; an IPv6 socket never set answers -1 where the system does, for the route's own limit
+ * ---@field hops integer how many hops its multicast datagrams live; -1 for an IPv6 socket never set, on a system that reports it so, meaning the route's own limit
  * ---@field loop boolean whether the host's own members hear them
  */
 
@@ -201,7 +201,7 @@ COSMIC_SYSCALL(accept, 1);
 COSMIC_SYSCALL(adopt, 1);
 
 /*
- * --- Connects a new stream socket to an address. A unix one fails ECONNREFUSED where nothing listens at a socket file and ENOENT where there is no file; where its listener's backlog is full, it fails at once: EAGAIN on Linux, and ECONNREFUSED on macOS, which cannot tell a busy listener from none. A caller that would wait for room asks again. A TCP one waits for the connection to be made, and fails with what refused it: ECONNREFUSED where nothing listens at the port. A failure the connect itself answers, rather than the wait, is answered at once, EAGAIN included (Linux's where it has no local port or other resource for the connection). A wait fails ETIMEDOUT once the time runs out, and EINTR once an open `Signal.guard` catches a signal. A unix path too long to connect to whole is connected to from its directory, and raises where the process cannot return to its working directory after.
+ * --- Connects a new stream socket to an address. A unix one fails ECONNREFUSED where nothing listens at a socket file and ENOENT where there is no file; where its listener's backlog is full, it fails at once: EAGAIN on Linux, and ECONNREFUSED on macOS, which cannot tell a busy listener from none. A caller that would wait for room asks again. A TCP one waits for the connection to be made, and fails with what refused it: ECONNREFUSED where nothing listens at the port. A failure of the connect itself, rather than of the wait, is returned at once, EAGAIN included (Linux's where it has no local port or other resource for the connection). A wait fails ETIMEDOUT once the time runs out, and EINTR once an open `Signal.guard` catches a signal. A unix path too long to connect to whole is connected to from its directory, and raises where the process cannot return to its working directory after.
  * ---@param address Address where to connect
  * ---@param timeout_ms integer how long to wait at most, -1 for no limit
  * ---@return Socket|nil socket the connected socket, closed on exec and nonblocking, or nil on failure
@@ -211,7 +211,7 @@ COSMIC_SYSCALL(adopt, 1);
 COSMIC_SYSCALL(connect, 2);
 
 /*
- * --- Starts connecting a new stream socket to an address, waiting for nothing: a caller that waits on its own terms (a task of [`Poll.run`]) waits until the socket is writable and then asks `connected`. It answers the socket once connected or while a TCP connection is being made. It fails, or raises, as `connect` does where that fails at once, a unix listener whose backlog is full included.
+ * --- Starts connecting a new stream socket to an address, waiting for nothing: a caller that waits on its own terms (a task of [`Poll.run`]) waits until the socket is writable and then asks `connected`. It returns the socket once connected or while a TCP connection is being made. It fails, or raises, as `connect` does where that fails at once, a unix listener whose backlog is full included.
  * ---@param address Address where to connect
  * ---@return Socket|nil socket the socket, connected or connecting, closed on exec and nonblocking, or nil on failure
  * ---@return string error what went wrong, when socket is nil
@@ -220,7 +220,7 @@ COSMIC_SYSCALL(connect, 2);
 COSMIC_SYSCALL(start, 1);
 
 /*
- * --- Whether the connection `start` began on a socket, which has since polled writable, was made: true, or false and what refused it (SO_ERROR), ECONNREFUSED where nothing listens at the port. Asked before the socket is writable, it answers true for a connection still being made.
+ * --- Whether the connection `start` began on a socket, which has since polled writable, was made: true, or false and what refused it (SO_ERROR), ECONNREFUSED where nothing listens at the port. Asked before the socket is writable, it returns true for a connection still being made.
  * ---@param fd integer the connecting descriptor
  * ---@return boolean ok false once the connection failed
  * ---@return string error what went wrong, when ok is false
@@ -315,15 +315,15 @@ COSMIC_SYSCALL(wait, 3);
 /*
  * --- A host name lookup in progress, which owns its c-ares channel and every socket c-ares holds for it: `close`, `<close>` or the collector ends the lookup and closes them, a query still pending among them. It never blocks by itself: the caller runs it with `step`, which reports the descriptors c-ares watches and when it next needs a call, and waits for them as it likes (a task of a poll loop, or `wait`).
  * ---@class Lookup: userdata
- * ---@field step fun(self:Lookup,fds:{integer}|nil,events:{integer}|nil):boolean,{integer},{integer},integer hands c-ares what the caller found (`fds` and `events` pair, each event word poll's bits, a hang-up or an error reading as readable), runs its timers, and answers whether the lookup is done, the descriptors c-ares watches, the events it wants of each (poll's `POLLIN` and `POLLOUT` bits), how many milliseconds it may wait before it needs a call again (-1 for no timer, and once done). Raises for fds and events that do not pair.
+ * ---@field step fun(self:Lookup,fds:{integer}|nil,events:{integer}|nil):boolean,{integer},{integer},integer hands c-ares what the caller found (`fds` and `events` pair, each event word poll's bits, a hang-up or an error reading as readable), runs its timers, and returns whether the lookup is done, the descriptors c-ares watches, the events it wants of each (poll's `POLLIN` and `POLLOUT` bits), how many milliseconds it may wait before it needs a call again (-1 for no timer, and once done). Raises for fds and events that do not pair.
  * ---@field wait fun(self:Lookup,timeout_ms:integer):boolean,string,integer waits at most `timeout_ms` (-1 for no limit beyond a tenth of a second) for a descriptor c-ares watches or its timer, then hands it what happened: true, or false, what went wrong and the error number: EINTR where a `Signal.guard` caught a signal. It returns after one slice, done or not, and listing nothing; `step` reports where the lookup is
- * ---@field result fun(self:Lookup):{Resolved}|nil,string,integer what the lookup answered once a step said it is done, as `lookup` lists the errors; a lookup not done is ETIMEDOUT
+ * ---@field result fun(self:Lookup):{Resolved}|nil,string,integer what the lookup found once a step said it is done, as `lookup` lists the errors; a lookup not done is ETIMEDOUT
  * ---@field close fun(self:Lookup) ends the lookup; nothing once closed
  * ---@field __close fun(self:Lookup) ends it as `close` does
  */
 
 /*
- * --- Starts a lookup of a host name with c-ares and answers it as a `Lookup`, to be run to the end by `step`. It answers every address the system's resolver returns, IPv4 and IPv6, in the order c-ares gives them, with none dropped and none filtered. The system's configuration is read as c-ares reads it: resolv.conf and hosts (and, on macOS, the system's DNS configuration), HOSTALIASES ignored. A numeric IPv4 or IPv6 address, written as a "tcp" address's host is, answers itself and asks no one; a name, and a literal that is not numeric in that grammar, is looked up. Hosts file entries answer as a server's records do. The answer is every address RECEIVED: one family's lookup failing while the other's succeeds answers the addresses of the one that succeeded, as c-ares does, and nothing says that one failed. A caller that checks addresses must connect only to the ones returned and never look the name up again. A name with fewer dots than the system's ndots may be tried under its search domains first (resolv.conf's `search`), so a single-label name may resolve under one; `servers` and `hosts` are for tests and trusted callers, never for values a sandboxed program chose. Nothing is cached between calls. The lookup's `timeout_ms` bounds c-ares's own clocks, and the caller ends the lookup at its deadline. A degenerate argument raises; a name that is empty, over 254 bytes (253 and a trailing dot), holds a NUL or a "%" fails EINVAL, as a name may come from bytes the caller did not write.
+ * --- Starts a lookup of a host name with c-ares and returns it as a `Lookup`, to be run to the end by `step`. Its `result` lists every address the system's resolver returns, IPv4 and IPv6, in the order c-ares gives them, with none dropped and none filtered. The system's configuration is read as c-ares reads it: resolv.conf and hosts (and, on macOS, the system's DNS configuration), HOSTALIASES ignored. A numeric IPv4 or IPv6 address, written as a "tcp" address's host is, resolves to itself and asks no one; a name, and a literal that is not numeric in that grammar, is looked up. A hosts file entry counts as a server's record does. The result is every address RECEIVED: one family's lookup failing while the other's succeeds leaves the addresses of the one that succeeded, as c-ares does, and nothing says that one failed. A caller that checks addresses must connect only to the ones returned and never look the name up again. A name with fewer dots than the system's ndots may be tried under its search domains first (resolv.conf's `search`), so a single-label name may resolve under one; `servers` and `hosts` are for tests and trusted callers, never for values a sandboxed program chose. Nothing is cached between calls. The lookup's `timeout_ms` bounds c-ares's own clocks, and the caller ends the lookup at its deadline. A degenerate argument raises; a name that is empty, over 254 bytes (253 and a trailing dot), holds a NUL or a "%" fails EINVAL, as a name may come from bytes the caller did not write.
  * ---@param name string the host name or numeric address
  * ---@param timeout_ms integer how long c-ares waits at most, from 0, -1 for no limit beyond its own retries and timeouts
  * ---@param servers? string name servers to ask in place of the system's, as c-ares writes them: `host[:port]`, an IPv6 host in brackets before its port, comma-separated; a malformed list fails EINVAL
@@ -344,7 +344,7 @@ COSMIC_SYSCALL(lookup, 4);
 COSMIC_SYSCALL(nameservers, 1);
 
 /*
- * --- The error numbers the calls above answer that a caller acts on, and the bound on a socket file's name, from this libc.
+ * --- The error numbers a caller acts on from the calls above, and the bound on a socket file's name, from this libc.
  * ---@class Constants
  * ---@field EAGAIN integer nothing to take or send now, or, on Linux, a unix listener's backlog full to `connect` or `start`: wait, then ask again
  * ---@field EINTR integer a guard caught a signal while `wait` waited
@@ -353,13 +353,13 @@ COSMIC_SYSCALL(nameservers, 1);
  * ---@field ECONNREFUSED integer nothing listens at an address
  * ---@field EPROTO integer a descriptor batch was malformed, truncated, or held a different count
  * ---@field EPROTOTYPE integer a descriptor channel was not a stream socket
- * ---@field ENOTCONN integer `peer`: the socket is connected to nothing, as one its far side reset is on Linux (macOS answers EINVAL for that)
+ * ---@field ENOTCONN integer `peer`: the socket is connected to nothing, as one its far side reset is on Linux (macOS fails with EINVAL for that)
  * ---@field EINVAL integer a "tcp" host is no numeric address
  * ---@field ENAMETOOLONG integer a unix path's file name is past `SOCKET_NAME_MAX`, or its directory past the platform's bound on a path
  * ---@field SOCKET_NAME_MAX integer the most bytes a socket file's own name may take: 107 on Linux, 103 on macOS
  * ---@field RESOLVE_NOTFOUND integer `Lookup.result`: the name does not exist (NXDOMAIN), -2 on every OS
  * ---@field RESOLVE_NODATA integer `Lookup.result`: the name exists and has no IPv4 or IPv6 address, -5 on every OS
- * ---@field RESOLVE_FAILED integer `Lookup.result`: the servers answered with a failure or a malformed answer, -4 on every OS
+ * ---@field RESOLVE_FAILED integer `Lookup.result`: the servers responded with a failure or a malformed response, -4 on every OS
  */
 COSMIC_CONSTANT(EAGAIN)
 COSMIC_CONSTANT(EINTR)

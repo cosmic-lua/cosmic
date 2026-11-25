@@ -6,8 +6,8 @@ local Web = require("cosmic.web")
 
 local Example = {} -- checked: literal_needs_type
 
---- One partner site may read the API with its cookies; a preflight is answered
---- without calling a route.
+--- One partner site may read the API with its cookies; a preflight gets its
+--- response without calling a route.
 function Example.middleware()
   local app = Web.app{
     middleware = { Cors.middleware{ allow_origins = { "https://app.example.com" }, allow_credentials = true } },

@@ -20,7 +20,7 @@ local lua_assert = assert -- checked: overload_value
 
 local record assertions
   --- Lua's own `assert`, as it was when this module loaded: what the
-  --- counting one must answer exactly as. Typed `any` because it answers
+  --- counting one must match exactly. Typed `any` because it returns
   --- every argument it is given, which no exported function here may;
   --- callers cast it.
   mut lua_assert: any

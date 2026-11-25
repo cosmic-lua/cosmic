@@ -16,7 +16,7 @@ local function bindings_of(source: string): {Lexical.Binding}
   return Lexical.bindings_of(chunk, Node.scope(chunk, "fixture.tl"))
 end
 
---- What `in_scope` answers at each of `places`, `line:column`, of `source`, `line:column:doc` for a doc comment's place:
+--- What `in_scope` returns at each of `places`, `line:column`, of `source`, `line:column:doc` for a doc comment's place:
 --- its names, sorted, each `name=module` for an alias.
 local function scopes_at(source: string, places: {string}): {string}
   local bindings = bindings_of(source)

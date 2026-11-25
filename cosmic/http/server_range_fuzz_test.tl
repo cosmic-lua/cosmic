@@ -107,7 +107,7 @@ local function well_formed(header: string): string?, string
   return "", suffix
 end
 
--- Any header read against any size answers whole, unsatisfiable, or a
+-- Reading any header against any size returns whole, unsatisfiable, or a
 -- span within the representation, and a span or unsatisfiable only for
 -- one well-formed range: where its counts fit an integer, the span the
 -- RFC's arithmetic gives.
@@ -217,7 +217,7 @@ end
 
 -- A tag matches itself in every list of well-formed tags, weak or
 -- strong, and only where its opaque part is in the list; any header,
--- edited or not, answers without raising.
+-- edited or not, is read without raising.
 local function test_none_match_finds_a_tag_in_any_list_of_tags(tmp: string)
   Fuzz.run({
     name = "http none_match",
@@ -266,7 +266,7 @@ local function test_none_match_finds_a_tag_in_any_list_of_tags(tmp: string)
   })
 end
 
--- Any bytes as an If-None-Match header answer without raising.
+-- Any bytes as an If-None-Match header are read without raising.
 local function test_none_match_is_total_over_any_header(tmp: string)
   Fuzz.run({
     name = "http none_match total",

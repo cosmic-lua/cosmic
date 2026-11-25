@@ -6,9 +6,9 @@ local Xml = require("cosmic.xml")
 
 local record Example end
 
---- A parser takes the text in chunks, split anywhere, and answers each
---- with the events it completes: here the item names of a feed, read as
---- it arrives.
+--- A parser takes the text in chunks, split anywhere, and its `feed`
+--- returns for each the events it completes: here the item names of a
+--- feed, read as it arrives.
 function Example.parser()
   local p <close> = assert(Xml.parser())
   local titles: mut {string} = {}

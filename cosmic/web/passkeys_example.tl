@@ -1,6 +1,6 @@
 --- Worked examples for [`Web.passkeys`], shown by `cosmic docs` under
 --- the symbol each one demonstrates and run by `cosmic test` like any other
---- test. A stand-in authenticator answers in place of a browser's.
+--- test. A stand-in authenticator takes the place of a browser's.
 
 local Cbor = require("cosmic.cbor")
 local Codec = require("cosmic.codec")
@@ -24,7 +24,7 @@ end
 --- new account; a second sign-up under her name is refused, since it
 --- would add a stranger's passkey to her account. Later, another browser
 --- logs in with the passkey and no name at all. The authenticator here
---- is a stand-in that answers what `navigator.credentials` would.
+--- is a stand-in that returns what `navigator.credentials` would.
 function Example.passkeys()
   local origin = "https://example.com"
   local db = assert(Sqlite.memory())

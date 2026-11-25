@@ -21,7 +21,7 @@ local record coverage_hits
 end
 
 --- A copy of every line hit so far in the open window, by module import
---- path, in the form [`cosmic.coverage`]'s `stop` answers: reads only, so
+--- path, in the form [`cosmic.coverage`]'s `stop` returns: reads only, so
 --- the window is as it was.
 --- Empty when none is open.
 --- @return Hits Every line hit so far

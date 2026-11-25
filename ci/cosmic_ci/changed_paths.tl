@@ -24,7 +24,7 @@
 --- the step, it returns 0: a list not made costs time, never a result.
 ---
 --- It runs the host's own `git`, through a [`ChangedPaths.Git`] a test
---- replaces with git's recorded answers (testdata/changed_paths, made
+--- replaces with a recording of git's output (testdata/changed_paths, made
 --- again by its record.sh).
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
@@ -41,9 +41,9 @@ local record ChangedPaths
     ok: boolean
     output: string
   end
-  --- Runs `git` with `argv`, ended after `seconds` (never for 0), and answers whether it
+  --- Runs `git` with `argv`, ended after `seconds` (never for 0), and returns whether it
   --- exited 0 and what it wrote to standard output. Where git cannot run,
-  --- or runs out of time, it answers false.
+  --- or runs out of time, it returns false.
   type Git = function(argv: {string}, seconds: integer): Ran
   --- [`ChangedPaths.Git`] for the host's `git`, found on `env`'s PATH,
   --- run in `env`.

@@ -44,8 +44,8 @@ stops the wait. A file that readers share beside one writer opens in
 write-ahead mode: `Sqlite.open(path, { writable = true, wal = true,
 synchronous = "normal" })`. `wait` sets another wait, in nanoseconds.
 
-`db:rows(sql, values)` answers every row a query yields; `db:one(sql,
-values)` answers its first, `nil` alone where it yields none, or `nil`
+`db:rows(sql, values)` returns every row a query yields; `db:one(sql,
+values)` returns its first, `nil` alone where it yields none, or `nil`
 and why: `assert(db:one("select count(*) from t")):integer(1)`. A query
 stops at its first row; a write with `returning` makes all its changes.
 
@@ -78,19 +78,29 @@ local version = assert(db:migrate({
 assert(version == 2)
 ```
 
-`Sqlite.schema(ddl)` names the tables a database holds, for a program
-whose schema does not change. `open` and `memory` take it as `schema`:
-a new file opened `writable` gets the tables, and a file that does not
-hold them, column for column, fails at open and names what differs.
+`local schema Name [[DDL]]` names the tables a database holds, for a
+program whose schema does not change. `open` and `memory` take it as
+`schema`: a new file opened `writable` gets the tables, and a file that
+does not hold them, column for column, fails at open and names what
+differs. The handle they give is of the type `Name`, and the checker
+reads the SQL sent to it against the DDL, wherever it goes: a table or
+column the DDL does not create, a values list of the wrong length, and
+`row:text(1)` of an `INTEGER` column of a `STRICT` table are refused
+where they are written.
 
 ```teal
 local Sqlite = require("cosmic.sqlite")
 
-local Notes <const> = Sqlite.schema([[
+local schema Notes [[
   CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT NOT NULL);
-]])
+]]
+
+local function add(db: Notes, body: string)
+  assert(db:run("INSERT INTO notes (body) VALUES (?1)", { body }))
+end
+
 local db = assert(Sqlite.memory({ schema = Notes }))
-assert(db:run("INSERT INTO notes (body) VALUES (?1)", { "hi" }))
+add(db, "hi")
 ```
 
 ```teal

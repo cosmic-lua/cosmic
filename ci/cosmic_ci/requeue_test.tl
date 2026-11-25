@@ -6,7 +6,7 @@ local bot <const> = "whilpbot[bot]"
 --- When the triggering run was made.
 local started <const> = "2026-11-24T00:30:00Z"
 
---- A pull request's head as REST answers it: the commit `sha` of
+--- A pull request's head as the REST API sends it: the commit `sha` of
 --- `repository`'s branch `ref` ("owner/repo" and "claude/x" by default;
 --- "" for a fork that is gone).
 local function head_text(sha: string, ref?: string, repository?: string): string
@@ -15,7 +15,7 @@ local function head_text(sha: string, ref?: string, repository?: string): string
   return '{"sha":"' .. sha .. '","ref":"' .. (ref or "claude/x") .. '","repo":' .. named .. "}"
 end
 
---- A pull request as REST answers it, with the JSON values `fields`
+--- A pull request as the REST API sends it, with the JSON values `fields`
 --- gives in place of the defaults (open, not a draft, not merged,
 --- mergeable, head "head1" of this repository's branch "claude/x").
 local function pull_text(fields?: {string:string}): string
@@ -41,7 +41,7 @@ local function joined(...: string): string
   return table.concat({ ... }, ",")
 end
 
---- A runs answer of `runs`, each "branch@created_at" of this
+--- A runs response of `runs`, each "branch@created_at" of this
 --- repository, or "repository:branch@created_at".
 local function runs_text(...: string): string
   local items: mut {string} = {}
@@ -55,7 +55,7 @@ local function runs_text(...: string): string
   return '{"workflow_runs":[' .. table.concat(items, ",") .. "]}"
 end
 
---- What a fake answers, beside the pull request: its timeline, read by
+--- What a fake returns, beside the pull request: its timeline, read by
 --- read (the last again once they run out), the queue's runs, the pull
 --- request runs of its head, and the mutation.
 local record Answers
@@ -66,7 +66,7 @@ local record Answers
   enqueue_status?: integer
 end
 
---- A run context whose client answers `pull` and `answers`, recording
+--- A run context whose client's `send` returns `pull` and `answers`, recording
 --- each request as "METHOD path" and each wait as "sleep N".
 local function fake(pull: string, answers: Answers, event_name?: string, conclusion?: string,
                     branch?: string): Requeue.Context, {string}

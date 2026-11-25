@@ -1,5 +1,5 @@
 --- `cosmic sql` over the running program's own database: the source it
---- picks by default, and what that database answers and refuses
+--- picks by default, and what that database allows and refuses
 --- (build/sql_test.tl holds the rest).
 
 local Array = require("cosmic.array")
@@ -53,7 +53,7 @@ local function run(root: string, words: {string}): integer, Written
 end
 
 --- The binary's own database reads the clock through its VFS, which
---- passes the question to the default one: `julianday('now')` answers
+--- passes the question to the default one: `julianday('now')` returns
 --- rather than ending the process.
 local function test_the_binarys_own_database_tells_the_time()
   local root = support.sql_project()
@@ -80,7 +80,7 @@ local function test_the_default_is_the_project_database_else_the_binarys_own()
   assert(Fs.remove(support.build_dir(root) .. "/cosmic.db"))
   chosen = assert(source(root, {}))
   assert(chosen.path == nil, chosen.name)
-  -- The binary's own database answers, and still refuses a write.
+  -- The binary's own database opens, and still refuses a write.
   local opened = assert(sql.open(chosen))
   assert(not opened.owned)
   local lines = assert(sql.query(opened.db, "SELECT count(*) > 0 AS any FROM sqlite_schema"))
