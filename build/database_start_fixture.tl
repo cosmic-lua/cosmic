@@ -190,9 +190,9 @@ return function(args)
   say("relaunch_env", next(relaunch.env) == nil)
   say("relaunch_fds", next(relaunch.fds) == nil)
   if args[1] == "sandboxed" then
-    -- This program's own file is the core, which the profile grants.
+    -- This program's own file is the core, which the start runs with no grant of it.
     local result, why = Child.run({ Proc.executable(), "child", "z" },
-      { timeout_ns = Child.FOREVER, policy = { profiles = { "cosmic" } }, stdout = "capture", stderr = "capture" })
+      { timeout_ns = Child.FOREVER, policy = {}, stdout = "capture", stderr = "capture" })
     if result == nil then
       say("sandbox_refused", why)
     else

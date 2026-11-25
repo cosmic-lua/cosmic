@@ -1083,8 +1083,8 @@ function Dispatch.main(argv: {string}): integer
       shifted[#shifted + 1] = given
     end
     return require("build.standalone").run(shifted, "this file ran as --standalone, which " ..
-        "finds only cosmic.* modules, because COSMIC_STANDALONE=1 (as under `cosmic sandbox " ..
-        "--cosmic`); COSMIC_STANDALONE=0 builds the tree around it, which finds its own")
+        "finds only cosmic.* modules, because COSMIC_STANDALONE=1 (as under `cosmic " ..
+        "sandbox`); COSMIC_STANDALONE=0 builds the tree around it, which finds its own")
   end
   if word ~= nil and word:sub(-3) == ".tl" and require("cosmic.env").get("COSMIC_STANDALONE") ~= "0" then
     local code = run_alone(word, argv)

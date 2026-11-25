@@ -52,7 +52,7 @@
 ---
 --- With COSMIC_STANDALONE=1, cosmic runs the file as `--standalone`
 --- does: it builds nothing and writes no build directory. A program that
---- `cosmic sandbox --cosmic` runs has COSMIC_STANDALONE=1 unless
+--- `cosmic sandbox` runs has COSMIC_STANDALONE=1 unless
 --- `--set-env` says otherwise.
 --- @public
 
