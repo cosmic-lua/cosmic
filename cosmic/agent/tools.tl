@@ -634,10 +634,9 @@ end
 
 --- What sessions.db holds, as Host.history tells the model.
 local KEPT_TABLES <const> = "Tables: sessions (id, cwd, started (Unix time), model); messages (session, seq, " ..
-  "message: the JSON the API takes); outputs (id, session, tool, input (JSON), text (the whole output), is_error); " ..
-  "outputs_fts, FTS5 over outputs.text with the trigram tokenizer (rowid = outputs.id): " ..
-  "outputs_fts MATCH '\"some text\"' for text of 3 characters or more, with snippet(outputs_fts, 0, " ..
-  "'>>', '<<', '...', 64) and ORDER BY rank. ?1 is the current session's id."
+  "message: the API's JSON); outputs (id, session, tool, input (JSON), text, is_error); outputs_fts, trigram " ..
+  "FTS5 over outputs.text (rowid = outputs.id): outputs_fts MATCH '\"some text\"' (3 characters or more), " ..
+  "snippet(outputs_fts, 0, '>>', '<<', '...', 64), ORDER BY rank. ?1 is this session's id."
 
 --- Every tool, in the order the system prompt lists them.
 local ALL <const>: {Tools.Tool} = {
