@@ -24,6 +24,8 @@ end
 local record Ran
   mut code: integer
   mut err: string
+  --- What it wrote to standard output (`--explain`).
+  mut out: string
   --- What it asked to start: nil when it started nothing, and then `opts` is empty.
   mut argv?: {string}
   mut opts: Child.Options
@@ -47,10 +49,14 @@ end
 local function run(words: {string}, answer?: Answer): Ran
   local argv: mut {string} = { "sandbox" }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
-  local ran: Ran = { code = -1, err = "", opts = { timeout_ns = Child.FOREVER } }
+  local ran: Ran = { code = -1, err = "", out = "", opts = { timeout_ns = Child.FOREVER } }
   local given = answer or { result = finished(0) }
   ran.code = sandbox.run(argv, {
     err = function(line: string) ran.err = ran.err .. line .. "\n" end,
+    out = function(text: string): boolean, string
+      ran.out = ran.out .. text
+      return true, ""
+    end,
     run = function(command: {string}, opts: Child.Options): Child.Result?, string
       ran.argv, ran.opts = command, opts
       local result = given.result
@@ -435,7 +441,7 @@ local exempt <const>: {string:string} = {
 local others <const>: {string:boolean} = {
   ["--fd"] = true, ["--timeout"] = true, ["--cwd"] = true,
   ["--run"] = true, ["--write"] = true, ["--path"] = true,
-  ["--programs"] = true, ["--promise"] = true, ["--connect"] = true,
+  ["--programs"] = true, ["--promise"] = true, ["--connect"] = true, ["--explain"] = true,
   ["--database"] = true, ["--modules"] = true, ["--closure"] = true,
 }
 
@@ -453,6 +459,26 @@ end
 local function holds(value: any): boolean
   if type(value) == "table" then return next(value as {any:any}) ~= nil end -- checked: cast_refused -- declared: key_type
   return value ~= nil and value ~= false
+end
+
+--- `--explain` prints the layers a start would hold the program to, a line
+--- each, and starts nothing; a start that would be refused exits 125.
+local function test_explain_prints_the_layers_and_starts_nothing(tmp: string)
+  local own = assert(Proc.executable())
+  local ran = run({ "--explain", "--read", tmp, "--promise", "fork", "--cpu-seconds", "5", "--", own, "print hi" })
+  if ran.code ~= 0 and assert(sys.uname()).sysname == "Darwin" then
+    assert(ran.err:find("Seatbelt", 1, true) ~= nil, ran.err)
+    return
+  end
+  assert(ran.code == 0, tostring(ran.code) .. " " .. ran.err)
+  assert(ran.argv == nil, "--explain started a program")
+  for _, line in ipairs({ "\nboot: r ", "calls: fork\n", "exec: refused (no x in the last ruleset)\n",
+      "sockets: none\n", "root: the host's\n", "relay: none\n", "loopback: none\n" }) do
+    assert(ran.out:find(line, 1, true) ~= nil, line .. " is not in:\n" .. ran.out)
+  end
+  assert(ran.out:find("^landlock: ") ~= nil and ran.out:find(" cpu=5 ", 1, true) ~= nil, ran.out)
+  local gone = run({ "--explain", "--", tmp .. "/absent" })
+  assert(gone.code == 125 and gone.out == "" and gone.argv == nil, tostring(gone.code) .. " " .. gone.err)
 end
 
 local function test_every_policy_field_has_a_flag()
