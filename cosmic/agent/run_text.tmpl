@@ -3,23 +3,25 @@ Run a program in cosmic, a typed language of its own with a library of its own (
 
 Host (cosmic.agent.host), Fs (cosmic.fs) and Json (cosmic.json) need no require. Host's calls do as the commands they are named for, and raise where they fail, so they need no assert:
 - Host.find(dir, suffix?) -> {string}: every file under dir, sorted (`Host.find("src", ".tl")`).
-- Host.read(path) -> string; Host.lines(path) -> {string}; Host.wc(path) -> integer, its newlines as `wc -l`; Host.write(path, text or {lines}); Host.exists(path) -> boolean.
-- Host.edit(path, {{"{{"}}old = "...", new = "..."}, ...}) -> integer: replaces exact text, each old in the file once as it was before any edit, none overlapping (`Host.edit("a.md", {{"{{"}}old = "teh", new = "the"}})`); Host.Replacement types a list of them. Host.sed is for a pattern on every line.
-- Host.grep(pattern, paths, plain?) -> {{"{{"}}path, line, text}}: the lines that hold a pattern (`%d`, `%.`, `[^/]+`; no regex).
-- Host.sed(path, pattern, replacement, plain?) -> integer: replaces every match, line by line (`%1` a capture).
+- Host.read(path) -> string (`local text = Host.read("README.md")`); Host.lines(path) -> {string}, without their newlines (`for n, line in ipairs(Host.lines("a.txt")) do ... end`); Host.wc(path) -> integer, its newlines as `wc -l`; Host.exists(path) -> boolean.
+- Host.edit(path, {{"{{"}}old = "...", new = "..."}, ...}) -> integer: changes part of a file, in place of reading it and writing it whole again. Each old is exact text, in the file once as it was before any edit, none overlapping (`Host.edit("a.md", {{"{{"}}old = "teh", new = "the"}, {old = "## Usage\n", new = "## Usage\n\nRun it.\n"}})`); Host.Replacement types a list of them.
+- Host.write(path, text or {lines}): a new file, or one whose whole text is new; a list is written a line each (`Host.write("out.txt", {"a", "b"})`).
+- Host.grep(pattern, paths, plain?) -> {{"{{"}}path, line, text}}: the lines of the files that hold a pattern (`%d`, `%.`, `[^/]+`; no regex): `for _, h in ipairs(Host.grep("TODO", Host.find("src", ".tl"), true)) do print(h.path .. ":" .. tostring(h.line) .. ": " .. h.text) end`.
+- Host.sed(path, pattern, replacement, plain?) -> integer: replaces every match, line by line, for a rename or a pattern (`Host.sed("a.tl", "old_name", "new_name", true)`; `%1` a capture).
 - Host.sort(list, by?) -> mut {string}, a new list, by the key `by(item)` gives where given; Host.sort_by(items, by) -> mut {T}, the same for a list of records (`Host.sort_by(items, function(i: Item): string return i.id end)`); Host.uniq(keys) -> {string: integer}, each key's count; Host.top(counts, n?) -> {{"{{"}}key, count}}, most first, ties by key.
 - Host.bash(command) -> {output, ok, code}; Host.store(key, value) / Host.load(key).value.
 - Host.output(id) -> string: a cut output as sessions.db keeps it, by the id its note names. Host.history(query) -> {row}: one read-only SQLite statement on sessions.db, where every session and each tool's whole output is kept, for what was cut or seen before. {{.tables}}
 - Host.fetch(url, {method?, headers?, body?, any_status?}?) -> {status, headers, body}: no redirect followed; a status of 400 or more raises, with the start of its body, unless any_status = true; public addresses with --network, and the targets of --connect.
 - JSON is read typed, into records rather than walked with Json.get: unless you know each field's type, print the start of one body first (`print(body:sub(1, 600))`); then declare records to match it, at the snippet's top level, and decode into them (`local Shape = require("cosmic.shape")`, `local record Item name: string count: integer end`, `local record Page items: {Item} next?: integer end`, `local page = Shape.decode_into(body, Shape.record_of("Page").spec)!`); a key the record does not name is dropped.
-- Host.sqlite(path, statement, {values}?) -> {row}: one SQL statement on a SQLite file, made where missing (`?1` binds the first value; with no values, a script of several); a row's column is `row["name"]`. Host.sha256(path) -> hex.
+- Host.sqlite(path, statement, {values}?) -> {row}: one SQL statement on a SQLite file, made where missing (`?1` binds the first value; with no values, a script of several); a row's column is `row["name"]`, a Json.Value: take it with tostring (`print(tostring(row["dir"]) .. " " .. tostring(row["n"]))`). Host.sha256(path) -> hex.
 - The cosmic.* modules a snippet may require are listed, a line each, by print(Host.modules()) (and in the system prompt, where it has the list; not io or os): use one before writing what it does (cosmic.csv reads CSV); print(Host.docs("cosmic.fs")) shows one. Their calls that may fail answer a value, or nil and why: take it with `!`, which raises with the reason (`local text = Fs.read(path)!`), as a statement too (`Fs.write(path, text)!`).
 
 The checker refuses, so write:
 - A table you fill is declared: `local out: mut {string} = {}`, `local n: mut {string: integer} = {}`; append with `out[#out + 1] = v`.
 - A local that starts nil, or may become nil (a page cursor), is optional: `local cursor: string? = nil`, `local page: integer? = 1`; test it with `if cursor ~= nil then`. A local of a plain type is never compared with nil.
 - A local function declares its parameters and results: `local function f(x: integer): string`.
-- A read that may be nil (`t[i]`, `m[k]`, `s:match(...)`, `tonumber(s)`) is tested, given a default (`m[k] or 0`) or taken with `!` (`t[i]!`), which raises where it is nil. Walk a list with ipairs, a map with pairs.
+- A read that may be nil (`t[i]`, `m[k]`, `s:match(...)`, `tonumber(s)`) is tested, given a default (`m[k] or 0`, in a sum too: `counts[k] = (counts[k] or 0) + 1`) or taken with `!` (`t[i]!`), which raises where it is nil. Walk a list with ipairs, a map with pairs.
+- A field its record does not mark `?` is never nil: use it as it is, with no `or {}`.
 - A condition is a boolean or an optional of no boolean: `if s ~= "" then`; for a {string: boolean} set, `if seen[k] == nil then`.
 - `..` joins strings: `tostring(n)`; `%d` takes an integer: `math.floor(x)`.
 - `if c then a else b end`, with its `end` even inside a call, in place of `c and a or b`.

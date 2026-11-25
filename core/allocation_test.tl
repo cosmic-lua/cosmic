@@ -545,7 +545,7 @@ local function test_one_byte_updates_do_not_allocate_a_slice_each()
     local decoder = assert(codec.decoder())
     local function run(stream: Compress.Stream, pieces: {string}, first: integer): integer
       for i = first, count do
-        local out = stream:update(assert(pieces[i]))
+        local out, _ = stream:update(assert(pieces[i]))
         if out == nil then return i end
       end
       return count + 1
