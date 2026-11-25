@@ -3262,10 +3262,21 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
     -- It opens its artifact itself, which the root then must hold. This
     -- comes before the core's grant, which is told apart from the
     -- policy's by its own table.
-    local artifact = found.argv[3]
-    if found.argv[2] ~= "--artifact" or artifact == nil then
+    local named_artifact = found.argv[3]
+    if found.argv[2] ~= "--artifact" or named_artifact == nil then
       return nil, "sandbox: this program's relaunch names no artifact to open by its path"
     end
+    -- The launcher names it as it was run (`$PWD/$0`, which may hold `..`
+    -- or a link); the root binds the real path, which is what it opens.
+    local artifact, artifact_trouble = sys.realpath(named_artifact)
+    if artifact == nil then
+      return nil, "sandbox: " .. named_artifact .. ": " .. artifact_trouble
+    end
+    local words: mut {string} = {}
+    for i, word in ipairs(found.argv) do
+      words[#words + 1] = if i == 3 then artifact else word end
+    end
+    found = { argv = words, env = found.env, fds = found.fds, cwd = found.cwd }
     local widened, widen_trouble = Rules.union(merged, { grants = { { path = artifact, letters = "r" } } })
     if widened == nil then return nil, "sandbox: " .. widen_trouble end
     merged = widened
