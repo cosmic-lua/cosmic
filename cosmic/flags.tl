@@ -1908,7 +1908,7 @@ end
 --- @param name string The file's name, which a message that names the file shows
 --- @param mode integer | nil The file's mode, as [`Fs.write`] takes it (0755 for an executable)
 --- @return Flags.Spool | nil The file, or nil when it could not be written
---- @return string Why not, or ""
+--- @return string Why not, when there is no file
 function Flags.spool(bytes: string, name: string, mode?: integer): (Flags.Spool) | (nil, string)
   local dir, dir_why = Fs.mkdtemp("cosmic-stdin-")
   if dir == nil then return nil, "standard input: " .. tostring(dir_why) end

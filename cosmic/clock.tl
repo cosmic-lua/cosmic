@@ -133,7 +133,7 @@ end
 --- process sleeps, resuming the sleep when a signal interrupts it, so the whole time passes. A task the run is
 --- killing, or one under a C call it cannot yield across (a `table.sort` comparator), sleeps the process too.
 --- Returns true once the time has passed, or false and a Failure: of kind "cancelled" where the task was cancelled
---- first, or the system's reason where it refused the sleep. Raises when `ns` is negative.
+--- first, or the system's reason where it refused the sleep. Raises when `ns` is negative or not an integer.
 ---
 ---     assert(Clock.sleep(Clock.ms(250)))
 --- @param ns integer The nanoseconds to wait
@@ -194,8 +194,8 @@ function Clock.seconds(n: number): integer
   return span(n, NS, "Clock.seconds")
 end
 
---- Ninety seconds as a count of minutes: `Clock.minutes(1.5)` is
---- 90000000000 nanoseconds. A count is held to what [`ms`] holds one to.
+--- Minutes as nanoseconds: `Clock.minutes(1.5)` is 90000000000. A
+--- count is held to what [`ms`] holds one to.
 function Clock.minutes(n: number): integer
   return span(n, 60 * NS, "Clock.minutes")
 end

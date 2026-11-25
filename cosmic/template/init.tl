@@ -22,7 +22,7 @@
 ---     {{range .items}}..{{else}}none{{end}}       `none` when there is no element
 ---     {{range $x := .items}}{{$x.name}}{{end}}    `$x` is each element, as dot is
 ---     {{range $i, $x := .items}}{{$i}}{{end}}     `$i` its index: 1, 2, ...
----     {{with .owner}}{{.name}}{{else}}nobody{{end}}  dot is the value, if truthy
+---     {{with .owner}}{{.name}}{{else}}nobody{{end}}  dot is the value, if filled
 ---     {{"{{"}}                          literal text: writes {{
 ---
 --- A name in a field path is a field of the record: a typo is a type
@@ -38,7 +38,15 @@
 --- one declared to return a fixed number of values above one is a type
 --- error on the template's line, so a function that can fail (`nil,
 --- reason`) is wrapped by the caller into a stage that returns a value.
---- Truthiness is Lua's: only `nil` and `false` are false, not `""` or `0`.
+--- An `{{if}}` or a `{{with}}` holds of a value that is filled
+--- ([`html.filled`]): not `nil`, `false` or empty. `""`, a safe value of
+--- [`cosmic.html`] that holds `""` (an empty `SafeHtml`) and a table with
+--- no key are empty: an empty list or map, and a record with no field set
+--- too, so `{{with .options}}` over a record of optional fields means "has
+--- some field set". `0` is filled, as in Lua (Go's templates take it for
+--- false). So
+--- `{{with .tools}}<tools>{{range .}}..{{end}}</tools>{{end}}` leaves the
+--- section out when the list is empty, with no nil to stand for "none".
 ---
 --- A value starts from dot, from `$` or from a variable. `range` and `with`
 --- make dot the element or the value, so `$` is how a block reaches the
@@ -129,7 +137,7 @@
 --- escaped for either quote, with nothing before or after the slot: JSON
 --- text cannot begin with the `js:` that makes htmx run it. A selector
 --- attribute (`hx-target`, `hx-select`, `hx-select-oob`, `hx-include`,
---- `hx-indicator`, `hx-disabled-elt`, `hx-sync`, `hx-swap`, `hx-swap-oob`
+--- `hx-indicator`, `hx-disabled-elt`, `hx-sync`, `hx-swap-oob`
 --- and `hx-target-*` of the response-targets extension) takes a slot only
 --- inside an identifier after `#` or `.` (`hx-target="#row-{{.id}}"`), a
 --- string or a number escaped by [`html.escape_css_attr`] as CSS identifier
@@ -152,8 +160,7 @@
 --- `{{range}}` and `{{with}}` take one `{{else}}` but no `{{else if}}`:
 --- nest an `{{if}}`. A range's `{{else}}` runs when the list has no first
 --- element, and dot there is what it is outside the range; the list is
---- read once. It is the way to say "none": `{{if .items}}` is true of an
---- empty list, which is a table.
+--- read once. `{{if .items}}` is false of an empty list too, as above.
 ---
 --- Line N of the template is line N of the source, so a type error reads
 --- as `page.tmpl:12: ...`.

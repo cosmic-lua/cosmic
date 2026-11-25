@@ -24,7 +24,8 @@
 --- input.
 ---
 --- While a snippet runs, each call it makes of the agent ([`cosmic.agent.host`]) goes out as a line too, the request's
---- `id` beside `call` and `args`, and the snippet waits for the next line in: `{"reply":...}`, or `{"failed":"..."}`.
+--- `id` beside `call`, `call_id` and `args`, and the snippet waits for the line in with that `call_id`:
+--- `{"call_id":1,"reply":...}`, or `{"call_id":1,"failed":"..."}`.
 ---
 --- A snippet that requires `mcp.<server>` gets the module of that MCP server's tools ([`cosmic.agent.mcp_module`]): at
 --- the first snippet that requires it, the worker asks the agent for the server's tools, and the checker reads the
