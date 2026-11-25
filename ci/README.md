@@ -485,10 +485,10 @@ macOS's whole leg. A branch's push runs nothing.
   before main's push runs. Beside it, `macos-aarch64` (part `suite`) runs
   macOS's native suite and darwin suite, as the queue's does. Both native
   suites stand on main's verdicts ([`cosmic_ci/orchestration.tl`]'s
-  `standing_events`), so they run only the tests the change reaches, and a
-  failure the queue would meet on those legs, a macOS-only test or one of
-  the built binary's verbs, shows on the pull request before it takes a
-  queue slot. It saves nothing.
+  `standing_events`), so they run only the tests the change reaches. A
+  failure the queue would meet on those legs shows on the pull request
+  first, before the change takes a queue slot: a macOS-only test, for one,
+  or a test of the built binary's verbs. It saves nothing.
 - **the merge queue** (`merge_group`) runs what a push to main runs:
   every Linux leg and the checked and narrowing jobs. Each leg is two jobs
   at once, each booting the tree: `<leg>` (part `suite`) runs the native

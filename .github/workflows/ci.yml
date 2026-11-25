@@ -10,8 +10,9 @@
     # testing every change before it lands. A manual run of a branch runs
     # what main's run does.
     push: {branches: ["main"]},
-    # A pull request runs the light check alone (linux-x86_64's leg, below,
-    # with the launcher fixtures where it changes what they check), which reports the `ci` check the merge queue requires of it.
+    # A pull request runs a light check (linux-x86_64's leg, below, with the
+    # launcher fixtures where it changes what they check, and macOS's suite),
+    # which reports the `ci` check the merge queue requires of it.
     pull_request: {},
     # main takes changes only through the merge queue, which waits on
     # the `ci` check for the queued merge commit.
@@ -108,8 +109,9 @@
     # macOS's native suite (part `suite`, no product), which a push does
     # not: macOS failures blocked prereleases, and the daily run was the
     # first to meet them. A pull request runs
-    # a light gate, linux-x86_64's boot and the format check of what it
-    # changed (and the launcher fixtures, where it reaches them). A push to main runs
+    # a light gate: linux-x86_64's boot, native suite and format check of
+    # what it changed (and the launcher fixtures, where it reaches them), and
+    # macOS's suite, each suite on main's verdicts. A push to main runs
     # three legs whole, all but macOS, and macOS's suite, which saves
     # macOS's caches for the queue (only a part `suite` job's boot builds
     # what the zig saves keep there); the daily scheduled run and a
@@ -171,8 +173,8 @@
         # Linux leg's sandbox holds the same declaration, so one that lies
         # fails there first.
         COSMIC_CI_DECLARED_KEYS: "${{ matrix.image && '0' || '1' }}",
-        # Pushes, the merge queue, the daily scheduled run and a manual
-        # run stand on verdicts; the weekly run (Sunday's) and a manual
+        # Pushes, pull requests, the merge queue, the daily scheduled run
+        # and a manual run stand on verdicts; the weekly run (Sunday's) and a manual
         # run with `every_test` run every test (orchestration.tl's
         # `stands`).
         COSMIC_CI_EVENT: "${{ (github.event_name == 'schedule' && github.event.schedule != '41 3 * * 0' || github.event_name == 'workflow_dispatch' && !inputs.every_test) && 'push' || github.event_name }}",
@@ -518,7 +520,7 @@
         },
         {
           name: "verify the delayed native database boundary",
-          if: "github.event_name != 'pull_request' && (matrix.part == 'all' || matrix.part == 'suite')",
+          if: "(matrix.part == 'all' || matrix.part == 'suite')",
           run: "cosmic-driver cosmic_ci/driver.tl platform local-boundary",
         },
         {

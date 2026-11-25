@@ -1731,7 +1731,7 @@ local function test_mains_push_repeats_nothing_the_queue_checked()
   -- The queue's suite job runs the native suite and its boundary, its product and format jobs neither.
   assert(step_named(steps, "run release Cosmic's native suite")["if"] == SUITE_PART,
     "the native suite runs in the queue's format or product job")
-  assert(step_named(steps, "verify the delayed native database boundary")["if"] == SUITE_RUNS,
+  assert(step_named(steps, "verify the delayed native database boundary")["if"] == SUITE_PART,
     "the boundary runs in the queue's format or product job")
 end
 
@@ -2290,7 +2290,7 @@ local function test_a_pull_request_runs_the_suites_and_the_light_check()
   assert(ci["on"]["pull_request"] ~= nil, "a pull request runs nothing")
   local steps = job_of(ci.jobs, "platform").steps
   local phases = phases_unless(steps, PR_SKIPS)
-  assert(phases == "boot local-suite format darwin-suite", "a pull request's leg runs " .. phases)
+  assert(phases == "boot local-suite local-boundary format darwin-suite", "a pull request's leg runs " .. phases)
   -- Beside, where a path it changed reaches them, or the paths changed are not known, the launcher and startup
   -- fixtures and the artifacts they run, which the steps before them make.
   local gated: mut {string} = {}
