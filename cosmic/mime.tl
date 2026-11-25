@@ -4,6 +4,7 @@
 --- program that never loads [`cosmic.web`] carries the same types.
 
 local Compress = require("cosmic.compress")
+local type Failure = require("cosmic.failure")
 
 local record Mime
 end
@@ -97,9 +98,9 @@ local function compressible(path: string, data: string): boolean
   return kind ~= nil and (kind:sub(1, 5) == "text/" or COMPRESSIBLE[ext] == true)
 end
 
---- `packed` when it is at least 10% smaller than `data`, else nil.
-local function worth(packed: string?, data: string): string?
-  if packed == nil or #packed * 10 > #data * 9 then return nil end
+--- `packed` when it is at least 10% smaller than `data`, else false.
+local function worth(packed: string, data: string): string | false
+  if #packed * 10 > #data * 9 then return false end
   return packed
 end
 
@@ -107,39 +108,36 @@ end
 --- worth sending in its place: the type is text or another format not
 --- compressed already, `data` is over 1 KiB and the gzip is at least 10%
 --- smaller. Level 9 and a header with no time make the bytes a function of
---- `data` alone, so a reproducible build stays so. Nil where gzip is not
---- worth it, and nil with the encoder's trouble where it failed, which a
---- caller that keeps the result must not keep.
+--- `data` alone, so a reproducible build stays so. False where gzip is
+--- not worth it, and nil with the encoder's [`Failure`] where it failed,
+--- which a caller that keeps the result must not keep.
 --- @param path string A file name or path
 --- @param data string The file's bytes
---- @return string | nil The gzip, or nil
---- @return string The encoder's failure, empty where none
-function Mime.gzip(path: string, data: string): string?, string
-  if not compressible(path, data) then return nil, "" end
+function Mime.gzip(path: string, data: string): (string | false) | (nil, Failure)
+  if not compressible(path, data) then return false end
   local packed, trouble = Compress.encode("gzip", data, { level = 9 })
-  if packed == nil then return nil, tostring(trouble) end
-  return worth(packed, data), ""
+  if packed == nil then return nil, trouble end
+  return worth(packed, data)
 end
 
 --- The zstd of `data`, the contents of a file called `path`, when that is
 --- worth sending in its place: the same rule as [`Mime.gzip`] (a type not
 --- compressed already, over 1 KiB, at least 10% smaller). One frame at a
 --- fixed level and no dictionary, so for the same zstd build the bytes are
---- those of `data` alone and a reproducible build stays so. Nil where zstd
---- is not worth it, and nil with the encoder's trouble where it failed.
+--- those of `data` alone and a reproducible build stays so. False where
+--- zstd is not worth it, and nil with the encoder's [`Failure`] where it
+--- failed.
 --- @param path string A file name or path
 --- @param data string The file's bytes
---- @return string | nil The zstd frame, or nil
---- @return string The encoder's failure, empty where none
-function Mime.zstd(path: string, data: string): string?, string
-  if not compressible(path, data) then return nil, "" end
+function Mime.zstd(path: string, data: string): (string | false) | (nil, Failure)
+  if not compressible(path, data) then return false end
   local encoder, trouble = Compress.encoder("zstd", { level = ZSTD_LEVEL })
-  if encoder == nil then return nil, tostring(trouble) end
+  if encoder == nil then return nil, trouble end
   local head, head_trouble = encoder:update(data)
-  if head == nil then return nil, tostring(head_trouble) end
+  if head == nil then return nil, head_trouble end
   local tail, tail_trouble = encoder:finish()
-  if tail == nil then return nil, tostring(tail_trouble) end
-  return worth(head .. tail, data), ""
+  if tail == nil then return nil, tail_trouble end
+  return worth(head .. tail, data)
 end
 
 return Mime
