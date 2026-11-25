@@ -343,7 +343,7 @@ something the agent was never told. Beyond that bar, what has worked:
   item's head before a `:` (`` - `jobs.Plan`: a record ``), and write
   no other code span spelling a name in the module (a file named
   `notes.db`, under notes, spells its `db`): `fix` would link it once
-  the project declares it ([`eval/arena_test.tl`] holds every task to
+  the project declares it ([`build/eval_task_links_test.tl`] holds every task to
   this).
 
 ## grading
@@ -434,7 +434,7 @@ ranking. Then:
 
 [`bin/cosmic-bootstrap`]: ../bin/cosmic-bootstrap
 [`bin/cosmic`]: ../bin/cosmic
-[`eval/arena_test.tl`]: arena_test.tl
+[`build/eval_task_links_test.tl`]: ../build/eval_task_links_test.tl
 [`eval/arena`]: arena
 [`eval/check/grade.tl`]: check/grade.tl
 [`eval/check/testdata_test.tl`]: check/testdata_test.tl

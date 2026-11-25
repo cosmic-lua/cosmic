@@ -81,8 +81,7 @@ function LauncherFixture.setup(tmp: string, kind?: string): Context
 end
 
 function LauncherFixture.outcome_ok(outcome: Fixture.Outcome, label: string)
-  assert(outcome.result.ok, label .. " failed; stdout=" .. outcome.out ..
-      "; stderr=" .. outcome.err)
+  local _ = Fixture.succeeded(label, outcome)
 end
 
 --- Raises if `cache` holds an entry whose name begins with `stem`, a
