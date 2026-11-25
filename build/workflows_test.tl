@@ -1729,8 +1729,31 @@ local function test_mains_push_repeats_nothing_the_queue_checked()
   end
 end
 
+--- The terms `condition` ANDs at its top level, outside any parentheses.
+local function conjuncts(condition: string): {string}
+  local terms: mut {string} = {}
+  local depth, start, at = 0, 1, 1
+  while at <= #condition do
+    local c = condition:sub(at, at)
+    if c == "(" then
+      depth = depth + 1
+    elseif c == ")" then
+      depth = depth - 1
+    elseif depth == 0 and condition:sub(at, at + 3) == " && " then
+      terms[#terms + 1] = condition:sub(start, at - 1)
+      start = at + 4
+      at = at + 3
+    elseif depth == 0 and condition:sub(at, at + 3) == " || " then
+      return {}
+    end
+    at = at + 1
+  end
+  terms[#terms + 1] = condition:sub(start)
+  return terms
+end
+
 --- Only main's push and the weekly run save a cache (COSMIC_CI_SAVES):
---- every save holds it, or follows a step that does. Two things are
+--- every save ANDs it at the top of its own condition. Two things are
 --- relayed between runs: main's push of a commit takes the verdicts the
 --- merge queue's run of the same commit reached (cosmic_ci/queue_verdicts.tl),
 --- and the memo of its tree checks (build/check_memo.tl).
@@ -1743,19 +1766,11 @@ local function test_only_main_saves_and_only_the_queue_relays_to_main()
   for name, job in pairs(ci.jobs) do
     local actions = map_of(job.permissions)["actions"]
     assert(actions == nil or ((name == "platform" or name == "checked" or name == "narrowing" or name == "queue-ref" or name == "ci") and actions == "read"), name .. " holds actions permission")
-    local gated: mut {string: boolean} = {}
     for _, step in ipairs(job.steps) do
       local condition = step["if"] or ""
-      -- A step that runs off main too (`||`, as the verdicts' trim does in
-      -- the queue) holds no save that follows it.
-      if condition:find(SAVES, 1, true) ~= nil and condition:find("||", 1, true) == nil and step.id ~= nil then
-        gated[assert(step.id)] = true
-      end
       if (step.uses or ""):find("actions/cache/save@", 1, true) ~= nil then
-        local held = condition:find(SAVES, 1, true) ~= nil
-        for id in pairs(gated) do
-          held = held or condition:find("steps." .. id .. ".outputs", 1, true) ~= nil
-        end
+        local held = false
+        for _, term in ipairs(conjuncts(condition)) do held = held or term == SAVES end
         assert(held, name .. "'s " .. tostring(step.name) .. " saves off main: " .. condition)
       end
       assert(with_of(step)["run-id"] == nil or step.id == "queue-download" or step.id == "tried-download" or step.id == "queue-checks" or
