@@ -281,7 +281,8 @@ local function test_a_spec_with_a_bad_value_raises_naming_the_field(tmp: string)
     local ok, why = pcall(function()
       local _, _ = Net.serve({ listeners = { address }, serve = echo })
     end)
-    assert(not ok and tostring(why):find("net: serve runs a Poll.run of its own", 1, true) ~= nil,
+    assert(not ok and tostring(why):find("net: serve runs a Poll.run of its own", 1, true) ~= nil and
+        tostring(why):find("or serve with `Net.with_loopback`", 1, true) ~= nil,
       tostring(why))
   end)
   assert(not assert(Fs.status(tmp .. "/s.sock")).exists)

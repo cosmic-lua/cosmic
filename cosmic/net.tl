@@ -1535,7 +1535,9 @@ end
 function Net.serve(spec: Net.ServeSpec): (true) | (false, Failure)
   checked_spec(spec)
   if Poll.in_task() then
-    error("net: serve runs a Poll.run of its own, and cannot be called in a task of another", 2)
+    error("net: serve runs a Poll.run of its own, and cannot be called in a task of another: to connect to it " ..
+        "from the same program, call serve outside any Poll.run and connect in a task that `spec.on_ready` spawns " ..
+        "(`Poll.spawn`), or serve with `Net.with_loopback`", 2)
   end
   local served = { ok = true, why = "" }
   Poll.run(function() served.ok, served.why = serving(spec) end)

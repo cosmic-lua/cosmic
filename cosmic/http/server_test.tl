@@ -535,6 +535,17 @@ local function test_a_slow_head_and_an_idle_connection_are_closed()
   end, { head_ns = Clock.ms(200), idle_ns = Clock.ms(200), timeout_ns = Clock.ms(200) })
 end
 
+--- Serving in a task of another run is refused, saying how to send the server requests from one program.
+local function test_serving_in_a_task_says_how_to_reach_the_server_from_one_program()
+  Poll.run(function()
+    Test.raises(function()
+      local _, _ = Server.serve{ listeners = { Net.tcp("127.0.0.1", 0) }, handle = function(_: Server.Request): Server.Reply
+        return { status = 200, body = "ok" }
+      end }
+    end, "make them in a task that `spec.on_ready` spawns (`Poll.spawn`), ending with `server:stop()`")
+  end)
+end
+
 --- Stopping closes a kept-alive connection idle at once, rather than
 --- waiting out idle_ns, and a request in flight finishes with
 --- `Connection: close`.
