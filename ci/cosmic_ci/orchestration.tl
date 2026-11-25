@@ -1647,7 +1647,9 @@ local function phase_checked_narrowing(p: PlatformContext): integer
   mkdir(p.local_diagnostics)
   local out = p.local_diagnostics .. "/checked-narrowing-test.out"
   local values = release_promises(run.env)
-  local status = logged(c, "checked narrowing", argv, out,
+  -- The merge queue and a manual run of a branch run it in shares, each a job of its own
+  -- (COSMIC_CI_NARROWING_SHARD, `I/N`; ci.yml's `narrowing`), as the checked suite's.
+  local status = logged(c, "checked narrowing", Orchestration.with_share(argv, named("COSMIC_CI_NARROWING_SHARD")), out,
     p.local_diagnostics .. "/checked-narrowing-test.err", checked_narrowing_timeout_ns, c.root,
     Orchestration.deadlined(values, checked_narrowing_timeout_ns, checked_margin_ns))
   -- A run that prints no "run-time types" line (the summary of a checked
