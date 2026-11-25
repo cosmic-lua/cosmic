@@ -196,7 +196,7 @@ end
 --- finding: a name a leg promises that the table of
 --- [`build.host_names`] refuses, and a module requiring a name no leg
 --- promises, which would be n/a or skipped on every leg and run nowhere
---- in CI, with no held run to fail for it.
+--- in CI, with no held run to fail for it. An `os:` name is no finding.
 --- @param declared the requirements each test module declares
 --- @param legs the names each CI leg promises
 --- @return the findings, none when every declared name is promised
@@ -221,7 +221,12 @@ function tree_build.promises(declared: {string:{string}}, legs: {string:{string}
   table.sort(modules)
   for _, module in ipairs(modules) do
     for _, name in ipairs(lookup_in(declared, module)) do
-      if not host_names.promised(all, name) then
+      -- Every system `os:` takes has a leg, where it is present. No leg
+      -- promises one: the release cosmic some legs run refuses a name it
+      -- does not know in COSMIC_TEST_PROMISES.
+      local spec, _ = host_names.parse(name)
+      local os_name = spec ~= nil and spec.base == "os"
+      if not os_name and not host_names.promised(all, name) then
         out[#out + 1] = string.format("%s requires %s, which no CI leg promises " ..
             "(ci/cosmic_ci/capabilities.json): it would be n/a or skipped on every leg and run " ..
             "nowhere, with no held run to fail for it", module, name)
