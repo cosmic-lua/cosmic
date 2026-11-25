@@ -99,14 +99,17 @@ end
 local function hash(path: string): string return Hash.hex_sha256(read(path)) end
 local function write(path: string, data: string) assert(Fs.write(path, data)) end
 --- The events whose run a suite may stand on verdicts in (`stands`): a
---- push, main's or a branch's, and the merge queue's run, which restores main's
+--- push, main's or a branch's, a pull request's run, and the merge queue's run, which restores main's
 --- verdicts (ci.yml's "restore test verdicts") and so runs only what its
 --- merge moved from what main's last run reached; main's push of each
 --- leg takes that leg's queue verdicts of its commit too
 --- (cosmic_ci/queue_verdicts.tl). ci.yml gives main's daily scheduled
 --- run and a manual run `push` as well; the weekly run and a manual run
 --- with `every_test` are the backstop, running every test.
-local standing_events: {string:boolean} = { push = true, merge_group = true }
+--- A pull request's suites stand on main's verdicts as the queue's do, so
+--- they run only the tests its change reaches, and a failure the queue
+--- would meet shows on the pull request first.
+local standing_events: {string:boolean} = { push = true, pull_request = true, merge_group = true }
 
 --- Whether a suite in `env` stands on verdicts other runs reached, keyed
 --- by what its tests declare (build/declared_key.tl) and shared through
@@ -123,7 +126,7 @@ local standing_events: {string:boolean} = { push = true, merge_group = true }
 --- reads something only on macOS is the gap (build/test_key.tl's `prepare`).
 ---
 --- The run's event (COSMIC_CI_EVENT) is in `standing_events`: a push,
---- main's as much as another branch's, or the merge queue's. Each
+--- main's as much as another branch's, a pull request's, or the merge queue's. Each
 --- restores the newest cache main saved of its leg, host and host
 --- features (ci.yml's "name the leg's host").
 ---

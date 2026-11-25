@@ -491,18 +491,18 @@ local function test_the_sandbox_phase_fails_where_confinement_is_unavailable(tmp
   end
 end
 
---- A suite stands on declared-key verdicts in a push's run and the
---- merge queue's, and nowhere else: on a Linux leg, its workers
+--- A suite stands on declared-key verdicts in a push's run, a pull
+--- request's and the merge queue's, and nowhere else: on a Linux leg, its workers
 --- sandboxed, and required to be, and on the macOS leg, keyed by what
 --- they declare with no sandbox (COSMIC_CI_DECLARED_KEYS); a leg that
 --- is neither, and the events ci.yml keeps for the weekly run and a
 --- manual run with `every_test`, run every test.
-local function test_a_suite_stands_on_verdicts_in_a_push_or_merge_queue()
+local function test_a_suite_stands_on_verdicts_in_a_push_a_pull_request_or_the_merge_queue()
   local Orchestration = require("cosmic_ci.orchestration")
   local function words(env: {string:string}): string
     return table.concat(Orchestration.test_words(env), " ")
   end
-  for _, event in ipairs({ "push", "merge_group" }) do
+  for _, event in ipairs({ "push", "pull_request", "merge_group" }) do
     local linux = { COSMIC_CI_REQUIRE_SANDBOX = "1", COSMIC_CI_DECLARED_KEYS = "0",
       COSMIC_CI_EVENT = event }
     local plain = if event == "merge_group" then "test --bail" else "test" end
@@ -515,7 +515,7 @@ local function test_a_suite_stands_on_verdicts_in_a_push_or_merge_queue()
     assert(not Orchestration.stands(neither) and words(neither) == (plain:gsub("test", "test --all", 1)),
       "a leg that neither sandboxes nor keys by declarations, " .. event)
   end
-  for _, event in ipairs({ "workflow_dispatch", "schedule", "pull_request", "" }) do
+  for _, event in ipairs({ "workflow_dispatch", "schedule", "" }) do
     for _, leg in ipairs({ "COSMIC_CI_REQUIRE_SANDBOX", "COSMIC_CI_DECLARED_KEYS" }) do
       local env: mut {string:string} = {}
       env[leg] = "1"

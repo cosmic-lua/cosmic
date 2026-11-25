@@ -473,7 +473,7 @@ macOS's whole leg. A branch's push runs nothing.
   branch runs what main's run does.
 - **a pull request** runs the lightest check, the `ci` check the merge
   queue requires of a pull request before it takes it: linux-x86_64's leg
-  boots the tree, checks the bootstrap's scripts, and checks the tree's
+  boots the tree, runs its native suite, checks the bootstrap's scripts, and checks the tree's
   format over the paths the pull request changed since its merge base with
   main (driver.tl changed-paths, `fix --check --changed`, which lays out
   only those and makes every check spanning files, the markers held to
@@ -482,7 +482,13 @@ macOS's whole leg. A branch's push runs nothing.
   `cosmic_ci/changed_paths.tl`: `build/launcher.tl`, `core/startup.c`,
   `ci/fixtures/` and the like), or the paths changed are not known, it
   also builds the artifacts and runs those fixtures, which nothing else
-  before main's push runs. No suite, and it saves nothing.
+  before main's push runs. Beside it, `macos-aarch64` (part `suite`) runs
+  macOS's native suite and darwin suite, as the queue's does. Both native
+  suites stand on main's verdicts ([`cosmic_ci/orchestration.tl`]'s
+  `standing_events`), so they run only the tests the change reaches, and a
+  failure the queue would meet on those legs, a macOS-only test or one of
+  the built binary's verbs, shows on the pull request before it takes a
+  queue slot. It saves nothing.
 - **the merge queue** (`merge_group`) runs what a push to main runs:
   every Linux leg and the checked and narrowing jobs. Each leg is two jobs
   at once, each booting the tree: `<leg>` (part `suite`) runs the native
@@ -603,7 +609,7 @@ driver does not read it (it is `COSMIC_CI_*`, which a suite's workers are
 never given).
 
 The platform job's `include` is an expression that chooses one of four
-lists by the kind of run (linux-x86_64 alone for a pull request; for the
+lists by the kind of run (linux-x86_64 and macOS's suite for a pull request; for the
 queue every leg but macOS as its suite and its product, linux-x86_64's
 format check and macOS's suite; every leg but macOS, and macOS's suite, for a push to main; all four otherwise),
 each listing every job: an `include` entry naming a leg
