@@ -320,9 +320,10 @@ end
 --- A corpus from the rows a query yields, each an integer id and a
 --- vector blob, in that order: `Vector.load(db, "SELECT id, embedding
 --- FROM chunks")`. `opts` is as [`Vector.corpus`]'s. Returns `nil` and
---- a [`Failure`] (the database's own when the query fails) when the query fails, yields no rows, or a row holds something
---- else than an integer id and a vector of the first row's length (or,
---- for `"f16"`, one it cannot hold).
+--- a [`Failure`] (the database's own when the query fails) when the
+--- query fails, yields no rows, or a row holds something else than an
+--- integer id and a vector of the first row's length (or, for `"f16"`,
+--- one it cannot hold).
 function Vector.load(db: Sqlite.Handle, sql: string, values?: {Sqlite.Value},
                      opts?: Vector.CorpusOptions): (Vector.Corpus) | (nil, Failure)
   -- A storage the core refuses raises here, before a query is open to leak.
