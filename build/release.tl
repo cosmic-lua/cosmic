@@ -339,6 +339,15 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   local launcher = if command_name == "launcher" then parsed.words[1] else nil end
   if target == "" then return refuse(bare.empty_file .. " after -o") end
   if pin == "" or launcher == "" then return refuse(bare.empty_file) end
+  if launcher == "-" then
+    return refuse("launcher writes its pin beside it, as <file>.pin, so it takes a file, not - (standard output)")
+  end
+  if target == "-" then
+    return refuse("-o takes a file the binary is renamed into once verified, not - (standard output)")
+  end
+  if pin == "-" and to_cache then
+    return refuse("pin - prints the pin, and --cache prints the binary's path: give pin a file, or leave out --cache")
+  end
   if target == nil and not to_cache and command_name == "get" then
     return refuse("give -o <file> or --cache: where the verified binary goes")
   end
@@ -695,7 +704,10 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     end
   end
 
-  if pin ~= nil then
+  if pin == "-" then
+    local status = written(to.out(verb.pin_text(release.tag, release.commit, digest)))
+    if status ~= bare.ok then return status end
+  elseif pin ~= nil then
     local ok, write_trouble = Fs.write(pin, verb.pin_text(release.tag, release.commit, digest))
     if not ok then return fail(tostring(write_trouble)) end
   end

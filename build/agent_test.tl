@@ -88,7 +88,7 @@ local function cli(argv: {string}, env: {string: string}, replies: {Json.Value},
       at = at + 1
       return (typed or {})[at]
     end,
-    read_all = function(): string return "from stdin" end,
+    read_all = function(): string?, string return "from stdin", "" end,
     typed = function(): string? return table.remove(early, 1) end,
     hold = function(): agent.Hold
       return { caught = function(): integer return 0 end, release = function() end }

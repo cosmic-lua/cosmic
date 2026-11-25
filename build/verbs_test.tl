@@ -84,6 +84,17 @@ local function test_e_runs_a_teal_chunk(tmp: string)
   assert(not assert(Fs.status(tmp .. "/o")).exists, "-e wrote under o/")
 end
 
+--- `cosmic -` is `-e` with the chunk standard input holds; `cosmic run -` too.
+local function test_a_dash_runs_standard_input(tmp: string)
+  local said = invoke.run({ "-", "a", "b" }, { cwd = tmp, stdin = "print(...)" })
+  assert(said.code == 0, said.stderr)
+  assert(said.stdout == "a\tb\n", said.stdout)
+  local run = invoke.run({ "run", "-" }, { cwd = tmp, stdin = "return 3" })
+  assert(run.code == 3, run.stderr)
+  local raised = invoke.run({ "-" }, { cwd = tmp, stdin = 'error("boom")' })
+  assert(raised.code == 1 and raised.stderr:find("stdin:1: boom", 1, true) ~= nil, raised.stderr)
+end
+
 local function test_every_verb_is_classified()
   local listed: mut {string:boolean} = {}
   for _, verb in ipairs(Cli.order) do
