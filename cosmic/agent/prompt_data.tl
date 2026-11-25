@@ -38,8 +38,8 @@ local record PromptData
     tools?: {Tools.Tool}
     --- The tools a snippet of run may call, by Host.use.
     code_tools?: {CodeTool}
-    --- Whether bash is offered.
-    bash: boolean
+    --- Whether a snippet of run may run programs (Host.bash).
+    commands: boolean
     --- Whether run is offered.
     run: boolean
     --- The project's instructions.

@@ -36,7 +36,7 @@
 --- [`Host.store`] keeps a small value for a later snippet of the session, which [`Host.load`] reads, as a file would, but
 --- with the session: a resumed session reads it again.
 ---
---- The agent's own bash tool is there too, run in the snippet's sandbox, with a result a snippet reads as a value:
+--- With commands (--commands), a program runs too, in the snippet's sandbox, with a result a snippet reads as a value:
 --- [`Host.bash`] runs a command and returns its output and how it ended:
 ---
 ---     local ran = Host.bash("git status --short")
@@ -431,8 +431,7 @@ end
 --- The most seconds [`Host.bash`] may be given: a wait's most ([`Poll.MOST_NS`]), 24 days.
 local MOST_SECONDS <const> = 24 * 24 * 60 * 60
 
---- Runs `command` with bash, or sh where there is none, in the snippet's own sandbox and directory, as the bash tool
---- does: what it wrote to standard output and standard error, together, and how it ended. A command that exits other
+--- Runs `command` with bash, or sh where there is none, in the snippet's own sandbox and directory: what it wrote to standard output and standard error, together, and how it ended. A command that exits other
 --- than 0 still gives a result, `ok` false; a call fails for a command that could not start, or for a timeout
 --- outside 1 to 24 days. A command still running when the snippet ends ends with its worker.
 local function bash_of(command: string, options?: Host.BashOptions): (Host.Ran) | (nil, Failure)
@@ -762,7 +761,7 @@ function Host.load(key: string): Host.Loaded
   return value
 end
 
---- Runs `command` with bash in the snippet's sandbox and directory, as the bash tool does: its output and how it
+--- Runs `command` with bash in the snippet's sandbox and directory, where the session has commands: its output and how it
 --- ended. A command that exits other than 0 still gives a result, `ok` false; one that cannot start raises. Raises where it fails, as "host: ...".
 function Host.bash(command: string, options?: Host.BashOptions): Host.Ran
   local value, why = bash_of(command, options)
