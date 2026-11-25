@@ -1,4 +1,4 @@
---- The running process itself.
+--- The running process itself: its pid, user, exit and exec, a program found on PATH, and whether a stream is a terminal.
 
 local Env = require("cosmic.env")
 local Failure = require("cosmic.failure")

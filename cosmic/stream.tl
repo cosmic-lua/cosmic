@@ -705,7 +705,8 @@ end
 --- A Reader that pipes another Reader through a [`Stream.Transform`]:
 --- `reader`'s chunks go through `codec:update`, and `codec:finish` is
 --- called once, at `reader`'s end of file, for whatever the codec was
---- still holding. A codec or `reader` error ends it, stickily.
+--- still holding. A codec or `reader` error ends it, stickily. Closing
+--- it closes `reader`.
 function Stream.transform(reader: Stream.Reader, codec: Stream.Transform): Stream.Reader
   local r: TransformReader = { source = reader, codec = codec, batch = "", at = 1,
     at_eof = false, finished = false, failed = nil, closed = false, skip = nil }
