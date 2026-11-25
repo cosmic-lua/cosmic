@@ -794,7 +794,7 @@ local function describe(db: Sqlite.Handle, tables: {dataset.Table}): {string}?, 
     end
     local from = " FROM " .. Sqlite.identifier(each.name)
     for _, column in ipairs(each.columns) do
-      local rows, trouble = db:text_rows("SELECT DISTINCT typeof(" .. Sqlite.identifier(column) .. ")" .. from ..
+      local rows, trouble = db:rows("SELECT DISTINCT typeof(" .. Sqlite.identifier(column) .. ")" .. from ..
           " ORDER BY 1")
       if rows == nil then
         return nil, tostring(trouble)
@@ -811,13 +811,13 @@ local function describe(db: Sqlite.Handle, tables: {dataset.Table}): {string}?, 
       end
       lines[#lines + 1] = line
     end
-    local sample, trouble = db:text_rows('SELECT "_json"' .. from .. " LIMIT 1")
+    local sample, trouble = db:rows('SELECT "_json"' .. from .. " LIMIT 1")
     if sample == nil then
       return nil, tostring(trouble)
     end
     local first_sample = sample[1]
     if first_sample ~= nil then
-      local text = plain(first_sample:text(1))
+      local text = plain(first_sample:as_text(1) or "")
       if #text > 200 then
         text = text:sub(1, 200) .. "..."
       end
@@ -915,7 +915,7 @@ end
 --- with its declared type (`-` for none); one that cannot be read says
 --- why in its line. Nil and why when the schema cannot be read.
 local function describe_database(db: Sqlite.Handle): Described?, string
-  local names, trouble = db:text_rows("SELECT name, type FROM sqlite_schema " ..
+  local names, trouble = db:rows("SELECT name, type FROM sqlite_schema " ..
       "WHERE type IN ('table', 'view') AND substr(name, 1, 7) <> 'sqlite_' ORDER BY name")
   if names == nil then return nil, tostring(trouble) end
   local lines: mut {string} = {}
@@ -925,14 +925,14 @@ local function describe_database(db: Sqlite.Handle): Described?, string
     if row:text(2) == "view" then views = views + 1 else tables = tables + 1 end
     -- One that cannot be read (a view over a dropped table, a virtual
     -- table of a module not built in) says why, and the rest still list.
-    local counted, count_trouble = db:text_rows("SELECT CAST(count(*) AS TEXT) FROM " .. Sqlite.identifier(name))
+    local counted, count_trouble = db:rows("SELECT count(*) FROM " .. Sqlite.identifier(name))
     local first = if counted ~= nil then counted[1] else nil end
     if first == nil then
       lines[#lines + 1] = plain(name) .. ": unreadable: " .. plain(tostring(count_trouble))
     else
-      local count = assert(tonumber(first:text(1)), "count(*) is a number")
+      local count = first:integer(1)
       lines[#lines + 1] = plain(name) .. ": " .. tostring(count) .. (if count == 1 then " row" else " rows" end)
-      local columns, _ = db:text_rows("SELECT name, type FROM pragma_table_info(" .. Sqlite.literal(name) .. ")")
+      local columns, _ = db:rows("SELECT name, type FROM pragma_table_info(" .. Sqlite.literal(name) .. ")")
       local width = 0
       for _, column in ipairs(columns or {}) do width = math.max(width, #plain(column:text(1))) end
       for _, column in ipairs(columns or {}) do
