@@ -2,8 +2,8 @@
 --- step selects `cosmic_ci` alone (.github/workflows/ci.yml), and this file
 --- sits beside that directory, not in it. Run it by hand after a change to
 --- run_local.tl or to this file: `cd ci && ../bin/cosmic test run_local_test.tl`.
---- On a root host its credential tests make a directory under /tmp, which a
---- test's sandbox does not let it write; `COSMIC_TEST_SANDBOX=0` runs them.
+--- On a root host the test that hands files to the driver's user for real
+--- runs only unsandboxed (`COSMIC_TEST_SANDBOX=0`): a sandbox maps no other user.
 ---
 --- [`ci/run-local`]: run-local
 local Child = require("cosmic.child")
@@ -332,16 +332,15 @@ end
 --- A run on the default base records its checkout beside its state, and removes each state whose recorded checkout
 --- is gone. A state with no record, or one whose checkout is there, is kept.
 local function test_a_default_run_removes_the_state_of_a_checkout_that_is_gone(tmp: string)
-  -- A default base is named and owned by the real user; as root the run then hands its state to the driver's
-  -- user, who cannot reach this test's directory.
-  local uid = sys.getuid()
-  if uid == 0 then
-    Test.skip("as root the run hands its state to a user who cannot reach the test's directory")
-  end
+  -- The run takes the ordinary path as `uid`: as root it would hand its state to the driver's user, who cannot
+  -- reach this test's directory, so it runs as user 1000, which owns the base. Root removes even the stuck state.
+  local real = sys.getuid()
+  local uid = if real == 0 then 1000 else real end
   local root, env = checkout(tmp)
   local base = tmp .. "/cosmic-ci-local-" .. tostring(uid)
   assert(Fs.mkdirs(base))
   assert(Fs.chmod(base, 0x1c0))
+  if real == 0 then assert(sys.chown(base, uid, uid)) end
   local states: {string: string} = { ["11"] = tmp .. "/gone", ["22"] = root, ["33"] = "" }
   for key, source in pairs(states) do
     assert(Fs.mkdirs(base .. "/" .. key .. "/candidate"))
@@ -355,11 +354,13 @@ local function test_a_default_run_removes_the_state_of_a_checkout_that_is_gone(t
   assert(Fs.chmod(stuck, 0x16d))
   assert(Fs.write(base .. "/44.source", tmp .. "/also gone\n"))
   local code, said = invoke(root, Maps.without(env, { "COSMIC_CI_LOCAL" }), { "build" }, uid)
-  assert(Fs.chmod(stuck, 0x1ed))
+  if real ~= 0 then assert(Fs.chmod(stuck, 0x1ed)) end
   assert(code == 0, said)
   assert(said:find("removed the state of " .. tmp .. "/gone, which is gone", 1, true) ~= nil, said)
-  assert(said:find("could not remove the state of " .. tmp .. "/also gone, which is gone", 1, true) ~= nil, said)
-  assert(assert(Fs.status(base .. "/44.source")).exists, "the record of a state left was removed")
+  if real ~= 0 then
+    assert(said:find("could not remove the state of " .. tmp .. "/also gone, which is gone", 1, true) ~= nil, said)
+    assert(assert(Fs.status(base .. "/44.source")).exists, "the record of a state left was removed")
+  end
   assert(not assert(Fs.status(base .. "/11")).exists and not assert(Fs.status(base .. "/11.source")).exists)
   assert(assert(Fs.status(base .. "/22/candidate/held")).exists and assert(Fs.status(base .. "/33/candidate/held")).exists)
   local own: mut {string} = {}
@@ -633,7 +634,7 @@ local record CredentialedTally
 end
 
 --- A credentialed run that ends well removes the copy of the runtime it made and closes its descriptor: the copy
---- is the whole core, left in /tmp, and its descriptor stays open in a process that may go on to run more.
+--- is the whole core, left in /tmp (the test's TMPDIR here, [`invoke`]), and its descriptor stays open in a process that may go on to run more.
 local function test_a_successful_credentialed_run_removes_its_runtime_copy(tmp: string)
   -- The run gives its state to the driver's user for real: only root can, and a sandbox maps no other user.
   assert(Fs.write(tmp .. "/owned", ""))
