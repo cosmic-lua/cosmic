@@ -213,16 +213,18 @@ local record rules
     --- The paths of a second ruleset a cosmic child's core applies to
     --- itself at boot, before any module loads: the policy's grants
     --- without the start's `rx` on that core, so the kernel holds the
-    --- child to the policy alone. Empty where there is none: a host
-    --- program, `isolate` file, `nest`, and [`Sandbox.restrict`].
+    --- child to the policy alone; under `isolate` file by the names the
+    --- root binds the grants at, with the root's own /proc and /tmp. Empty
+    --- where there is none: a host program, `nest`, and
+    --- [`Sandbox.restrict`].
     boot: {rules.Path}
     --- The groups of system calls a seccomp filter allows beyond the
     --- basics.
     calls: {rules.Promise}
     --- Whether a filter of its own refuses execve and execveat: no `x`
     --- in the last ruleset (`boot` where there is one). A host program
-    --- and a child of `isolate` file or `nest` keep `rx` on their start
-    --- files, so it is false for them.
+    --- and a child of `nest` keep `rx` on their start files, so it is
+    --- false for them.
     exec_refused: boolean
     --- The socket families the filter lets the process make: "unix" for a
     --- child with a `u` grant, "inet" for one with `loopback` or a

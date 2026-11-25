@@ -85,13 +85,17 @@ local function test_a_loopback_is_inet_in_a_network_of_its_own(tmp: string)
   assert(Array.at(layers.loopback, 1) == "127.0.0.2" and #layers.relay == 0 and not layers.root)
 end
 
---- `isolate` file is a root of the child's own, unveiled, with no boot
---- ruleset: the core keeps its `rx` there.
-local function test_isolate_file_is_a_root_with_no_boot_ruleset(tmp: string)
+--- `isolate` file is a root of the child's own, unveiled, and a cosmic
+--- child's core gives up its `rx` there too, holding itself at boot to the
+--- grants by their names in the root, with the root's own /proc.
+local function test_isolate_file_is_a_root_whose_core_gives_up_its_rx(tmp: string)
   skip_on_macos()
   local layers = layers_of({ assert(Proc.executable()), "print hi" },
     { isolate = { "file" }, grants = { { path = tmp, letters = "r" } } }, "/")
-  assert(layers.root and #layers.boot == 0 and not layers.exec_refused)
+  assert(layers.root and #layers.boot > 0 and layers.exec_refused)
+  -- A grant with no `from` is placed at its real path, which the layer names.
+  local placed = assert(sys.realpath(tmp))
+  assert(holds(layers.boot, placed, "r") and holds(layers.boot, "/proc", "r"))
   assert(table.concat(layers.namespaces, " "):find("^user pid mount ipc") ~= nil, table.concat(layers.namespaces, " "))
 end
 

@@ -679,7 +679,7 @@ local function test_a_corpus_is_intact_after_a_refused_allocation()
     local ended = AllocationFixture.under_every_failure(function()
       -- Once the add has landed, a later pass only searches.
       if corpus:count() == 64 then local _, _ = pcall(corpus.add, corpus, 1000, blob) end
-      local _, _, _ = pcall(corpus.search, corpus, query, 3, { candidates = 10 })
+      local _, _ = pcall(function() local _, _ = corpus:search(query, 3, { candidates = 10 }) end)
     end, function()
       local n = corpus:count()
       assert(n == 64 or n == 65, "the count became " .. tostring(n))
