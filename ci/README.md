@@ -489,6 +489,9 @@ macOS's whole leg. A branch's push runs nothing.
   suite and its boundary, the darwin suite, the sandbox probe and the
   credential proofs; `<leg>-product` (part `product`) runs assemble, the
   regressions, the portable suite, the attestation and the product.
+  alpine-x86_64's product, the longest, is two jobs, each assembling:
+  `alpine-x86_64-portable` (the portable suite, the attestation and the
+  product) and `alpine-x86_64-regressions`.
   `macos-aarch64` (part `suite`) runs macOS's native suite and darwin
   suite, which a push does not: macOS's failures were met only by the
   daily run, and each held up the prerelease. Beside
@@ -497,7 +500,7 @@ macOS's whole leg. A branch's push runs nothing.
   main, as a pull request does, and `linux-x86_64-driver` (the `driver`
   job) boots nothing and checks the pinned CI driver where those paths
   reach what its tests read (`ci/`, `.github/`). The checked suite runs
-  in two shares at once (`linux-x86_64-checked-1` and `-2`,
+  in three shares at once (`linux-x86_64-checked-1` to `-3`,
   `cosmic test --shard`), so it is not the entry's longest job; a share
   does not check the C functions, which main's push does. The gate
   compares the three products. An entry takes as long as its longest job. Main moves
@@ -508,7 +511,11 @@ macOS's whole leg. A branch's push runs nothing.
   portable suite, the attestation and the product), the checked core's
   whole suite (`checked`) and the whole suite on a checked run
   (`narrowing`), and the gate compares the three products
-  (`COSMIC_CI_PRODUCTS=3`). It publishes nothing. It repeats neither
+  (`COSMIC_CI_PRODUCTS=3`). It also runs macOS's suite (part `suite`, no
+  product), which stands on the queue's macOS verdicts and saves macOS's
+  caches (zig, its build outputs, compiles, verdicts) for the queue's next
+  runs: only the daily run saved them before, and the queue's macOS job
+  booted cold. It publishes nothing. It repeats neither
   the format check nor the pinned driver's, which the queue made of the
   very commit; the daily run checks the driver on every leg, and the
   weekly and a manual run check the whole tree's format too. Each leg
@@ -571,7 +578,7 @@ never given).
 The platform job's `include` is an expression that chooses one of four
 lists by the kind of run (linux-x86_64 alone for a pull request; for the
 queue every leg but macOS as its suite and its product, linux-x86_64's
-format check and macOS's suite; every leg but macOS for a push to main; all four otherwise),
+format check and macOS's suite; every leg but macOS, and macOS's suite, for a push to main; all four otherwise),
 each listing every job: an `include` entry naming a leg
 no dimension holds would start that leg anyway (GitHub adds an entry that
 fits no combination as one of its own). Each entry names the job
