@@ -6,7 +6,7 @@ local Clock = require("cosmic.clock")
 local Multipart = require("cosmic.http.multipart")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
-local type Failure = require("cosmic.failure")
+local Failure = require("cosmic.failure")
 
 --- The next chunk of `reader`: raises where it ended or failed.
 local function chunk_of(reader: Stream.Reader, max_bytes?: integer): string
@@ -38,18 +38,24 @@ local function parse(text: string, n?: integer, opts?: Multipart.Options): {Seen
   local o: Multipart.Options = { boundary = given.boundary or B, max_parts = given.max_parts,
     max_header_bytes = given.max_header_bytes, max_header_lines = given.max_header_lines }
   local reader, bad = Multipart.reader(ChunkedReaderFixture.drip(text, n or 7), o)
-  if reader == nil then return nil, bad end
+  if reader == nil then return nil, tostring(bad) end
   local out: mut {Seen} = {}
   while true do
     local got, why = reader:next_part()
-    if got == nil then
-      if why ~= "" then return nil, why end
-      return out, ""
-    end
+    if got == nil then return nil, tostring(why) end
+    if got == false then return out, "" end
     local data, trouble = Stream.read_all(got.body)
     if data == nil then return nil, tostring(trouble) end
     out[#out + 1] = { name = got.name, filename = got.filename, content_type = got.content_type, body = data }
   end
+end
+
+--- The next part of `reader`, failing at the closing delimiter or a refusal.
+local function part_of(reader: Multipart.Reader): Multipart.Part
+  local got, why = reader:next_part()
+  if got == nil then error(tostring(why), 2) end
+  if got == false then error("no part is left", 2) end
+  return got
 end
 
 --- The reason `text` is refused for, failing when it parses.
@@ -104,14 +110,17 @@ local function test_a_boundary_must_be_short_and_plain()
     "a", string.rep("b", 70), "a b", "'()+_,-./:=?", B,
   }
   for _, b in ipairs(ok) do
-    assert(Multipart.reader(Stream.from_string(""), { boundary = b }), b)
+    local r, why = Multipart.reader(Stream.from_string(""), { boundary = b })
+    assert(r ~= nil, b .. ": " .. tostring(why))
   end
   local bad = { "", string.rep("b", 71), "a ", "a\r\nb", "a\0b", 'a"b', "a;b", "é", "a<b" }
   for _, b in ipairs(bad) do
     local r, why = Multipart.reader(Stream.from_string(""), { boundary = b })
-    assert(r == nil and why:find("boundary") ~= nil, b)
+    assert(r == nil and tostring(why):find("boundary") ~= nil, b)
   end
-  assert(not pcall(Multipart.reader, Stream.from_string(""), { boundary = "a", max_parts = 0 })) -- checked: alternatives_as_value
+  Test.raises(function()
+    local _, _ = Multipart.reader(Stream.from_string(""), { boundary = "a", max_parts = 0 })
+  end, "positive integer")
 end
 
 local function test_a_body_without_its_closing_boundary_is_truncated()
@@ -246,22 +255,24 @@ local function test_an_unread_part_is_skipped_and_a_passed_one_is_dead()
   local text = part('form-data; name="big"; filename="b"', string.rep("0123456789", 5000)) ..
     part('form-data; name="next"', "n") .. close_it()
   local reader = assert(Multipart.reader(ChunkedReaderFixture.drip(text, 100), { boundary = B }))
-  local first = assert(reader:next_part())
+  local first = part_of(reader)
   assert(first.name == "big")
   local head = chunk_of(first.body, 10)
   assert(head == "0123456789")
-  local second = assert(reader:next_part())
+  local second = part_of(reader)
   assert(second.name == "next")
   local nothing, why = first.body:read()
   assert(nothing == nil and tostring(why):find("passed by next_part") ~= nil, why)
   assert(assert(Stream.read_all(second.body)) == "n")
-  assert(reader:next_part() == nil)
-  local again, ended = reader:next_part()
-  assert(again == nil and ended == "")
+  local ended, _ = reader:next_part()
+  assert(ended == false)
+  local again, _ = reader:next_part()
+  assert(again == false)
   local done = assert(Multipart.reader(ChunkedReaderFixture.drip(part('form-data; name="a"', "x") .. close_it(), 3), { boundary = B }))
-  local only = assert(done:next_part())
+  local only = part_of(done)
   assert(assert(Stream.read_all(only.body)) == "x")
-  assert(done:next_part() == nil)
+  local over, _ = done:next_part()
+  assert(over == false)
   local eof, _ = only.body:read()
   assert(eof == false)
 end
@@ -269,11 +280,11 @@ end
 local function test_a_failed_parser_stays_failed_and_a_part_body_reports_it()
   local text = "--" .. B .. "\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\nabc"
   local reader = assert(Multipart.reader(ChunkedReaderFixture.drip(text, 4), { boundary = B }))
-  local got = assert(reader:next_part())
+  local got = part_of(reader)
   local data, why = Stream.read_all(got.body)
   assert(data == nil and tostring(why):find("before the closing") ~= nil, why)
   local next_got, again = reader:next_part()
-  assert(next_got == nil and again:find("before the closing") ~= nil)
+  assert(next_got == nil and tostring(again) == tostring(why), tostring(again))
   assert(reader:close())
   Test.raises(function() local _, _ = got.body:read(0) end)
 end
@@ -282,18 +293,18 @@ local function test_a_source_failure_is_passed_on_as_it_was_given()
   local sent: boolean = false
   local source: Stream.Reader = { -- checked: literal_shape
     read = function(_self: Stream.Reader, _max?: integer): (string | false) | (nil, Failure)
-      if sent then return nil, Failure.new("boom") end
+      if sent then return nil, Failure.timeout("boom") end
       sent = true
       return "--" .. B .. "\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\nab"
     end,
     close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
   }
   local reader = assert(Multipart.reader(source, { boundary = B }))
-  local got = assert(reader:next_part())
+  local got = part_of(reader)
   local data, why = got.body:read(100)
-  assert(data == nil and tostring(why) == "boom", tostring(why))
+  assert(data == nil and tostring(why) == "boom" and why.kind == "timeout", tostring(why))
   local _, again = reader:next_part()
-  assert(again == "boom", again)
+  assert(rawequal(again, why), tostring(again))
 end
 
 local function test_a_large_part_streams_in_bounded_pieces()
@@ -301,7 +312,7 @@ local function test_a_large_part_streams_in_bounded_pieces()
   local body = string.rep("abcdefghijklmnop", size // 16)
   local text = part('form-data; name="f"; filename="big"', body) .. close_it()
   local reader = assert(Multipart.reader(ChunkedReaderFixture.drip(text, 65536), { boundary = B }))
-  local got = assert(reader:next_part())
+  local got = part_of(reader)
   local total, largest = 0, 0
   while true do
     local chunk, _ = got.body:read()
@@ -331,7 +342,7 @@ end
 local function test_a_closed_parser_hands_out_no_more_of_a_part()
   local reader = assert(Multipart.reader(Stream.from_string(part('form-data; name="a"', "value") .. close_it()),
     { boundary = B }))
-  local first = assert(reader:next_part())
+  local first = part_of(reader)
   assert(reader:close())
   local data, why = first.body:read()
   assert(data == nil and tostring(why):find("closed") ~= nil, why)

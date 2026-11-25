@@ -433,17 +433,17 @@ print(tostring(long))
   local own = tools_run("run", { code = "local Host = 7\nprint(Host + 1)" }, context)
   assert(not own.is_error and own.text:find("^8\n") ~= nil, own.text)
   -- A snippet that requires one of the prelude's modules itself still has the others.
-  local mixed = tools_run("run", { code = "local Json = require(\"cosmic.json\")\nprint(Json.encode({ Host.cat(\"one.tl\") })!)" },
+  local mixed = tools_run("run", { code = "local Json = require(\"cosmic.json\")\nprint(Json.encode({ Host.read(\"one.tl\") })!)" },
     context)
   assert(not mixed.is_error and mixed.text:find('^%["x') ~= nil, mixed.text)
-  for _, code in ipairs({ "local Json: integer = 3\nprint(Host.cat(\"one.tl\"), Json + 1)",
+  for _, code in ipairs({ "local Json: integer = 3\nprint(Host.read(\"one.tl\"), Json + 1)",
       -- A `local` in a comment or a string binds nothing.
       "-- local Json = 1\nprint(Json.quote(\"q\"))", "print(\"local Json = 1\", Json.quote(\"q\"))" }) do
     local r = tools_run("run", { code = code }, context)
     assert(not r.is_error, code .. ": " .. r.text)
   end
   -- A refusal of its own is told as it is, with the other prelude names bound.
-  local own_error = tools_run("run", { code = "local Json = require(\"cosmic.json\")\nlocal n: integer = Host.cat(\"one.tl\")" },
+  local own_error = tools_run("run", { code = "local Json = require(\"cosmic.json\")\nlocal n: integer = Host.read(\"one.tl\")" },
     context)
   assert(own_error.is_error and own_error.text:find("not_assignable", 1, true) ~= nil and
       own_error.text:find("not declared", 1, true) == nil, own_error.text)
@@ -452,11 +452,11 @@ print(tostring(long))
   -- A name in a string or a comment, a binding of the name, and a first line that begins with `(` all run.
   for code, said in pairs({ ["print(\"Host\") -- Fs.read is slow"] = "^Host\n",
       ["local function Host(): integer return 2 end\nprint(Host())"] = "^2\n",
-      ["for _, Fs in ipairs({ 3 }) do print(Fs) end"] = "^3\n", ["(print)(Host.cat(\"one.tl\"))"] = "^x\n\n" }) do
+      ["for _, Fs in ipairs({ 3 }) do print(Fs) end"] = "^3\n", ["(print)(Host.read(\"one.tl\"))"] = "^x\n\n" }) do
     local r = tools_run("run", { code = code }, context)
     assert(not r.is_error and r.text:find(said) ~= nil, code .. ": " .. r.text)
   end
-  local commented = tools_run("run", { code = "-- a note\n(print)(Host.cat(\"one.tl\"))" }, context)
+  local commented = tools_run("run", { code = "-- a note\n(print)(Host.read(\"one.tl\"))" }, context)
   assert(not commented.is_error and commented.text:find("^x\n") ~= nil, commented.text)
   -- A hint that names a snippet's own line-1 local is the snippet's refusal, not the bare one's.
   local typo = tools_run("run", { code = "local count = Host.wc(\"one.tl\")\nprint(cuont)" }, context)
@@ -466,7 +466,7 @@ print(tostring(long))
   assert(both.is_error and both.text:find("(semicolon)", 1, true) == nil and
       both.text:find("(not_assignable)", 1, true) ~= nil, both.text)
   -- A refusal on line 1 tells the snippet's own column, not one the prelude moved.
-  local first = tools_run("run", { code = "local n: integer = Host.cat(\"one.tl\")" }, context)
+  local first = tools_run("run", { code = "local n: integer = Host.read(\"one.tl\")" }, context)
   assert(first.is_error and first.text:find("run.tl:1:20:", 1, true) ~= nil, first.text)
   local huge = tools_run("bash", { command = "true", timeout = 10000000000 }, context)
   assert(huge.is_error and huge.text:find("give at most", 1, true) ~= nil, huge.text)
@@ -879,5 +879,20 @@ local function test_a_snippet_sorts_a_list_into_itself_and_adds_to_it()
   local ran = tools_run("run", { code = "local rows: mut {string} = { \"b\", \"a\" }\n" ..
       "rows = Host.sort(rows)\nrows[#rows + 1] = \"c\"\nprint(table.concat(rows, \",\"))\n" }, context)
   assert(not ran.is_error and ran.text:find("^a,b,c\n") ~= nil, ran.text)
+  worker_close(w)
+end
+
+--- A snippet edits a file with Host.edit, the edits written as a list of records with no type named, and a miss says
+--- which edit and how to fix it.
+local function test_a_snippet_edits_a_file_and_a_miss_says_which_edit()
+  local w = set_of_worker()
+  local dir = assert(Fs.mkdtemp("agent-worker-"))
+  assert(Fs.write(dir .. "/a.md", "one teh\ntwo\n"))
+  local context: Tools.Context = { cwd = dir, worker = w }
+  local ran = tools_run("run", { code = "print(Host.edit(\"a.md\", { { old = \"teh\", new = \"the\" } }))\n" ..
+      "print(Host.read(\"a.md\"))\n" }, context)
+  assert(not ran.is_error and ran.text:find("^1\none the\ntwo\n") ~= nil, ran.text)
+  local missed = tools_run("run", { code = "Host.edit(\"a.md\", { { old = \"zzz\", new = \"y\" } })\n" }, context)
+  assert(missed.is_error and missed.text:find("Could not find edits[1] in a.md", 1, true) ~= nil, missed.text)
   worker_close(w)
 end

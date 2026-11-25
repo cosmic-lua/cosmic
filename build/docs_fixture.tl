@@ -43,10 +43,11 @@ function docs_fixture.database(dir: string, files: {string: string}): build_sche
   for path in pairs(files) do paths[#paths + 1] = path end
   table.sort(paths)
   for _, path in ipairs(paths) do
+    -- A file's bytes are a blob, as the stager writes them ([`build.work`]).
     assert(db:run(
       "INSERT INTO files (path, size, mtime_ns, ino, dev, sha256, data) " ..
         "VALUES (?1, length(CAST(?2 AS BLOB)), 0, 0, 0, lower(hex(sha256(?2))), ?2)",
-      { { text = path }, { text = files[path] } }))
+      { { text = path }, { blob = files[path] } }))
   end
   local handle: work.Handle = { db = db, root = dir, dir = build_paths.required(dir), run = 1, inside = false, standing = { own = true } }
   assert(importer.derive(handle))

@@ -327,7 +327,7 @@ end
 --- directly under `doc/guides/` or the program's own `cmd/<name>/doc/guides/`,
 --- its own in place of one of the project's of the same name.
 local function documented_modules(out: Sqlite.Handle, main: string, own: string, paged: {string}): Readable?, string
-  local rows, trouble = out:text_rows(
+  local rows, trouble = out:rows(
     "SELECT m.path, p.file, m.path IN (SELECT path FROM project.public_modules) FROM main.modules m " ..
       "JOIN project.modules p ON p.path = m.path WHERE m.path IN (SELECT path FROM project.public_modules) OR " ..
       "(substr(m.path, 1, length(?1)) = ?1 AND m.path <> ?2 AND p.kind = 'module') OR " ..
@@ -339,11 +339,11 @@ local function documented_modules(out: Sqlite.Handle, main: string, own: string,
   local public: mut {string} = {}
   for _, row in ipairs(rows) do
     local file = row:text(2)
-    if row:text(3) == "1" or ("/" .. file):find("/internal/", 1, true) == nil then
+    if row:integer(3) == 1 or ("/" .. file):find("/internal/", 1, true) == nil then
       public[#public + 1] = row:text(1)
     end
   end
-  local found, guide_trouble = out:text_rows(
+  local found, guide_trouble = out:rows(
     "SELECT path, file FROM project.modules WHERE file GLOB 'doc/guides/*.md' OR file GLOB 'cmd/*/doc/guides/*.md' " ..
       "ORDER BY path")
   if found == nil then
@@ -499,7 +499,7 @@ function embed.database(project: string, main: string, roots?: string): string?,
     -- and one written by a tool that lacked the rows has an empty one:
     -- the project's own rows fill in below for any module it holds
     -- byte for byte.
-    local has_edges, edges_trouble = binary:text_rows(
+    local has_edges, edges_trouble = binary:rows(
       "SELECT 1 FROM sqlite_master WHERE name = 'decl_imports'")
     if has_edges == nil then
       return false, edges_trouble
@@ -532,7 +532,7 @@ function embed.database(project: string, main: string, roots?: string): string?,
     -- `imports` too. Nothing blocks it.
     -- A binary written before `web_assets` existed has no such table:
     -- the program then carries none, and cosmic.web.htmx says to rebuild.
-    local has_web, web_trouble = binary:text_rows(
+    local has_web, web_trouble = binary:rows(
       "SELECT 1 FROM sqlite_master WHERE name = 'web_assets'")
     if has_web == nil then
       return false, web_trouble
@@ -638,7 +638,7 @@ function embed.database(project: string, main: string, roots?: string): string?,
       if not carried then
         return false, carried_trouble
       end
-      local sources, sources_trouble = out:text_rows(
+      local sources, sources_trouble = out:rows(
         "SELECT m.path, p.file, CAST(inflate(p.source) AS TEXT) FROM main.modules m JOIN project.modules p " ..
           "ON p.path = m.path WHERE length(p.source) > 0 AND m.path NOT IN carray(?1) ORDER BY m.path",
         { { texts = read_list } })
@@ -655,7 +655,7 @@ function embed.database(project: string, main: string, roots?: string): string?,
           for _, name in ipairs(names) do named[name] = true end
           -- A field of another module of the project's: what that module binds it to.
           for _, field in ipairs(fields) do
-            local held, held_trouble = out:text_rows(
+            local held, held_trouble = out:rows(
               "SELECT file, CAST(inflate(source) AS TEXT) FROM project.modules WHERE path = ?1 AND length(source) > 0",
               { text(field.module) })
             if held == nil then
@@ -675,7 +675,7 @@ function embed.database(project: string, main: string, roots?: string): string?,
         -- A module of the project's, and none a program would not carry for its own: no test, no example, no
         -- module under `internal/` and none of another program's `cmd/<name>/`. [`cosmic.doc`]'s
         -- `scope_to_program` holds a run from source to the same rule.
-        local held, held_trouble = out:text_rows(
+        local held, held_trouble = out:rows(
           "SELECT 1 FROM project.modules WHERE path = ?1 AND kind = 'module' AND " ..
             "instr('/' || file, '/internal/') = 0 AND (path NOT GLOB 'cmd.*' OR substr(path, 1, length(?2)) = ?2)",
           { text(name), text(own) })
@@ -687,7 +687,7 @@ function embed.database(project: string, main: string, roots?: string): string?,
             paged_set[name] = true
             paged[#paged + 1] = name
           end
-          local carried_already, already_trouble = out:text_rows("SELECT 1 FROM main.modules WHERE path = ?1",
+          local carried_already, already_trouble = out:rows("SELECT 1 FROM main.modules WHERE path = ?1",
             { text(name) })
           if carried_already == nil then
             return false, already_trouble
@@ -790,7 +790,7 @@ end
 
 --- The programs of the staged tree that `paths` choose: the import path of each `cmd/<name>/main.tl` and its file.
 local function staged_programs(handle: work.Handle, paths: {string}): {Program}?, string
-  local rows, trouble = handle.db:text_rows(
+  local rows, trouble = handle.db:rows(
     "SELECT path, file FROM inputs WHERE kind = 'main' ORDER BY path")
   if rows == nil then return nil, tostring(trouble) end
   local programs: mut {Program} = {}
