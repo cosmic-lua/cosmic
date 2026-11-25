@@ -78,8 +78,8 @@ local function test_more_parameters_than_a_start_takes_are_refused()
 end
 
 local function test_promises_are_precise_and_fattr_only_reaches_writable_grants()
-  local out = compile({ promises = { "jit", "fork", "fattr" }, grants = {
-    { path = "read", letters = "r" }, { path = "write", letters = "w" },
+  local out = compile({ grants = {
+    { path = "read", letters = "r" }, { path = "write", letters = "w" }, { calls = "jit" }, { calls = "fork" }, { calls = "fattr" },
   } }, { read = { path = "/read", directory = false }, write = { path = "/write", directory = false } })
   assert(out.text == BASE .. [[(allow process-fork)
 (allow dynamic-code-generation)
@@ -88,7 +88,7 @@ local function test_promises_are_precise_and_fattr_only_reaches_writable_grants(
 (allow file-write-mode file-write-owner file-write-times file-write-flags file-write-xattr (literal (param "PATH_2")))
 ]], out.text)
   assert(not out.text:find("mach", 1, true) and not out.text:find("file-write*", 1, true))
-  local read = compile({ promises = { "fattr" }, grants = { { path = "read", letters = "r" } } },
+  local read = compile({ grants = { { path = "read", letters = "r" }, { calls = "fattr" } } },
     { read = { path = "/read", directory = false } })
   assert(not read.text:find("file-write", 1, true))
 end
@@ -168,7 +168,7 @@ local function test_unmet_policy_fields_are_refused()
     { policy = { isolate = { "file" } }, says = "isolate" },
     { policy = { connect = { "example.com:443" } }, says = "connect needs the port of the network relay" },
     { policy = { loopback = { "127.0.0.1" } }, says = "loopback" },
-    { policy = { promises = { "nest" } }, says = "nest" },
+    { policy = { grants = { { calls = "nest" } } }, says = "nest" },
     { policy = { grants = { { path = "a", from = "b", letters = "r" } } }, says = "from" },
     { policy = { limits = { processes = 2 } }, says = "limits.processes" },
     { policy = { database = { path = "/does/not/exist" } }, says = "database" },
@@ -236,7 +236,7 @@ local function test_tmp_is_granted_through_a_parameter_the_caller_sets()
 ]], out.text)
   assert(out.tmp == "TMP" and out.parameters["TMP"] == nil)
   assert(compile({}).tmp == nil)
-  local held = compile({ tmp = true, promises = { "fattr" } })
+  local held = compile({ tmp = true, grants = { { calls = "fattr" } } })
   assert(held.text:find('file-write-xattr (subpath (param "TMP"))', 1, true), held.text)
 end
 
@@ -334,7 +334,7 @@ local function test_system_profile_means_the_same_raw_merged_and_through_json()
   for _, other in ipairs({ profile, merged, decoded }) do
     assert(other.profiles == nil)
     local seen: mut {string:string} = {}
-    for _, grant in ipairs(other.grants or {}) do seen[grant.path] = grant.letters end
+    for _, grant in ipairs(Sandbox.paths(other)) do seen[grant.path] = grant.letters end
     assert(seen["/System/Library"] == "r" and seen["/sbin"] == "r" and seen["/lib64"] == nil)
     assert(seen["/private/var/db/dyld"] == "r" and seen["/dev/dtracehelper"] == "rw")
     local got = compile(other, paths)
@@ -361,7 +361,7 @@ local function test_compiling_does_not_mutate_the_policy_or_paths()
   local paths: {string:Seatbelt.Path} = { ["a//b"] = { path = "/real", directory = false } }
   local out = compile(policy, paths)
   assert(out.parameters["PATH_1"] == "/real")
-  local grant = assert(assert(policy.grants)[1], "the policy kept its grant")
+  local grant = assert(Sandbox.paths(policy)[1], "the policy kept its grant")
   assert(grant.path == "a//b" and grant.letters == "xr")
   local kept = assert(paths["a//b"], "the paths kept their entry")
   assert(assert(policy.profiles)[1] == "system" and kept.path == "/real")

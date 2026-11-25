@@ -71,7 +71,7 @@ end
 
 --- The letters `policy` grants `path`, or "".
 local function letters(policy: Sandbox.Policy, path: string): string
-  for _, grant in ipairs(policy.grants or {}) do
+  for _, grant in ipairs(Sandbox.paths(policy)) do
     if grant.path == path then return grant.letters end
   end
   return ""
@@ -96,7 +96,7 @@ local function test_each_option_sets_its_field()
   policy = assert(ran.opts.policy)
   same(policy.profiles, { "system", "programs", "cosmic" })
   same(policy.isolate, { "file", "proc" })
-  same(policy.promises, { "fork", "nest" })
+  same(Sandbox.calls(policy), { "fork", "nest" })
   same(policy.connect, { "github.com:443" })
   same(policy.loopback, { "127.0.0.2" })
   same(policy.env, { "HOME", "TERM" })
@@ -220,7 +220,7 @@ end
 
 local function test_the_other_values_are_the_decoders_too()
   assert(refused({ "--isolate", "net", "prog" }).err:find("$.isolate[0]", 1, true))
-  assert(refused({ "--promise", "all", "prog" }).err:find("$.promises[0]", 1, true))
+  assert(refused({ "--promise", "all", "prog" }).err:find("$.grants[0].calls", 1, true))
   assert(refused({ "--connect", "nohost", "prog" }).err:find("$.connect[0]", 1, true))
   assert(refused({ "--loopback", "10.0.0.1", "prog" }).err:find("$.loopback[0]", 1, true))
   assert(refused({ "--set-env", "NOVALUE", "prog" }).err:find("NAME=VALUE", 1, true))
@@ -394,7 +394,7 @@ local POLICY <const> = Shape.record_of("cosmic.sandbox.Policy")
 --- until it has a flag and a line here.
 local samples <const>: {string:{string}} = {
   profiles = { "--system" }, grants = { "--read", "x" }, isolate = { "--isolate", "proc" },
-  promises = { "--promise", "fork" }, connect = { "--connect", "h:1" },
+  connect = { "--connect", "h:1" },
   loopback = { "--loopback", "127.0.0.2" }, env = { "--env", "X" },
   set_env = { "--set-env", "X=1" }, tmp = { "--tmp" },
   open_files = { "--open-files", "5" }, file_bytes = { "--file-bytes", "5" },
@@ -416,7 +416,7 @@ local exempt <const>: {string:string} = {
 local others <const>: {string:boolean} = {
   ["--fd"] = true, ["--timeout"] = true, ["--cwd"] = true,
   ["--run"] = true, ["--write"] = true, ["--path"] = true, ["--cosmic"] = true,
-  ["--programs"] = true,
+  ["--programs"] = true, ["--promise"] = true,
   ["--database"] = true, ["--modules"] = true, ["--closure"] = true,
 }
 
@@ -463,12 +463,14 @@ local function test_every_policy_field_has_a_flag()
     local set = (policy_after(words)["limits"] as {string:any}) -- checked: cast_refused
     assert(set ~= nil and set[name] == 5, support.nth(words, 1) .. " does not set Policy.limits." .. name)
   end
-  -- A grant's path and letters are one option's. `from` has none: it needs
+  -- A grant's path and letters are one option's, and its calls `--promise`'s. `from` has none: it needs
   -- isolate file and names a host path; it waits on policy files (the
   -- design's Roadmap).
-  for name in pairs(assert(assert(assert(fields["grants"]).of).fields)) do
-    assert(name == "path" or name == "letters" or name == "from", "Policy.grants[]." .. name ..
-        " has no flag: add one, and say so here")
+  for _, arm in ipairs(assert(assert(assert(fields["grants"]).of).arms)) do
+    for name in pairs(assert(arm.fields)) do
+      assert(name == "path" or name == "letters" or name == "from" or name == "calls", "Policy.grants[]." .. name ..
+          " has no flag: add one, and say so here")
+    end
   end
   for flag in pairs(Verb.spec or {}) do
     assert(seen[flag] == true or others[flag] == true, flag .. " sets no field of the policy")

@@ -278,7 +278,7 @@ local function test_the_cert_file_goes_with_the_network()
   local p = assert(Policy.of(dir, { mode = "write", network = true, grants = {}, cert_file = cert }))
   assert((p.set_env or {})["SSL_CERT_FILE"] == real)
   local granted = false
-  for _, g in ipairs(p.grants or {}) do
+  for _, g in ipairs(Sandbox.paths(p)) do
     if g.path == real and g.letters == "r" then granted = true end
   end
   assert(granted)

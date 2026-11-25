@@ -5,6 +5,7 @@ local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local type Failure = require("cosmic.failure")
 local Poll = require("cosmic.poll")
+local Sandbox = require("cosmic.sandbox")
 local Test = require("cosmic.test")
 
 --- A server that never replies, and one that ends saying why: the system's programs.
@@ -32,7 +33,7 @@ local function test_a_config_names_servers_over_stdio_and_http_sandboxed_by_defa
   local policy = assert(notes.policy)
   assert(policy.tmp == true and assert(policy.env)[1] == "NOTES_KEY", "the config's policy is merged with the default")
   local granted = false
-  for _, grant in ipairs(policy.grants or {}) do
+  for _, grant in ipairs(Sandbox.paths(policy)) do
     if grant.path == "/tmp" then granted = true end
   end
   assert(granted and #(policy.grants or {}) > 1, "the system profile's grants are merged in")
