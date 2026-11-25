@@ -243,6 +243,8 @@ local function test_fixed_point_is_skipped_unless_the_caller_runs_it(tmp: string
   assert(assert(Fs.read(trace)):find("\nfixed_point=skip\n", 1, true), "an unset COSMIC_CI_FIXED_POINT was not skip")
   assert(invoke(root, Maps.with(unset, { COSMIC_CI_FIXED_POINT = "run" }), { "build" }) == 0)
   assert(assert(Fs.read(trace)):find("\nfixed_point=run\n", 1, true), "the caller's COSMIC_CI_FIXED_POINT was replaced")
+  assert(invoke(root, Maps.with(unset, { COSMIC_CI_FIXED_POINT = "" }), { "build" }) == 0)
+  assert(assert(Fs.read(trace)):find("\nfixed_point=\n", 1, true), "the caller's empty COSMIC_CI_FIXED_POINT was replaced")
 end
 
 local function test_phase_failure_stops_and_preserves_its_status(tmp: string)
