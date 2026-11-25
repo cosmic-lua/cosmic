@@ -402,11 +402,11 @@ end
 
 local function test_sub_refuses_a_negative_difference()
   local difference, why = Bigint.sub(b, a)
-  assert(difference == nil and why == "bigint: the difference is negative", why)
+  assert(difference == nil and tostring(why) == "bigint: the difference is negative", tostring(why))
   difference, why = Bigint.sub(zero, one)
-  assert(difference == nil and why == "bigint: the difference is negative", why)
+  assert(difference == nil and tostring(why) == "bigint: the difference is negative", tostring(why))
   local equal, none = Bigint.sub(one, "\0\1")
-  assert(equal == zero and none == "", "equal numbers differ by zero")
+  assert(equal == zero and none == nil, "equal numbers differ by zero")
 end
 
 local function test_powmod_matches_python_at_256_bits()
@@ -513,8 +513,8 @@ local function test_a_number_over_its_limit_raises()
   assert(why:find("bad argument #2 to 'mul'", 1, true), why)
   Test.raises(function() Bigint.add(wide, one) end, says)
   Test.raises(function() Bigint.add(one, wide) end, says)
-  Test.raises(function() Bigint.sub(wide, one) end, says)
-  Test.raises(function() Bigint.sub(one, wide) end, says)
+  Test.raises(function() local _, _ = Bigint.sub(wide, one) end, says)
+  Test.raises(function() local _, _ = Bigint.sub(one, wide) end, says)
   Test.raises(function() Bigint.compare(wide, one) end, says)
   Test.raises(function() Bigint.compare(one, wide) end, says)
   Test.raises(function() Bigint.mod(wide, "\3") end, says)
@@ -532,7 +532,7 @@ end
 
 local function test_pad_writes_a_number_in_a_fixed_width()
   local padded, none = Bigint.pad("\5", 4)
-  assert(padded == "\0\0\0\5" and none == "")
+  assert(padded == "\0\0\0\5" and none == nil)
   assert(assert(Bigint.pad("\0\0\0\0\0\5", 2)) == "\0\5", "leading zeros are dropped before the width is met")
   assert(assert(Bigint.pad(a, #a)) == a, "a number already of the width is itself")
   assert(assert(Bigint.pad(g5_power, #p3072)) == string.rep("\0", #p3072 - #g5_power) .. g5_power)
@@ -546,12 +546,12 @@ end
 
 local function test_pad_refuses_a_number_that_does_not_fit()
   local padded, why = Bigint.pad(n("0100"), 1)
-  assert(padded == nil and why == "bigint: the number needs 2 bytes, more than 1", why)
+  assert(padded == nil and tostring(why) == "bigint: the number needs 2 bytes, more than 1", tostring(why))
   padded, why = Bigint.pad(one, 0)
-  assert(padded == nil and why == "bigint: the number needs 1 byte, more than 0", why)
+  assert(padded == nil and tostring(why) == "bigint: the number needs 1 byte, more than 0", tostring(why))
   padded, why = Bigint.pad(p3072, 383)
-  assert(padded == nil and why == "bigint: the number needs 384 bytes, more than 383", why)
-  Test.raises(function() Bigint.pad(one, -1) end, "pad's width must be 0 or more")
+  assert(padded == nil and tostring(why) == "bigint: the number needs 384 bytes, more than 383", tostring(why))
+  Test.raises(function() local _, _ = Bigint.pad(one, -1) end, "pad's width must be 0 or more")
 end
 
 --- `number` in exactly `width` bytes.
