@@ -44,6 +44,8 @@ local link_text = require("cosmic.internal.link_text")
 local symbol_index = require("build.symbol_index")
 local symbols = require("cosmic.internal.symbols")
 local String = require("cosmic.string")
+local type work_schema = require("build.work_schema")
+local type Database = work_schema.Database
 -- Declares what text this module reads ([`build.code_walk`]'s `markers`): all.
 local _ = require("build.reads.all")
 
@@ -337,8 +339,8 @@ end
 --- the call that kept them made, and what it signed in ([`link_index.Pending`]'s
 --- `digest`): it is a function of the rows, the results and that, which is
 --- all `recalled` has found the same.
-local function recalled(db: Sqlite.Handle, fingerprint: string): link_index.Memo?, boolean, string?, string
-  local kept, _ = db:text_rows(
+local function recalled(db: Database, fingerprint: string): link_index.Memo?, boolean, string?, string
+  local kept, _ = db:rows(
     "SELECT kind, path, value, found FROM link_answers ORDER BY kind, path")
   if kept == nil then return nil, false, nil, "" end
   local memo: link_index.Memo = { kinds = {}, reads = {}, reals = {} }
@@ -346,7 +348,7 @@ local function recalled(db: Sqlite.Handle, fingerprint: string): link_index.Memo
   local kept_digest: string? = nil
   local kept_signed = ""
   for _, row in ipairs(kept) do
-    local what, path, value, found = row:text(1), row:text(2), row:text(3), row:text(4) == "1"
+    local what, path, value, found = row:text(1), row:text(2), row:text(3), row:integer(4) == 1
     if what == "fingerprint" then
       if value ~= fingerprint then return nil, false, nil, "" end
       matched = true
@@ -379,7 +381,7 @@ end
 --- Keeps `memo` under `fingerprint` for [`recalled`], in the working
 --- transaction, replacing any other. A failure to keep it costs a later
 --- call its resolution and nothing else.
-local function remember(db: Sqlite.Handle, fingerprint: string, memo: link_index.Memo, asked: boolean,
+local function remember(db: Database, fingerprint: string, memo: link_index.Memo, asked: boolean,
                         signed: string, digest: string)
   local prepared, _ = db:prepare(
     "INSERT INTO link_answers (kind, path, value, found) VALUES (?1, ?2, ?3, ?4)")
@@ -407,11 +409,11 @@ end
 --- resolves them, the writer's identity ([`build.identity`]): given, the
 --- disk's results are kept in `link_answers` and, where the disk still gives
 --- every one, not worked out again ([`recalled`]).
-function link_index.pending(db: Sqlite.Handle, root: string,
+function link_index.pending(db: Database, root: string,
                             library: link_index.Library?, code?: string): link_index.Pending?, string
   local absolute, _ = Fs.absolute(root)
   root = absolute or root
-  local found, trouble = db:text_rows(raw_links)
+  local found, trouble = db:rows(raw_links)
   if found == nil then
     return nil, tostring(trouble)
   end
@@ -419,9 +421,9 @@ function link_index.pending(db: Sqlite.Handle, root: string,
   for _, row in ipairs(found) do
     rows[#rows + 1] = {
       from_module = row:text(1), from_file = row:text(2),
-      line = math.tointeger(tonumber(row:text(3))) or 0, column = math.tointeger(tonumber(row:text(4))) or 0,
+      line = row:integer(3), column = row:integer(4),
       form = row:text(5), source = row:text(6), text = row:text(7), target = row:text(8),
-      own = row:text(9) == "1", alias = row:text(10),
+      own = row:integer(9) == 1, alias = row:text(10),
     }
   end
   local fingerprint: string? = nil
@@ -480,10 +482,10 @@ end
 
 --- The `docs` of the projection under `qualifier`, held in memory, with
 --- each module it covers ([`symbols.owned_modules`]) set in `held`.
-local function index_of(db: Sqlite.Handle, qualifier: string,
+local function index_of(db: Database, qualifier: string,
                         held: mut {string: boolean}): symbol_index.Index?, string
   local out = symbol_index.new()
-  local modules, modules_trouble = db:text_rows(symbols.owned_modules(qualifier))
+  local modules, modules_trouble = db:rows(symbols.owned_modules(qualifier))
   if modules == nil then
     return nil, tostring(modules_trouble)
   end
@@ -491,7 +493,7 @@ local function index_of(db: Sqlite.Handle, qualifier: string,
     symbol_index.module(out, row:text(1))
     held[row:text(1)] = true
   end
-  local rows, trouble = db:text_rows(
+  local rows, trouble = db:rows(
     "SELECT module, symbol, source_symbol, file, kind, signature, exported, id FROM " ..
       qualifier .. "docs ORDER BY module, exported DESC, id")
   if rows == nil then
@@ -499,8 +501,8 @@ local function index_of(db: Sqlite.Handle, qualifier: string,
   end
   for _, row in ipairs(rows) do
     symbol_index.add(out, { module = row:text(1), symbol = row:text(2), source_symbol = row:text(3),
-      file = row:text(4), kind = row:text(5), signature = row:text(6), exported = row:text(7) == "1",
-      shown = true, database = 1, id = math.tointeger(tonumber(row:text(8))) or 0 })
+      file = row:text(4), kind = row:text(5), signature = row:text(6), exported = row:integer(7) == 1,
+      shown = true, database = 1, id = row:integer(8) })
   end
   local bound, bound_trouble = symbol_index.add_bound(out, db, qualifier)
   if not bound then
@@ -526,7 +528,7 @@ local function add_library(index: symbol_index.Index, held: {string: boolean},
   local owners: mut {string: integer} = {}
   for at, db in ipairs(databases) do
     local database = at + 1
-    local modules, modules_trouble = db:text_rows(symbols.owned_modules(""))
+    local modules, modules_trouble = db:rows(symbols.owned_modules(""))
     if modules == nil then
       return false, tostring(modules_trouble)
     end
@@ -536,7 +538,7 @@ local function add_library(index: symbol_index.Index, held: {string: boolean},
         symbol_index.module(index, row:text(1))
       end
     end
-    local rows, rows_trouble = db:text_rows(
+    local rows, rows_trouble = db:rows(
       "SELECT d.module, d.symbol, d.source_symbol, d.file, d.kind, d.signature, d.exported, " ..
         "d.id, " .. symbols.shown_docs("d", true) .. " FROM docs d ORDER BY d.module, d.id")
     if rows == nil then
@@ -544,9 +546,9 @@ local function add_library(index: symbol_index.Index, held: {string: boolean},
     end
     for _, row in ipairs(rows) do
       symbol_index.add(index, { module = row:text(1), symbol = row:text(2), source_symbol = row:text(3),
-        file = row:text(4), kind = row:text(5), signature = row:text(6), exported = row:text(7) == "1",
-        shown = row:text(9) == "1" and owners[row:text(1)] == database, database = database,
-        id = math.tointeger(tonumber(row:text(8))) or 0 })
+        file = row:text(4), kind = row:text(5), signature = row:text(6), exported = row:integer(7) == 1,
+        shown = row:as_text(9) == "1" and owners[row:text(1)] == database, database = database,
+        id = row:integer(8) })
     end
     local bound, bound_trouble = symbol_index.add_bound(index, db, "")
     if not bound then
@@ -559,7 +561,7 @@ end
 --- Resolves `pending`'s links against the `docs` of the projection
 --- under `qualifier` and writes those that name one thing to its `links`:
 --- [`link_index.fill`] without the memory of its last result.
-local function resolve_and_write(db: Sqlite.Handle, pending: link_index.Pending,
+local function resolve_and_write(db: Database, pending: link_index.Pending,
                                  qualifier: string): boolean, string
   local held: mut {string: boolean} = {}
   local indexed, index_trouble = index_of(db, qualifier, held)
@@ -699,7 +701,7 @@ local link_columns <const> =
 --- signature (not its text or line, which no link reads), and the names
 --- each module binds. Quoted by type as [`build.closure_store`] quotes a row, so
 --- no two rows spell one line.
-local function symbols_digest(db: Sqlite.Handle, qualifier: string): string?
+local function symbols_digest(db: Database, qualifier: string): string?
   local function quoted(columns: {string}): string
     local out: mut {string} = {}
     for i, column in ipairs(columns) do
@@ -712,7 +714,7 @@ local function symbols_digest(db: Sqlite.Handle, qualifier: string): string?
     return "coalesce((SELECT lower(hex(sha256(group_concat(" .. quoted(columns) ..
       ", char(10) ORDER BY " .. order .. ")))) FROM " .. qualifier .. from .. "), '')"
   end
-  local rows, _ = db:text_rows("SELECT " .. table.concat({
+  local rows, _ = db:rows("SELECT " .. table.concat({
     digest({ "path" }, "modules", "path"),
     digest({ "path" }, "decls", "path"),
     digest({ "module", "symbol", "source_symbol", "file", "kind", "signature", "exported", "id" },
@@ -746,7 +748,7 @@ end
 --- copied where they are the same: an edit that adds, drops or renames no
 --- symbol and moves no link writes the same rows. Rows are kept only of a
 --- resolution that asked the disk nothing `pending` had not.
-function link_index.fill(db: Sqlite.Handle, pending: link_index.Pending,
+function link_index.fill(db: Database, pending: link_index.Pending,
                          qualifier: string): boolean, string
   local fingerprint: string? = nil
   local symbols_key: string? = nil
@@ -760,7 +762,7 @@ function link_index.fill(db: Sqlite.Handle, pending: link_index.Pending,
       pending.digest, symbols_key, library_named }, "\n"))
   end
   if fingerprint ~= nil then
-    local kept, _ = db:text_rows("SELECT 1 FROM link_fill WHERE fingerprint = ?1",
+    local kept, _ = db:rows("SELECT 1 FROM link_fill WHERE fingerprint = ?1",
       { text(fingerprint) })
     if kept ~= nil and kept[1] ~= nil then
       local answered, answer_why = db:run("INSERT INTO " .. qualifier .. "links (" .. link_columns .. ") " ..

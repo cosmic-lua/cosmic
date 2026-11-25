@@ -1,8 +1,8 @@
 --- The schema of the working database, `build.db` ([`build.work`]), in a module of its own, which requires only
 --- [`build.analysis_schema`]: a module that [`build.work`] requires may take a handle of it by its type without requiring
---- [`build.work`] back. No module of an identity a compile, a parse or a projection is keyed by requires it, even for its
---- type alone (`local type` is a require too): an edit to the records' tables would then move every key. Those take a
---- plain [`Sqlite.Handle`], as [`build.analysis_schema`] holds what a parse's rows are shaped by.
+--- [`build.work`] back. The modules of the compiler's, the analyzer's and the writer's identities (plans, derivation,
+--- identity, link_index, the importer) take it by type too, so the checker reads their SQL: an edit to these tables
+--- moves those identities, which is right, since it changes what they read.
 
 local analysis_schema = require("build.analysis_schema")
 
