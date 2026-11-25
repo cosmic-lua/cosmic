@@ -23,11 +23,20 @@ local this_program = require("build.this_program")
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "/bin/sh", letters = "r" }, { path = "/bin/sleep", letters = "r" }, { path = "/usr/bin/sleep", letters = "r" }, { path = "/usr/bin/setsid", letters = "r" } },
   -- CI's suites give a test 10 s. On a loaded macOS runner a worker test started with the suite ran past that
   -- (portable suite, run 45557741219). A test that hangs still ends at this bound.
-  timeout = 30 }
+  timeout = 120 }
 
 --- A set whose worker is `cosmic agent worker` of this program, as the agent starts it. Its first snippet answers in
 --- about 60 ms; a child of this module ([`build.test_child`]) took 1.3 s, checking its `-e` chunk and loading the
 --- module first.
+--- TRACE (diagnostic branch, not for main): a line on standard error with the ms since the module loaded.
+local TRACE_START = Clock.monotonic_ns()
+local TRACED: mut {string} = {}
+local function trace(what: string)
+  local line = "TRACE " .. tostring((Clock.monotonic_ns() - TRACE_START) // 1000000) .. " ms " .. what
+  TRACED[#TRACED + 1] = line
+  local _, _ = Fs.put(Fs.stderr, line .. "\n")
+end
+
 local function set_of_worker(): Worker.Set
   local started = this_program.program({ "agent", "worker" }, { env = this_program.environment(), timeout_ns = -1 })
   return Worker.new(started.argv, started.options)
@@ -251,8 +260,10 @@ local function test_calls_from_a_snippets_tasks_are_served_at_once()
   local served = 0
   local held = 0
   local most_held = 0
+  trace("at_once: start")
   local serve: Worker.Serve = function(name: string, args: Json.Value, _: Worker.Budget): (Json.Value) | (nil, Failure)
     served = served + 1
+    trace("at_once: serve " .. name .. " " .. tostring(args) .. " held " .. tostring(held))
     local n = math.tointeger(args)
     if n ~= nil and n <= 4 then
       held = held + 1
@@ -288,6 +299,7 @@ local after, _ = Host.call("nap", 5)
 print(tostring(after))
 ]]
   local answer = assert(Worker.run(w, code, { cwd = dir, seconds = 30, serve = serve }))
+  trace("at_once: first answered, most_held " .. tostring(most_held))
   assert(answer["ok"] == true and answer["output"] == "napped 1\tnapped 2\thost: fail: refused 3\tnapped 4\n" ..
       "napped 5\n", shown(answer))
   assert(served == 5, tostring(served))
@@ -314,6 +326,8 @@ print(ok)
       "print(tostring(v))\n", { cwd = dir, seconds = 30, serve = serve }))
   assert(after["ok"] == true and after["output"] == "napped 8\n" and w.started == 1, shown(after))
   Worker.close(w)
+  trace("at_once: end")
+  error("TRACE (diagnostic):\n" .. table.concat(TRACED, "\n"))
 end
 
 --- An answer out of step, one that is no JSON, and a worker that ends are each told, and the worker ended.
@@ -594,6 +608,7 @@ return function(_: {string}): integer
   return 0
 end
 ]=]))
+  trace("mcp: start")
   local started = this_program.program({ "--standalone", script }, { env = this_program.environment(), timeout_ns = -1 })
   local config = assert(Json.encode({ servers = { adder = { command = Json.array(started.argv), sandbox = "off" } } }))
   assert(Fs.write(dir .. "/mcp.json", config))
@@ -610,15 +625,20 @@ print(summed.sum, summed.note == nil)
 print(adder.sum_up().sum)
 print(adder.sum_up({ values = {} }).sum)
 ]]
+  trace("mcp: worker made")
   local ran = Tools.run("run", { code = code }, context)
+  trace("mcp: ran answered")
   assert(not ran.is_error, ran.text)
   assert(ran.text:find("42\nmcp: adder.twice: n is negative\n6\ttrue\n0\n0\n", 1, true) ~= nil, ran.text)
   -- A wrong argument is the checker's to refuse, in the same worker, the module kept.
   local wrong = Tools.run("run", { code = "local adder = require(\"mcp.adder\")\nadder.twice({ n = \"x\" })\n" }, context)
+  trace("mcp: wrong answered")
   assert(wrong.is_error and wrong.text:find("run.tl:2:", 1, true) ~= nil, wrong.text)
   local missing = Tools.run("run", { code = "local adder = require(\"mcp.adder\")\nadder.twice({})\n" }, context)
+  trace("mcp: missing answered")
   assert(missing.is_error and missing.text:find("run.tl:2:", 1, true) ~= nil, missing.text)
   local declared = Tools.run("run", { code = "return require(\"cosmic.agent.host\").declaration(\"adder\")" }, context)
+  trace("mcp: declared answered")
   assert(declared.text:find("record TwiceInput", 1, true) ~= nil and declared.text:find("sum_up: function(arguments?: " ..
       "SumUpInput): SumUpOutput", 1, true) ~= nil, declared.text)
   -- A search finds a tool by a word of its name or its description, best first, and describe shows its Teal alone.
@@ -648,6 +668,7 @@ local missing = Host.describe("adder", "nope")
 print(missing)
 ]]
   local searched = Tools.run("run", { code = search }, context)
+  trace("mcp: searched answered")
   assert(not searched.is_error, searched.text)
   local text = searched.text
   for _, part in ipairs({
@@ -681,12 +702,16 @@ end)
 print(got[1], got[2], got[3])
 ]]
   local parallel = Tools.run("run", { code = at_once }, context)
+  trace("mcp: parallel answered")
   assert(not parallel.is_error and parallel.text:find("2\t4\t6\n", 1, true) ~= nil, parallel.text)
   local unknown = Tools.run("run", { code = "local nope = require(\"mcp.nope\")\nprint(nope)\n" }, context)
+  trace("mcp: unknown answered")
   assert(unknown.is_error and unknown.text:find("require(\"mcp.nope\"): host: mcp.tools: no MCP server \"nope\"", 1,
     true) ~= nil, unknown.text)
   AgentMcp.close(set)
   Worker.close(w)
+  trace("mcp: end")
+  error("TRACE (diagnostic):\n" .. table.concat(TRACED, "\n"))
 end
 
 local function test_a_call_outside_a_worker_raises()
