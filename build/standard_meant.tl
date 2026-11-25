@@ -4,8 +4,7 @@
 ---
 ---     for _, m in ipairs(StandardMeant.of("cosmic.base64")) do print(m) end -- `cosmic.codec` (has `Codec.base64`)
 
-local Doc = require("cosmic.doc")
-local Store = require("cosmic.store")
+local type Doc = require("cosmic.doc")
 
 local record StandardMeant
   --- What [`StandardMeant.of`] reads of the docs: the summary of each module, and the rows a word names
@@ -63,16 +62,24 @@ function StandardMeant.of(name: string, docs?: StandardMeant.Docs): {string}
   if word == nil then return out end
   word = word:lower()
   if docs == nil then
-    local view, _ = Doc.view(Store.databases())
-    if view == nil then return out end
-    local index, _ = Doc.index(view)
-    if index == nil then return out end
-    docs = { index = index, exact = function(w: string): {{string}}
-      local found, _ = Doc.exact(view, w)
-      local rows: mut {{string}} = {}
-      for _, e in ipairs(found or {}) do rows[#rows + 1] = { e.module, e.symbol } end
-      return rows
-    end }
+    -- Read only on a refusal, so a program that is not refused loads no docs; a store that withholds them (a test's)
+    -- raises, and names nothing.
+    local read, held = pcall(function(): StandardMeant.Docs?
+      local Docs = require("cosmic.doc")
+      local Store = require("cosmic.store")
+      local view, _ = Docs.view(Store.databases())
+      if view == nil then return nil end
+      local index, _ = Docs.index(view)
+      if index == nil then return nil end
+      return { index = index, exact = function(w: string): {{string}}
+        local found, _ = Docs.exact(view, w)
+        local rows: mut {{string}} = {}
+        for _, e in ipairs(found or {}) do rows[#rows + 1] = { e.module, e.symbol } end
+        return rows
+      end }
+    end)
+    if not read or held == nil then return out end
+    docs = held
   end
   local named: mut {string: boolean} = {}
   local function put(module: string, why: string)
