@@ -69,6 +69,7 @@ local record Orchestration
   darwin_words: function(words: {string}, modules: {string}): {string}?
   native_ran_every: function(text: string, code: integer): boolean
   replay: function(out: string, err: string, to_out?: integer, to_err?: integer): boolean
+  ended_line: function(phase: string, outcome: Runner.Outcome): string
   fixture_lanes: function(env: {string:string}, cpus: integer): Lanes
   run_groups: function(high: Orchestration.Group, low: {Orchestration.Group},
     lanes: boolean): integer
@@ -404,9 +405,10 @@ local function operation(c: Context, phase: string, command: {string},
 end
 
 --- What a failed command's own output may not say: that it timed out,
---- did not start, or was ended by a signal, as a line Failures.pick keeps.
-local function ended_line(phase: string, outcome: Runner.Outcome): string
-  if outcome.status == "exit" then return "" end
+--- did not start, was ended by a signal, or left members of its group
+--- alive, as a line Failures.pick keeps.
+function Orchestration.ended_line(phase: string, outcome: Runner.Outcome): string
+  if outcome.status == "exit" and outcome.trouble == nil then return "" end
   local trouble = outcome.trouble
   return "\nerror: " .. phase .. ": " .. outcome.status .. (if trouble ~= nil then ": " .. trouble else "" end) .. "\n"
 end
@@ -509,7 +511,7 @@ local function logged(c: Context, phase: string, command: {string}, out: string,
   local outcome = named_operation(runner, phase, request, out, err)
   local replay_ok = replay(out, err)
   if outcome.code ~= 0 then
-    Failures.keep(phase, read_or_empty(out) .. "\n" .. read_or_empty(err) .. ended_line(phase, outcome))
+    Failures.keep(phase, read_or_empty(out) .. "\n" .. read_or_empty(err) .. Orchestration.ended_line(phase, outcome))
     return outcome.code
   end
   assert(replay_ok, "could not replay retained output")
@@ -539,7 +541,7 @@ local function watched(c: Context, phase: string, command: {string},
   -- status decides the step.
   local _ = replay(out, err)
   if outcome.code ~= 0 then
-    Failures.keep(phase, read_or_empty(out) .. "\n" .. read_or_empty(err) .. ended_line(phase, outcome))
+    Failures.keep(phase, read_or_empty(out) .. "\n" .. read_or_empty(err) .. Orchestration.ended_line(phase, outcome))
   end
   return outcome.code
 end
@@ -577,7 +579,7 @@ function Orchestration.watched_group(group: Orchestration.Group, phase: string,
       done()
       if outcome.code ~= 0 then
         local out, err = files()
-        Failures.keep(phase, read_or_empty(out) .. "\n" .. read_or_empty(err) .. ended_line(phase, outcome))
+        Failures.keep(phase, read_or_empty(out) .. "\n" .. read_or_empty(err) .. Orchestration.ended_line(phase, outcome))
       end
       return group.finish(outcome)
     end,
