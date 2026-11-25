@@ -44,6 +44,8 @@ local bind = require("build.bind")
 
 local plans = require("build.plans")
 local derivation = require("build.derivation")
+local type work_schema = require("build.work_schema")
+local type Database = work_schema.Database
 -- Declares what text this module reads ([`build.code_walk`]'s `markers`): analyzer, receivers.
 local _ = require("build.reads.analyzer")
 local _ = require("build.reads.receivers")
@@ -444,7 +446,7 @@ local function running_analyzer(handle: work.Handle): string?, string
 end
 
 --- Names the rows the analysis tables hold as derived by `identity`.
-local function record_analyzer(db: Sqlite.Handle, identity: string): boolean, string
+local function record_analyzer(db: Database, identity: string): boolean, string
   local answered, answer_why = db:run(
     "INSERT OR REPLACE INTO meta (key, value) VALUES ('analyzer', ?1)",
     { text(identity) })
@@ -454,7 +456,7 @@ end
 
 --- What `meta` names the analysis tables' rows as derived by, "" for
 --- none.
-local function recorded_analyzer(db: Sqlite.Handle): string?, string
+local function recorded_analyzer(db: Database): string?, string
   local last, trouble = db:rows(
     "SELECT value FROM meta WHERE key = 'analyzer'")
   if last == nil then
@@ -465,7 +467,7 @@ end
 
 --- Forgets every derived row: every parse, and every derivation but
 --- the compiler's.
-local function forget_analysis(db: Sqlite.Handle): boolean, string
+local function forget_analysis(db: Database): boolean, string
   for _, table_name in ipairs(analysis_tables) do
     local ok, trouble = db:exec("DELETE FROM " .. table_name)
     if not ok then
@@ -519,7 +521,7 @@ end
 --- The identity of the code that finds the record-field uses and judges the discipline beside the checker
 --- ([`build.syntax_receivers`], [`build.syntax_contracts`]): a boot names them by the tree's source, a built tool by the
 --- source it carries.
-local function receivers_identity(db: Sqlite.Handle): string?, string
+local function receivers_identity(db: Database): string?, string
   local booting = Store.meta("boot_hash") == nil
   local parts: mut {string} = {}
   for _, name in ipairs(CodeWalk.receivers_modules) do
@@ -554,7 +556,7 @@ end
 --- Forgets every compile, and the record-field uses found with it, when the code that finds those uses has changed since:
 --- a compile whose key stands is never checked again, so a `typed_refs` row is only as right as the readers that ran
 --- beside the checker.
-local function forget_stale_receivers(db: Sqlite.Handle): boolean, string
+local function forget_stale_receivers(db: Database): boolean, string
   local identity, identity_trouble = receivers_identity(db)
   if identity == nil then
     return false, identity_trouble
@@ -746,7 +748,7 @@ end
 
 --- Offers `shared` the parse of each of `made`, made here by the
 --- analyzer named `identity`.
-local function offer_parses(db: Sqlite.Handle, shared: importer.Shared?, identity: string,
+local function offer_parses(db: Database, shared: importer.Shared?, identity: string,
                             made: {Source}): boolean, string
   if shared == nil or #made == 0 or nameless(identity) then return true, "" end
   local packed, trouble = derivation.packed_parses(db, made)
@@ -1166,7 +1168,7 @@ end
 --- path requires, itself included. A name no source of the tree is (a
 --- standard-library module), or one whose only source does not parse,
 --- reaches no further.
-local function reach(db: Sqlite.Handle, target: string): {string:boolean}?, string
+local function reach(db: Database, target: string): {string:boolean}?, string
   local rows, trouble = db:rows(
     "SELECT i.path, r.name FROM inputs i JOIN requires r ON r.source_hash = i.source_hash " ..
       "WHERE i.kind <> 'vendor' ORDER BY i.path, r.ordinal")
@@ -2029,7 +2031,7 @@ local kept: Held = { standing = nil }
 --- A digest of what a compile reads of the working database and leaves in
 --- it: each staged file by its hash, each derived source, and the plan of
 --- modules and keys it wrote. Nil where the database will not say.
-local function tree_state(db: Sqlite.Handle): string?
+local function tree_state(db: Database): string?
   local rows, _ = db:rows(
     "SELECT lower(hex(sha256(" ..
       "coalesce((SELECT group_concat(path || char(0) || sha256, char(10)) FROM " ..
