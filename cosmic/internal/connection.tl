@@ -401,8 +401,15 @@ local class SocketConn is Duplex
         if not ok then return false, why end
       else
         local slice = if rest ~= nil then math.min(rest, GONE_SLICE_NS) else GONE_SLICE_NS end
-        local ok, why = Clock.sleep(slice)
-        if not ok then return false, why end
+        -- A wait of the run's, which raises in a `<close>` handler of a
+        -- task being killed as the Poll.wait above does, where
+        -- Clock.sleep would hold the thread.
+        if Poll.in_task() and coroutine.isyieldable() then
+          local ok, why = Poll.notifier():wait(slice)
+          if not ok and why.kind ~= "timeout" then return false, why end
+        else
+          local _, _ = Clock.sleep(slice)
+        end
       end
     end
   end

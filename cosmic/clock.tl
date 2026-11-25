@@ -130,9 +130,8 @@ function Clock.cpu_ns(): integer
 end
 
 --- Waits `ns` nanoseconds. In a task of [`Poll.run`] only that task waits, and the others run; anywhere else the
---- process sleeps, resuming the sleep when a signal interrupts it, so the whole time passes. A task under a C call
---- it cannot yield across (a `table.sort` comparator) sleeps the process too. In a `<close>` handler of a task the
---- run is killing it raises, as every wait of a task does there, rather than hold the thread.
+--- process sleeps, resuming the sleep when a signal interrupts it, so the whole time passes. A task the run is
+--- killing, or one under a C call it cannot yield across (a `table.sort` comparator), sleeps the process too.
 --- Returns true once the time has passed, or false and a Failure: of kind "cancelled" where the task was cancelled
 --- first, or the system's reason where it refused the sleep. Raises when `ns` is negative.
 ---

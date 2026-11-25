@@ -24,7 +24,8 @@
 --- outside a run, in a coroutine of its own, in a finalizer -- holding
 --- the thread until they return, so a module waits with
 --- one call wherever it runs; the others raise there. In a `<close>`
---- handler of a task the run ends, `wait` and [`Clock.sleep`] raise too. Nothing else
+--- handler of a task the run ends, `wait` raises too, and [`Clock.sleep`]
+--- holds the thread, as a cleanup that must wait there does. Nothing else
 --- here waits: a call that blocks the thread (a blocking read, a
 --- SQLite query) holds every task until it returns. [`cosmic.http`]'s
 --- requests wait through the run, as [`cosmic.net`]'s waits do.
@@ -799,8 +800,7 @@ end
 --- Waits `ns` nanoseconds, at most [`Poll.MOST_NS`], while the other
 --- tasks run: true once they have passed, false and a Failure of kind
 --- "cancelled" once the task is cancelled first. [`Clock.sleep`] calls it
---- through [`Waits.delay`], whose caller a raise blames: in a `<close>`
---- handler of a task being killed, as every wait of a task raises there.
+--- through [`Waits.delay`], whose caller a raise blames.
 local function delay(ns: integer): (true) | (false, Failure)
   local task = current("Clock.sleep", 4)
   local ok, why = park(task, { task = task, expiry_ok = true }, ns)
@@ -1053,7 +1053,7 @@ end
 
 Waits.parks = function(): boolean
   local task = own_task()
-  return task ~= nil and (task.killed or coroutine.isyieldable())
+  return task ~= nil and not task.killed and coroutine.isyieldable()
 end
 
 Waits.delay = function(ns: integer): (true) | (false, Failure)
