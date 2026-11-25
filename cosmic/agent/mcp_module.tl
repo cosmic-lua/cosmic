@@ -1,8 +1,8 @@
 --- @public
 --- The module a snippet of cosmic agent's `run` tool requires to call an MCP server's tools as typed functions: for the
 --- server `notes`, `require("mcp.notes")`. Each tool is a function of the module, its arguments a record made of the
---- tool's `inputSchema`, and its result a record made of its `outputSchema` where it lists one a record holds, or
---- else a [`Host.Result`]:
+--- tool's `inputSchema`, and its result a record made of its `outputSchema` where it lists one that a record can
+--- hold, or else a [`Host.Result`]:
 ---
 ---     local notes = require("mcp.notes")
 ---     print(notes.search({ query = "teal" }).text)

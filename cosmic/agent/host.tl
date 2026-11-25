@@ -2,9 +2,13 @@
 --- What a snippet that cosmic agent's `run` tool runs asks of the agent itself: the calls the worker cannot make in
 --- its sandbox, which the agent serves in its own process. Each call goes out to the agent as a line beside the
 --- worker's response line, and the snippet waits for the reply; the agent checks each call as it checks a tool's input, and
---- serves only what it offers. Each call of Host but [`Host.call`] raises where it fails, with a message that begins
---- "host:" ("mcp:" for a tool that ran and failed), so a snippet reads its value with no assert; a call that returns a
---- plain string to print ([`Host.describe`], [`Host.declaration`], [`Host.modules`], [`Host.docs`]) says in it why:
+--- serves only what it offers.
+---
+--- [`Host.call`] returns a failure. [`Host.describe`], [`Host.declaration`], [`Host.modules`] and [`Host.docs`]
+--- return a plain string to print, which says why where they fail. [`Host.sort`] and [`Host.sort_by`] raise what
+--- `by` raised, as it is, and [`Host.uniq`] and [`Host.top`] do not fail. Every other call raises where it fails:
+--- its message begins "host:", or "mcp: <server>.<tool>:" for an MCP tool that failed or gave no
+--- `structuredContent`. So a snippet reads its value with no assert:
 ---
 ---     local Host = require("cosmic.agent.host")
 ---     local rows = Host.history("SELECT tool, count(*) AS n FROM outputs WHERE session = ?1 GROUP BY tool")
@@ -747,7 +751,7 @@ end
 
 --- Keeps `value` under `key` for a later snippet of this session, in place of what was kept there; no value,
 --- or [`Json.null`], lets the key go. A key is 1 to 256 bytes, its value at most 256KB of JSON, and a session keeps
---- 1MB. Raises where it fails.
+--- 1MB, its keys and values together. Raises where it fails.
 function Host.store(key: string, value?: Json.Value)
   local _, why = store_of(key, value)
   if why ~= nil then error(tostring(why), 2) end

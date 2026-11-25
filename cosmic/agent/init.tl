@@ -301,9 +301,9 @@ local record Agent
   --- input the arguments the snippet sent, unchecked, and no paths
   --- ([`Tools.Context`] `guard` lists them); one of [`Host.use`] has the
   --- tool's name, input and paths, as the model's call would. A blocked
-  --- one raises "Blocked: <reason>" in the snippet, which the model reads
-  --- only as the snippet passes it on. Such calls may come at once, from a
-  --- snippet's tasks, and while its time runs.
+  --- one raises "host: <name>: Blocked: <reason>" in the snippet, which
+  --- the model reads only as the snippet passes it on. Such calls may
+  --- come at once, from a snippet's tasks, and while its time runs.
   type Before = function(call: Call): string?
 
   --- What runs after each call that ran, before its result is kept and
