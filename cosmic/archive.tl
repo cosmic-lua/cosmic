@@ -146,24 +146,24 @@ local class DrainingReader is Stream.ArchiveReader
   source: Stream.Reader
   mut finished: boolean
 
-  function next(self): Stream.ArchiveEntry?, string
+  function next(self): (Stream.ArchiveEntry | false) | (nil, Failure)
     local e, trouble = self.tr:next()
-    if e ~= nil then return e, "" end
-    if trouble ~= "" then return nil, trouble end
+    if e == nil then return nil, trouble end
+    if e ~= false then return e end
     if not self.finished then
       self.finished = true
       while true do
         local chunk, dtrouble = self.source:read()
-        if chunk == nil then return nil, tostring(dtrouble) end
+        if chunk == nil then return nil, dtrouble end
         if chunk == false then
           break
         end
       end
     end
-    return nil, ""
+    return false
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     return self.tr:close()
   end
 end
@@ -210,7 +210,11 @@ local function open_text(path: string): Archive.Reader?, string
   local _, _ = Fs.close(fd)
   if head == nil then return nil, tostring(htrouble) end
   local kind = detect(head)
-  if kind == "zip" then return Zip.open(path) end
+  if kind == "zip" then
+    local zr, ztrouble = Zip.open(path)
+    if zr == nil then return nil, tostring(ztrouble) end
+    return zr, ""
+  end
   if kind == "unknown" then
     return refuse(path .. ": not a recognized archive format")
   end
@@ -259,8 +263,8 @@ function Archive.open(source: string | Stream.Reader): (Archive.Reader) | (nil, 
   return value
 end
 
-local function listed_open(_e: Archive.Entry): Stream.Reader?, string
-  return refuse("an entry from Archive.list cannot be opened; walk Archive.open instead")
+local function listed_open(_e: Archive.Entry): (Stream.Reader) | (nil, Failure)
+  return nil, Failure.new("archive: an entry from Archive.list cannot be opened; walk Archive.open instead")
 end
 
 -- Archive.list of a reader, its failure in words.
@@ -270,7 +274,10 @@ local function list_reader_text(reader: Archive.Reader): {Archive.Entry}?, strin
     local entry, etrouble = reader:next()
     if entry == nil then
       local _, _ = reader:close()
-      if etrouble ~= "" then return nil, etrouble end
+      return nil, tostring(etrouble)
+    end
+    if entry == false then
+      local _, _ = reader:close()
       return out, ""
     end
     -- The reader is closed before the list is returned, so no entry can be
@@ -605,7 +612,7 @@ local function extract_from(from: string | Archive.Reader, dest: string,
     if entry.size > entry_limit then return over_entry() end
     if entry.size > total_limit - tally then return over_total() end
     local body, otrouble = entry:open()
-    if body == nil then return false, otrouble end
+    if body == nil then return false, tostring(otrouble) end
     local mode = safe_mode(entry.mode)
     if mode == 0 then mode = 0x1a4 end
     local w, ctrouble = Stream.create(dest_path, mode)
@@ -703,10 +710,8 @@ local function extract_from(from: string | Archive.Reader, dest: string,
 
   while true do
     local entry, etrouble = reader:next()
-    if entry == nil then
-      if etrouble ~= "" then return bail(etrouble) end
-      break
-    end
+    if entry == nil then return bail(tostring(etrouble)) end
+    if entry == false then break end
     if not safe_relative(entry.path) then
       return bail("archive: refusing an unsafe entry path: " .. entry.path)
     end
