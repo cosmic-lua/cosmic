@@ -6,9 +6,11 @@
 --- checked and compiled in memory (a clean compile is cached under
 --- $XDG_CACHE_HOME/cosmic/standalone), then called as `run` calls
 --- one -- its words in `arg` and the returned function's `argv` --
---- with a record's `main` field standing for a returned function.
+--- with a record's `main` field standing for a returned function. A run
+--- lets a name the file never uses pass.
 --- `cosmic --standalone --check <file.tl>` only checks the file, as
---- a run does, and never calls it: it prints the refusals and exits 4,
+--- a run does but refusing an unused name too, as `cosmic fix` does,
+--- and never calls it: it prints the refusals and exits 4,
 --- as a run of a file that does not compile does. It exits 0 when there
 --- are none, and 1 when it cannot read the file.
 --- COSMIC_STANDALONE=1 makes `cosmic <file.tl>` run so

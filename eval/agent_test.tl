@@ -249,6 +249,52 @@ local function test_a_task_of_a_site_gives_each_run_the_site()
   assert(#results == 2 and truths == 1 and asked == 2 and started == 2 and stopped == 2)
 end
 
+--- A task with a follow-up asks it once the first ask ends well, with the same flags in place of the first
+--- prompt, and the run's words, stderr and wall time join both; a first ask that fails is not followed up.
+local function test_a_task_with_a_follow_up_asks_twice_in_one_run()
+  local o = options({ "--tool", "t=/c", "--fixture", "/f", "--out", "/o", "--tasks", "earlier-log", "--reps", "2" })
+  local task = assert(o.tasks[1])
+  local follow_up = assert(task.follow_up)
+  local made = 0
+  local asks: mut {{string}} = {}
+  local written: mut {string: string} = {}
+  local system: Agent.System = {
+    fresh = function(prefix: string): string
+      made = made + 1
+      return "/tmp/" .. prefix .. tostring(made)
+    end,
+    run = function(argv: {string}, _: string, _: {string: string}?, _: integer): Agent.Output
+      if argv[1] == "/c" then
+        asks[#asks + 1] = argv
+        -- The second run's first ask fails.
+        if #asks == 3 then return { code = 1, stdout = "", stderr = "broke", seconds = 1 } end
+        return { code = 0, stdout = "said " .. tostring(#asks), stderr = "err " .. tostring(#asks),
+          seconds = #asks + 1 }
+      end
+      return { code = 0, stdout = "", stderr = "" }
+    end,
+    spent = function(_: string, _: string): Agent.Spent? return nil end,
+    put = function(_: string, _: string) end,
+    serve = function(_: {string}, _: string, _: string, _: integer): (string, function()) | (nil, string)
+      return "40001", function() end
+    end,
+  }
+  local results = Agent.execute(o, system, "k", {}, function(path: string, text: string)
+    written[path] = text
+  end)
+  assert(#results == 2 and #asks == 3, tostring(#asks))
+  local first, second = assert(asks[1]), assert(asks[2])
+  assert(#second == #first, table.concat(second, " "))
+  for i = 1, #first - 1 do assert(second[i] == first[i], table.concat(second, " ")) end
+  assert((first[#first] or ""):find("http://127.0.0.1:40001", 1, true) ~= nil and second[#second] == follow_up)
+  assert(results[1].wall == 5 and results[2].wall == 1, tostring(results[1].wall))
+  local answer = assert(written["/o/t/earlier-log-1.txt"])
+  assert(answer:find("--- words\nsaid 1\n--- follow-up\nsaid 2\n", 1, true) ~= nil and
+      answer:find("--- stderr\nerr 1\n--- follow-up\nerr 2\n", 1, true) ~= nil, answer)
+  local failed = assert(written["/o/t/earlier-log-2.txt"])
+  assert(failed:find("exit: 1\n", 1, true) ~= nil and failed:find("follow-up", 1, true) == nil, failed)
+end
+
 --- A web API that does not start fails the run that needed it, which never asks the agent, and the rest go on.
 local function test_a_site_that_does_not_start_fails_its_run()
   local o = options({ "--tool", "t=/c", "--fixture", "/f", "--out", "/o", "--tasks", "web-low", "--reps", "2" })

@@ -153,9 +153,10 @@ $ cosmic agent sessions
    1  2026-11-24 18:00:55  claude-opus-5-5      12     5.8k   $0.053  what does this repository do? keep it short
 ```
 
-In a `run` program, `Host.history(query)` reads this database with one
-read-only SQL statement. The agent uses it to find output it saw
-before.
+A tool output too long to show is cut, and a note under it names the
+output's id. In a `run` program, `Host.output(id)` reads that output
+back from this database, and `Host.history(query)` runs one read-only
+SQL statement on it. The agent uses them to find output it saw before.
 
 ## limits
 
