@@ -8,7 +8,7 @@
 --- [`Cookies.format`] refuses, rather than lets a browser drop silently, a
 --- name or value that is not a cookie's, a `__Host-` or `__Secure-` name
 --- without the attributes its prefix needs, `SameSite=None` without
---- `Secure`, and a line over 4096 bytes. It returns `nil` and why, as any
+--- `Secure`, and a line over 4096 bytes. It returns `nil` and a [`Failure`], as any
 --- failure of data does. Defaults are the safe ones: path `/`, `HttpOnly`,
 --- `SameSite=Lax`, no `Domain` (a host-only cookie), and `Secure` only when
 --- asked for: the function cannot know the scheme, so
