@@ -229,7 +229,7 @@ local function test_help_is_a_short_index_of_every_verb(tmp: string)
   assert(lines <= #Cli.order + alone + 32, tostring(lines) .. " lines:\n" .. all)
   -- A usage follows the word that names its verb, or what is typed
   -- where a verb has no word of its own.
-  for _, line in ipairs({ "\n  cosmic test [selector...]  ", "\n  cosmic <file.tl> [args]  ",
+  for _, line in ipairs({ "\n  cosmic test [selector...]  ", "\n  cosmic <file.tl|-> [args]  ",
       "\n  cosmic --standalone [--check] <file.tl> [args]\n", "\n  cosmic -e '<chunk>' [args]  ",
       "\n  cosmic --version  ", "\n  cosmic bom [list | licenses | cyclonedx] ...\n" }) do
     assert(all:find(line, 1, true), line .. ":\n" .. all)

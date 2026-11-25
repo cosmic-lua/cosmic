@@ -391,6 +391,14 @@ local function test_pin_writes_the_pin_once_the_bytes_check(tmp: string)
   assert(assert(Fs.read(path)) == binary)
 end
 
+--- `pin -` prints the pin once the bytes check, writing no file.
+local function test_pin_to_a_dash_prints_it(tmp: string)
+  local ran = run({ "pin", "-" }, newest_then(sums(), source(newest), ok(binary)))
+  assert(ran.code == 0, ran.err)
+  assert(ran.out == release.pin_text("next-" .. newest, newest, digest), ran.out)
+  assert(#assert(Fs.list(tmp)) == 0, "no file is written")
+end
+
 --- `launcher` sets a project up: the launcher [`build.pinned_launcher`]
 --- writes for the file's name, executable, and beside it the pin `pin`
 --- writes, each only once the binary's bytes check.
@@ -506,7 +514,9 @@ local function test_a_refusal_ends_in_its_own_usage()
       { "put the command first: cosmic release pin [options]; usage: cosmic release [list",
           "--commit", "abc1234", "pin", "f" },
       { "no such option: --pin; usage: cosmic release [list", "--pin", "f" },
-      { "pin: an empty file name; usage: cosmic release pin [options] <file>", "pin", "" },
+      { "pin: an empty file name; usage: cosmic release pin [options] <file>|-", "pin", "" },
+      { "-o takes a file the binary is renamed into once verified, not -", "get", "-o", "-" },
+      { "launcher writes its pin beside it, as <file>.pin, so it takes a file, not -", "launcher", "-" },
       { "get: give -o <file> or --cache", "get" },
       { "takes no words, but was given 1 word; usage: cosmic release [list", "--json", "x" },
       { "no such subcommand: show; usage: cosmic release [list", "show" },

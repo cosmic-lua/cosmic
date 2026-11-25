@@ -36,7 +36,7 @@
 ---   path. Each renames the file into place only when its sha256 is the
 ---   release's digest.
 --- - `pin <file>` writes the three pin lines to a file after the binary's
----   bytes are verified. `pin` and `launcher` also take `-o` and
+---   bytes are verified; `pin -` prints them. `pin` and `launcher` also take `-o` and
 ---   `--cache`, to keep the binary they verify.
 --- - `launcher <file>` sets up a project to run on the release. It writes the
 ---   pin as `<file>.pin`, and at the file a shell script, a project's
@@ -107,8 +107,8 @@ local command: Flags.Command = {
       spec = release_spec(kept({})),
     },
     pin = {
-      about = "write the release as ci/cosmic-driver.pin's three lines to a file, once verified",
-      usage = "[options] <file>",
+      about = "write the release as ci/cosmic-driver.pin's three lines to a file, or - (standard output), once verified",
+      usage = "[options] <file>|-",
       spec = release_spec(kept({})),
     },
     launcher = {

@@ -135,6 +135,9 @@ function sql.source(root: string, parsed: Flags.Parsed): sql.Source?, string
     if chosen == "" then
       return nil, "--db needs a path, not an empty one"
     end
+    if chosen == "-" then
+      return nil, "--db opens a SQLite database by its path, not - (standard input); --from - loads data from it"
+    end
     return { name = chosen, path = chosen }, ""
   end
   local within = "; the build directory is the working directory's, " ..
