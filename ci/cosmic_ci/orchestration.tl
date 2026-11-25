@@ -1297,13 +1297,14 @@ local function checked_suite(c: Context, target: string, work: string,
   -- none reached (`--census`, build/test.tl).
   -- --all where it stands on no verdict (`stands`): CI is responsible for
   -- every test then, whatever its build directory holds.
-  local checked_argv: mut {string} = { cosmic, "--show-output" }
+  local checked_argv: mut {string} = { cosmic }
   local checked_run = Orchestration.suite_run({
     COSMIC_VERDICT_CACHE = Orchestration.suite_verdicts(Env.all(), "checked"),
     COSMIC_TEST_TIMEOUT = checked_suite_test_timeout_s })
   for _, word in ipairs(with_census(checked_run.words)) do
     checked_argv[#checked_argv + 1] = word
   end
+  checked_argv[#checked_argv + 1] = "--show-output"
   -- The merge queue and a manual run of a branch run the suite in
   -- shares, each a job of its own (COSMIC_CI_CHECKED_SHARD, `I/N`;
   -- ci.yml's `checked`). A share does not check the C functions, which
@@ -1313,6 +1314,16 @@ local function checked_suite(c: Context, target: string, work: string,
     diagnostics .. "/checked-test.out", diagnostics .. "/checked-test.err",
     checked_suite_timeout_ns, c.root, Orchestration.deadlined(checked_run.env, checked_suite_timeout_ns, checked_margin_ns))
   record_suite(c, "checked", s, diagnostics .. "/checked-test.out")
+  do
+    local previous = ""
+    for line in read(diagnostics .. "/checked-test.out"):gmatch("[^\n]+") do
+      if line:find("RATIO", 1, true) then
+        io.stderr:write("PROBE " .. previous .. " :: " .. line .. "\n")
+      else
+        previous = line
+      end
+    end
+  end
   write(diagnostics .. "/checked-test.status", tostring(s) .. "\n")
   -- The suite's per-test times and verdicts (its `runs` rows), which
   -- the workflow uploads with the diagnostics when the leg fails: what
