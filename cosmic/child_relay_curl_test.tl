@@ -26,7 +26,7 @@ Test.policy{
 }
 
 --- Runs `body` in a run with an HTTP server at a port of 127.0.0.1 that
---- answers every request "hello from the host".
+--- responds to every request with "hello from the host".
 local function serving(body: function(port: integer))
   Net.with_loopback(function(conn: Net.Conn)
     local seen = ""

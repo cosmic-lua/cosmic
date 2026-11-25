@@ -13,7 +13,7 @@ local function dump(chunk: function(...: any): any...): string
   return string.dump(chunk) -- checked: not_assignable
 end
 
---- Runs `source` as a chunk and answers what it returns.
+--- Runs `source` as a chunk and returns its results.
 local function run(source: string): any, any, any, any, any, any
   local env: {string: any} = { setmetatable = setmetatable, tostring = tostring, string = string, print = print } -- checked: any_use*4
   local chunk, why = Compiled.load(source, "=class_form", env)

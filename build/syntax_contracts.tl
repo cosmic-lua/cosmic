@@ -9,7 +9,7 @@
 --- overloaded function is judged by the overload taken, where the fork saw a `poly` and judged none.
 ---
 --- **A function's results** are those of its return list, which the lowering typed ([`lang.declarations`]'s `types`, by the
---- id of each type node), and a function that answers one of several lists of values ([`Ast.Rets`]) is none of the fork's
+--- id of each type node), and a function that returns one of several lists of values ([`Ast.Rets`]) is none of the fork's
 --- fallible functions. A trailing `T...` is the last result with the list marked variadic.
 ---
 --- **A name** is the fork's by position: the reason a statement binds is followed by the name's text from where its
@@ -25,7 +25,7 @@
 --- **Declaring a binding.** A declaration file (`.d.tl`) opts in with the line `--- @kind binding` on a line of its own
 --- (LF or CR LF), as the generator writes it into what it derives. Its kind is then `binding` in the build's `inputs`
 --- ([`build.analysis_schema`]), and every call of its module's functions is held as a call of [`cosmic.sys`] is: the failure
---- is handled (rule 1), a reason is not parsed (rule 6), an exported function does not answer a bare boolean over one (rule
+--- is handled (rule 1), a reason is not parsed (rule 6), an exported function does not return a bare boolean over one (rule
 --- 11), and a function stored into a field of its table is a stand-in. Only a `.d.tl` can claim it, the docs do not show
 --- the line, and a module the program holds under the name of a binding that declares no table is told by name.
 --
@@ -38,7 +38,7 @@
 -- compile declares the bindings of C from the declarations it derives of the headers, as the tree checks do, so their calls are
 -- judged.
 --
--- TODO: say what the discipline is for a function that answers one of several lists of values (`(true, R) | (false, E)`), which
+-- TODO: say what the discipline is for a function that returns one of several lists of values (`(true, R) | (false, E)`), which
 -- no rule reads here, once the new grammar's convention for a failure is settled
 -- (doc/design.md, third principle): until then the usual `T?, string` pair is the only function the rules hold.
 --
@@ -150,7 +150,7 @@ local function admits_nil(t: Types.Type?): boolean
 end
 
 --- The results a function type declares, the repeated one last, and whether the list ends in a repeated one; nil where it
---- answers one of several lists.
+--- returns one of several lists.
 local function results_of(f: Types.Type?): {Types.Type}?, boolean
   if f == nil or not ((f.tag == "fn")) or #f.rets ~= 1 then
     return nil, false
@@ -558,7 +558,7 @@ local function declared_results(run: Run, rets: Ast.Rets?): {Types.Type}?
 end
 
 --- Rules 2 to 5, over one function's declared results and returns. A stand-in for a [`cosmic.sys`] binding keeps the
---- binding's third slot, so rule 5 does not read it, nor does rule 2 read a return that hands the binding's whole answer on,
+--- binding's third slot, so rule 5 does not read it, nor does rule 2 read a return that hands the binding's whole result on,
 --- errno and all.
 local function check_function(run: Run, fn: Ast.Node, parts: Parts, stand_in: boolean)
   local rets = parts.rets
@@ -585,7 +585,7 @@ local function check_function(run: Run, fn: Ast.Node, parts: Parts, stand_in: bo
   local line = line_of(run.subject, fn)
   local second = declared[2]
   if tag_of(second) ~= "string" then
-    -- A boolean beside a count (`boolean, integer`) is two answers, not a failure; beside a value that admits nil, an
+    -- A boolean beside a count (`boolean, integer`) is two results, not a failure; beside a value that admits nil, an
     -- integer is an error code standing where the reason belongs.
     if (value and tag_of(second) == "integer") or holds(second, "string") then
       report(run, line, string.format("%s: a failure's reason is exactly a string; this second result is not: " ..
@@ -603,7 +603,7 @@ local function check_function(run: Run, fn: Ast.Node, parts: Parts, stand_in: bo
   local all_values = #returns > 0
   for _, r in ipairs(returns) do
     local exps = r.values
-    -- A stand-in hands a binding's answer on as three names it bound.
+    -- A stand-in hands a binding's result on as three names it bound.
     local e1, e2, e3 = exps[1], exps[2], exps[3]
     local handed_on = stand_in and e1 ~= nil and e2 ~= nil and e3 ~= nil and #exps == 3 and
       (e1.kind == "Name") and (e2.kind == "Name") and (e3.kind == "Name")
@@ -624,7 +624,7 @@ end
 
 -- Rule 1 -----------------------------------------------------------------------------------------------------------
 
---- Whether `call` is a call of the global `assert`, which answers what it is given and is no failure of its own: the fork
+--- Whether `call` is a call of the global `assert`, which returns what it is given and is no failure of its own: the fork
 --- read its type as an overloaded function and judged none.
 local function is_assert(call: Ast.Node): boolean
   if (call.kind == "Call") then
@@ -750,7 +750,7 @@ local function binding_tables(run: Run): {Types.Decl: string}
   return out
 end
 
---- The functions stored into a field of a table of C bindings, which answer in the binding's own shape: the table is known by
+--- The functions stored into a field of a table of C bindings, which return in the binding's own shape: the table is known by
 --- the type the checker gave the field's owner, whatever the owner is called.
 local function stand_ins(run: Run): {integer: boolean}
   local tables = binding_tables(run)
@@ -781,11 +781,11 @@ local COMPARING <const>: {string: boolean} = {
   ["=="] = true, ["~="] = true, ["<"] = true, ["<="] = true, [">"] = true, [">="] = true,
 }
 
---- Methods that answer the text they are called on, reshaped: a read through one is a read of the text itself.
+--- Methods that return the text they are called on, reshaped: a read through one is a read of the text itself.
 local RESHAPING <const>: {string: boolean} = { lower = true, upper = true }
 
 --- The name under what only wraps it -- `(err)`, `tostring(err)`, `err:lower()` -- or nil when `n` is no name so wrapped.
---- It gives up, answering nil, past 8 wrappers.
+--- It gives up, returning nil, past 8 wrappers.
 local function unwrapped(n: Ast.Node?): Ast.Name?
   local at = n
   for _ = 1, 8 do
@@ -815,7 +815,7 @@ local function unwrapped(n: Ast.Node?): Ast.Name?
   return nil
 end
 
---- Whether `n` is what a reason may be compared with: `""` or `nil`, or one of the two words every wait answers,
+--- Whether `n` is what a reason may be compared with: `""` or `nil`, or one of the two words every wait returns,
 --- [`Poll.TIMEOUT`] and [`Poll.CANCELLED`], which a caller tells a deadline or a cancel from a failure by.
 local function neutral(n: Ast.Node): boolean
   if (n.kind == "Nil") or is_empty_string(n) then
@@ -1143,7 +1143,7 @@ local function exported_functions(run: Run): {Exported}
   if root == nil then
     return out
   end
-  -- The module's name for its answer is the one its last statement returns (`return Zip`, or `return m` for a local typed as
+  -- The module's name for its value is the one its last statement returns (`return Zip`, or `return m` for a local typed as
   -- the record), as a caller spells a member.
   local statements = subject.chunk.body.stats
   local last = statements[#statements]
@@ -1370,7 +1370,7 @@ local function binding_call_in(run: Run, body: Ast.Block): string?
   return go(body)
 end
 
---- Rule 11, over every exported function defined in this module: one that answers a bare boolean over a fallible call of a
+--- Rule 11, over every exported function defined in this module: one that returns a bare boolean over a fallible call of a
 --- binding of C has dropped the reason a caller needs.
 local function check_wrappers(run: Run, defined: {Defined})
   local file = run.subject.file

@@ -110,9 +110,9 @@ end
 
 --- Shares the rows of this process's memoed checks with the host's other checkouts ([`build.check_memo`]), under the
 --- code this tool checks with: the bytecode of the modules `cosmic fix` loads, read from the tool's own database and
---- not a projection attached ahead of it, and every byte of the tool ahead of that database. Answers whether they are
+--- not a projection attached ahead of it, and every byte of the tool ahead of that database. Returns whether they are
 --- shared, and why not where the tool could not be read or the shared file not opened; a run that shares none by
---- its environment answers false and "".
+--- its environment returns false and "".
 function tree_checked.share_checks(): boolean, string
   local path = check_memo.shared_path()
   if path == nil then return check_memo.share(nil) end
@@ -223,7 +223,7 @@ local function kept_rows(outcome: DeclareOutcome): {{string}}
   return kept
 end
 
---- A file of the tree to lower: its module, the modules it requires and what its answer is keyed by.
+--- A file of the tree to lower: its module, the modules it requires and what its result is keyed by.
 local record DeclareFile
   file: string
   source: string
@@ -255,7 +255,7 @@ local function shaping_of(root: string, memo: Sqlite.Handle?): Shaping
   return { memo = memo, salt = check_memo.salt(root, { "lang/lexer.tl", "build/shape_key.tl", "build/check_memo.tl" }, "shape 1") }
 end
 
---- The files of `files` that a lowering covers, each with the key its answer is kept under: `salt`, its dialect and
+--- The files of `files` that a lowering covers, each with the key its result is kept under: `salt`, its dialect and
 --- its source and the sources of every module it requires, however far. `written` are the sources the build writes from
 --- other files ([`TreeProgram.derived_of`]), which count as files of the tree, named for the file each comes from.
 local function tree_of(given: {{string}}, salt: string, bindings?: {{string}}, written?: {{string}},
@@ -390,7 +390,7 @@ end
 --- the syntax and the declarations of the modules it lowers.
 local check_copy_bytes <const> = 1024 * 1024 * 1024
 
---- What [`fanned`] answers: the memo text `judge` gave each file of the rows, by file, and the problems the build met,
+--- What [`fanned`] returns: the memo text `judge` gave each file of the rows, by file, and the problems the build met,
 --- in the order one process meets them.
 local record Fanned
   texts: {string: string}
@@ -521,7 +521,7 @@ local function findings_of(list: {Driver.Problem}): {Finding}
   return out
 end
 
---- The files of `tree` whose answer `memo` does not hold, with the answers it does.
+--- The files of `tree` whose result `memo` does not hold, with the results it does.
 local function kept_outcomes(memo: Sqlite.Handle?, kind: string, tree: Tree,
                              read: function(text: string, file: string): DeclareOutcome?
 ): mut {string: DeclareOutcome}, {DeclareFile}
@@ -539,7 +539,7 @@ local function kept_outcomes(memo: Sqlite.Handle?, kind: string, tree: Tree,
   return outcomes, missed
 end
 
---- Takes what a fan ([`fanned`]) answered for each row of `rows` into `outcomes`, and into `memo` under `kind`, each text
+--- Takes what a fan ([`fanned`]) returned for each row of `rows` into `outcomes`, and into `memo` under `kind`, each text
 --- read as `read` reads a memo's; one that does not read leaves its file unjudged.
 local function kept_fanned(fan: Fanned, rows: {DeclareFile}, outcomes: mut {string: DeclareOutcome}, memo: Sqlite.Handle?,
                            kind: string, read: function(text: string, file: string): DeclareOutcome?)
@@ -577,7 +577,7 @@ end
 --- checker's grammar, but for the files of a `testdata` directory, and counting nothing of a file that does not parse:
 --- the errors are the ones its markers hold ([`build.ceilings`]), no more: one with no marker on its line is listed with its
 --- place and fix, and a marker that holds more than its line has is stale. The declaration files [`lang/prelude.d.tl`] and [`lang/stdlib.d.tl`] declare the
---- globals; every other file imports the modules it names from the whole tree, so the answer for a file is
+--- globals; every other file imports the modules it names from the whole tree, so the result for a file is
 --- kept in `memo` under the sources of every module it requires, directly or not.
 function tree_checked.declared(root: string, memo?: Sqlite.Handle, marking?: Ceilings.Marking): {string}
   local files, trouble = sources_of(root)
@@ -622,7 +622,7 @@ end
 --- ([`lang.check`]): every expression and statement of its bodies typed, without flow. The files left out are those
 --- of [`declared`], the declaration files (which have no bodies) and the files that do not parse. The
 --- errors are the ones its markers hold ([`build.ceilings`]), no more: one with no marker on its line is listed with its place
---- and fix, and a marker that holds more than its line has is stale. The answer for a file is kept in `memo` under the sources of every module it requires,
+--- and fix, and a marker that holds more than its line has is stale. The result for a file is kept in `memo` under the sources of every module it requires,
 --- directly or not, and of the checker. `phases`, when given, gets the nanoseconds spent parsing and scoping
 --- (`prepare`), lowering (`lower`) and checking (`check`) the files the memo lacked.
 function tree_checked.checked(root: string, memo?: Sqlite.Handle, phases?: {string: integer},
@@ -674,7 +674,7 @@ function tree_checked.checked(root: string, memo?: Sqlite.Handle, phases?: {stri
 end
 
 --- Whether the build's own pipeline ([`build.pipeline`]) holds each module of the tree as the checks of the tree do, and
---- names the modules it refuses for more than a count ([`build.pipeline_check`] has the rules). `memo` keeps the answer for
+--- names the modules it refuses for more than a count ([`build.pipeline_check`] has the rules). `memo` keeps the result for
 --- a module under the key `checked` keeps its own.
 function tree_checked.pipeline(root: string, build_db: Sqlite.Handle, memo?: Sqlite.Handle):
     {string}
@@ -732,7 +732,7 @@ end
 --- The calls the new checker gave no function, which no rule of the discipline judged ([`build.syntax_contracts`]'s
 --- `untyped`), held by the markers at the lines of the calls (`-- untyped: call`): a call with no marker on its line is listed,
 --- as the build itself refuses it ([`build.pipeline`]'s `generate`), and a marker that holds more than its line has is stale. The count is the port's alone, over the program the pipeline reads ([`build.tree_program`],
---- its calls of [`Shape.record_of`] resolved). The answer for a
+--- its calls of [`Shape.record_of`] resolved). The result for a
 --- file is kept in `memo` under its source and those of every module it requires, and of the checker.
 function tree_checked.untyped(root: string, memo?: Sqlite.Handle, marking?: Ceilings.Marking): {string}
   local files, trouble = sources_of(root)

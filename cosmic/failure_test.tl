@@ -29,7 +29,7 @@ local function test_a_system_failure_keeps_its_errno_and_words()
   assert(tostring(made) == "/nowhere: " .. sys.errno_message(sys.ENOENT), tostring(made))
 end
 
---- What a function that answers a value or a failure does with one: the
+--- What a function that returns a value or a failure does with one: the
 --- caller tests the cause by its errno and reads the text by `tostring`.
 local function open(path: string): (integer) | (nil, Failure)
   local fd, _, errno = sys.open(path, sys.O_RDONLY)

@@ -46,7 +46,7 @@ local Scopes = require("lang.scopes")
 local record ProjectRefusals
   --- Each place in `chunk` (the parse of the file `file`, `scoped` its names resolved) that says what a project may not, as
   --- `<file>:<line>:<column>: <what>`, in source order. A name that is declared by the program itself (`local package`) is
-  --- no use of the global and is not told. `kept`, where given, answers what is told of a `require` of a module the
+  --- no use of the global and is not told. `kept`, where given, returns what is told of a `require` of a module the
   --- standard library keeps to its directory, and nil of any other: a file checked alone is given it, since no check of
   --- positions runs over one ([`build.positions`]'s `kept`).
   check: function(file: string, chunk: Ast.Chunk, scoped: Scopes.Scoped, kept?: function(name: string): string?): {string}

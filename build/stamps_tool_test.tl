@@ -108,7 +108,7 @@ test_child.register("harness", function(_args: {string}): integer
   return 0
 end)
 
---- Runs the child `name` of this module in the program and answers its
+--- Runs the child `name` of this module in the program and returns its
 --- exit status, which is 0 or `no_artifact`.
 local function runs(tmp: string, name: string): integer
   local started = this_program.program(test_child.words(tmp, "build.stamps_tool_test", name, { tmp }),

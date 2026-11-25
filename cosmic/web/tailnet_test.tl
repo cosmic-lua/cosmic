@@ -1,5 +1,5 @@
 --- The tailnet middleware of cosmic.web: who a request comes from, as a stand-in whois
---- says, and what the middleware answers for each kind of answer.
+--- says, and how the middleware responds to each kind of reply.
 
 local Array = require("cosmic.array")
 local Clock = require("cosmic.clock")
@@ -132,7 +132,7 @@ local function test_a_daemon_that_fails_answers_503_and_is_asked_again()
   assert(Array.at(seen.lines, 1) == "tailnet: tailscale: connect: refused", tostring(seen.lines[1]))
 end
 
---- An answer is kept for its address, whatever the port, for `cache_ns`;
+--- A reply is kept for its address, whatever the port, for `cache_ns`;
 --- with 0 every request asks.
 local function test_an_answer_is_kept_per_address()
   local seen = new_seen()
@@ -254,7 +254,7 @@ end
 --- The daemon names this node's owner in its headers for a request from
 --- this node's own address, which any process here can make: where its
 --- X-Forwarded-For is that address the request has no identity, and
---- where the daemon cannot be asked about it the answer is 503, at the
+--- where the daemon cannot be asked about it the response is 503, at the
 --- app's socket and on the loopback alike.
 local function test_serve_headers_name_nobody_for_a_request_from_this_node()
   local seen = new_seen()
@@ -377,7 +377,7 @@ local function test_a_mapped_peer_is_its_ipv4_address_and_headers_move_nothing()
   assert(table.concat(seen.asked, ",") == "100.64.0.2,192.0.2.9", table.concat(seen.asked, ","))
 end
 
---- Addresses off the tailnet, however many, never push a peer's answer
+--- Addresses off the tailnet, however many, never push a peer's reply
 --- out of the cache.
 local function test_strangers_do_not_push_a_peer_out_of_the_cache()
   local seen = new_seen()

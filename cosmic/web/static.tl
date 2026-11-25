@@ -14,7 +14,7 @@
 ---     -- app:url_for("static", { path = "css/app.css" }) is
 ---     -- "/static/css/app.3f9a1c8e2b.css", the name for a template's `href`
 ---
---- A request is answered from the file it names and no other: a segment
+--- A request gets the file it names and no other: a segment
 --- that is empty, `.` or `..`, begins with `.`, or holds a backslash or a
 --- NUL is a 404, so a dotfile and a path out of the root are never read; a
 --- directory has no listing. Everything below `static/` is public: put
@@ -45,8 +45,8 @@ local record StaticFiles
     --- and "/docs" redirects to "/docs/"); default false, where a
     --- directory is a 404.
     html?: boolean
-    --- Answers a path no file has (default: a 404 through the app's error
-    --- page). A stale fingerprint is never answered by it.
+    --- Handles a path no file has (default: a 404 through the app's error
+    --- page). A stale fingerprint never reaches it.
     not_found?: Types.Handler
     --- Added to every 200, 206, 304 and 416, replacing a header of the
     --- same name.
@@ -136,7 +136,7 @@ end
 --- The coding `asset` is sent in for Accept-Encoding `header`: "zstd" or
 --- "gzip" when the asset holds that variant, `zstd` or `gzip` allow it and
 --- [`Server.encoding`] picks it by the client's q-values (zstd first on a
---- tie); nil for the plain bytes, which is also the answer where the client
+--- tie); nil for the plain bytes, which is also the result where the client
 --- takes none of them.
 local function coding_of(asset: Assets.Asset, header: string?, zstd: boolean, gzip: boolean): string?
   local offered: mut {string} = {}
@@ -167,7 +167,7 @@ local function with_headers(res: Types.Response, extra: {string:string}?): Types
   return res
 end
 
---- The headers every answer about `asset` carries.
+--- The headers every response about `asset` carries.
 local function validators(asset: Assets.Asset, etag: string, control: string,
                           coding: string?): mut {string: string | {string}}
   local headers: mut {string: string | {string}} = {
@@ -336,7 +336,7 @@ end
 
 --- The route for `prefix` serving `opts.source`: [`Web.mount_handler`]
 --- over [`StaticFiles.handler`], named "static", whose `url_for` takes a
---- `path` parameter and answers the fingerprinted URL
+--- `path` parameter and resolves to the fingerprinted URL
 --- ([`StaticFiles.url`]).
 --- @param prefix string The prefix, "/static"
 --- @param opts Options | nil Where the files come from and how they are cached

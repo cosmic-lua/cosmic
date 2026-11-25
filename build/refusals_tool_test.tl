@@ -24,7 +24,7 @@ local function project(tmp: string): string
 end
 
 --- Runs the program with `args` in `root`, unsandboxed (a sandbox nested in this test's own may be refused where the
---- host nests only two deep), and answers what it said on stdout and stderr together.
+--- host nests only two deep), and returns what it said on stdout and stderr together.
 local function ran(root: string, tmp: string, args: {string}): Child.Result, string
   local env = this_program.environment()
   env["COSMIC_TEST_SANDBOX"] = "0"

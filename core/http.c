@@ -1054,9 +1054,10 @@ uint32_t cosmic_roots_distrust (const mbedtls_x509_crt *crt, int depth,
  * `mbedtls_x509_crt_verify_info` words them.
  * TODO: read the verify flags rather than their wording, once a record
  * under patch/curl/ has vendor/curl/lib/vtls/mbedtls.c's mbed_verify_cb
- * keep them where CURLINFO_SSL_VERIFYRESULT answers: that callback words
- * them into 128 bytes, so a chain that is also expired and misnamed
- * cuts the untrusted line short, and no hint is given. */
+ * keep them where curl_easy_getinfo's CURLINFO_SSL_VERIFYRESULT can
+ * give them: that callback words them into 128 bytes, so a chain that
+ * is also expired and misnamed cuts the untrusted line short, and no
+ * hint is given. */
 static void push_transfer_error (lua_State *L, struct transfer *t) {
   const char *message = transfer_error(t);
   const struct distrusted *root = t->distrusted;
@@ -1180,7 +1181,7 @@ static int failed (lua_State *L, const char *why) {
 }
 
 /* The multi handle's refusal, naming the call, pushed as a message;
- * MULTI_FAILED answers it as `nil, err`. Macros rather than functions:
+ * MULTI_FAILED returns it as `nil, err`. Macros rather than functions:
  * nothing a test does on a release core makes a multi call fail, and
  * every function of a core is one a test must enter
  * (build/c_functions.tl). */
@@ -1382,17 +1383,6 @@ static const char *env_proxy (const char *scheme) {
   return got != NULL && *got != '\0' ? got : NULL;
 }
 
-/* Whether the environment's proxy for `scheme` is on this machine:
- * false for none, and for one that cannot be read. */
-static bool loopback_proxy (const char *scheme) {
-  const char *proxy = env_proxy(scheme);
-  if (proxy == NULL) return false;
-  char *at = host_of(proxy);
-  bool loopback = at != NULL && loopback_host(at);
-  curl_free(at);
-  return loopback;
-}
-
 /* Whether a request to `url` must not take the environment's proxy:
  * its host is this machine and the proxy is not, so the request, and
  * a token in its headers, would leave the machine, in the clear for
@@ -1411,7 +1401,12 @@ static bool skips_proxy (const char *url) {
       curl_url_set(u, CURLUPART_URL, url, CURLU_GUESS_SCHEME | CURLU_NON_SUPPORT_SCHEME) == CURLUE_OK &&
       curl_url_get(u, CURLUPART_SCHEME, &scheme, 0) == CURLUE_OK &&
       curl_url_get(u, CURLUPART_HOST, &host, 0) == CURLUE_OK && loopback_host(host)) {
-    skips = env_proxy(scheme) != NULL && !loopback_proxy(scheme);
+    const char *proxy = env_proxy(scheme);
+    if (proxy != NULL) {
+      char *at = host_of(proxy);
+      skips = at == NULL || !loopback_host(at);
+      curl_free(at);
+    }
   }
   curl_free(scheme);
   curl_free(host);
@@ -1447,11 +1442,6 @@ static CURLcode configure (struct transfer *t, const struct request *r,
    * sets by that name replaces it. */
   SET(CURLOPT_USERAGENT, "cosmic");
   if (skips_proxy(r->url)) SET(CURLOPT_PROXY, "");
-  /* A proxy on this machine, such as a sandbox's relay, may take only
-   * CONNECT: send http through it as a tunnel too, not as a request
-   * for the proxy to make. A proxy elsewhere keeps the plain form,
-   * since many take CONNECT only to port 443. */
-  else if (loopback_proxy("http")) SET(CURLOPT_HTTPPROXYTUNNEL, 1L);
   if (r->ca_blob != NULL) {
     /* curl parses the blob into each connection's own chain, and keys
      * connection reuse and TLS session resumption on it, so a request
@@ -1852,7 +1842,7 @@ static int handle_ready (lua_State *L) {
 
 /* handle:settled(): once ready, true and "", or, where the transfer
  * failed before any header arrived, nil, why and its code, as `open`
- * answers when it waits itself. */
+ * returns when it waits itself. */
 static int handle_settled (lua_State *L) {
   struct transfer *t = checked(L);
   if (t->done && t->result != CURLE_OK && !t->headed && t->body_len == 0) {
@@ -1865,7 +1855,7 @@ static int handle_settled (lua_State *L) {
 }
 
 /* handle:waiting(): whether `read` would have to pump before it could
- * answer, with no body held and the transfer not over. It resumes a
+ * return, with no body held and the transfer not over. It resumes a
  * paused transfer first, as `read` does, so that pumping can fill the
  * body. */
 static int handle_waiting (lua_State *L) {

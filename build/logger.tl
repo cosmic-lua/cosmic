@@ -16,7 +16,7 @@ logger.log = Log.new("cosmic")
 
 --- `verb: detail` on stderr: how a run went, its counts and how long it
 --- took (`fix: 3 Teal files, 0 fixed, 12 ms`), or why it found nothing.
---- False and why when the write fails, as [`Log.Logger.say`] answers.
+--- False and why when the write fails, as [`Log.Logger.say`] returns.
 function logger.summary(verb: string, detail: string): boolean, string
   local wrote, why = Fs.put(Fs.stderr, verb .. ": " .. detail .. "\n")
   if not wrote then return false, tostring(why) end

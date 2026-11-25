@@ -26,9 +26,9 @@ end
 --- any row. A declaration of the
 --- function is none of these.
 ---
--- TODO: see a read of a row in SQL over a handle [`Store.databases`] answers,
+-- TODO: see a read of a row in SQL over a handle [`Store.databases`] returns,
 -- which a scan of lines cannot tell from one over any other database, once
--- the checker answers which module opens a handle from the store's databases.
+-- the checker tells which module opens a handle from the store's databases.
 -- Until then the store's loud refusal ([`Store.meta`] raises for a withheld
 -- row) is the backstop for a read by name; a query of the handle finds no row.
 local function reads(line: string, entry: key_parts.MetaReaders): boolean
@@ -67,7 +67,7 @@ end
 ---
 --- A worker is given such a row only where its closure holds a reader the
 --- map names ([`build.key_parts`]'s `reads_meta`): the compiler's identity
---- is answered by the running tool and held in the key of that test alone,
+--- is given by the running tool and held in the key of that test alone,
 --- and a closure store carries `image_hash` for it alone. A reader the map
 --- misses would leave a verdict standing that turned on a value no key
 --- held, or be given no row.
@@ -215,7 +215,7 @@ local stand_ins_expected: {{string}} = {
 --- Each of `cases` (by default the tree's own), a command or call and
 --- the function that stands in for it, that `cosmic docs <command>`,
 --- looked up the way a project sees the standard library in `db`, does
---- not answer with that function first, after any raw [`cosmic.sys`]
+--- not show that function first, after any raw [`cosmic.sys`]
 --- binding of that name. What a newcomer types first is the command or
 --- call they would have used elsewhere, so a doc comment that stops
 --- naming its command is caught here, not by the next person who writes
@@ -512,7 +512,7 @@ local text_read_allowed <const>: {string:string} = {
   ["cosmic.errors"] = "asks the catalog for the guidance on an error; a pure store has no catalog and the lookup raises there ([`Errors.guidance_in`]); a standard-library module, which cannot require a module of the build",
 }
 
--- TODO: see a table named at run time (`"FROM " .. name`), which a scan of literals cannot, once the checker answers
+-- TODO: see a table named at run time (`"FROM " .. name`), which a scan of literals cannot, once the checker tells
 -- the value a string expression holds.
 
 --- Each module of `db` that is no test and reads module text without declaring it, as `<module> reads text (<how>) and
@@ -523,7 +523,7 @@ local text_read_allowed <const>: {string:string} = {
 --- most readers early. A module declares what it reads by requiring one of [`build.code_walk`]'s `markers` by value (a
 --- `local type` require is erased), which a test's closure follows ([`build.closure_store`]'s pure store keeps what the
 --- closure declares); `excusing` (by default [`text_read_allowed`]) excuses a reader with a reason. The reads taken as
---- text: [`Store.source`] and [`Store.withheld`], which answer a module's source; and SQL that reads a table of
+--- text: [`Store.source`] and [`Store.withheld`], which return a module's source; and SQL that reads a table of
 --- [`text_tables`] or the source of a module, in any module that names it (a handle handed on is read by whoever
 --- queries it). A module that runs a statement it is handed (`cosmic sql`) cannot be told apart by what it names, and
 --- declares [`build.reads.all`] by hand.

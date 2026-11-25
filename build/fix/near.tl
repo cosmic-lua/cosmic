@@ -275,8 +275,9 @@ function near.notes(module: string, candidates: {near.Candidate},
 end
 
 --- Every exported public standard-library symbol `databases` document,
---- each once: the first database to answer for a module answers for it.
---- A database built before the `docs` table existed answers nothing.
+--- each once: the first database to cover a module is the one taken
+--- for it. A database built before the `docs` table existed gives
+--- nothing.
 function near.known(databases: {Sqlite.Handle}): {near.Known}?, string
   local out: mut {near.Known} = {}
   local owner: mut {string: integer} = {}

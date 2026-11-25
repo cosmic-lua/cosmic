@@ -34,14 +34,14 @@ local record PipelineCheck
     module: string
     --- Whether the file is read as the fork's Teal (`tl`) or as a declaration file (`decl`).
     dialect: string
-    --- What the pipeline's answer for the file is kept under in the memo: the file's source (its markers among it) and
+    --- What the pipeline's result for the file is kept under in the memo: the file's source (its markers among it) and
     --- everything it requires.
     key: string
   end
 
-  --- The lines that tell where the pipeline and the tree's checks differ over the `count` files `row_at` answers by position.
-  --- `declared` and `checked` are the lines the checks of the tree answer ([`build.tree_checks.checked`]'s `declared` and `checked`).
-  --- `memo` keeps the answer for a module under its key.
+  --- The lines that tell where the pipeline and the tree's checks differ over the `count` files `row_at` returns by position.
+  --- `declared` and `checked` are the lines the checks of the tree return ([`build.tree_checks.checked`]'s `declared` and `checked`).
+  --- `memo` keeps the result for a module under its key.
   --- A tree whose compared modules are not exactly the tree's own (every file but those of `ci/`, the declarations of the standard library apart) fails, since
   --- a comparison of a few agrees with everything. It says how many it compared.
   compare: function(
@@ -58,7 +58,7 @@ end
 --- The file a line that refuses findings no marker holds ([`build.ceilings`]'s `marked`) is about, if the line is one about
 --- declarations or bodies.
 -- TODO: name the file of an error no marker holds from the spots of [`build.ceilings.marked`], not from the checker's prose, once
--- [`Driver.Build.held`] and the checks of the tree answer their spots beside their lines: this reader and the one of the scope
+-- [`Driver.Build.held`] and the checks of the tree return their spots beside their lines: this reader and the one of the scope
 -- errors in `judge` match the words of a count line, which fail closed (a changed wording refuses) but break with the words.
 local function over_file(line: string): string?
   return line:match("^(%S+): %d+ errors? of %S+ in its %a+ on line %d+, marked %d+;")
@@ -68,7 +68,7 @@ end
 --- builds alone but fails once two changes that each add a top-level local are merged, so the check keeps well clear.
 local MAIN_LOCALS_LIMIT <const> = 180
 
---- What the pipeline answered: by file, whether it refuses it for an error no marker holds (none for a module the database
+--- What the pipeline gave: by file, whether it refuses it for an error no marker holds (none for a module the database
 --- does not stage), and the code of the first line of another refusal; by key, what a memo keeps: `O` for an error no
 --- marker holds, `R` and the code for another refusal, `N` for none, `-` for a module the database does not stage.
 local record Answers
@@ -83,7 +83,7 @@ end
 --- syntax and the declarations of the modules it lowers.
 local copy_bytes <const> = 1024 * 1024 * 1024
 
---- What the pipeline answers for the staged modules of `rows`, and the lines that say why it could not.
+--- What the pipeline gives for the staged modules of `rows`, and the lines that say why it could not.
 local function asked(build_db: Sqlite.Handle, options: Pipeline.Options, rows: {PipelineCheck.Row}): Answers, {string}
   local over: mut {string: boolean} = {}
   local other: mut {string: string} = {}
@@ -111,7 +111,7 @@ local function asked(build_db: Sqlite.Handle, options: Pipeline.Options, rows: {
       answers[row.key] = "-"
     end
   end
-  --- The answer for each row of the module `module`, once it is lowered and checked.
+  --- The result for each row of the module `module`, once it is lowered and checked.
   local function judge(module: string)
     local group = rows_of[module]
     if group == nil then
@@ -177,7 +177,7 @@ local function asked(build_db: Sqlite.Handle, options: Pipeline.Options, rows: {
       answers[row.key] = if held ~= nil then base .. " M " .. tostring(held) else base end
     end
   end
-  -- The modules in the order they require one another, each forgotten once it is answered: the syntax of the whole tree is
+  -- The modules in the order they require one another, each forgotten once it is judged: the syntax of the whole tree is
   -- not held at once. Where they are many, every so many of them in each of the copies of the process.
   local copies = fanout.copies(#names, Proc.cpu_count(), copy_bytes)
   local dir: string? = nil
@@ -269,7 +269,7 @@ local function asked(build_db: Sqlite.Handle, options: Pipeline.Options, rows: {
   return { over = over, other = other, answers = answers, locals = main_locals }, out
 end
 
---- What a memo entry says: the answer it keeps (`O`, `N`, `-` or `R <code>`) and the locals over the limit it adds (`... M <n>`).
+--- What a memo entry says: the result it keeps (`O`, `N`, `-` or `R <code>`) and the locals over the limit it adds (`... M <n>`).
 --- Nothing where none is kept, and for an entry that is none of these, which is asked again.
 local function recall(kept: string?): string?, integer?
   if kept == nil then
@@ -373,7 +373,7 @@ function PipelineCheck.compare(
   for _, row in ipairs(rows) do
     local by_pipeline = over[row.file]
     local code = other[row.file]
-    -- Nothing is answered of a module the working database does not stage.
+    -- The pipeline gives nothing for a module the working database does not stage.
     if by_pipeline ~= nil then
       compared = compared + 1
       local by_tree = refused[row.file] == true

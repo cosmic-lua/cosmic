@@ -19,7 +19,7 @@ local record must_confine_fixture
   probe: function(tmp: string): string
 
   --- Runs the child `name` of build/must_confine_children_test.tl in this program with `args`, in `tmp`, with `set` added
-  --- to its environment and COSMIC_SANDBOX otherwise unset, and answers what it ended with and printed.
+  --- to its environment and COSMIC_SANDBOX otherwise unset, and returns what it ended with and printed.
   run: function(tmp: string, name: string, args: {string}, set?: {string:string}): must_confine_fixture.Said
 
   --- The same for the child `name` of the test module `module`, which registered it.

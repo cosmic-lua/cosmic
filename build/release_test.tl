@@ -1,7 +1,7 @@
 --- `cosmic release` in process, over [`cosmic.http`]'s scripted
 --- transport ([`build.release.Io.script`]: a canned reply per request, in
 --- order, so no test reaches the network; [`build.release.Io.api`] points
---- it at http, since a canned reply cannot answer TLS). A run asks the
+--- it at http, since a canned reply cannot speak TLS). A run asks the
 --- API for the release tags (`YYYYMMDD-<commit>` and the earlier `next-<commit>`), main's history and the release of each
 --- tagged commit in it until enough are found -- or, for a `--commit`
 --- prefix, the tags of the commits it starts and each one's release -- then SHA256SUMS,
@@ -66,8 +66,8 @@ local function entry(commit: string, published: string, draft?: boolean, assets?
     tag_for(commit), tostring(draft == true), published, assets or all_assets)
 end
 
---- What git matching-refs answers for the tags of these commits (or
---- these tags, as [`tag_for`] takes them).
+--- What this stand-in for git matching-refs returns for the tags of
+--- these commits (or these tags, as [`tag_for`] takes them).
 local function refs(...: string): string
   local items: mut {string} = {}
   for i, commit in ipairs({ ... }) do items[i] = '{"ref":"refs/tags/' .. tag_for(commit) .. '"}' end
@@ -314,7 +314,7 @@ local function test_history_ends_once_every_tag_is_passed()
 end
 
 --- Past 100 full pages with a tag not yet passed, it fails rather than
---- answer in part.
+--- give part of the history.
 local function test_history_past_100_pages_fails()
   local blank: mut {string} = {}
   for i = 1, 100 do blank[i] = string.format("%040x", i) end
@@ -546,7 +546,7 @@ local function presenting(label: string): string
   return "\22\3\3" .. string.pack(">I2", #records) .. records
 end
 
---- The API's answer names the digests downloads are checked against, so
+--- The API's response names the digests downloads are checked against, so
 --- its server is trusted by the minimal roots, not every carried one: one presenting a
 --- root outside them is refused for this request's choice of roots, and
 --- one inside them only for the name it stands for.

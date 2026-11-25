@@ -1,6 +1,6 @@
 -- Streaming compression codecs at the Lua boundary, as the core
 -- provides them. cosmic/compress.tl documents the contract. Every
--- fallible function answers `value, ""` on success and `nil, error` on
+-- fallible function returns `value, ""` on success and `nil, error` on
 -- failure.
 --- @kind binding
 
@@ -19,7 +19,7 @@ local record compress
     -- `update("")` has more to give.
     -- TODO: declare it `pending?` once the Readers' and Transform's declarations change together (the TODO in
     -- cosmic/stream.tl): a record that lists this interface repeats an omittable field exactly, so a record that lists it
-    -- declares `pending` and answers false.
+    -- declares `pending` and returns false.
     pending: function(Transform): boolean
   end
 
@@ -46,7 +46,7 @@ local record compress
     -- none.
     rest: function(Stream): string
     -- `local s <close> = ...`: the stream is finished and its codec
-    -- freed; [`rest()`] still answers.
+    -- freed; [`rest()`] still works.
     __close: function(Stream, any)
   end
 

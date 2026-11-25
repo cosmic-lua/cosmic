@@ -6,7 +6,7 @@ local NS <const> = 1000000000
 local function test_the_constructors_scale_a_count_to_nanoseconds()
   assert(Clock.ms(1) == 1000000 and Clock.seconds(1) == NS and Clock.minutes(1) == 60 * NS)
   assert(Clock.hours(1) == 3600 * NS and Clock.ms(0) == 0 and Clock.ms(-5) == -5000000)
-  -- A float is as good as an integer when the span is whole, and is answered as one.
+  -- A float is as good as an integer when the span is whole, and is returned as one.
   assert(Clock.ms(1.5) == 1500000 and math.type(Clock.ms(1.5)) == "integer")
   assert(Clock.seconds(0.25) == 250000000 and Clock.minutes(1.5) == 90 * NS)
   assert(Clock.hours(0.5) == 1800 * NS and Clock.hours(2.0) == 7200 * NS)

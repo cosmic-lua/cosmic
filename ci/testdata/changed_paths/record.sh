@@ -1,5 +1,5 @@
 #!/bin/sh
-# Records what the system's git answers ci/cosmic_ci/changed_paths.tl,
+# Records what the system's git prints for ci/cosmic_ci/changed_paths.tl,
 # for ci/cosmic_ci/changed_paths_test.tl to replay (run from anywhere):
 #
 #     sh ci/testdata/changed_paths/record.sh

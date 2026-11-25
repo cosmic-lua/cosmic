@@ -36,7 +36,7 @@
 --- by, which CI's logs then show to differ between runners. A leg with
 --- neither IMAGE nor RUNNER, and one with no IMAGE where the runner names
 --- no image (ImageOS or ImageVersion unset or empty), is refused, as is a
---- container engine that does not answer, before anything is written.
+--- container engine that does not respond, before anything is written.
 ---
 --- Both digests must stay what they were: they name every verdict
 --- cache, so a byte that moves renames them all. host_id_test.tl holds
@@ -73,7 +73,7 @@ local record HostId
   --- The first 16 hex digits of a sha256 of what of this host every
   --- sandboxed verdict's key holds and differs between runners of one
   --- leg (build/declared_key.tl's `host_identity` and `host_kernel`,
-  --- which answer the same digest): the series of the kernel's release
+  --- which return the same digest): the series of the kernel's release
   --- (`7.0` of `7.0.0-1017-azure`), or the whole release where it names
   --- none, a missing one as empty -- on macOS, the system volume's
   --- SystemVersion.plist, which names its build. The kernel's build and
@@ -87,7 +87,7 @@ local record HostId
   --- /proc/cpuinfo lists them under ("flags" on x86, "Features" on arm),
   --- each once, in byte order, less those a core on this machine chooses
   --- no code by (`keep`) -- on macOS, where there is no /proc, those of
-  --- core/syscalls.c's `cpu_features` that sysctl answers 1 for
+  --- core/syscalls.c's `cpu_features` that sysctl prints 1 for
   --- (`darwin_features`). On Linux the key asks the processor itself
   --- (cpuid, the auxiliary vector) where this reads /proc/cpuinfo: the
   --- two differ only where the kernel hides a flag the processor has,
@@ -100,7 +100,7 @@ local record HostId
   describe: function(facts: Facts): string
   --- `leg-host-id`'s step in `env` (NAME IMAGE RUNNER STARTED in
   --- `words`) with `facts`; `say` takes what $GITHUB_ENV and
-  --- $GITHUB_OUTPUT would where one is unset or empty. It answers the
+  --- $GITHUB_OUTPUT would where one is unset or empty. It returns the
   --- step's exit status.
   leg_host_id: function(words: {string}, env: {string:string}, facts: Facts,
     say: function(text: string)): integer
@@ -224,7 +224,7 @@ function HostId.describe(facts: HostId.Facts): string
 end
 
 -- No test runs this: none runs the system's docker or sysctl, and the
--- tests hold every name to the answers given by a recorded host. Where
+-- tests hold every name to what a recorded host printed. Where
 -- one goes wrong, the step fails or the host names fewer features, which
 -- a leg's first run shows.
 function HostId.live(env: {string:string}): HostId.Facts

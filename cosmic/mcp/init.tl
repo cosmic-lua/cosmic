@@ -1,12 +1,12 @@
 --- The Model Context Protocol, revision 2026-07-28: the types its
 --- messages carry, its error codes, and the rules both ends share.
---- [`cosmic.mcp.server`] answers it and [`cosmic.mcp.client`] asks it,
---- each over stdio (one JSON-RPC message a line) or Streamable HTTP (one
---- POST a message).
+--- [`cosmic.mcp.server`] speaks it as a server and [`cosmic.mcp.client`]
+--- as a client, each over stdio (one JSON-RPC message a line) or
+--- Streamable HTTP (one POST a message).
 ---
 --- This revision is stateless: there is no `initialize` and no
 --- session. Every request names its protocol version and the client's
---- capabilities in its `_meta`, and a server answers each one on its
+--- capabilities in its `_meta`, and a server handles each one on its
 --- own. A peer that speaks only an earlier revision (2025-11-25 or
 --- before) cannot talk to these: the server refuses its `initialize`
 --- naming the version it speaks, and the client fails on such a server
@@ -161,7 +161,7 @@ local record Mcp
     --- header ([`Mcp.mirrors`]).
     inputSchema: {string: Json.Value}
     --- The JSON Schema `structuredContent` holds to, where the tool
-    --- answers one.
+    --- gives one.
     outputSchema?: {string: Json.Value}
     --- What the tool says of its behaviour; trust none of it from a server you do not trust.
     annotations?: ToolAnnotations
@@ -169,13 +169,13 @@ local record Mcp
     icons?: {Icon}
   end
 
-  --- What a call of a tool answers. A tool that ran and failed says so
+  --- The result of a call of a tool. A tool that ran and failed says so
   --- here, `isError` true, for the model to read; a call the server
   --- could not make at all fails as the request.
   record ToolResult
-    --- What the tool answered, block by block.
+    --- What the tool gave, block by block.
     content: {Content}
-    --- The answer as a JSON value, held to the tool's `outputSchema` where it has one.
+    --- The result as a JSON value, held to the tool's `outputSchema` where it has one.
     structuredContent?: Json.Value
     --- True for a tool that ran and failed; `content` says why.
     isError?: boolean
@@ -226,7 +226,7 @@ local record Mcp
     "cancel"
   end
 
-  --- The person's answer to an [`Elicitation`].
+  --- What the person gave for an [`Elicitation`].
   record Elicited
     --- What they did.
     action: ElicitAction
@@ -307,7 +307,7 @@ local record Mcp
     content: Content
   end
 
-  --- What getting a prompt answers.
+  --- The result of getting a prompt.
   record PromptResult
     --- What the prompt is for.
     description?: string
@@ -331,8 +331,8 @@ local record Mcp
     context?: {string: string}
   end
 
-  --- What `completion/complete` answers: values that fit what is typed,
-  --- best first.
+  --- The result of `completion/complete`: values that fit what is
+  --- typed, best first.
   record Completion
     --- At most [`Mcp.MAX_COMPLETIONS`] values.
     values: {string}
@@ -356,7 +356,7 @@ local record Mcp
     subscribe?: boolean
   end
 
-  --- What a server can do, as `server/discover` answers it: a feature it
+  --- What a server can do, as `server/discover` reports it: a feature it
   --- has is present, and one it lacks is nil.
   record ServerCapabilities
     --- Present where the server offers tools.
@@ -369,7 +369,7 @@ local record Mcp
     completions?: {string: any}
   end
 
-  --- What `server/discover` answers: the versions the server speaks,
+  --- The result of `server/discover`: the versions the server speaks,
   --- what it can do, and how it names itself.
   record Discovery
     --- The protocol revisions it speaks.
@@ -417,7 +417,7 @@ local record Mcp
   --- The most bytes of one message either end reads (4 MiB): a peer
   --- that sends more is refused, not buffered.
   MAX_MESSAGE_BYTES: integer
-  --- The most values one `completion/complete` answers (100).
+  --- The most values one `completion/complete` result holds (100).
   MAX_COMPLETIONS: integer
 end
 

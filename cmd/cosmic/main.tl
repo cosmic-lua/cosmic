@@ -14,7 +14,7 @@
 --- it, and it needs [`build.confine`] alone, where dispatch's `-e` would
 --- load the checker to type a chunk.
 
---- Runs the command line and answers its exit code.
+--- Runs the command line and returns its exit code.
 --- @param argv the command line, the verb at slot 1
 local function main(argv: {string}): integer
   local mode = argv[2]

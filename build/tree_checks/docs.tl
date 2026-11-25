@@ -200,8 +200,8 @@ local anchors_expected: {string} = { "cosmic.layout Layout", "cosmic.entrypoint 
 --- sorted, and then each of `expected` (by default the tree's own
 --- anchors) that is no longer taken for one.
 ---
---- Every name `cosmic docs <name>` resolves to a doc anchor answers
---- with that one anchor (doc/design.md, principle 8). A bare name
+--- For a name that resolves to a doc anchor, `cosmic docs <name>`
+--- shows that one anchor alone (doc/design.md, principle 8). A bare name
 --- matches every symbol ending in it -- `cosmic docs read` lists each
 --- `X.read`, by design -- so a real member that shares an anchor's name
 --- ([`Proc.Relaunch.argv`] beside [`Entrypoint.argv`]) is listed beside it
@@ -299,7 +299,7 @@ local function queries_expected(): {string}
 end
 
 --- Each of `wanted` (by default what a compile's failure points to) that
---- `cosmic docs` does not answer from `db`.
+--- `cosmic docs` does not resolve from `db`.
 function tree_docs.queries(db: Sqlite.Handle, wanted?: {string}): {string}
   local looked, trouble = docs.view({ db }, { true })
   if looked == nil then
@@ -667,7 +667,7 @@ local doc_rules: {DocRule} = {
 --- text, that carries a `TODO:` or cites an implementation path, one
 --- line per hit as `<file>:<line>: <module> <symbol>: ...` with the
 --- fix, and then each name in `excused` (by default `doc_exempt`) that
---- nothing answers to any more.
+--- nothing matches any more.
 ---
 --- A doc is what `cosmic docs` shows a caller ([`link_text.unlinked`]:
 --- no definition a code span's link reads), in a binary that carries
@@ -679,7 +679,7 @@ local doc_rules: {DocRule} = {
 --- `cosmic/internal/`, `vendor/` and a C file's name (`foo.c`, not a
 --- header in angle brackets). `build.zig` is a file name, not a module.
 --- @param files where given, the files (paths from the tree's root) whose docs are checked, as a run of `cosmic fix` over
----   some paths checks them: no word is said of an exemption, since the files not named may answer to it
+---   some paths checks them: no word is said of an exemption, since the files not named may match it
 function tree_docs.public_docs(db: Sqlite.Handle, excused?: {string: string}, files?: {string: boolean}): {string}
   excused = excused or doc_exempt
   local named = ""
@@ -783,7 +783,7 @@ local function plural_file(file: string): boolean
 end
 
 --- The lines [`plurals`] says of `sources` (`{file, source}` pairs), and the `<file>:<noun>` keys found, which an exemption in
---- `excused` answers to; `read` as [`plurals`] takes it.
+--- `excused` matches; `read` as [`plurals`] takes it.
 local function plural_lines(sources: {{string}}, excused: {string: string}, read?: {string: tree_docs.Plurals}):
     mut {string}, {string: boolean}
   local out: mut {string} = {}
@@ -836,8 +836,8 @@ end
 --- `cosmic/` of `db` (a test's excepted), and in `extra` (`{file,
 --- source}` pairs, [`build.tree_checks.ci.ci_sources`]'s), that puts a literal plural noun
 --- after a number, as `<file>:<line>: ...` with the fix, and then each
---- name in `excused` (by default `plural_exempt`) that nothing answers
---- to any more.
+--- name in `excused` (by default `plural_exempt`) that nothing matches
+--- any more.
 ---
 --- The two spellings refused are a value that is not provably a string
 --- joined to a literal by `..` (`#rows .. " tests"`, `tostring(n) ..
@@ -879,7 +879,7 @@ function tree_docs.plurals(db: Sqlite.Handle, extra?: {{string}}, excused?: {str
 end
 
 --- [`plurals`] over `sources` alone (`{file, source}` pairs, each file a path from the tree's root), with no word on an
---- exemption nothing answers to: what a run of `cosmic fix` over some paths holds them to, where the whole tree's check
+--- exemption nothing matches: what a run of `cosmic fix` over some paths holds them to, where the whole tree's check
 --- takes its sources from the projection. A file [`plurals`] does not read is passed over.
 function tree_docs.plurals_of(sources: {{string}}, excused?: {string: string}): {string}
   local read: mut {{string}} = {}

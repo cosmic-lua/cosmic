@@ -1,6 +1,6 @@
 local Number = require("cosmic.number")
 
--- The message of the Failure [`Number.integer`] answers for `text`.
+-- The message of the Failure [`Number.integer`] returns for `text`.
 local function refused(text: string, base?: integer): string
   local value, why = Number.integer(text, base)
   assert(value == nil, ("%q was accepted as %s"):format(text, tostring(value)))
@@ -115,8 +115,8 @@ local function test_integer_reads_back_what_every_base_writes()
   end
 end
 
---- A text it refuses answers a Failure and no value; one it reads
---- answers the value alone.
+--- A text it refuses gets a Failure and no value; one it reads gets the
+--- value alone.
 local function test_integer_answers_a_failure_or_the_value()
   for _, text in ipairs({ "", "-", "0x10", "1e2", " 7", "+1", "1.5", "9223372036854775808", "12x4" }) do
     refused(text)

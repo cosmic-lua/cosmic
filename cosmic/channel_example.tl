@@ -10,7 +10,7 @@ local Example = {} -- checked: literal_needs_type
 
 --- A producer task and a consumer loop: the consumer takes jobs in the
 --- order they were queued until the producer closes the queue: once it
---- is drained, `receive` answers false. That is the stream's end, not a
+--- is drained, `receive` returns false. That is the stream's end, not a
 --- failure.
 function Example.new()
   local taken: mut {string} = {}
@@ -32,8 +32,8 @@ function Example.new()
 end
 
 --- A full "block" queue makes `send` wait for room, so a fast producer
---- is slowed to its consumer's pace; `try_send` and a timeout answer
---- nil and a Failure instead of waiting.
+--- is slowed to its consumer's pace; `try_send` and a send with a timeout
+--- return nil and a Failure instead of waiting.
 function Example.send()
   Poll.run(function()
     local queue: Channel.Queue<integer> = Channel.new({ capacity = 1 })
@@ -68,8 +68,8 @@ function Example.dropped()
 end
 
 --- A "close" queue cuts off a consumer that falls behind: the send that
---- finds it full closes it and answers false, the consumer takes what
---- was queued, and then `receive` answers false.
+--- finds it full closes it and returns false, the consumer takes what
+--- was queued, and then `receive` returns false.
 function Example.closed()
   Poll.run(function()
     local queue: Channel.Queue<string> = Channel.new({ capacity = 1, overflow = "close" })

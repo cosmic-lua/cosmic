@@ -3,7 +3,7 @@
 --- which modules read a `meta` row a worker is not always given
 --- (`meta_readers`, [`reads_meta`]), the compiler's identity among them
 --- ([`reads_compiler`]). build.declared_key computes a key from them and
---- answers the compiler's readers as its own, so their callers need not
+--- exports the compiler's readers as its own, so their callers need not
 --- know they live here; a worker (build.test_worker) takes them from
 --- here, and so loads none of what the rest of a key takes to compute --
 --- the artifact, the core image, the launcher, SQLite.
@@ -57,7 +57,7 @@ do
 end
 
 --- Bytes as lowercase hexadecimal, two digits a byte: what
---- [`cosmic.codec`]'s `hex` answers.
+--- [`cosmic.codec`]'s `hex` returns.
 local function hex(data: string): string
   return (data:gsub(".", hex_of))
 end
@@ -97,14 +97,14 @@ local tree_marker <const> = "\0tree"
 ---
 --- That is a rule, not an accident of keying: a test may not turn on
 --- where the tree is -- a path length limit, a name it prints and
---- compares. The answers a capture observes that name the tree (the
+--- compares. The values a capture observes that name the tree (the
 --- working directory, a realpath, a readlink, a path under the tree read
 --- or given) are keyed by [`tree_name`] in the shared key and whole only in
---- a checkout's own. The artifact path ([`Proc.relaunch`] and the process
---- table's `relaunch` answer) is keyed nowhere.
+--- a checkout's own. The artifact path (what [`Proc.relaunch`] and the
+--- process table's `relaunch` return) is keyed nowhere.
 ---
 --- The same rule holds of where the running program is: what
---- [`Proc.executable`] answered is keyed nowhere, only that it answered
+--- [`Proc.executable`] returned is keyed nowhere, only that it returned
 --- (build.declared_key's `program_answer`).
 ---
 --- Nothing here can see a test break either rule. CI enforces both by
@@ -135,7 +135,7 @@ end
 
 --- The compiler's identity ([`Store.meta`]'s `compiler` or `compiled_by`),
 --- which a closure store does not carry: a worker's reads of it are
---- answered from the running tool's own `meta`, so a test whose closure
+--- served from the running tool's own `meta`, so a test whose closure
 --- holds one of its readers is keyed by the tool's (build.declared_key's
 --- [`Spec.compiler`]).
 local compiler_readers <const>: {string} = {

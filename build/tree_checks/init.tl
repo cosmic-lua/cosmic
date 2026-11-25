@@ -3,7 +3,7 @@
 --- module, no two doc anchors sharing a name, every
 --- reader of the compiler's identity named, every familiar command
 --- finding what stands in for it, every docs query a compile advertises
---- answered, every quieted method one a module declares, every member
+--- resolved, every quieted method one a module declares, every member
 --- kept to a few files used by those alone, every
 --- declaration's requires declared, every requirement a test module
 --- declares promised by a CI leg, every verb's spec listed and
@@ -18,7 +18,7 @@
 --- suite's `store` declaration is kept to), so these are not tests.
 --- `cosmic fix` runs them when it covers all of cosmic's own tree
 --- (`cosmic fix --check .`, which CI runs), after building the
---- projection afresh (`projection`), and each line a check answers
+--- projection afresh (`projection`), and each line a check returns
 --- fails the run. A `cosmic fix` of some paths does not run them, and a
 --- tree that does not build fails them all.
 ---

@@ -16,8 +16,8 @@ local Clock = require("cosmic.clock")
 Test.policy{ profiles = { "cosmic" } }
 
 --- The public wrapper and annotated syscall name the same directly executable
---- logical program. Native mode preserves the physical executable answer;
---- portable coverage supplies the artifact answer in ci/fixtures/identity_test.tl.
+--- logical program. Native mode preserves the physical executable result;
+--- portable coverage supplies the artifact result in ci/fixtures/identity_test.tl.
 local function test_executable_wraps_the_public_syscall()
   local direct = assert(sys.executable())
   local wrapped = assert(Proc.executable())
@@ -97,7 +97,7 @@ require("cosmic.sys").exit(1)
   assert(mask & (1 << (sys.SIGPIPE - 1)) == 0, "SIGPIPE arrived ignored: " .. ignored)
 end
 
---- What the program a chunk becomes answers to `env-of FOO`: `exec` is
+--- What the program a chunk becomes prints for `env-of FOO`: `exec` is
 --- the [`Proc.exec`] call it makes, `outer` the variable the chunk's own
 --- process has.
 local function becomes(tmp: string, probe: string, exec: string): string

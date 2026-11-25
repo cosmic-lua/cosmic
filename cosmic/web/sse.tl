@@ -1,7 +1,7 @@
 --- Server-sent events for [`cosmic.web`]: [`Sse.format_event`] writes one
---- event in the wire format, [`Sse.EventStream`] answers a request with a
---- stream of them, and [`Sse.Hub`] fans events out to the streams of many
---- clients, with a replay ring for a browser that reconnects.
+--- event in the wire format, [`Sse.EventStream`] responds to a request
+--- with a stream of them, and [`Sse.Hub`] fans events out to the streams
+--- of many clients, with a replay ring for a browser that reconnects.
 ---
 ---     local hub = Sse.new_hub{}
 ---     local app = Web.app{
@@ -71,7 +71,7 @@ local record Sse
     --- source and wakes the wait. A source whose `close` does not wake its `next` holds such
     --- a stream open until the server kills its task.
     next: function(EventSource, timeout_ns?: integer): (Event | false) | (nil, Failure)
-    --- Ends the source: a `next` that waits wakes and answers the end.
+    --- Ends the source: a `next` that waits wakes and returns the end.
     --- Safe to call twice, and never waits (the stream calls it from the
     --- app's stop and from a killed task's `<close>`).
     close: function(EventSource)
@@ -464,7 +464,7 @@ end
 --- no length. The first chunk holds `retry:` and the `initial` events at
 --- once, so the proxy sees the reply begin.
 ---
---- Answers 503 with `Retry-After: 5` instead, closing `source`, when the
+--- Returns a 503 with `Retry-After: 5` instead, closing `source`, when the
 --- app already has `max_streams` open (half the server's connections by
 --- default) or is stopping. The stream ends cleanly when the app begins
 --- to stop; a task killed at the grace has it released by a `<close>`
@@ -472,7 +472,7 @@ end
 ---
 --- The stream takes its slot when the server starts to read it. A response
 --- a handler or middleware drops instead is closed, with its source, once
---- the request is answered. A raise for a bad option closes `source` too.
+--- the request is done. A raise for a bad option closes `source` too.
 --
 -- TODO: cap the streams per client (assets.md 5.9) once Web.Request carries
 -- a trusted client key; until then one client may hold every slot.

@@ -1,8 +1,8 @@
 --- A [`Github.Host`] for tests, with no network or clock: the API's
---- answers are canned JSON, served through a fake [`GithubApi.Send`] to the
---- live host's own `fetch` and `delete`; the clock stands still but for
---- a wait, and every call, output and line is kept to read back. Test
---- support.
+--- responses are canned JSON, served through a fake [`GithubApi.Send`]
+--- to the live host's own `fetch` and `delete`; the clock stands still
+--- but for a wait, and every call, output and line is kept to read
+--- back. Test support.
 local Github = require("cosmic_ci.github")
 local GithubApi = require("cosmic_ci.github_api")
 local Json = require("cosmic.json")
@@ -22,14 +22,14 @@ local record GithubFake
     --- The time, in seconds, which each wait moves on.
     mut clock: integer
   end
-  --- The JSON the API answers `path`'s `nth` ask (the first is 1), nil to
-  --- fail it with a 500. An array answers a listing: each element is one
+  --- The JSON returned for `path`'s `nth` ask (the first is 1), nil to
+  --- fail it with a 500. An array is a listing: each element is one
   --- page, linked to the next as GitHub's `Link` header does.
   type Answer = function(path: string, nth: integer): string?
   --- The time a fake starts at, in seconds since the epoch.
   start: function(): integer
-  --- A fake answering through `answer`; `refuse` names the cache ids a
-  --- DELETE fails for.
+  --- A fake that takes its JSON from `answer`; `refuse` names the cache
+  --- ids a DELETE fails for.
   new: function(answer: Answer, refuse?: {string}): Fake
   --- What `output`, `summary` and `printed` hold, each line ending in a
   --- newline, as the files the live host appends to would.
@@ -85,7 +85,7 @@ function GithubFake.new(answer: GithubFake.Answer, refuse?: {string}): GithubFak
     local index = assert(math.tointeger(tonumber(number) or 1))
     local more = index < #pages
     -- The fake's own marker, not GitHub's `page` parameter, keeps the
-    -- path the answer is keyed by.
+    -- path the JSON is keyed by.
     return reply(200, assert(Json.encode_any(pages[index])),
       if more then { link = '<' .. origin .. "/" .. asked .. "#page=" .. tostring(index + 1) .. '>; rel="next"' } else nil end), ""
   end

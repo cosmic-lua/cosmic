@@ -1,4 +1,4 @@
---- The build a read-only verb makes so it answers from the tree as it
+--- The build a read-only verb makes so it shows the tree as it
 --- stands: `docs` and `uses` read the projection, `cosmic.db`, which only a build
 --- writes, so without this an edit is invisible to them until a
 --- `cosmic test` or `cosmic fix` builds. It is the build `cosmic test`
@@ -40,7 +40,7 @@ local record rebuild
     --- its code derived could be older code's than the tree's.
     unchecked: boolean
     --- The derive's refusal of the tree, where [`rebuild.stage`] staged nothing for what the sources hold ([`importer.derive`]),
-    --- "" otherwise. Not a trouble of the host: that is the stage's second answer.
+    --- "" otherwise. Not a trouble of the host: that is the stage's second result.
     refused: string
   end
 end
@@ -142,7 +142,7 @@ function rebuild.refused(): {string}
 end
 
 --- Why the last build this process made with [`rebuild.here`] left the
---- projection as it was though it answered true, so a lookup answers from
+--- projection as it was though it returned true, so a lookup reads from
 --- the last build: another run holding the working database or the rebuild
 --- lock, a working database of another schema, or a check of the tool that
 --- went on without holding it to the tree ([`reboot.unchecked`]); "" where
@@ -152,16 +152,16 @@ function rebuild.held(): string
 end
 
 --- Builds the project at `root` as `cosmic test` does, leaving
---- its projection as the tree stands. It does nothing, answering true,
+--- its projection as the tree stands. It does nothing, returning true,
 --- where `root` is not one to build ([`where`]) and `start` is not
 --- set, saying so on stderr when it looks like a project no build has
---- been made of. Answers false and why when the build fails, which the
+--- been made of. Returns false and why when the build fails, which the
 --- caller may say and go on from the last build; where the tree refused it,
 --- [`rebuild.refused`] names the files after, and a lookup's why is a phrase
 --- naming the first. Only a build with
 --- `start` waits for another run that holds the working database: a
 --- lookup's does nothing where one does, which builds the same tree, but
---- say so once ([`work.tell_busy`]), and answers true, the caller reading
+--- say so once ([`work.tell_busy`]), and returns true, the caller reading
 --- what that run last committed. Nor does a lookup's wait for a run that
 --- holds the rebuild lock, a `cosmic test` run above all: it writes no
 --- projection under it, says so once ([`rebuild_lock.try_hold`]), and
@@ -217,7 +217,7 @@ local function project(root: string, verb: string, start: boolean, carried?: str
     local _, _ = work.close(handle)
     return false, compile_trouble
   end
-  -- The new checker goes on past a module it refuses, to name them all; the answer is the last build's, with the words of
+  -- The new checker goes on past a module it refuses, to name them all; the result is the last build's, with the words of
   -- the refusal, rather than a projection without the modules that were refused.
   local unexpected = result.refused
   for _, line in ipairs(unexpected) do
@@ -261,13 +261,13 @@ end
 --- build directory is made. A derive that fails leaves the database as
 --- it was, stage and all. Where the check before the verb went on
 --- without holding the tool to the tree ([`reboot.unchecked`]), nothing
---- is staged, for the life of the process, and what it answers is
+--- is staged, for the life of the process, and what it returns is
 --- `unchecked`. Otherwise it waits for no other run: where one holds the
---- database ([`work.try_open`]), nothing is staged, and what it answers
+--- database ([`work.try_open`]), nothing is staged, and what it returns
 --- is `busy`; where the database is of another schema, nothing is staged
---- and none of it read, and what it answers names that schema. The
+--- and none of it read, and what it returns names that schema. The
 --- sources are read by the new checker's syntax tree, in this process.
---- Answers what the directory is, or nil and why it could not be staged. A tree the derive refused is what it is, with
+--- Returns what the directory is, or nil and why it could not be staged. A tree the derive refused is what it is, with
 --- `refused` saying why: the database is as it was.
 function rebuild.stage(root: string, carried?: string): rebuild.Where?, string
   local found, found_trouble = where(root, carried)
@@ -296,8 +296,8 @@ function rebuild.stage(root: string, carried?: string): rebuild.Where?, string
   if parses == nil then
     local _, _ = work.abort(handle)
     -- TODO: tell a failure of the host in the derive (a database that errors, a directory that cannot be read) from a refusal
-    -- of the tree: [`importer.derive`] answers both as one string, so a database error is worded as the build's refusal; this
-    -- waits on [`importer.derive`] answering a refusal apart from a failure.
+    -- of the tree: [`importer.derive`] returns both as one string, so a database error is worded as the build's refusal; this
+    -- waits on [`importer.derive`] returning a refusal apart from a failure.
     return { project = true, standing = found.standing, directory = found.directory,
       busy = false, other_schema = nil, unchecked = false, refused = derive_trouble }, ""
   end

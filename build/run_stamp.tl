@@ -2,7 +2,7 @@
 --- build reads has moved runs the projection that build left, and derives, compiles and writes nothing.
 ---
 --- The writer leaves a projection as it is where the file's signature ([`build.writer`]'s `signature_sql`) is the
---- one it would write. That signature is a function of rows of the working database and of the links' answers: the
+--- one it would write. That signature is a function of rows of the working database and of the links' results: the
 --- plan and inputs that derive and compile make of the staged files, the staged files, the zones, the web assets,
 --- the identities in `meta`, and the digest of what the tree's links found ([`link_index.pending`]), on disk too.
 --- The key here is a digest of what those are made from, taken after the stage and before any derive:
@@ -28,7 +28,7 @@ local Store = require("cosmic.store")
 local record run_stamp
   --- The tool string a compile of this binary's own compiler is keyed by ([`GrammarMode.tool`]): the compiler's
   --- identity the build that made this binary recorded (its `meta`'s `compiler`), so a project's rows made by
-  --- another compiler are compiled again. A worker's read of it is answered by the running tool
+  --- another compiler are compiled again. A worker reads it from the running tool
   --- ([`build.key_parts`]' `meta_readers` names this module for it).
   own_tool: function(): string
 
@@ -86,7 +86,7 @@ function run_stamp.key(db: Sqlite.Handle, root: string, own: boolean, tool: stri
   if rows == nil then return nil end
   local row = rows[1]
   if row == nil then return nil end
-  -- What the links found, the disk's answers among them, with the library they may name as the writer gives it.
+  -- What the links found, the disk's results among them, with the library they may name as the writer gives it.
   local digest = links
   if digest == nil then
     local link_index = require("build.link_index")

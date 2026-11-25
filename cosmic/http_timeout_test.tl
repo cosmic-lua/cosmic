@@ -1,6 +1,6 @@
 --- The limits of [`cosmic.http`] in nanoseconds, which it hands the core
 --- in the milliseconds and seconds it counts them in: a request to a
---- loopback listener that accepts and never answers ends at about the
+--- loopback listener that accepts and never responds ends at about the
 --- time given, whatever the unit the core reads it in.
 
 local Clock = require("cosmic.clock")
@@ -8,7 +8,7 @@ local Http = require("cosmic.http")
 local Net = require("cosmic.net")
 local Test = require("cosmic.test")
 
---- The listener answers nothing, on the worker's own loopback.
+--- The listener sends nothing, on the worker's own loopback.
 Test.policy{ loopback = { "127.0.0.1" } }
 
 --- Whether `why` is curl's message for an expired limit: its

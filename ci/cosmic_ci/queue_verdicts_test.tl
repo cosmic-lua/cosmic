@@ -86,7 +86,7 @@ local function cache(path: string, rows: {string:string}, extra?: boolean)
   assert(db:exec("CREATE TABLE declared_v1 (key TEXT PRIMARY KEY, origin TEXT NOT NULL" .. parts .. "); " ..
       "CREATE INDEX declared_v1_by_origin ON declared_v1 (origin)"))
   for key, origin in pairs(rows) do
-    assert(Sqlite.run(db, "INSERT INTO declared_v1 (key, origin) VALUES (?1, ?2)", { { text = key }, { text = origin } }))
+    assert(db:run("INSERT INTO declared_v1 (key, origin) VALUES (?1, ?2)", { { text = key }, { text = origin } }))
   end
   assert(db:close())
 end
@@ -94,7 +94,7 @@ end
 local function rows(path: string, sql?: string): string
   local db = assert(Sqlite.open(path))
   local out: mut {string} = {}
-  for _, row in ipairs((assert(Sqlite.text_rows(db, sql or "SELECT key, origin FROM declared_v1 ORDER BY key")))) do
+  for _, row in ipairs((assert(db:text_rows(sql or "SELECT key, origin FROM declared_v1 ORDER BY key")))) do
     out[#out + 1] = table.concat(row:texts(), "=")
   end
   assert(db:close())

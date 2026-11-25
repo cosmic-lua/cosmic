@@ -39,7 +39,7 @@ local record artifact
     stubs: {string:string}
     --- The zstd frame of a core, which the stub decodes: it names the
     --- core's size and checksum and a window within the stub's
-    --- ([`cosmic.compress.zstd`]). The caller passes it so that this
+    --- ([`cosmic.compress.encode`]). The caller passes it so that this
     --- module, which a verdict's key turns on, needs no library module.
     compress: function(string): string?, string
   end
@@ -115,7 +115,7 @@ end
 
 --- The zstd level a release stores its cores at: the highest the encoder
 --- takes, since a core is compressed once and read for the whole life of the
---- artifact. Its window is the stub's ([`cosmic.compress.zstd`]).
+--- artifact. Its window is the stub's ([`cosmic.compress.encode`]).
 function artifact.zstd_level(): integer
   return 19
 end
@@ -475,7 +475,7 @@ end
 
 --- The database the artifact of `size` bytes carries, a portable
 --- program's or a host program's alike, taken by its range: `read`
---- answers `length` bytes of the artifact from `offset` (0 for its
+--- returns `length` bytes of the artifact from `offset` (0 for its
 --- first), and is asked for the trailer, the head of the manifest and
 --- the database, never for the launcher or a core. The trailer's fields
 --- are checked against each other and against the file: the version and
@@ -483,7 +483,7 @@ end
 --- starts right behind that manifest, runs to the trailer and begins with
 --- SQLite's header. An artifact of another version is refused by name,
 --- such as the version 1 a release before this one wrote. A `read` that
---- answers fewer bytes than it was asked for is refused too.
+--- returns fewer bytes than it was asked for is refused too.
 function artifact.database_in(size: integer, read: function(offset: integer, length: integer): string?): artifact.Carried?, string
   if size < trailer_length then
     return nil, "too short for an artifact trailer"

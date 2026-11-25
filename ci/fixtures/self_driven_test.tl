@@ -71,7 +71,7 @@ local boot_timeout_ns <const> = Clock.seconds(450)
 
 --- `product` as a tool built from the tree at `tree`, which it runs a file of: the product is built from the checkout
 --- CI booted it in, and a file of a copy of that tree at another path is run by a tool built from that copy or it
---- reads the tree as a project. Written under `tmp`; answers its path.
+--- reads the tree as a project. Written under `tmp`; returns its path.
 local function built_from(product: string, tree: string, tmp: string): string
   local path = tmp .. "/cosmic"
   Fixture.retargeted(product, path, assert(sys.realpath(tree)), 0x1ed)

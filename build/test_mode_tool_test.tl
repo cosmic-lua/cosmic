@@ -16,7 +16,7 @@ Test.policy{
 }
 
 --- Runs `cosmic test` with `words` on a project whose one test fails
---- where the run checks types, and answers what it said.
+--- where the run checks types, and returns what it said.
 local function invoke(tmp: string, name: string, words: {string}): string
   local root = tmp .. "/" .. name
   assert(Fs.mkdirs(root .. "/suite"))

@@ -52,7 +52,7 @@ local function skip_if_unsandboxed(text: string)
   end
 end
 
---- Runs `cosmic test` with `words` on `root` with `env`, answering what it
+--- Runs `cosmic test` with `words` on `root` with `env`, returning what it
 --- printed and whether it passed.
 local function run(root: string, output: string, env: {string:string},
                    words: {string}): string, boolean

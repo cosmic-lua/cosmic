@@ -76,8 +76,8 @@ function Example.sub()
 end
 
 --- The same arithmetic on secrets: the modulus is the last argument,
---- nothing is added before a subtraction, and each answer is as wide as
---- the modulus, so neither the time taken nor an answer's length says
+--- nothing is added before a subtraction, and each result is as wide as
+--- the modulus, so neither the time taken nor a result's length says
 --- anything of a value.
 function Example.secret_submod()
   local m = "\0\101"
@@ -117,7 +117,7 @@ end
 --- the exponents: each side raises what it received to its secret with
 --- [`Bigint.secret_powmod`], and the number both arrive at is as wide as the
 --- prime whatever its value. The public values are [`Bigint.powmod`]'s:
---- a public base, and an answer that is sent.
+--- a public base, and a result that is sent.
 function Example.secret_powmod()
   local alice_secret = Bigint.hide((assert(Rand.entropy(32))))
   local bob_secret = Bigint.hide((assert(Rand.entropy(32))))

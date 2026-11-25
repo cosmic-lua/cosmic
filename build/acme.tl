@@ -20,15 +20,15 @@
 --- (`--agree-tos` accepts the server's terms; `--contact` names a
 --- `mailto:` URL) and found by its key after.
 ---
---- `--webroot <dir>` answers http-01: the response goes in
+--- `--webroot <dir>` completes http-01: the response goes in
 --- `<dir>/.well-known/acme-challenge/<token>`, which the web server for
 --- each name serves on port 80, and is removed after. `--dns-hook
---- <program>` answers dns-01, the only challenge a wildcard takes: the
+--- <program>` completes dns-01, the only challenge a wildcard takes: the
 --- program runs as `<program> present <record> <value>` before the
 --- check and `<program> cleanup <record> <value>` after, with its
 --- output on standard error. It puts the TXT record `<record>` with the
 --- value `<value>` in the zone, and exits 0 only once the zone's servers
---- answer it. The program is a path (`./hook`), not searched for. A
+--- serve it. The program is a path (`./hook`), not searched for. A
 --- `present` that fails stops the issue, and its `cleanup` does not run.
 ---
 --- The response file and its directories get the process's umask: one

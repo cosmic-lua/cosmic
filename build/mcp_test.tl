@@ -1,4 +1,4 @@
---- `cosmic mcp`'s command line, and its answers from a [`cosmic.mcp.server`] served on the worker's loopback.
+--- `cosmic mcp`'s command line, and what it prints from a [`cosmic.mcp.server`] served on the worker's loopback.
 
 local Clock = require("cosmic.clock")
 local Failure = require("cosmic.failure")

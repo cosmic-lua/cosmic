@@ -1,6 +1,6 @@
 --- Which lines of a module's own source could ever run: the denominator of a coverage percentage. It reads the
 --- syntax tree, which tells a statement from a blank line, a comment or a bare `end`, where a scan of the text cannot.
---- A parse writes its answer ([`build.syntax_derivation`]), and coverage reads it ([`build.coverage.syntax_lines`]).
+--- A parse writes its result ([`build.syntax_derivation`]), and coverage reads it ([`build.coverage.syntax_lines`]).
 local Ast = require("lang.ast")
 local Lexer = require("lang.lexer")
 local Node = require("build.syntax_node")

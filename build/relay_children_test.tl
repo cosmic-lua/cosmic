@@ -27,7 +27,7 @@ end)
 --- with a proxy of its own at the port https_proxy names: asks it for
 --- api.test three times (through the proxy), for ungranted.test (refused
 --- before any lookup) and for direct.test (granted, reached directly, and so
---- looked up). Prints each answer's status line, a line each.
+--- looked up). Prints each response's status line, a line each.
 test_child.register("serve", function(argv: {string}): integer
   local dns_port = assert(math.tointeger(tonumber((argv[1] or ""))))
   local servers: {Net.Endpoint} = { { host = "127.0.0.1", port = dns_port } }

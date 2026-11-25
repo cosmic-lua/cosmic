@@ -308,7 +308,7 @@ local function database(path: string): string?, string
   return bytes, ""
 end
 
---- Builds a stand-in under `dir`, made if it is not there, and answers
+--- Builds a stand-in under `dir`, made if it is not there, and returns
 --- the executable's path, `dir/probe`: this program's own core, as
 --- `cosmic build --host` lays one out ([`artifact.host_program`]), with a
 --- database of `probe_module`, its main under `main_module`, and the

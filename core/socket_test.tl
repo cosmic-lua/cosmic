@@ -138,7 +138,7 @@ local function test_a_unix_socket_held_close_leaves_no_socket_file(tmp: string)
   assert(not assert(Fs.status(path)).exists, "a closed listener left its socket file")
 end
 
---- An address whose `path` answers once and then nil -- read twice,
+--- An address whose `path` reads as a name once and then as nil -- read twice,
 --- a second read would find none -- is read once: the listener binds
 --- and removes the file of that one read.
 local function test_an_address_is_read_once(tmp: string)
@@ -245,8 +245,9 @@ end
 
 --- A unix listener whose backlog is full refuses a further connection
 --- at once, however long it may wait, whether started or connected:
---- EAGAIN on Linux, kept apart from ECONNREFUSED, which a listener gone
---- answers; macOS cannot tell the two apart, and answers ECONNREFUSED.
+--- EAGAIN on Linux, kept apart from ECONNREFUSED, the errno for a
+--- listener gone; macOS cannot tell the two apart, and fails with
+--- ECONNREFUSED.
 local function test_a_full_unix_backlog_refuses_a_connection_at_once(tmp: string)
   unix_socket.skip_if_refused(tmp)
   local path = tmp .. "/s.sock"
@@ -455,7 +456,7 @@ local function test_multicast_raw_settings_read_back_what_each_call_set()
   assert(none == nil and why == "Protocol wrong type for socket", why)
 end
 
---- `interfaces` answers an entry for each address `getifaddrs` lists: in
+--- `interfaces` returns an entry for each address `getifaddrs` lists: in
 --- a sandboxed worker those of its own loopback, which Linux reads over a
 --- netlink socket the worker's filter allows beside its inet sockets.
 local function test_interfaces_lists_named_entries_with_the_loopbacks_address()

@@ -1,7 +1,7 @@
 --- What the caches every checkout shares -- the compiles and parses
 --- ([`build.shared_compiles`]) and the verdicts ([`build.shared_verdicts`])
 --- -- do alike with their SQLite file: open it in write-ahead mode with a
---- busy timeout and retry a busy answer within a bounded wait.
+--- busy timeout and retry a busy result within a bounded wait.
 ---
 --- It is a module of the test harness, through build.shared_verdicts:
 --- an edit to it that changes its bytecode moves every verdict key,
@@ -27,15 +27,15 @@ local busy_ns <const> = 10000 * MS
 --- another's write. The switch is one statement that reads the file's
 --- header, then writes it. When another connection holds the write lock
 --- between those two, as two runs meeting a fresh cache do, SQLite
---- answers "database is locked" at once and calls no busy handler; when
+--- returns "database is locked" at once and calls no busy handler; when
 --- another holds the file whole, the busy handler would wait out the
 --- busy timeout on each try. So the switch runs with no busy timeout,
---- and a locked answer is tried again every ten milliseconds until
+--- and a locked result is tried again every ten milliseconds until
 --- `wait_ns` have passed since the first try, on the monotonic clock;
 --- once the other's switch is written, this one reads the header and
 --- has nothing to write. A captured guard cancellation stops the retry;
 --- SQLite can refuse a lock without calling that handler. Any mode but
---- "wal" answered is a failure.
+--- "wal" returned is a failure.
 local function to_wal(db: Sqlite.Handle, wait_ns: integer): boolean, string
   local started, clock_trouble = sys.clock_gettime(sys.CLOCK_MONOTONIC)
   if started == nil then return false, clock_trouble end
@@ -62,7 +62,7 @@ end
 --- mode ([`to_wal`], which waits up to `wait_ns` in all on another run's
 --- lock), then `prepare`d, the caller's tables made or checked, under a
 --- busy timeout of `wait_ns` a statement, in whole milliseconds, rounded
---- up. `wait_ns` is ten seconds when nil. Answers the handle, or nil and why, prefixed with `path`, having
+--- up. `wait_ns` is ten seconds when nil. Returns the handle, or nil and why, prefixed with `path`, having
 --- closed what it opened.
 function shared_sqlite.open(path: string, prepare: function(Sqlite.Handle): (boolean, string),
                             wait_ns?: integer): Sqlite.Handle?, string

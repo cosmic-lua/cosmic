@@ -81,7 +81,7 @@ local function test_a_lookups_build_makes_a_database_of_an_older_schema_again(tm
 end
 
 --- A stage that finds the working database of another schema, another
---- tool's, stages nothing in it and leaves it where it is, answering the
+--- tool's, stages nothing in it and leaves it where it is, returning the
 --- schema it found.
 local function test_a_stage_leaves_a_database_of_another_schema(tmp: string)
   local root = tmp .. "/project"

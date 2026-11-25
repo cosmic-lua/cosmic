@@ -163,7 +163,7 @@ local function base_marks(root: string, base: string, held: CeilingsBase.Held, g
     args[#args + 1] = word
   end
   local status, listed = git(root, args)
-  -- Status 1 is "no match", which a base without markers answers.
+  -- Status 1 is "no match", which a base without markers gives.
   if status ~= 0 and status ~= 1 then
     return nil, "git grep of the markers at " .. base .. " failed"
   end
@@ -367,7 +367,7 @@ function CeilingsBase.check(root: string, env: {string:string}, git: CeilingsBas
     end
   end
   -- A shallow checkout (a branch push's holds HEAD and the fetched base alone) cannot say whether one commit is another's
-  -- ancestor, so the question is asked only where the answer is known.
+  -- ancestor, so the question is asked only where the result is known.
   local _, shallow = git(root, { "rev-parse", "--is-shallow-repository" })
   if shallow:match("^false") ~= nil then
     local ancestor, _ = git(root, { "merge-base", "--is-ancestor", base, "HEAD" })

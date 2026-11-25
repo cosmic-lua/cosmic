@@ -103,7 +103,7 @@ local class Made is Types.Request
     if body_failure ~= nil then return nil, body_failure end
     local data, why = Stream.read_all(self.raw.body)
     if data == nil then
-      -- The reader is spent: a second call answers the same failure.
+      -- The reader is spent: a second call returns the same failure.
       self.body_failure = tostring(why)
       return nil, tostring(why)
     end

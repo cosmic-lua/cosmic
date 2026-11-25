@@ -143,7 +143,7 @@ function tree_declares.requirers(db: Sqlite.Handle, rules?: {string: Restriction
 end
 
 --- Each declaration of `db` that requires a name no declaration of `db`
---- answers for, as `<declaration> requires <name>`: a closure store
+--- covers, as `<declaration> requires <name>`: a closure store
 --- follows a declaration's requires among declarations alone
 --- ([`build.closure_store`]'s `declared`), so a module one required would
 --- be neither carried nor in the store's address.
