@@ -43,7 +43,7 @@
 --- overwrite` writes over it or `--conflict rename` writes `name (1).ext`.
 --- `--wait` waits for a file when none waits yet.
 ---
---- `--json` prints the answer of `status`, `whois`, `ping`, `file
+--- `--json` prints the result of `status`, `whois`, `ping`, `file
 --- targets` or `file list` as JSON
 --- object, the fields of [`cosmic.tailscale`]'s record. `--socket
 --- <path>` names the daemon's socket, where it is not where
@@ -77,7 +77,7 @@ local verb_spec = require("build.verb_spec")
 local record verb
   --- The verb's registration: see build/verb_spec.tl.
   mut spec: verb_spec.Spec
-  --- A file `open` answers: its bytes as they are read, and how many.
+  --- A file `open` returns: its bytes as they are read, and how many.
   record Opened
     reader: Stream.Reader
     size: integer
@@ -170,7 +170,9 @@ local standard: verb.Io = {
     return st ~= nil and st.kind == "dir"
   end,
   connect = function(opts: Tailscale.Daemon): Tailscale.Client?, string
-    return Tailscale.connect(opts)
+    local client, why = Tailscale.connect(opts)
+    if client == nil then return nil, tostring(why) end
+    return client, ""
   end,
 }
 
@@ -200,7 +202,7 @@ end
 local function address_of(ts: Tailscale.Client, word: string): string?, string
   if numeric(word) then return word, "" end
   local status, why = ts:status()
-  if status == nil then return nil, (why:gsub("^tailscale: ", "")) end
+  if status == nil then return nil, (tostring(why):gsub("^tailscale: ", "")) end
   local wanted = word:lower():gsub("%.$", "")
   local nodes: mut {Tailscale.Peer} = {}
   local me = status.self
@@ -355,7 +357,7 @@ local function show_status(to: verb.Io, complain: function(line: string), ts: Ta
   end
   local status, why = ts:status()
   if status == nil then
-    complain((why:gsub("^tailscale: ", "")))
+    complain((tostring(why):gsub("^tailscale: ", "")))
     return bare.failed
   end
   -- A node that is not running exits 1, as `tailscale status` does, so a
@@ -502,7 +504,7 @@ local function write_cert(to: verb.Io, complain: function(line: string), ts: Tai
   else
     local status, why = ts:status()
     if status == nil then
-      complain((why:gsub("^tailscale: ", "")))
+      complain((tostring(why):gsub("^tailscale: ", "")))
       return bare.failed
     end
     domain = status.cert_domains[1]
@@ -520,7 +522,7 @@ local function write_cert(to: verb.Io, complain: function(line: string), ts: Tai
   local name = assert(domain)
   local pair, why = ts:cert(name, { min_validity_ns = min_validity })
   if pair == nil then
-    complain((why:gsub("^tailscale: ", "")))
+    complain((tostring(why):gsub("^tailscale: ", "")))
     return bare.failed
   end
   -- Each file is written beside itself first and renamed over its name
@@ -574,7 +576,7 @@ local function show_ping(to: verb.Io, complain: function(line: string), ts: Tail
   end
   local ping, why = ts:ping(address, kind)
   if ping == nil then
-    complain((why:gsub("^tailscale: ", "")))
+    complain((tostring(why):gsub("^tailscale: ", "")))
     return bare.failed
   end
   if parsed.set["--json"] == true then
@@ -625,7 +627,7 @@ local function file_targets(to: verb.Io, complain: function(line: string), ts: T
   end
   local targets, why = ts:file_targets()
   if targets == nil then
-    complain((why:gsub("^tailscale: ", "")))
+    complain((tostring(why):gsub("^tailscale: ", "")))
     return bare.failed
   end
   if parsed.set["--json"] == true then
@@ -690,7 +692,7 @@ local function file_send(to: verb.Io, complain: function(line: string), ts: Tail
   local targets, why = ts:file_targets()
   if targets == nil then
     local _, _ = body:close()
-    complain((why:gsub("^tailscale: ", "")))
+    complain((tostring(why):gsub("^tailscale: ", "")))
     return bare.failed
   end
   local target, unknown = target_of(targets, word)
@@ -702,7 +704,7 @@ local function file_send(to: verb.Io, complain: function(line: string), ts: Tail
   local sent, trouble = ts:send_file(target.node.stable_id, name, body, size)
   local _, _ = body:close()
   if not sent then
-    complain((trouble:gsub("^tailscale: ", "")))
+    complain((tostring(trouble):gsub("^tailscale: ", "")))
     return bare.failed
   end
   return bare.ok
@@ -717,7 +719,7 @@ local function file_list(to: verb.Io, complain: function(line: string), ts: Tail
   end
   local files, why = ts:waiting_files()
   if files == nil then
-    complain((why:gsub("^tailscale: ", "")))
+    complain((tostring(why):gsub("^tailscale: ", "")))
     return bare.failed
   end
   if parsed.set["--json"] == true then
@@ -764,12 +766,12 @@ local function file_get(to: verb.Io, complain: function(line: string), ts: Tails
     local asked = Clock.monotonic_ns()
     local got, why = ts:waiting_files({ wait_ns = if parsed.set["--wait"] == true then WAIT_NS else nil end })
     if got == nil then
-      complain((why:gsub("^tailscale: ", "")))
+      complain((tostring(why):gsub("^tailscale: ", "")))
       return bare.failed
     end
     files = got
     if #files > 0 or parsed.set["--wait"] ~= true then break end
-    -- A daemon that answers at once, as one that holds no call does, is
+    -- A daemon that responds at once, as one that holds no call does, is
     -- asked again a second later, not at once.
     if Clock.monotonic_ns() - asked < 1000000000 then
       local _, _ = Clock.sleep(1000000000)
@@ -801,7 +803,7 @@ local function file_get(to: verb.Io, complain: function(line: string), ts: Tails
     if not skip then
       local reader, why = ts:open_file(file.name)
       local writer: Stream.Writer? = nil
-      local trouble = why
+      local trouble = if reader == nil then tostring(why) else "" end
       if reader ~= nil then writer, trouble = to.create(path) end
       local copied: integer? = nil
       if reader ~= nil and reader.size ~= file.size then
@@ -820,13 +822,13 @@ local function file_get(to: verb.Io, complain: function(line: string), ts: Tails
       if reader ~= nil then local _, _ = reader:close() end
       if writer ~= nil and copied == nil then local _, _ = writer:abort() end
       if copied == nil then
-        complain(file.name .. ": " .. (trouble:gsub("^tailscale: ", "")))
+        complain(file.name .. ": " .. (tostring(trouble):gsub("^tailscale: ", "")))
         code = bare.failed
       else
         if parsed.set["--keep"] ~= true then
           local deleted, lost = ts:delete_file(file.name)
           if not deleted then
-            complain(file.name .. ": written to " .. path .. ", but " .. (lost:gsub("^tailscale: ", "")))
+            complain(file.name .. ": written to " .. path .. ", but " .. (tostring(lost):gsub("^tailscale: ", "")))
             code = bare.failed
           end
         end
@@ -910,7 +912,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   end
   local ts, why = to.connect({ socket = socket })
   if ts == nil then
-    complain((why:gsub("^tailscale: ", "")))
+    complain((tostring(why):gsub("^tailscale: ", "")))
     return bare.failed
   end
   if line.action ~= "" then return file_action(to, complain, ts, line) end

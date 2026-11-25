@@ -51,14 +51,14 @@
 --- - the compiler's identity ([`build.identity`]'s `Identities`), as the
 ---   running tool names it, only where the module's import closure holds
 ---   a module that reads it ([`build.key_parts`]' `meta_readers`), which a worker's
----   [`Store.meta`] answers from the tool's own database --
+---   [`Store.meta`] returns from the tool's own database --
 ---   COSMIC_TEST_COMPILER_SALT, for a test alone, stands in for a
 ---   compiler of another identity that makes the same bytecode;
 --- - the declaration itself, as [`test_inputs.canonical`] spells it;
---- - what the host answered to each requirement the module declares
+--- - what the host found for each requirement the module declares
 ---   ([`build.host_requires`]), by name and what the
----   answer holds (a Landlock ABI, the digest of a program): one line per
----   present answer, none for a module that has none. A module with an
+---   result holds (a Landlock ABI, the digest of a program): one line per
+---   present result, none for a module that has none. A module with an
 ---   absent requirement is not run and so has no key;
 --- - the contents of every input it declares or is given by default:
 ---   each file of its import closure; each path of the tree it `reads`
@@ -111,7 +111,7 @@
 --- type is none of its closure, and so none of its key, its store or
 --- the modules its worker may `require`. An edit to one that leaves the
 --- importer's bytecode as it was runs no test again; one the importer's
---- bytecode answers to moves the importer's. A test module's own
+--- bytecode depends on moves the importer's. A test module's own
 --- `local type` requires are followed, which is how a test that
 --- type-checks a snippet brings the sources the checker reads into its
 --- closure.
@@ -145,7 +145,7 @@
 --- tree has no key, and always runs: a sandbox follows the link to what
 --- the key would not hold. One that declares `network` names loopback
 --- addresses alone ([`cosmic.test`]), which its worker's own loopback
---- answers offline: they are keyed with the declaration.
+--- serves offline: they are keyed with the declaration.
 ---
 --- Nothing in a sandboxed key names where the tree is -- a path of it
 --- is keyed by its name there, and a variable's value, each of its
@@ -195,7 +195,7 @@ end
 local build_directory = build_paths.required
 
 local record declared_key
-  --- build.key_parts', answered as this module's own.
+  --- build.key_parts', exported as this module's own.
   mut reads_compiler: function(closure: {string}): boolean
 
   --- What a run knows of the files it keys, kept for the run.
@@ -210,14 +210,14 @@ local record declared_key
     --- Each file's hash by its absolute path, with what `lstat` said of
     --- it when it was hashed: `signature` .. "\0" .. hex sha256.
     hashed: mut {string:string}
-    --- The paths of `hashed` this run looked up, which `kept` answers.
+    --- The paths of `hashed` this run looked up, which `kept` returns.
     used: mut {string:boolean}
     --- Each program's key (`program`) too fresh to keep in `hashed`, as
     --- `hashed` holds it, for this run alone.
     this_run: mut {string:string}
-    --- While set, each answer by what asked for it: the whole
+    --- While set, each result by what asked for it: the whole
     --- selection of a run keys its tests before any of them starts, so
-    --- one answer serves them all. Nil after, when each asks again.
+    --- one result serves them all. Nil after, when each asks again.
     mut snapshot?: mut {string:string}
     --- How many files were read to be hashed, and the time spent keying.
     mut read: integer
@@ -267,9 +267,9 @@ local record declared_key
     launcher?: string
     --- The module's declaration, as [`test_inputs.canonical`] spells it.
     declaration: string
-    --- What the host answered to each requirement the module declares
+    --- What the host found for each requirement the module declares
     --- ([`build.host_requires`]), by name: the key text
-    --- of an answer that is `present`. Only a module whose requirements
+    --- of a result that is `present`. Only a module whose requirements
     --- were all present is keyed at all, so it holds those, and nil or empty
     --- for a module that declares none, whose key has no such part.
     requires?: mut {string:string}
@@ -337,7 +337,7 @@ local record declared_key
     mut host_id?: string
     mut uid?: integer
     --- The group and the supplementary groups this process runs with,
-    --- as [`sys.getgid`] and [`sys.getgroups`] answer them, which a host
+    --- as [`sys.getgid`] and [`sys.getgroups`] return them, which a host
     --- with no /proc/self/status (`status`) is keyed by in place of its
     --- Gid and Groups lines.
     gid?: integer
@@ -347,7 +347,7 @@ end
 
 -- The parts of a key a worker spells too, which build.key_parts holds
 -- so a worker loads none of this module: taken here, and the compiler's
--- readers answered as this module's own, so no caller of them moves.
+-- readers exported as this module's own, so no caller of them moves.
 local key_part, tree_name = key_parts.key_part, key_parts.tree_name
 declared_key.reads_compiler = key_parts.reads_compiler
 
@@ -378,11 +378,11 @@ local function signature(st: sys.Stat): string
 end
 
 --- A run's digests of the tree at `root`, seeded with `remembered`, what
---- `kept` answered in an earlier run -- absolute path, what `lstat` said,
+--- `kept` returned in an earlier run -- absolute path, what `lstat` said,
 --- sha256.
 --- The build's staged hashes are not taken: its stage keeps no change
 --- time, so a file rewritten in place with its modification time set
---- back would answer the hash it had before.
+--- back would give the hash it had before.
 function declared_key.digests(root: string, remembered?: {{string}}): declared_key.Digests
   local hashed: mut {string:string} = {}
   for _, row in ipairs(remembered or {}) do
@@ -415,7 +415,7 @@ function declared_key.kept(digests: declared_key.Digests): {{string}}
   return out
 end
 
---- Starts answering each question once, for a selection of a run.
+--- Starts giving one result for each question, for a selection of a run.
 function declared_key.freeze(digests: declared_key.Digests)
   digests.snapshot = {}
 end
@@ -467,7 +467,7 @@ local not_tree_wide <const> = "key NOT IN ('boot_hash', 'projected')"
 --- root (build.tree's `standing_of`), which "/tree" is. "/tree" is the
 --- only fixed root covered: a worker also sees "/tree-up", "/program"
 --- and a padded scratch directory, and a tool built at one of those
---- would answer differently. No build directory is placed there.
+--- would behave differently. No build directory is placed there.
 --- An unsandboxed worker sees the real path, and its key holds where the
 --- tree is ([`Spec`]'s `tree`). CI puts each commit's checkout at a path
 --- of its own, so a key that held the path would stand on no verdict
@@ -475,7 +475,7 @@ local not_tree_wide <const> = "key NOT IN ('boot_hash', 'projected')"
 -- TODO: hold the other fixed roots a worker sees as "/tree" is held,
 -- once a nested run that shares a verdict cache with its parent is known
 -- to be placed at one: today only a checkout at one of them, which CI
--- and `bin/zig build boot` never make, could key alike and answer
+-- and `bin/zig build boot` never make, could key alike and behave
 -- differently.
 local not_placed <const> = "NOT (key = 'built_from' AND value <> '/tree')"
 
@@ -538,7 +538,7 @@ local function carried_digest(database: string, kept: string): string?, string
             trouble = tostring(digest_trouble)
             break
           end
-          -- A query of aggregates alone answers one row.
+          -- A query of aggregates alone gives one row.
           local hashed_rows = assert(digest[1], "an aggregate query answers one row")
           lines[#lines + 1] = "rows " .. row:text(2) .. " " .. hashed_rows:text(1)
         end
@@ -802,7 +802,7 @@ local function leads_out(digests: declared_key.Digests, path: string,
 end
 
 --- What `path` holds, followed where it is a link, as a sandbox binds
---- it: an entry's answer, or for a directory "dir" and the digest of
+--- it: `entry`'s result, or for a directory "dir" and the digest of
 --- every entry beneath it, links unfollowed, in name order -- each by
 --- its name beneath `path`, what it is and what it holds; each file as
 --- a `program` where `programs` says to. A link is judged against
@@ -856,7 +856,7 @@ end
 --- tree written at another path keys the same. A store test is keyed by
 --- rows, not bytes, so two projections with the same rows on different
 --- pages key the same. That is sound: a worker reads the file through
---- SQLite, which answers from rows, and the digest holds each row's
+--- SQLite, which reads rows, and the digest holds each row's
 --- rowid, type and bytes in order. A file that is no database is keyed
 --- by its bytes, as any other file. Remembered in `digests` under a
 --- name of its own.
@@ -1095,7 +1095,7 @@ inputs_of = function(digests: declared_key.Digests, spec: declared_key.Spec): st
 end
 
 --- The processor's features a core running on `machine` chooses code
---- by, which is all a key holds of what [`sys.cpu_features`] answers
+--- by, which is all a key holds of what [`sys.cpu_features`] returns
 --- ([`host_cpu`]). An audit of the vendored C and the disassembled cores
 --- found them, and build/dispatched_features_test.tl holds the sites to
 --- it: mbedtls's aesni.c (`aes`, `pclmulqdq`) and aesce.c (`asimd`, `aes`,
@@ -1116,7 +1116,7 @@ end
 --- hosted runners of one leg on flags nothing reads (the other
 --- avx512* bits, a hypervisor's bits, md_clear). A vendored library that
 --- comes to dispatch on another feature adds it here, to what
---- [`sys.cpu_features`] answers (core/syscalls.c) and to
+--- [`sys.cpu_features`] returns (core/syscalls.c) and to
 --- ci/cosmic_ci/host_id.tl alike. A machine not named here, whose cores
 --- no audit has read, keys its whole list.
 local dispatched: {string:{string:boolean}} = {
@@ -1295,7 +1295,7 @@ function declared_key.host_split(digests: declared_key.Digests,
     end
   end
   if status == nil then
-    -- No /proc/self/status (macOS): the bindings answer its Gid and
+    -- No /proc/self/status (macOS): the bindings give its Gid and
     -- Groups, each group once, sorted, since the system lists them in
     -- an order of its own. A list that cannot be read keys apart from
     -- every one that can.
@@ -1358,7 +1358,7 @@ end
 --- - the user, groups and capabilities this process -- and so every
 ---   worker -- runs with, and whether no_new_privs and a seccomp filter
 ---   hold it (/proc/self/status; on macOS, which has none, the user and
----   groups [`sys.getgid`] and [`sys.getgroups`] answer, each group
+---   groups [`sys.getgid`] and [`sys.getgroups`] return, each group
 ---   once, sorted): whether a file's permissions refuse a
 ---   read, whether a sandbox may map ids or nest another, and which
 ---   calls a filter refuses are theirs;
@@ -1445,7 +1445,7 @@ end
 --- as the first 16 hex digits of a sha256: the kernel's series
 --- ([`kernel_text`]), a missing release as empty -- on macOS, the system
 --- volume's SystemVersion.plist (`darwin_system`).
---- It is what ci/cosmic_ci/host_id.tl's `kernel` answers, which names a
+--- It is what ci/cosmic_ci/host_id.tl's `kernel` returns, which names a
 --- leg's verdict cache, so a run restores one whose keys its host
 --- reaches. The processor's features are no part of it: runners of
 --- other processors share a cache, and the rows of the modules that

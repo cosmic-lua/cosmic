@@ -90,7 +90,7 @@ from one runtime context from standing in another.
 [`build.artifact`](../../../build/artifact.tl) parses `targets.tsv`, reads each raw
 core, and renders launcher arms with
 [`build.launcher`](../../../build/launcher.tl). A release writes each core as one
-zstd frame ([`Compress.zstd`]) beside the decoder stub built for its target. It
+zstd frame ([`Compress.encode`]) beside the decoder stub built for its target. It
 aligns every stored range, hashes the exact bytes, and writes one fixed-size
 manifest entry per range. An entry has a kind (a core, or the stub of a
 target's core) and a codec (raw or zstd). It names the stored bytes by offset,
@@ -199,8 +199,8 @@ returns).
 A warm core is hashed until it has been verified and left alone: once startup
 has hashed an entry and a second has passed since the entry last changed,
 startup writes `.verified-<entry>` beside it, recording the entry's size,
-inode, and modification and change seconds. While the entry still answers the
-same, neither the launcher nor startup hashes it. Any write to the entry moves
+inode, and modification and change seconds. While the entry still matches its
+stamp, neither the launcher nor startup hashes it. Any write to the entry moves
 its times, so the stamp no longer holds for a damaged core, and the entry
 is newer than its stamp. The launcher's warm start runs only an entry no
 newer than its stamp, so the full path hashes a damaged one before it
@@ -507,7 +507,7 @@ cores.
 
 The contract above is observable from any program the artifact runs, so
 the guide checks it here rather than only in shell fixtures. Every
-identity key answers from the validated startup context, the artifact
+identity key comes from the validated startup context, the artifact
 path is the one the launcher was given, and none of the private launcher
 names survive into the environment:
 
@@ -537,7 +537,7 @@ The manifest entry selected for this host names exactly the bytes this
 process runs. `host_image` is the digest of the running core, so the
 core entry carrying that digest is the selected one, and decoding its range
 back out of the artifact file (a zstd frame, for a release) gives the same
-answer:
+digest:
 
 ```teal
 local Codec = require("cosmic.codec")
@@ -576,7 +576,7 @@ manifest: names the running core
 [`build.artifact.trusted_prefix`]: ../../../build/artifact.tl
 [`Child.start`]: ../../../cosmic/child/init.tl
 [`ci/cosmic_ci/orchestration.tl`]: ../../../ci/cosmic_ci/orchestration.tl
-[`Compress.zstd`]: ../../../cosmic/compress.tl
+[`Compress.encode`]: ../../../cosmic/compress.tl
 [`core/bridge.lua`]: ../../../core/bridge.lua
 [`core/check.h`]: ../../../core/check.h
 [`core/unzstd.c`]: ../../../core/unzstd.c

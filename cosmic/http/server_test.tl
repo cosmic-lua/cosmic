@@ -152,7 +152,7 @@ end
 
 --- Runs a server of `handle` (and `tuning`'s fields) on the loopback
 --- at a port the kernel chooses, running `client` with its address once it listens,
---- and stops it once `client` returns. Answers what went to on_error.
+--- and stops it once `client` returns. Returns what went to on_error.
 local function serving(handle: function(Server.Request): Server.Reply,
                        client: function(Net.Address), tuning?: Tuning): {string}
   local troubles: mut {string} = {}
@@ -178,7 +178,7 @@ local function serving(handle: function(Server.Request): Server.Reply,
   return troubles
 end
 
---- Answers each request with its method, path and query.
+--- Returns, for each request, its method, path and query.
 local function echo(req: Server.Request): Server.Reply
   local body = assert(Stream.read_all(req.body))
   return { status = 200, headers = { ["Content-Type"] = "text/plain" },
@@ -196,7 +196,7 @@ local function get(path: string, extra?: string): string
   return "GET " .. path .. " HTTP/1.1\r\nHost: test\r\n" .. (extra or "") .. "\r\n"
 end
 
---- Requests pipelined in one write are answered in order on one
+--- Requests pipelined in one write get their replies in order on one
 --- connection, which stays open for another after them; each reply
 --- carries a Date and its Content-Length, and no Connection header.
 local function test_pipelined_requests_are_answered_in_order_on_one_connection()
@@ -254,7 +254,7 @@ local class Watched is Stream.Reader
   end
 end
 
---- A HEAD is answered with the head a GET would have, its
+--- A HEAD gets the head a GET would have, its
 --- Content-Length included, and no body: the next reply on the
 --- connection follows at once. A Reader body is closed unread.
 local function test_head_is_answered_with_no_body()
@@ -327,7 +327,7 @@ local function test_streamed_replies_on_one_connection_are_not_held_back()
   assert(#troubles == 0, troubles[1])
 end
 
---- `Expect: 100-continue` is answered `100 Continue` when the handler
+--- `Expect: 100-continue` gets `100 Continue` when the handler
 --- first reads the body, and only then; a declared body past the
 --- limit is refused at once, with no 100; and a handler that never
 --- reads it closes the connection after its reply, since the client
@@ -379,7 +379,7 @@ local function test_each_limit_is_answered()
     local over = reply(chunked)
     assert(over.status == 413, tostring(over.status))
     assert(handled == 1, tostring(handled))
-    -- One connection at a time: a second waits, unanswered, while the
+    -- One connection at a time: a second waits, with no reply, while the
     -- first is busy (see the test of a full server for one idle).
     local first <close> = peer(address)
     send(first, "PUT / HTTP/1.1\r\nHost: test\r\nContent-Length: 2\r\n\r\n")
@@ -402,8 +402,8 @@ local function untyped(v: any): any
   return v
 end
 
---- A handler that raises, or answers what is no reply the server can
---- send, is answered 500, the connection closed, and the trouble goes
+--- A 500 goes out for a handler that raises, or returns what is no reply
+--- the server can send, the connection is closed, and the trouble goes
 --- to on_error: a raise with its stack.
 local function test_a_failing_handler_is_answered_500()
   local bad: {string: any} = {
@@ -455,7 +455,7 @@ end
 
 --- A handler may give a reply's Content-Length, under any case of its
 --- name, as the body's size: it is sent once, the body framed by it. A
---- HEAD may be answered with the size alone, as a Content-Length or a
+--- handler may give a HEAD the size alone, as a Content-Length or a
 --- `length` and no body: the size is sent, and no bytes, so the next
 --- reply on the connection follows at once.
 local function test_a_handler_may_give_the_content_length()
@@ -507,8 +507,8 @@ local function test_a_list_header_is_sent_as_one_line_per_element()
   assert(#troubles == 0, troubles[1])
 end
 
---- A head sent slower than head_ns is answered 408 and closed, however
---- steadily its bytes come, and so is a body that stalls past
+--- A head sent slower than head_ns gets 408 and its connection closed,
+--- however steadily its bytes come, and so does a body that stalls past
 --- timeout_ns; a connection idle past idle_ns is closed.
 local function test_a_slow_head_and_an_idle_connection_are_closed()
   serving(echo, function(address: Net.Address)
@@ -591,7 +591,7 @@ local function test_a_large_string_body_reaches_a_slow_reader()
       local piece, _ = slow.conn:read(128 * 1024)
       if piece == nil or piece == false then break end
       got = got + #piece
-      assert(Poll.delay(Clock.ms(5)))
+      assert(Clock.sleep(Clock.ms(5)))
     end
     -- At 26 MB a second the body takes about 1.3 s, past the 500 ms.
     assert(got > size, ("read %d bytes of a %d byte body"):format(got, size))
@@ -607,7 +607,7 @@ local function test_a_full_server_closes_an_idle_connection_for_a_client_waiting
   local release: boolean = false
   local troubles = serving(function(req: Server.Request): Server.Reply
     if req.path == "/slow" then
-      while not release do assert(Poll.delay(Clock.ms(5))) end
+      while not release do assert(Clock.sleep(Clock.ms(5))) end
     end
     return { status = 200, body = req.path }
   end, function(address: Net.Address)
@@ -620,11 +620,11 @@ local function test_a_full_server_closes_an_idle_connection_for_a_client_waiting
     assert(ended(idle), "the idle connection stayed open")
     -- Now `waiting` is the one open, and busy.
     send(waiting, get("/slow"))
-    assert(Poll.delay(Clock.ms(20)))
+    assert(Clock.sleep(Clock.ms(20)))
     local third <close> = peer(address)
     send(third, get("/third"))
     -- Time for the server to see `third` waiting while `waiting` is busy.
-    assert(Poll.delay(Clock.ms(100)))
+    assert(Clock.sleep(Clock.ms(100)))
     release = true
     local slow = reply(waiting)
     assert(slow.body == "/slow" and slow.headers["connection"] == "close", slow.headers["connection"])
@@ -656,7 +656,7 @@ local function test_a_body_left_unread_is_dropped_before_the_next_request()
   end)
 end
 
---- A malformed request is answered 400 and the connection closed.
+--- A malformed request gets 400 and the connection is closed.
 local function test_a_malformed_request_is_answered_400()
   serving(echo, function(address: Net.Address)
     for _, request in ipairs({
@@ -877,7 +877,7 @@ end
 
 --- An error reply to a request whose body the handler never read still
 --- frames: the body, whole or chunked, is dropped, and the request
---- pipelined behind it is answered.
+--- pipelined behind it gets its reply.
 local function test_an_unread_body_with_a_4xx_reply_still_frames()
   local troubles = serving(function(req: Server.Request): Server.Reply
     if req.path:find("^/refuse") then return { status = 401, body = "who" } end
@@ -912,7 +912,7 @@ end
 
 --- A body sent a byte at a time fails past body_ns, however steadily it
 --- comes and however short each wait: the handler's read fails and the
---- server answers 408 in place of its reply and closes.
+--- server sends 408 in place of its reply and closes.
 local function test_a_body_slower_than_body_ns_is_answered_408()
   local read_failed: boolean = false
   serving(function(req: Server.Request): Server.Reply
@@ -1007,7 +1007,7 @@ local function test_a_slow_handler_reading_a_prompt_body_gets_it()
 end
 
 --- A handler that works past body_ns and ignores the body, sent in good
---- time, is answered as any other: the connection stays open, and the
+--- time, is handled as any other: the connection stays open, and the
 --- body is dropped in a window of its own before the next request.
 local function test_a_slow_handler_ignoring_a_prompt_body_keeps_the_connection()
   local troubles = serving(function(req: Server.Request): Server.Reply
@@ -1029,8 +1029,8 @@ local function test_a_slow_handler_ignoring_a_prompt_body_keeps_the_connection()
 end
 
 --- A client waiting on `Expect: 100-continue` whose request is refused
---- with a string reply is answered and closed, not left to wait for a
---- body it never sends.
+--- with a string reply gets that reply and is closed, not left to wait
+--- for a body it never sends.
 local function test_a_refused_100_continue_closes_without_waiting()
   local started = Clock.monotonic_ns()
   local troubles = serving(function(_req: Server.Request): Server.Reply
@@ -1047,7 +1047,7 @@ local function test_a_refused_100_continue_closes_without_waiting()
 end
 
 --- A 404 to a HEAD request that carries a body sends no body and drops
---- the request's, so the next request on the connection is answered.
+--- the request's, so the next request on the connection gets its reply.
 local function test_a_head_with_a_body_and_a_404_keeps_the_connection()
   local troubles = serving(function(req: Server.Request): Server.Reply
     if req.method == "HEAD" then return { status = 404, body = "no" } end
@@ -1381,8 +1381,8 @@ local function test_a_compressed_reply_has_a_weak_etag()
 end
 
 --- A client that refuses identity and every coding the server writes
---- is answered 406, the Reader body closed; one that refuses identity
---- but takes a coding is answered that. A reply not eligible is not
+--- gets 406, the Reader body closed; one that refuses identity but
+--- takes a coding gets that coding. A reply not eligible is not
 --- refused.
 local function test_a_client_refusing_identity_is_answered_406()
   local refused_body = Stream.from_string(TEXT)
@@ -1632,7 +1632,7 @@ local function test_a_streamed_body_sees_the_client_go_at_once()
 end
 
 --- A streamed body that says "start", then waits for a notice that
---- never comes but its close, which answers the end: a stream of events
+--- never comes but its close, which returns the end: a stream of events
 --- that knows nothing of its client.
 local class Quiet is Stream.Reader
   notifier: Poll.Notifier
@@ -1675,15 +1675,15 @@ local function test_the_server_closes_a_quiet_reply_as_its_client_leaves()
       assert(line(p) == "HTTP/1.1 200 OK")
       local until_ns = Clock.monotonic_ns() + Clock.seconds(2)
       while (quiet == nil or not assert(quiet).started) and Clock.monotonic_ns() < until_ns do
-        assert(Poll.delay(Clock.ms(5)))
+        assert(Clock.sleep(Clock.ms(5)))
       end
-      assert(Poll.delay(Clock.ms(100)))
+      assert(Clock.sleep(Clock.ms(100)))
       assert(assert(quiet).closed_ns == nil, "closed while its client was there")
       left_ns = Clock.monotonic_ns()
       local _, _ = p.conn:close()
       until_ns = left_ns + Clock.seconds(2)
       while assert(quiet).closed_ns == nil and Clock.monotonic_ns() < until_ns do
-        assert(Poll.delay(Clock.ms(5)))
+        assert(Clock.sleep(Clock.ms(5)))
       end
     end, { compress = compress })
     local closed_ns = assert(assert(quiet).closed_ns, "the server never closed the Reader")
@@ -1700,7 +1700,7 @@ local class Slow is Stream.Reader
   function read(self, _max_bytes?: integer): (string | false) | (nil, Failure)
     self.at = self.at + 1
     if self.at > 3 then return false end
-    if self.at > 1 then assert(Poll.delay(Clock.ms(30))) end
+    if self.at > 1 then assert(Clock.sleep(Clock.ms(30))) end
     local piece = ({ "one ", "two ", "three" })[self.at]
     if piece == nil then return false end
     return piece
@@ -1744,13 +1744,13 @@ local function test_a_streamed_body_waiting_for_the_client_wakes_as_it_goes()
     assert(line(p) == "HTTP/1.1 200 OK")
     while not p.buf:find("data: start", 1, true) do assert(more(p)) end
     send(p, get("/next"))
-    assert(Poll.delay(Clock.ms(200)))
+    assert(Clock.sleep(Clock.ms(200)))
     assert(assert(waiting).seen_ns == nil, "the pipelined request read as the client gone")
     closed_ns = Clock.monotonic_ns()
     local _, _ = p.conn:close()
     local until_ns = closed_ns + Clock.seconds(2)
     while assert(waiting).seen_ns == nil and Clock.monotonic_ns() < until_ns do
-      assert(Poll.delay(Clock.ms(5)))
+      assert(Clock.sleep(Clock.ms(5)))
     end
   end)
   local seen_ns = assert(assert(waiting).seen_ns, "the body never saw the client go")

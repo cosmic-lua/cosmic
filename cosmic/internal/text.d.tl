@@ -3,10 +3,10 @@
 --- @kind binding
 
 local record text
-  -- The lines of `text`, each without its newline: a last line with no
+  -- A new list of the lines of `text`, each without its newline: a last line with no
   -- newline is one too, and none follows a last newline. Where `bare`, a
   -- `\r` at the end of a line goes too.
-  lines: function(text: string, bare: boolean): {string}
+  lines: function(text: string, bare: boolean): mut {string}
   -- How many newlines bytes `i` through `j` of `text` hold (from 1, as
   -- string.sub counts, clamped to the text), and where the last of them
   -- is, or 0 where none is.

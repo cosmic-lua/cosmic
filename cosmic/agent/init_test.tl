@@ -64,10 +64,9 @@ local function test_the_loop_runs_tools_until_the_turn_ends()
   assert(whole:find('"system":[{"cache_control":{"type":"ephemeral"},"text":"sys","type":"text"},{"text":"<cwd>\\n' ..
       dir .. '\\n</cwd>","type":"text"}]', 1, true) ~= nil, whole)
   assert(whole:find('"content":"make out.txt"', 1, true) ~= nil, whole)
-  -- The tools offered by default run no program: no bash, no jobs, and no sql (run reads what is kept).
+  -- The tools offered by default run no program: no bash and no jobs.
   local tools, _ = Json.to_array(first["tools"])
-  assert(tools ~= nil and #tools == 4 and not assert(Json.encode(tools)):find('"name":"bash"', 1, true) and
-      not assert(Json.encode(tools)):find('"name":"sql"', 1, true))
+  assert(tools ~= nil and #tools == 4 and not assert(Json.encode(tools)):find('"name":"bash"', 1, true))
   local h = header(a, 1)
   assert(h["x-api-key"] == "k" and h["anthropic-version"] == "2026-10-21", h["x-api-key"])
   assert(h["anthropic-beta"] == "server-side-fallback-2026-07-01,cache-diagnosis-2026-04-07,compact-2026-01-12", h["anthropic-beta"])
@@ -315,14 +314,14 @@ local function test_a_compacting_reply_is_not_kept_warm()
 end
 
 --- A turn's budget: the first limit reached ends it for good, the tool
---- calls of its last reply answered as stopped, and the next prompt gets
+--- calls of its last reply given results of stopped, and the next prompt gets
 --- a budget of its own.
 local function test_a_turn_ends_where_its_budget_is_spent()
   local function calling(id: string, n: integer): Json.Value
     return { content = { bash_call(id, "true") }, stop_reason = "tool_use",
       usage = { input_tokens = n, output_tokens = n, cache_read_input_tokens = n, cache_creation_input_tokens = n } }
   end
-  -- turns: the reply of the last request asks for a tool, which is answered, not run.
+  -- turns: the reply of the last request asks for a tool, which gets a result, not run.
   local s, a = kept({ calling("t1", 10), calling("t2", 10), text_reply("never") }, nil, "claude-sonnet-5-5")
   s.budget = { turns = 2 }
   local seen = agent_fixture.events()

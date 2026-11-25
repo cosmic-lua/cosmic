@@ -1,8 +1,8 @@
 --- Finding services on the local network: the client side of DNS-SD (RFC 6763) over multicast
 --- DNS (RFC 6762). [`Mdns.browse`] asks which instances of a service type, or of several, the
 --- network has and says where each is, and [`Mdns.resolve`] asks for the addresses of a host of
---- the `local` domain. [`Mdns.responder`] is the other side: it answers the questions about
---- the instances it is given.
+--- the `local` domain. [`Mdns.responder`] is the other side: it responds to the questions
+--- about the instances it is given.
 ---
 ---     local printers = assert(Mdns.browse("_ipp._tcp", { timeout_ns = Clock.seconds(2) }))
 ---     for _, printer in ipairs(printers) do
@@ -19,7 +19,7 @@
 ---     for _, instance in ipairs(found) do print(instance.service, instance.name) end
 ---
 --- A search sends its questions to the multicast group, again after `retry_ns` and then after
---- gaps that double, and listens until `timeout_ns` has passed. An answer may leave records
+--- gaps that double, and listens until `timeout_ns` has passed. A response may leave records
 --- out: an instance named with no SRV or TXT record, or a host with no address. The search asks
 --- for what is missing a tenth of a second after it learned the name, and then after the same
 --- doubling gaps, three times at most for one name it holds: for the SRV record of an instance,
@@ -28,26 +28,26 @@
 ---
 --- There are two ways to listen ([`Mdns.Listen`]).
 ---
---- "unicast", the default, asks from a port of its own. A responder answers a question that
---- comes from another port than 5353 to that port alone, and repeats the question's id (RFC
---- 6762 section 6.7), which the search draws anew each time and holds every answer to. It needs
---- no membership of the group and no share of port 5353, so it works beside the system's own
---- responder and where a group cannot be joined, and it is right for a search made once. A
---- responder that does not repeat the id, or that leaves such a question unanswered, gives it
---- no instance; cosmic's own leaves unanswered a question from an address that is not loopback,
+--- "unicast", the default, asks from a port of its own. A responder replies to a question that
+--- comes from another port than 5353 at that port alone, and repeats the question's id (RFC
+--- 6762 section 6.7), which the search draws anew each time and holds every response to. It
+--- needs no membership of the group and no share of port 5353, so it works beside the system's
+--- own responder and where a group cannot be joined, and it is right for a search made once. A
+--- responder that does not repeat the id, or that does not reply to such a question, gives it
+--- no instance; cosmic's own does not reply to a question from an address that is not loopback,
 --- link-local or private (a tailnet's 100.64.0.0/10 among them), where "group" still works.
 ---
 --- "group" binds port 5353, shared, and joins the group, as a full member of the protocol does.
---- It hears the answers every responder sends to the group, those to another program's question
---- among them, and it is the way to use for a responder "unicast" hears nothing from. It fails
---- where a program holds port 5353 without sharing it.
+--- It hears the responses every responder sends to the group, those to another program's
+--- question among them, and it is the way to use for a responder "unicast" hears nothing from.
+--- It fails where a program holds port 5353 without sharing it.
 ---
 --- A question leaves by every interface that is up, carries multicast, is no loopback and has
 --- an IPv4 address, as [`Net.interfaces`] lists them, or by those `via` names. Where the
 --- interfaces cannot be listed, as in a sandbox with no network, or none is such a one, it leaves by
 --- the interface the system chooses. An interface that refuses the question is passed over
 --- while another takes it. Questions go over IPv4 alone; a host's IPv6 addresses are those its
---- answers over IPv4 give.
+--- responses over IPv4 give.
 ---
 --- Every datagram is taken as hostile. These are ignored: one over 9000 bytes, one that is no DNS
 --- message, a query, a response with an error or to another kind of query, one that comes from
@@ -66,13 +66,13 @@
 --- as the whole of another. An instance that sends no other TXT record is listed with no TXT
 --- strings, and is never whole as `limit` and `found` count it.
 ---
---- That is all that is checked of who answers. The id keeps out an answer sent blind to a search
---- that listens by "unicast"; listening by "group", any machine that can send a datagram to the
---- port can answer. Either way a machine of the network that hears the question can answer it
---- with anything: an instance that is not there, or, for a host an instance's SRV record names,
---- addresses of its own choosing, which are taken from whoever sends them. Whether an answer
---- came from the local link is not checked. What a search answers says where to try, not whom
---- to trust.
+--- That is all that is checked of who responds. The id keeps out a response sent blind to a
+--- search that listens by "unicast"; listening by "group", any machine that can send a datagram
+--- to the port can respond. Either way a machine of the network that hears the question can
+--- reply to it with anything: an instance that is not there, or, for a host an instance's SRV
+--- record names, addresses of its own choosing, which are taken from whoever sends them.
+--- Whether a response came from the local link is not checked. What a search returns says where
+--- to try, not whom to trust.
 ---
 --- A search holds a bounded amount, whatever the count of service types it asks for, which is 32
 --- at most: `limit` and every figure below are for all of them together. It holds `limit`
@@ -104,13 +104,13 @@
 ---
 --- In a task of [`Poll.run`] a search waits through the run, so the other tasks go on: it also
 --- lets them run after every 16 datagrams, however fast those come. A cancelled task's search
---- ends with nil and a Failure of kind "cancelled", and answers no list: a failure carries no value. What
+--- ends with nil and a Failure of kind "cancelled", and returns no list: a failure carries no value. What
 --- it had found is given to `found`, which a cancelled browse calls, before it ends, with each
 --- instance it would have listed and had not given yet, so a caller that may cancel a search
 --- and wants what it found passes `found`. Anywhere else a search holds the thread until it
 --- ends, and ends with nil and "interrupted" when a [`cosmic.signal`] guard catches a signal.
 ---
---- A responder ([`Mdns.responder`]) publishes instances by answering for them:
+--- A responder ([`Mdns.responder`]) publishes instances by responding to questions about them:
 ---
 ---     local responder <close> = assert(Mdns.responder({
 ---       { service = "_http._tcp", name = "Front Desk", host = "desk.local", port = 8080,
@@ -118,32 +118,33 @@
 ---     }))
 ---     assert(responder:serve())
 ---
---- It binds port 5353, shared, joins the group, and answers the PTR question at the service type
---- of an instance, the SRV and TXT questions at the instance's name, the A and AAAA questions at
---- its host's, and a question for any type at each, with the records the question did not ask
---- for beside those it did. A question from port 5353 is answered to the group, with the id 0
---- and no question, as one member answers another. A question from any other port is from a
---- program that is no member, and is answered to that port alone, with its id and its questions
---- repeated and no time to live over 10 seconds (RFC 6762 section 6.7): that is what a search
---- listening by "unicast" asks. Such a question is answered only where it comes from a
---- loopback, link-local or private IPv4 address, and is ignored from any other, so that a query
---- naming another's address as its own draws no answer to it. A member's question that asks for its answer by unicast is
---- answered to the group all the same. Answers go by IPv4 alone, and to the group by every
---- interface the responder joined it on. The responder holds 64 instances at most, each with
---- what a search keeps of one, and answers a query with one message for each instance the query
---- asks about, none over 9000 bytes, though one may be longer than a frame of an Ethernet
---- carries whole. It reads a query as a search reads an answer: one over 9000 bytes, one that
---- is no DNS message, a response and a query of another kind are ignored, and whether a query
---- came from the local link is not checked, so any machine that can reach the port draws an
---- answer to the group, and one with a nearby address an answer to itself.
+--- It binds port 5353, shared, joins the group, and responds to the PTR question at the service
+--- type of an instance, the SRV and TXT questions at the instance's name, the A and AAAA
+--- questions at its host's, and a question for any type at each, with the records the question
+--- did not ask for beside those it did. It sends its response to a question from port 5353 to
+--- the group, with the id 0 and no question, as one member replies to another. A question from
+--- any other port is from a program that is no member, and gets its response at that port
+--- alone, with its id and its questions repeated and no time to live over 10 seconds (RFC 6762
+--- section 6.7): that is what a search listening by "unicast" asks. Such a question gets a
+--- response only where it comes from a loopback, link-local or private IPv4 address, and is
+--- ignored from any other, so that a query naming another's address as its own draws no
+--- response to it. A member's question that asks for a unicast response gets one sent to the
+--- group all the same. Responses go by IPv4 alone, and to the group by every interface the
+--- responder joined it on. The responder holds 64 instances at most, each with what a search
+--- keeps of one, and responds to a query with one message for each instance the query asks
+--- about, none over 9000 bytes, though one may be longer than a frame of an Ethernet carries
+--- whole. It reads a query as a search reads a response: one over 9000 bytes, one that is no
+--- DNS message, a response and a query of another kind are ignored, and whether a query came
+--- from the local link is not checked, so any machine that can reach the port draws a response
+--- to the group, and one with a nearby address a response to itself.
 ---
---- Answering is all it does of a publisher's part. It does not probe for its names before it
+--- Responding is all it does of a publisher's part. It does not probe for its names before it
 --- uses them, announce its records, say goodbye as it stops or settle a conflict with another
---- responder that answers for the same name (RFC 6762 sections 8 to 10), so the names it is
+--- responder that publishes the same name (RFC 6762 sections 8 to 10), so the names it is
 --- given must be the caller's to use. It does not leave out an answer the question lists as
---- known (section 7.1), wait before it answers a question others may answer too (section 6),
---- or say that a record it could have does not exist (section 6.1), and it publishes no
---- sub-type.
+--- known (section 7.1), wait before it responds to a question others may also respond to
+--- (section 6), or say that a record it could have does not exist (section 6.1), and it
+--- publishes no sub-type.
 
 local Clock = require("cosmic.clock")
 local Dns = require("cosmic.dns")
@@ -153,8 +154,8 @@ local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Rand = require("cosmic.rand")
 
---- A responder, as [`Mdns.responder`] answers one: it holds its socket, bound and a member of
---- the group, from when it is made, and answers questions while `serve` runs. A class, so a
+--- A responder, as [`Mdns.responder`] returns one: it holds its socket, bound and a member of
+--- the group, from when it is made, and responds to questions while `serve` runs. A class, so a
 --- `<close>` local holds one.
 local class MdnsResponder
   --- Where it is bound: every address of the machine, at the port asked for or, for port 0,
@@ -162,17 +163,17 @@ local class MdnsResponder
   address: Net.Address
   --- Internal: the socket. No caller reads it.
   socket: Net.Datagram
-  --- Internal: answers the queries that reach the socket until a wait fails.
+  --- Internal: responds to the queries that reach the socket until a wait fails.
   answering: function(): boolean, string
   --- Internal: set by `close`.
   mut closed: boolean
 
-  --- Answers the questions that come about the responder's instances, until `close`: true once
-  --- it is closed, from another task or before the call. False and why where a wait fails
+  --- Responds to the questions that come about the responder's instances, until `close`: true
+  --- once it is closed, from another task or before the call. False and why where a wait fails
   --- first: [`Poll.CANCELLED`] in a cancelled task, "interrupted" where a [`cosmic.signal`] guard
   --- catches a signal. In a task of [`Poll.run`] the other tasks go on meanwhile, and have a turn
-  --- after every 16 datagrams however fast those come; anywhere else it holds the thread. An
-  --- answer the system does not take is dropped, as the network drops one.
+  --- after every 16 datagrams however fast those come; anywhere else it holds the thread. A
+  --- response the system does not take is dropped, as the network drops one.
   function serve(self): boolean, string
     local _, why = self.answering()
     if self.closed then return true, "" end
@@ -193,17 +194,17 @@ local class MdnsResponder
 end
 
 local record Mdns
-  --- How a search listens for its answers.
+  --- How a search listens for its responses.
   enum Listen
-    --- From a port the system chooses, which every answer comes back to with the id of its
+    --- From a port the system chooses, which every response comes back to with the id of its
     --- question: no group is joined and port 5353 is not bound.
     "unicast"
     --- At the port asked, shared with the other programs bound to it, as a member of the group:
-    --- answers sent to the group are heard, whoever asked.
+    --- responses sent to the group are heard, whoever asked.
     "group"
   end
 
-  --- One instance of a service, as [`Mdns.browse`] answers it.
+  --- One instance of a service, of those [`Mdns.browse`] returns.
   record Instance
     --- The name of the instance, as a person reads it: any UTF-8, with dots and spaces as they
     --- are.
@@ -220,19 +221,19 @@ local record Mdns
     host: string
     --- The port of the service at that host; 0 for an instance with no SRV record.
     port: integer
-    --- The IPv4 addresses of the host, in the order they came; none where no answer gave one.
+    --- The IPv4 addresses of the host, in the order they came; none where no response gave one.
     ipv4: {string}
     --- The IPv6 addresses of the host, in the order they came. A link-local one (`fe80::`) comes
-    --- without its zone, which is the interface the answer came by.
+    --- without its zone, which is the interface the response came by.
     ipv6: {string}
-    --- The strings of the instance's TXT record, as they came; none where no answer gave a
+    --- The strings of the instance's TXT record, as they came; none where no response gave a
     --- record the search keeps.
     txt: {string}
     --- The strings of `txt` read as keys and values by [`Dns.attributes`].
     attributes: {string: string}
     --- The address the datagram with the instance's SRV record came from, or with its TXT
-    --- record for an instance with no SRV record: the responder that answers for it, which is its
-    --- host unless another machine answers on its behalf. The interface it came by is not known.
+    --- record for an instance with no SRV record: the responder that publishes it, which is its
+    --- host unless another machine does so on its behalf. The interface it came by is not known.
     from: string
   end
 
@@ -253,10 +254,10 @@ local record Mdns
     --- Listening by "unicast", the address of one machine asks that machine alone, and `via` is
     --- not read.
     address?: string
-    --- The port asked, from 1 to 65535, which "group" also binds and every answer comes from;
+    --- The port asked, from 1 to 65535, which "group" also binds and every response comes from;
     --- 5353 when nil.
     port?: integer
-    --- For [`Mdns.browse`]: the most instances the search answers, of all the service types it
+    --- For [`Mdns.browse`]: the most instances the search returns, of all the service types it
     --- asks together, from 1 to 4096; 256 when nil. An SRV record that would make one more is
     --- ignored, and the search ends early once that many are whole, as `found` has it.
     --- [`Mdns.resolve`] holds it to the same range and reads nothing else of it.
@@ -280,8 +281,8 @@ local record Mdns
     --- search. It is called as soon as the instance is whole, which is when its SRV record, its
     --- TXT record and an address of its host are known, or as the search ends for one whose SRV
     --- record alone came, or whose only TXT record is one a search does not keep. A search that
-    --- ends cancelled calls it so too, in the cancelled task, where a wait answers
-    --- [`Poll.CANCELLED`] at once. An address that comes later is in the list the search answers,
+    --- ends cancelled calls it so too, in the cancelled task, where a wait returns
+    --- [`Poll.CANCELLED`] at once. An address that comes later is in the list the search returns,
     --- not in what was given here. What it raises, the search raises.
     found?: function(Instance)
   end
@@ -309,21 +310,21 @@ local record Mdns
 
   --- What [`Mdns.responder`] takes. A field out of range raises, naming the field.
   record ResponderOptions
-    --- The IPv4 multicast group joined and answered to; that of multicast DNS, 224.0.0.251,
-    --- when nil.
+    --- The IPv4 multicast group joined and sent responses to; that of multicast DNS,
+    --- 224.0.0.251, when nil.
     address?: string
     --- The port bound, shared, from 0 to 65535; 5353 when nil. A question from this port is a
-    --- member's, and any other is answered by unicast. 0 is a port the system chooses, which
+    --- member's, and any other gets a response by unicast. 0 is a port the system chooses, which
     --- the responder's `address` then says: no searcher asks there unless told to, so it is for
     --- a test.
     port?: integer
-    --- The interfaces the group is joined on and its answers leave by: one IPv4 address of
+    --- The interfaces the group is joined on and its responses leave by: one IPv4 address of
     --- each. When nil, every interface fit for it, or the system's choice, as for a search (see
     --- [`cosmic.mdns`]); an empty list is the system's choice too.
     via?: {string}
   end
 
-  --- A responder that answers for the instances it was given.
+  --- A responder that publishes the instances it was given.
   type Responder = MdnsResponder
 end
 
@@ -432,11 +433,11 @@ end
 local record Hunt
   socket: Net.Datagram
   to: Net.Address
-  --- The port asked at, which an answer comes from.
+  --- The port asked at, which a response comes from.
   port: integer
   --- The interfaces a question leaves by; none for the system's choice.
   vias: {string}
-  --- The id of every question, and whether an answer must repeat it.
+  --- The id of every question, and whether a response must repeat it.
   id: integer
   unicast: boolean
   timeout_ns: integer
@@ -542,7 +543,7 @@ local function open(opts: Mdns.Options): Hunt?, string
   local grouped = opts.listen == "group"
   local id = 0
   if not grouped then
-    -- One that cannot be guessed tells an answer from a datagram sent blind to the port.
+    -- One that cannot be guessed tells a response from a datagram sent blind to the port.
     local drawn, why = Rand.entropy(2)
     if drawn == nil then return nil, why end
     id = string.unpack(">I2", drawn)
@@ -613,9 +614,10 @@ local function ask(hunt: Hunt, questions: {Dns.Question}): boolean, string
   return true, ""
 end
 
---- A question for the records of type `rtype` at `name`. It never asks for an answer by unicast:
---- a question from a port of the search's own is answered there without the bit, and with it a
---- responder may answer as it does a member of the group, with no id to tell the answer by.
+--- A question for the records of type `rtype` at `name`. It never asks for a unicast response:
+--- a question from a port of the search's own gets its response there without the bit, and with
+--- it a responder may respond as it does to a member of the group, with no id to tell the
+--- response by.
 local function question(name: string, rtype: integer): Dns.Question
   return { name = name, type = rtype, class = Dns.IN, unicast_response = false }
 end
@@ -676,7 +678,7 @@ end
 --- wherever in it the record stands.
 local function hear(hunt: Hunt, packet: Net.Packet, now: integer)
   -- TODO: drop a datagram that did not arrive with 255 hops, the proof that it came from the
-  -- local link (RFC 6762 section 11), once Net.Datagram's receive answers the hops a datagram
+  -- local link (RFC 6762 section 11), once Net.Datagram's receive returns the hops a datagram
   -- arrived with.
   if #packet.data > MAX_MESSAGE or packet.address.port ~= hunt.port then return end
   local message, _ = Dns.decode(packet.data)
@@ -706,7 +708,7 @@ local function hear(hunt: Hunt, packet: Net.Packet, now: integer)
       local key = target:lower()
       local name = if hunt.instances[key] == nil then instance_name(service, target) else nil end
       local srv = placing[key]
-      -- A search that has all the instances it may answer takes no new name: none could be given
+      -- A search that has all the instances it may return takes no new name: none could be given
       -- a host, and each would draw questions for nothing.
       if name ~= nil and hunt.placed < hunt.limit then
         local entry: Entry = { name = name, fullname = target, service = service.written, from = from,
@@ -780,7 +782,7 @@ local function instance_of(hunt: Hunt, entry: Entry): Mdns.Instance?
 end
 
 --- Calls `found` with each instance it was not called with yet, of those that are whole or, with
---- `all`, of those the search lists, and answers how many instances are whole.
+--- `all`, of those the search lists, and returns how many instances are whole.
 local function tell(hunt: Hunt, all: boolean): integer
   local whole = 0
   for _, key in ipairs(hunt.order) do
@@ -810,7 +812,7 @@ end
 
 --- Forgets each instance that has no SRV record once the last question for it has had its time,
 --- so that it makes room for another name, and every one of them once the search holds all the
---- instances it may answer. One the search keeps without an SRV record is never forgotten.
+--- instances it may return. One the search keeps without an SRV record is never forgotten.
 local function forget_unanswered(hunt: Hunt, now: integer)
   for at = #hunt.order, 1, -1 do
     local key = hunt.order[at]
@@ -832,7 +834,7 @@ local function follow_up(hunt: Hunt, due: mut {Dns.Question}, asked: Dns.Questio
 end
 
 --- Adds to `due` the questions for the records each name still lacks and is due to be asked for
---- at `now`, and answers when the next of them is due, or `wake` where that is sooner.
+--- at `now`, and returns when the next of them is due, or `wake` where that is sooner.
 local function follow_ups(hunt: Hunt, now: integer, due: mut {Dns.Question}, wake: integer): integer
   forget_unanswered(hunt, now)
   for _, key in ipairs(hunt.order) do
@@ -979,7 +981,8 @@ local function browse_text(service: string | {string}, opts?: Mdns.Options): {Md
     return settle_ns
   end)
   if not ran then
-    -- A failure answers no list, so `found` is the one way out for what a cancelled search held.
+    -- A search that fails returns no list, so `found` is the one way out for what a cancelled
+    -- search held.
     if trouble == Poll.CANCELLED then tell(hunt, true) end
     return nil, trouble
   end
@@ -993,24 +996,25 @@ local function browse_text(service: string | {string}, opts?: Mdns.Options): {Md
   return instances, ""
 end
 
---- The instances of `service` on the local network that answer within `opts.timeout_ns`, in the
---- order they were first named; none where nothing answers. `service` is a service type as
+--- The instances of `service` on the local network that respond within `opts.timeout_ns`, in the
+--- order they were first named; none where nothing responds. `service` is a service type as
 --- DNS-SD writes it, `_http._tcp` or `_ipp._tcp.local`: the name of the application's protocol,
 --- then `_tcp` or `_udp` (`_udp` for all that is not TCP), then `.local` or nothing, since the
---- domain is always `local`. A sub-type is `_printer._sub._http._tcp`, and answers the instances
---- of `_http._tcp` that declare it. The case of ASCII letters means nothing.
+--- domain is always `local`. A sub-type is `_printer._sub._http._tcp`, and a search for it finds
+--- the instances of `_http._tcp` that declare it. The case of ASCII letters means nothing.
 ---
 --- `service` is also a list of such types, 1 to 32 of them, which one search asks for: every
 --- type in each repeat of its questions, from one socket, in as few messages as hold them. The
---- list it answers holds the instances of them all, in the order they were first named, each
+--- list it returns holds the instances of them all, in the order they were first named, each
 --- with the type it is one of in its `service`. A type written twice is asked for once and named
 --- as it was first written.
 ---
 --- The list holds each instance whose SRV record came, so each has its host and port; one that
 --- was only named is left out, and so is one with a TXT record and no SRV record unless
 --- `opts.txt_only` asks for those. Its TXT strings and its host's addresses are there where they
---- came too, and the search asks for them when an answer leaves them out. The search ends early
---- once `opts.limit` instances have all three: a limit of 1 answers the first instance found.
+--- came too, and the search asks for them when a response leaves them out. The search ends early
+--- once `opts.limit` instances have all three: with a limit of 1 it returns the first instance
+--- found.
 --- It ends `opts.settle_ns` after the first instance has all three, where that is given.
 --- `opts.found` is called with each instance of the list as it becomes known.
 ---
@@ -1070,9 +1074,9 @@ local function resolve_text(name: string, opts?: Mdns.Options): {Net.Resolved}?,
   return addresses, ""
 end
 
---- The addresses of the host `name` of the `local` domain, as `printer.local`, that answer within
+--- The addresses of the host `name` of the `local` domain, as `printer.local`, that come within
 --- `opts.timeout_ns`: its IPv4 addresses, then its IPv6 ones, each in the order they came, and
---- none where nothing answers. The search ends a tenth of a second after the first address,
+--- none where nothing responds. The search ends a tenth of a second after the first address,
 --- which is time for the host's other addresses to come. The question is asked three times at
 --- most: at once, after `opts.retry_ns` and after twice that again. `opts.found` is not read,
 --- and `opts.limit` only to hold it to its range.
@@ -1107,8 +1111,8 @@ end
 
 --- What a responder holds for `given`, or nil and why it publishes no such instance. `hosts` is
 --- the address records of each host by its name in lower case, which this adds the instance's
---- to: every instance of a host answers with all the host's addresses, since an address record
---- says it is the only one of its name and type but for those sent with it.
+--- to: every instance of a host is published with all the host's addresses, since an address
+--- record says it is the only one of its name and type but for those sent with it.
 local function publication(given: Mdns.Published, hosts: mut {string: mut {Dns.Record}}): Publication?, string
   local service, unnamed = service_of(given.service)
   if service == nil then return nil, unnamed end
@@ -1169,9 +1173,9 @@ local function publication(given: Mdns.Published, hosts: mut {string: mut {Dns.R
   }, ""
 end
 
---- Why a responder cannot answer for `held`, published as `name`, or "": its records are written
---- once here, so that an address that is none is refused as the responder is made and not at
---- each answer, and so that the answer has room beside them for the questions it repeats.
+--- Why a responder cannot publish `held` as `name`, or "": its records are written once here,
+--- so that an address that is none is refused as the responder is made and not at each
+--- response, and so that the response has room beside them for the questions it repeats.
 local function unanswerable(held: Publication, name: string): string
   local records: mut {Dns.Record} = { held.pointer, held.srv, held.txt }
   for _, record in ipairs(held.addresses) do records[#records + 1] = record end
@@ -1190,7 +1194,7 @@ local function sent_as(record: Dns.Record, legacy: boolean): Dns.Record
   return { ...record, cache_flush = false, ttl = math.min(record.ttl, LEGACY_TTL) }
 end
 
---- The messages that answer `query` for `published`, as bytes: one for each instance the query
+--- The responses to `query` for `published`, as bytes: one for each instance the query
 --- asks about, with the records asked for as answers and, beside a pointer or an SRV record,
 --- those a searcher asks for next as additionals. An address two instances share is an answer
 --- once. `legacy` is whether the query came from a program that is no member of the group.
@@ -1244,14 +1248,14 @@ local function replies(published: {Publication}, query: Dns.Message, legacy: boo
       end
       local bytes, _ = Dns.encode(message)
       -- Over the size only for the questions a query of a program that is no member has it
-      -- repeat: such an answer is not sent.
+      -- repeat: such a response is not sent.
       if bytes ~= nil and #bytes <= MAX_MESSAGE then out[#out + 1] = bytes end
     end
   end
   return out
 end
 
---- Answers the queries that reach `socket`, bound at `port`, for `published`, to `group` by
+--- Responds to the queries that reach `socket`, bound at `port`, for `published`, to `group` by
 --- `vias` or to the sender, until a wait fails: false and why.
 local function respond(socket: Net.Datagram, port: integer, group: Net.Address, vias: {string},
                        published: {Publication}): boolean, string
@@ -1260,13 +1264,13 @@ local function respond(socket: Net.Datagram, port: integer, group: Net.Address, 
     local packet, why = socket:receive()
     if packet == nil then return false, why.message end
     -- TODO: drop a query that did not arrive with 255 hops, the proof that it came from the local
-    -- link (RFC 6762 section 11), once Net.Datagram's receive answers the hops a datagram arrived
-    -- with: until then a machine past the link that reaches the port draws an answer to the
+    -- link (RFC 6762 section 11), once Net.Datagram's receive returns the hops a datagram arrived
+    -- with: until then a machine past the link that reaches the port draws a response to the
     -- group, or to a private address it gives as its own, which may be another's on the same
     -- private network.
     local query, _ = Dns.decode(packet.data)
     if query ~= nil and #packet.data <= MAX_MESSAGE and not query.response and query.opcode == 0 then
-      -- A question from another port is from a program that is no member of the group. Its answer
+      -- A question from another port is from a program that is no member of the group. Its reply
       -- goes by unicast to the address the query gives as its own, so only to a private one: a
       -- query that named a far one would draw replies many times its size to whoever that is.
       local to = Nearby.reply(packet.address.host, packet.address.port, port)
@@ -1346,16 +1350,16 @@ end
 
 --- A responder that publishes `instances`, 1 to 64 of them: its socket bound at `opts.port`,
 --- shared, and a member of the group on the interfaces `opts.via` names, ready for `serve` to
---- answer the questions about them ([`cosmic.mdns`] says which, and what a responder leaves
+--- respond to the questions about them ([`cosmic.mdns`] says which, and what a responder leaves
 --- undone). Two instances may be at one host; where they give it different addresses, the host
---- has them all, and each of its instances is answered for with them all. The names are the
---- caller's to use: no other responder is asked whether it answers for them.
+--- has them all, and each of its instances is published with them all. The names are the
+--- caller's to use: no other responder is asked whether it publishes them.
 ---
 --- Nil and a Failure where it cannot be made: no instance or more than 64, an instance whose service
 --- is no service type or is a sub-type, whose name is no label, whose host is not one of the
 --- `local` domain, whose port is out of range, with an address that is none, with a TXT record
 --- past what a search keeps, with the same name and service as another, or whose records are
---- longer than one answer holds; a host given more than 16 addresses of a family by its
+--- longer than one response holds; a host given more than 16 addresses of a family by its
 --- instances together; a socket that cannot be bound, which says the address and port first, as where a
 --- program holds the port without sharing it; or a group that cannot be joined on any
 --- interface, which says the group first. Raises for an option out of range.

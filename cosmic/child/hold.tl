@@ -99,7 +99,7 @@ local beneath = Hold.beneath
 --- must be beneath a grant giving `r` and one giving `x`, which may be
 --- one. A grant whose path does not exist is skipped, as spawn names
 --- it.
-function Hold.ungranted(files: {string}, grants: {Rules.Grant}, cwd?: string): string
+function Hold.ungranted(files: {string}, grants: {Rules.Path}, cwd?: string): string
   local reals: mut {{string}} = {}
   for _, grant in ipairs(grants) do
     local at = grant.path
@@ -125,7 +125,6 @@ function Hold.ungranted(files: {string}, grants: {Rules.Grant}, cwd?: string): s
   end
   return ""
 end
-local ungranted = Hold.ungranted
 
 --- The most a start under `isolate` file may grant: one of spawn's
 --- unveiled paths is the sandbox's own /proc.
@@ -142,7 +141,7 @@ local isolates = Hold.isolates
 
 --- Whether `merged` promises `nest`.
 function Hold.nests(merged: Rules.Policy): boolean
-  for _, promise in ipairs(merged.promises or {}) do
+  for _, promise in ipairs(Rules.calls(merged)) do
     if promise == "nest" then return true end
   end
   return false
@@ -152,7 +151,7 @@ local nests = Hold.nests
 --- A policy's fields not yet met, by what each would need.
 function Hold.unmet(merged: Rules.Policy): string
   local file = isolates(merged, "file")
-  local held = #(merged.grants or {}) + (if merged.tmp == true and not file then 1 else 0 end)
+  local held = #(Rules.paths(merged)) + (if merged.tmp == true and not file then 1 else 0 end)
   local most = if file then MAX_ISOLATED_GRANTS else MAX_GRANTS end
   if held > most then
     return "grants: the policy holds " .. tostring(held) ..
@@ -160,11 +159,11 @@ function Hold.unmet(merged: Rules.Policy): string
       ", past the most a start takes, " .. tostring(most) .. "; grant a directory above them instead"
   end
   if nests(merged) and not file then
-    return "promises \"nest\" needs isolate \"file\": the root of the program's own is what " ..
+    return "calls \"nest\" needs isolate \"file\": the root of the program's own is what " ..
       "holds its files once Landlock's hold is given up, since the kernel refuses a mount to " ..
       "a process Landlock holds"
   end
-  for _, grant in ipairs(merged.grants or {}) do
+  for _, grant in ipairs(Rules.paths(merged)) do
     if grant.from ~= nil and not file then
       return "grant \"" .. grant.path .. "\" has from, which needs isolate \"file\": the host's " ..
         "path is bound at that name in a root of the program's own"
@@ -213,7 +212,7 @@ function Hold.root_of(merged: Rules.Policy, base: string, idmap: {integer: boole
   local binds: mut {raw_process.Bind} = {}
   local reads: mut {string} = {}
   local proc = true
-  for index, grant in ipairs(merged.grants or {}) do
+  for index, grant in ipairs(Rules.paths(merged)) do
     local name = named(grant.path, base)
     if name == "/proc" and grant.from ~= nil then
       return nil, "grant \"/proc\" has from, but /proc is the sandbox's own: grant its " ..
@@ -252,14 +251,14 @@ end
 function Hold.unix_unheld(merged: Rules.Policy, base: string, nest: boolean): string
   local abi, _ = raw.landlock_abi()
   if not nest and (abi == nil or abi >= 9) then return "" end
-  for _, grant in ipairs(merged.grants or {}) do
+  for _, grant in ipairs(Rules.paths(merged)) do
     local st, _ = sys.stat(named(grant.from or grant.path, base))
     local kind = if st ~= nil then st.kind else "" end
     if kind == "dir" or (kind == "socket" and not lettered(grant.letters, "u")) then
       local what = if kind == "dir" then "a directory" else "a socket without `u`" end
       if nest then
         return "a `u` grant under isolate file beside " .. what .. " (" ..
-          string.format("%q", grant.path) .. ") needs Landlock, which promises \"nest\" gives " ..
+          string.format("%q", grant.path) .. ") needs Landlock, which calls \"nest\" gives " ..
           "up: the granted socket cannot be told from another socket in the root, and the " ..
           "root holds every socket a granted directory holds. Grant the socket alone (and " ..
           "files), or leave nest out"
@@ -283,7 +282,7 @@ end
 --- the other, a file granted `c` without `w`, and a grant of `x` without
 --- `r` are refused, naming the letters to add.
 function Hold.nest_unheld(merged: Rules.Policy, base: string): string
-  for _, grant in ipairs(merged.grants or {}) do
+  for _, grant in ipairs(Rules.paths(merged)) do
     local letters = grant.letters
     local what = "grant " .. string.format("%q", grant.path) .. " (" .. letters .. ")"
     local st, _ = sys.stat(named(grant.from or grant.path, base))
@@ -305,7 +304,7 @@ end
 
 --- Whether a grant of `merged` has `u`.
 function Hold.isolated_unix(merged: Rules.Policy): boolean
-  for _, grant in ipairs(merged.grants or {}) do
+  for _, grant in ipairs(Rules.paths(merged)) do
     if lettered(grant.letters, "u") then return true end
   end
   return false
@@ -323,7 +322,7 @@ local sandbox_serial: integer = 0
 --- The user this process runs as, which a program of a policy is not to
 --- be where it is root. Where /proc/self/status is not there (macOS) it is
 --- the real user.
---- TODO: answer the effective user on macOS, once cosmic.sys carries
+--- TODO: return the effective user on macOS, once cosmic.sys carries
 --- geteuid: a setuid program's real and effective users differ there.
 local function effective_user(): integer
   local status, _ = Fs.read("/proc/self/status")
@@ -452,7 +451,7 @@ function Hold.reached_by(merged: Rules.Policy, base: string, file: boolean,
     end
   end
   local idmap: mut {integer: boolean} = {}
-  for index, grant in ipairs(merged.grants or {}) do
+  for index, grant in ipairs(Rules.paths(merged)) do
     local named_at = named(grant.from or grant.path, base)
     local real, _ = sys.realpath(named_at)
     local st: sys.Stat?
@@ -586,7 +585,7 @@ local shared_fds: mut {string:integer} = {}
 --- unpack a core into a cache the policy does not give it. `user` is the
 --- user a root caller's program runs as, which runs a copy of the core it
 --- may run ([`shared_core`]); nil for this process's own. With a
---- `database`, the answer is the split shape, the core on that file
+--- `database`, the result is the split shape, the core on that file
 --- (`core --database <real path>`), whatever this process runs on, with
 --- no descriptor to hand on; a core already run against a database
 --- relaunches so too, on its own. Nil and "" where this program has no
@@ -673,14 +672,6 @@ function Hold.this_program(name: string, cwd: string?): string?
   if real ~= own then return nil end
   return own
 end
-local this_program = Hold.this_program
-
---- Whether `name`, a policy's program, is this program's own file, which
---- `grants` let it read and run.
-function Hold.runs_this_program(name: string, cwd: string?, grants: {Rules.Grant}): boolean
-  local own = this_program(name, cwd)
-  return own ~= nil and ungranted({ own }, grants, cwd) == ""
-end
 
 --- The path of the first of `grants` that reaches `file`, a real path
 --- (the grant is at it or above it, where it is a directory), as the
@@ -690,7 +681,7 @@ end
 --- hard link, a copy or a bind-mounted view of it elsewhere in a granted
 --- directory still reads the program, so it does not hold against a
 --- policy author who means to reach it.
-function Hold.reaching(file: string, grants: {Rules.Grant}, base: string?): string
+function Hold.reaching(file: string, grants: {Rules.Path}, base: string?): string
   for _, grant in ipairs(grants) do
     local at = grant.from or grant.path
     if base ~= nil and at:sub(1, 1) ~= "/" then at = base .. "/" .. at end
@@ -700,7 +691,7 @@ function Hold.reaching(file: string, grants: {Rules.Grant}, base: string?): stri
   return ""
 end
 
---- The kernel's release, as uname(2) answers it, or "" where it fails.
+--- The kernel's release, as uname(2) reports it, or "" where it fails.
 local function kernel_release(): string
   local names, _ = sys.uname()
   return if names ~= nil then names.release else "" end
@@ -745,7 +736,7 @@ end
 --- Why a policy with `connect` may not have the environment it names, or
 --- "": the proxy variables the relay sets are not the policy's to set.
 function Hold.reserved_by_relay(merged: Rules.Policy): string
-  if #(merged.connect or {}) == 0 then return "" end
+  if #Rules.connects(merged) == 0 then return "" end
   local variables: mut {string} = {}
   for _, name in ipairs(merged.env or {}) do variables[#variables + 1] = name end
   for name, _ in pairs(merged.set_env or {}) do variables[#variables + 1] = name end
@@ -753,7 +744,7 @@ function Hold.reserved_by_relay(merged: Rules.Policy): string
   local reserved = RelayConfig.reserved(variables)
   if reserved == "" then return "" end
   return "sandbox: " .. reserved .. " is set by the relay that serves connect \"" ..
-    assert(merged.connect)[1] .. "\" (the proxy variables point the program at it), so the policy " .. -- checked: nil_not_allowed
+    Rules.connects(merged)[1] .. "\" (the proxy variables point the program at it), so the policy " .. -- checked: nil_not_allowed
     "may not name it in env or set_env"
 end
 
@@ -774,13 +765,13 @@ end
 --- `p` with `extra` grants beside its own, every other field as it is:
 --- the policy a profile is compiled from once the start grants its
 --- program's start files, unmerged, as [`Seatbelt.compile`] takes it.
-function Hold.with_grants(p: Rules.Policy, extra: {Rules.Grant}): Rules.Policy
+function Hold.with_grants(p: Rules.Policy, extra: {Rules.Path}): Rules.Policy
   local grants: mut {Rules.Grant} = {}
   for _, grant in ipairs(p.grants or {}) do grants[#grants + 1] = grant end
   for _, grant in ipairs(extra) do grants[#grants + 1] = grant end
   local result: Rules.Policy = {
-    grants = grants, isolate = p.isolate, promises = p.promises,
-    connect = p.connect, loopback = p.loopback, env = p.env, set_env = p.set_env,
+    grants = grants, isolate = p.isolate,
+    loopback = p.loopback, env = p.env, set_env = p.set_env,
     set_env_digests = p.set_env_digests, tmp = p.tmp, limits = p.limits,
     user = p.user, group = p.group, database = p.database, profiles = p.profiles,
   }
@@ -891,10 +882,10 @@ function Hold.nest_descriptors(slots: {integer:integer}): string
     if not looked and not tostring(st):find("retained", 1, true) then error(st, 0) end
     if not looked then
       return what .. " is one this runtime retains of its own (its artifact or core), which " ..
-        "promises \"nest\" cannot hand a program: it is a file open for reading alone"
+        "calls \"nest\" cannot hand a program: it is a file open for reading alone"
     end
     if st ~= nil and st.kind == "dir" then
-      return what .. " is a directory, which promises \"nest\" cannot hand a program: " ..
+      return what .. " is a directory, which calls \"nest\" cannot hand a program: " ..
         "with Landlock given up, /proc/self/fd/" .. string.format("%d", number) .. " opens every file beneath " ..
         "it and, by .., above it, and the root of its own holds no descriptor"
     elseif st ~= nil and st.kind == "file" then

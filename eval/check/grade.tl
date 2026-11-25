@@ -206,7 +206,7 @@ function Grader.evidence(path: string): Grader.Evidence?, string
   if db == nil then
     return nil, tostring(otrouble)
   end
-  local rows, rtrouble = Sqlite.text_rows(db, [[
+  local rows, rtrouble = db:text_rows([[
     select i.kind, i.origin, count(*)
     from runs r join inputs i on i.path = r.path
     where r.passed = 1
@@ -413,9 +413,9 @@ end
 --- copied, as [`Fs.walk`] lists them: a link could reach outside the
 --- project, and a task's sources have no need of one.
 local function copy_project(project: string, copy: string): boolean, string
-  local files, trouble = Fs.walk(project, function(rel: string): boolean
+  local files, trouble = Fs.walk(project, { skip = function(rel: string): boolean
     return rel == "o"
-  end)
+  end })
   if files == nil then return false, tostring(trouble) end
   for _, rel in ipairs(files) do
     local data, rtrouble = Fs.read(project .. "/" .. rel)
@@ -641,7 +641,7 @@ end
 local function sleep_until(deadline: integer)
   local left = deadline - Clock.monotonic_ns()
   if left > 0 then
-    local _, _ = Clock.sleep_ns(left)
+    local _, _ = Clock.sleep(left)
   end
 end
 
@@ -706,7 +706,7 @@ local function serves(g: Grade, args: {string}, log?: string): Served?
       ok(what .. " -> listening on 127.0.0.1:" .. tostring(port))
       return { server = server, port = port }
     end
-    local _, _ = Clock.sleep_ns(Clock.ms(50))
+    local _, _ = Clock.sleep(Clock.ms(50))
   end
   local text, _ = Fs.read(out_path)
   fail(g, what .. " printed no 'listening on 127.0.0.1:<port>' line in 5s: " ..
@@ -1106,7 +1106,7 @@ local function kv_wait(g: Grade, port: integer)
     return
   end
   local _, _ = waiting:write("GET /later?wait=5 HTTP/1.1\r\nHost: x\r\n\r\n")
-  local _, _ = Clock.sleep_ns(Clock.ms(300))
+  local _, _ = Clock.sleep(Clock.ms(300))
   local started = Clock.monotonic_ns()
   answers(g, port, "GET /beta HTTP/1.1\r\nHost: x\r\n\r\n", { "200" }, "two words")
   check(g, since_ms(started) < 1000, "GET /beta while another GET waits answered in " ..
@@ -1369,9 +1369,9 @@ local function jobs_interrupt(g: Grade, w: string): integer
   end
   local deadline = Clock.monotonic_ns() + Clock.seconds(3)
   while not exists(w .. "/quick.done") and Clock.monotonic_ns() < deadline do
-    local _, _ = Clock.sleep_ns(Clock.ms(20))
+    local _, _ = Clock.sleep(Clock.ms(20))
   end
-  local _, _ = Clock.sleep_ns(Clock.ms(300))
+  local _, _ = Clock.sleep(Clock.ms(300))
   local signalled = Clock.monotonic_ns()
   local _, _ = handle:stop()
   local result, _ = handle:wait(Clock.seconds(5))
@@ -1683,7 +1683,7 @@ local function mirror_requests(g: Grade, site: Site)
   if zipped ~= nil then
     has(g, zipped, "GET /big.txt accepting gzip", "Content-Encoding", "gzip")
     has(g, zipped, "GET /big.txt accepting gzip", "Content-Length", tostring(#zipped.body))
-    local plain, trouble = Compress.inflate("gzip", zipped.body)
+    local plain, trouble = Compress.decode("gzip", zipped.body)
     check(g, plain == big, "GET /big.txt accepting gzip inflates to the file",
       if plain ~= nil then tostring(#plain) .. " bytes" else tostring(trouble) end)
   end
@@ -1856,16 +1856,16 @@ local function packed(g: Grade, site: Site, name: string, dirs: boolean): boolea
   if dirs then
     for _, dir in ipairs({ "sub", "sub/deep" }) do
       local added, why = writer:add_dir(dir)
-      if not added then trouble = why end
+      if not added then trouble = tostring(why) end
     end
   end
   for _, path in ipairs(paths) do
     local added, why = writer:add_file(path, content(site, path))
-    if not added then trouble = why end
+    if not added then trouble = tostring(why) end
   end
   local closed, why = writer:close()
   if not closed or trouble ~= "" then
-    fail(g, "could not write " .. name .. ": " .. (if closed then trouble else why end))
+    fail(g, "could not write " .. name .. ": " .. (if closed then trouble else tostring(why) end))
     return false
   end
   return true
@@ -2032,7 +2032,7 @@ local function relay_split(g: Grade, target: Target, port: integer)
   local _, _ = conn:shutdown("write")
   local deadline = Clock.monotonic_ns() + Clock.seconds(2)
   while #target.split == before and Clock.monotonic_ns() < deadline do
-    local _, _ = Poll.delay(Clock.ms(20))
+    local _, _ = Clock.sleep(Clock.ms(20))
   end
   local kept = target.split[before + 1]
   check(g, kept == "after", "what a client sends after its target half-closed still reaches it",
@@ -2054,7 +2054,7 @@ local function relay_stalled(g: Grade, port: integer)
       if not sent then return end
     end
   end)
-  local _, _ = Poll.delay(Clock.ms(300))
+  local _, _ = Clock.sleep(Clock.ms(300))
   local started = Clock.monotonic_ns()
   local other, otrouble = dial(port)
   local got, why = "", otrouble
@@ -2131,7 +2131,7 @@ local function relay_idle(g: Grade, target_port: integer)
       local _, _ = busy:write("a")
       local got, _ = read_n(busy, 1)
       echoed = echoed .. got
-      local _, _ = Poll.delay(Clock.ms(150))
+      local _, _ = Clock.sleep(Clock.ms(150))
     end
     local _, _ = busy:shutdown("write")
     local rest, ended = read_all(busy)

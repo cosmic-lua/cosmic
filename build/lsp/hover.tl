@@ -95,7 +95,7 @@ function hover.sources(d: Docs): docs.Sources
   return sources
 end
 
---- Which version of its database `handle`, one of the handles [`hover.sources`] answers, reads: SQLite's `data_version`, which
+--- Which version of its database `handle`, one of the handles [`hover.sources`] returns, reads: SQLite's `data_version`, which
 --- moves when another connection commits to the file (a build writing it in place) and stays while it does not. A
 --- write through `handle` itself moves nothing, and the docs never write through theirs. Cheap to ask (it reads the header
 --- of the file), so a key can hold it for every check. "" where it cannot be read.
@@ -106,7 +106,7 @@ function hover.version(handle: Sqlite.Handle): string
   return row:text(1)
 end
 
---- The docs view, read once of the databases [`hover.sources`] answers, or nil where they could not be read (said once).
+--- The docs view, read once of the databases [`hover.sources`] returns, or nil where they could not be read (said once).
 function hover.view(d: Docs): Doc.View?
   local sources = hover.sources(d)
   if d.view ~= nil or d.view_trouble ~= nil then return d.view end

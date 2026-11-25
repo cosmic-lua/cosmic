@@ -23,7 +23,7 @@
 --- An editor typing sends a change at each key, and a dependent can take
 --- seconds to check: so a dependent is checked only while no message is
 --- read and waiting, nor has arrived to be read ([`protocol.Frames`]'s
---- `waiting`), and those left are checked once that message is answered.
+--- `waiting`), and those left are checked once that message is handled.
 
 local Hash = require("cosmic.hash")
 local check = require("build.lsp.check")
@@ -112,7 +112,7 @@ end
 --- Notes that the document `document` is closing, before the close is
 --- checked: its dependents are due where what its file serves now is
 --- not what they were last checked against, as is found once the close
---- is answered ([`dependents.next`]); but not where the close checks
+--- is handled ([`dependents.next`]); but not where the close checks
 --- every other open document again ([`check.regraphs`]).
 function dependents.closed(q: Queue, checker: check.Checker, document: check.Document)
   local uri = document.uri

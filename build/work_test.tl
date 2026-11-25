@@ -12,6 +12,7 @@ local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 local identity = require("build.identity")
 local work = require("build.work")
+local work_schema = require("build.work_schema")
 local build_paths = require("build.paths")
 local support = require("build.test_support_fixture")
 
@@ -203,7 +204,7 @@ local function test_a_commit_is_in_the_file_while_its_run_goes_on(tmp: string)
   assert(#rows == 1 and assert(rows[1]):text(1) == "committed", tostring(#rows))
 end
 
---- An open that waits for no run answers at once, with no handle, while
+--- An open that waits for no run returns at once, with no handle, while
 --- another run holds the write lock, and opens the database once it is
 --- free.
 local function test_an_open_that_waits_for_no_run_finds_one_holding_it(tmp: string)
@@ -248,7 +249,7 @@ local function meta_of(path: string, key: string): string
 end
 
 --- An open that waits for no run, which may be a run of an older tool,
---- answers at once with no handle where the file is of another schema
+--- returns at once with no handle where the file is of another schema
 --- and another run holds its write lock, as a newer tool building in it
 --- would: it leaves the file where it is, for that run goes on writing
 --- to it.
@@ -309,7 +310,7 @@ end
 
 --- An open that waits for no run reads nothing of a file of another
 --- schema, holding its write lock or not: it neither removes it nor
---- writes this module's tables into it, and answers the schema it found.
+--- writes this module's tables into it, and returns the schema it found.
 local function test_an_open_that_waits_for_no_run_reads_nothing_of_another_schema(tmp: string)
   local path = of_another_schema(tmp)
   local before = inode_of(path)
@@ -361,7 +362,7 @@ local function test_a_remaking_open_leaves_a_file_a_run_holding_the_rebuild_lock
   assert(meta_of(path, "marker") == "kept", "the run's records were lost to a removed file")
 end
 
---- A read of the working database answers at once, with the last
+--- A read of the working database returns at once, with the last
 --- commit, while a run holds its write transaction open with more
 --- written than its cache holds. In rollback mode that run's spill holds
 --- the file whole, and the read would wait for the run to end; the
@@ -606,7 +607,7 @@ local function test_web_assets_are_hashed_replaced_whole_and_read_back(tmp: stri
   assert(older:close())
 end
 
---- Stages a tree laid out as cosmic's own and answers its `boot`
+--- Stages a tree laid out as cosmic's own and returns its `boot`
 --- fingerprint.
 local function boot_of(root: string): string
   local handle = assert(work.open(root))
@@ -692,8 +693,8 @@ local function test_settled_rewrites_with_preserved_mtime_are_read(tmp: string)
 end
 
 --- A ctime-only change causes a read, but the bytes alone decide the
---- build's identity. Rows migrated from a schema without ctime do too.
-local function test_metadata_changes_and_unknown_change_times_keep_content_identity(tmp: string)
+--- build's identity.
+local function test_metadata_changes_keep_content_identity(tmp: string)
   local path = tmp .. "/probe.tl"
   assert(Fs.mkdirs(tmp .. "/core"))
   assert(Fs.mkdirs(tmp .. "/doc"))
@@ -712,23 +713,28 @@ local function test_metadata_changes_and_unknown_change_times_keep_content_ident
     assert(before.image == after.image and before.boot == after.boot)
     assert(stage_settled(handle, true).read == 0)
     assert(work.commit(handle))
-    for _, name in ipairs({ "files", "tool", "scanned", "linked" }) do
-      assert(handle.db:exec("ALTER TABLE " .. name .. " DROP COLUMN ctime_ns"))
-    end
-    assert(handle.db:close())
-    handle = assert(work.open(tmp))
-    assert(staged_bytes(handle.db, "probe.tl") == "return 1\n", "migration preserves content")
-    for _, name in ipairs({ "files", "tool", "scanned", "linked" }) do
-      local rows = assert(handle.db:text_rows("SELECT sha256, ctime_ns IS NULL FROM " .. name))
-      assert(#rows > 0, name .. " migration fixture missing")
-      for _, row in ipairs(rows) do
-        assert(row:text(1) == Hash.hex_sha256("return 1\n") and row:text(2) == "1")
-      end
-    end
-    assert(stage_settled(handle, true).read == 4, "legacy rows must be read once")
-    assert(stage_settled(handle, true).read == 0)
     assert(work.close(handle))
   end)
+end
+
+--- A file of this schema's version whose tables are not the schema's (columns dropped, or added out of their place)
+--- is a file of another schema: an open that may remove one makes it again, staging the tree anew, and one that may
+--- not leaves it, naming it.
+local function test_a_file_of_another_shape_is_made_again(tmp: string)
+  assert(Fs.write(tmp .. "/probe.tl", "return 1\n"))
+  local handle = assert(work.open(tmp))
+  assert(stage_settled(handle, true).read == 1)
+  assert(work.commit(handle))
+  assert(handle.db:exec("ALTER TABLE files DROP COLUMN ctime_ns"))
+  assert(handle.db:exec("ALTER TABLE files ADD COLUMN ctime_ns INTEGER"))
+  assert(handle.db:close())
+  local looked = assert(work.try_open_older(tmp))
+  assert(looked.handle == nil and looked.other_schema ~= nil and looked.other_schema:find("another shape", 1, true) ~= nil,
+    tostring(looked.other_schema))
+  handle = assert(work.open(tmp))
+  assert(handle.run == 1, "a file of another shape is made again, counting its runs anew")
+  assert(stage_settled(handle, true).read == 1, "the tree is staged anew")
+  assert(work.close(handle))
 end
 
 local function test_an_unknown_change_time_never_trusts_cached_bytes(tmp: string)
@@ -854,7 +860,7 @@ local function test_tool_discovery_does_not_bless_an_addition_after_listing(tmp:
   assert(Fs.mkdirs(tmp .. "/core"))
   local handle = assert(work.open(tmp))
   local walk = Fs.walk
-  Fs.walk = function(root: string, opts?: Fs.WalkOptions | function(string, string, Fs.Kind): boolean): ({string}) | (nil, Failure) -- checked: field_fixed
+  Fs.walk = function(root: string, opts?: Fs.WalkOptions): ({string}) | (nil, Failure) -- checked: field_fixed
     local files = assert(walk(root, opts))
     assert(Fs.write(root .. "/core/late.h", "new\n"))
     return files
@@ -901,7 +907,7 @@ local function test_tool_discovery_tracks_symlink_retarget_with_equal_bytes(tmp:
   assert(work.close(handle))
 end
 
---- Stages a project of just `files` (path to bytes) and answers the
+--- Stages a project of just `files` (path to bytes) and returns the
 --- stage's result and trouble.
 local function stage_files(root: string, files: {string:string}): work.Staged?, string
   for path, data in pairs(files) do
@@ -1112,4 +1118,10 @@ local function test_an_edit_to_a_file_the_seed_lists_moves_the_image(tmp: string
   local listed = assert(identity.record_fingerprint(handle.db, handle.root))
   assert(listed.image ~= unlisted.image, "an edit to a file the seed lists left the image as it was")
   assert(work.close(handle))
+end
+
+--- The schema the checker reads a handle's SQL against is the statements a file is made of, joined, the analysis's
+--- among them.
+local function test_the_schema_is_the_statements_joined(_: string)
+  assert(work_schema.Database.ddl == table.concat(work.schema, ";\n"))
 end

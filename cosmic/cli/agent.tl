@@ -16,7 +16,8 @@
 --- Commands:
 ---
 --- - `ask [prompt...]` runs one prompt to the end. The prompt is the
----   words, else all of standard input.
+---   words, else all of standard input. A word `-` stands for standard
+---   input (`cat log | cosmic agent ask 'why does this fail:' -`).
 --- - `chat` takes one prompt a line until `/exit`. A line typed at a
 ---   terminal while the model works steers it. `/later <prompt>` waits
 ---   for the turn to end. A failed turn does not end the chat.
@@ -53,8 +54,8 @@
 ---   with one only when told (`--continue`).
 --- - The default tools are run, read, edit and write, which run no
 ---   program. `--with bash,jobs` adds bash and its background jobs,
----   `--with sql` the sql tool, `--without write` takes a tool out, and
----   `--tools run,read` names them all.
+---   `--without write` takes a tool out, and `--tools run,read` names
+---   them all.
 ---
 --- Events and rpc commands:
 ---
@@ -107,14 +108,15 @@
 ---
 --- Output and sessions:
 ---
---- - The turn's answer goes to standard output. Each tool call (run's
----   code, edit's changes as a diff), and what the model says on the way,
----   go to standard error.
+--- - The turn's answer goes to standard output. Each tool call, as
+---   Markdown (run's code in a teal fence, edit's changes in a diff),
+---   the first lines of what run and bash printed, and what the model
+---   says on the way, go to standard error.
 --- - Everything is kept in sessions.db, in `$XDG_DATA_HOME/cosmic/agent`
 ---   (or `~/.local/share/cosmic/agent`), before it is shown: each
 ---   message, each tool's whole output, and each request with its usage
 ---   and cost (`cosmic docs cosmic.agent.sessions`). The model reads it
----   with Host.history in run (or the sql tool, `--with sql`).
+---   with Host.output and Host.history in run.
 --- - A run that ends mid-turn loses nothing: `cosmic agent resume` takes
 ---   the turn up again (`cosmic docs cosmic.agent`).
 --- - A program runs the loop itself with [`cosmic.agent`].
@@ -179,7 +181,7 @@ local command: Flags.Command = {
     { line = "sessions", about = "list the kept sessions" },
   },
   subcommands = {
-    ask = { about = "run one prompt to the end: the words, else all of standard input",
+    ask = { about = "run one prompt to the end: the words, where `-` is standard input, or with none, standard input",
       usage = "[options] [prompt...]", spec = ask_spec },
     chat = { about = "a conversation, a prompt a line, until /exit", spec = waiting_spec() },
     resume = { about = "finish the turn a run left unfinished", spec = session_spec() },

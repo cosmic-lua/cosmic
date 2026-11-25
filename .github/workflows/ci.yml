@@ -8,11 +8,13 @@
   "on": {
     # Only main's pushes: a branch's push runs nothing, the merge queue
     # testing every change before it lands. A manual run of a branch runs
-    # what main's run does.
+    # what main's daily run does, macOS only when it asks (`macos`).
     push: {branches: ["main"]},
-    # A pull request runs the light check alone (linux-x86_64's leg, below,
-    # with the launcher fixtures where it changes what they check), which reports the `ci` check the merge queue requires of it.
-    pull_request: {},
+    # A pull request runs a light check (linux-x86_64's leg, below, with the
+    # launcher fixtures where it changes what they check, and macOS's suite
+    # once it is not a draft), which reports the `ci` check the merge queue
+    # requires of it. Marking it ready (`ready_for_review`) runs it again.
+    pull_request: {types: ["opened", "synchronize", "reopened", "ready_for_review"]},
     # main takes changes only through the merge queue, which waits on
     # the `ci` check for the queued merge commit.
     merge_group: {},
@@ -35,13 +37,19 @@
           required: false,
           default: false,
         },
+        macos: {
+          description: "Also run the macOS leg (always on main)",
+          type: "boolean",
+          required: false,
+          default: false,
+        },
       },
     },
     # Every day, the run that tests macOS and publishes a prerelease
     # (prerelease.yml): every leg and job, on the verdicts main's pushes
     # left. On Sundays (the second line), also every test run whatever
-    # stood (COSMIC_CI_EVENT), and zig's caches built cold: for
-    # what no key answers for (the clock, a flake).
+    # stood (COSMIC_CI_EVENT), and zig's caches built cold: to catch
+    # what no key is responsible for (the clock, a flake).
     # TODO: tell the maintainers of a red scheduled run: GitHub notifies
     # only whoever last edited this cron line. A step that opens (or
     # comments on) an issue when a scheduled run fails would, once one is
@@ -69,7 +77,33 @@
     "cancel-in-progress": "${{ github.ref != 'refs/heads/main' }}",
   },
 
-  jobs: { # A platform leg: the native suite on its host, and, on main's runs,
+  jobs: {
+    # No merge-queue run saves a cache, so one its ref holds was written
+    # by code the queue ran, and a job's restore would take it before
+    # main's, extracting it over the checkout. Every job that restores a
+    # cache waits on this one, which restores none and fails where the
+    # ref holds a cache (cosmic_ci/queue_verdicts.tl's `ref_caches`); the
+    # `ci` gate checks again once they have run.
+    "queue-ref": {
+      if: "github.event_name == 'merge_group'",
+      name: "merge-queue ref",
+      defaults: {run: {"working-directory": "ci", shell: "sh"}},
+      "runs-on": "ubuntu-24.04",
+      permissions: {contents: "read", actions: "read"},
+      "timeout-minutes": 10,
+      steps: [
+        {uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"}, # v6
+        # The pinned driver, fetched and checked against its pin; the
+        # cosmic-driver action would restore a cache first.
+        {name: "fetch the pinned CI driver", run: "sh ../.github/scripts/cosmic-driver.sh"},
+        {
+          name: "refuse a cache the merge-queue ref saved",
+          env: {GH_TOKEN: "${{ github.token }}"},
+          run: "cosmic-driver cosmic_ci/driver.tl queue-ref-caches",
+        },
+      ],
+    },
+    # A platform leg: the native suite on its host, and, on main's runs,
     # the complete product, its regressions and its portable suite, the
     # bytes it ran uploaded for the join. The merge queue runs what main's
     # push runs, so a commit that breaks a push breaks its queue entry
@@ -82,11 +116,22 @@
     # macOS's native suite (part `suite`, no product), which a push does
     # not: macOS failures blocked prereleases, and the daily run was the
     # first to meet them. A pull request runs
-    # a light gate, linux-x86_64's boot and the format check of what it
-    # changed (and the launcher fixtures, where it reaches them). A push to main runs
-    # three legs whole, all but macOS; the daily scheduled run and a
-    # manual run run all four, macOS among them.
+    # a light gate: linux-x86_64's boot, native suite and format check of
+    # what it changed (and the launcher fixtures, where it reaches them), and,
+    # once it is not a draft, macOS's suite, each suite on main's verdicts.
+    # A draft leaves the few macOS runners to the queue (ci/README.md says
+    # why). A push to main runs
+    # three legs whole, all but macOS, and macOS's suite, which saves
+    # macOS's caches for the queue (only a part `suite` job's boot builds
+    # what the zig saves keep there); the daily scheduled run runs all
+    # four whole, macOS among them, as does a manual run of main or one
+    # that asks for it (`macos`). Other manual runs, a branch's checks
+    # before the queue, leave macOS to the queue, which runs it on every
+    # entry: their macOS jobs took the few macOS runners from the queue's
+    # (45561589392 waited 35 min).
     platform: {
+      needs: ["queue-ref"],
+      if: "!cancelled() && (github.event_name != 'merge_group' || needs.queue-ref.result == 'success')",
       name: "${{ matrix.name }}",
       defaults: {run: {"working-directory": "ci", shell: "${{ matrix.image && 'leg-shell {0}' || 'sh' }}"}},
       strategy: {
@@ -104,8 +149,14 @@
         # the sandbox probe and the credential proofs), `product` (assemble,
         # the regressions, the portable suite, the attestation and the
         # product) or `format` (linux-x86_64's format check alone).
+        # alpine-x86_64's product, the queue's longest job (20 min on
+        # 45475769968: the portable suite 10.5, the regressions 5.5), is
+        # two jobs, each assembling: `portable` (the portable suite, the
+        # attestation and the product) and `regressions`. Each Linux leg's
+        # self-rebuild regression is a job of its own too, `rebuild`
+        # (assemble and that fixture alone, COSMIC_CI_SELF_REBUILD).
         matrix: {
-          include: "${{ fromJSON(github.event_name == 'pull_request' && '[{\"name\": \"linux-x86_64\", \"leg\": \"linux-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}]' || github.event_name == 'merge_group' && '[{\"name\": \"linux-x86_64\", \"leg\": \"linux-x86_64\", \"part\": \"suite\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-x86_64-product\", \"leg\": \"linux-x86_64\", \"part\": \"product\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-x86_64-format\", \"leg\": \"linux-x86_64\", \"part\": \"format\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-aarch64\", \"leg\": \"linux-aarch64\", \"part\": \"suite\", \"runner\": \"ubuntu-24.04-arm\", \"target\": \"aarch64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-aarch64-product\", \"leg\": \"linux-aarch64\", \"part\": \"product\", \"runner\": \"ubuntu-24.04-arm\", \"target\": \"aarch64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"alpine-x86_64\", \"leg\": \"alpine-x86_64\", \"part\": \"suite\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72\"}, {\"name\": \"alpine-x86_64-product\", \"leg\": \"alpine-x86_64\", \"part\": \"product\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72\"}, {\"name\": \"macos-aarch64\", \"leg\": \"macos-aarch64\", \"part\": \"suite\", \"runner\": \"macos-15\", \"target\": \"aarch64-macos\", \"image\": \"\"}]' || github.event_name == 'push' && '[{\"name\": \"linux-x86_64\", \"leg\": \"linux-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-aarch64\", \"leg\": \"linux-aarch64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04-arm\", \"target\": \"aarch64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"alpine-x86_64\", \"leg\": \"alpine-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72\"}]' || '[{\"name\": \"linux-x86_64\", \"leg\": \"linux-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-aarch64\", \"leg\": \"linux-aarch64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04-arm\", \"target\": \"aarch64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"macos-aarch64\", \"leg\": \"macos-aarch64\", \"part\": \"all\", \"runner\": \"macos-15\", \"target\": \"aarch64-macos\", \"image\": \"\"}, {\"name\": \"alpine-x86_64\", \"leg\": \"alpine-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72\"}]') }}",
+          include: "${{ fromJSON(github.event_name == 'pull_request' && (github.event.pull_request.draft && '[{\"name\": \"linux-x86_64\", \"leg\": \"linux-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}]' || '[{\"name\": \"linux-x86_64\", \"leg\": \"linux-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"macos-aarch64\", \"leg\": \"macos-aarch64\", \"part\": \"suite\", \"runner\": \"macos-15\", \"target\": \"aarch64-macos\", \"image\": \"\"}]') || github.event_name == 'merge_group' && '[{\"name\": \"linux-x86_64\", \"leg\": \"linux-x86_64\", \"part\": \"suite\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-x86_64-product\", \"leg\": \"linux-x86_64\", \"part\": \"product\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-x86_64-rebuild\", \"leg\": \"linux-x86_64\", \"part\": \"rebuild\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-x86_64-format\", \"leg\": \"linux-x86_64\", \"part\": \"format\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-aarch64\", \"leg\": \"linux-aarch64\", \"part\": \"suite\", \"runner\": \"ubuntu-24.04-arm\", \"target\": \"aarch64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-aarch64-product\", \"leg\": \"linux-aarch64\", \"part\": \"product\", \"runner\": \"ubuntu-24.04-arm\", \"target\": \"aarch64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-aarch64-rebuild\", \"leg\": \"linux-aarch64\", \"part\": \"rebuild\", \"runner\": \"ubuntu-24.04-arm\", \"target\": \"aarch64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"alpine-x86_64\", \"leg\": \"alpine-x86_64\", \"part\": \"suite\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72\"}, {\"name\": \"alpine-x86_64-portable\", \"leg\": \"alpine-x86_64\", \"part\": \"portable\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72\"}, {\"name\": \"alpine-x86_64-rebuild\", \"leg\": \"alpine-x86_64\", \"part\": \"rebuild\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72\"}, {\"name\": \"alpine-x86_64-regressions\", \"leg\": \"alpine-x86_64\", \"part\": \"regressions\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72\"}, {\"name\": \"macos-aarch64\", \"leg\": \"macos-aarch64\", \"part\": \"suite\", \"runner\": \"macos-15\", \"target\": \"aarch64-macos\", \"image\": \"\"}]' || github.event_name == 'push' && '[{\"name\": \"linux-x86_64\", \"leg\": \"linux-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-aarch64\", \"leg\": \"linux-aarch64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04-arm\", \"target\": \"aarch64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"alpine-x86_64\", \"leg\": \"alpine-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72\"}, {\"name\": \"macos-aarch64\", \"leg\": \"macos-aarch64\", \"part\": \"suite\", \"runner\": \"macos-15\", \"target\": \"aarch64-macos\", \"image\": \"\"}]' || (github.event_name == 'schedule' || github.ref == 'refs/heads/main' || inputs.macos) && '[{\"name\": \"linux-x86_64\", \"leg\": \"linux-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-aarch64\", \"leg\": \"linux-aarch64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04-arm\", \"target\": \"aarch64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"macos-aarch64\", \"leg\": \"macos-aarch64\", \"part\": \"all\", \"runner\": \"macos-15\", \"target\": \"aarch64-macos\", \"image\": \"\"}, {\"name\": \"alpine-x86_64\", \"leg\": \"alpine-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72\"}]' || '[{\"name\": \"linux-x86_64\", \"leg\": \"linux-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-aarch64\", \"leg\": \"linux-aarch64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04-arm\", \"target\": \"aarch64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"alpine-x86_64\", \"leg\": \"alpine-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72\"}]') }}",
         },
       },
       "runs-on": "${{ matrix.runner }}",
@@ -125,6 +176,15 @@
         # the x86-64 legs): the weekly run (Sunday's) and a dispatch that
         # asks for it (`fixed_point`) alone (phase_fixtures).
         COSMIC_CI_FIXED_POINT: "${{ (github.event.schedule == '41 3 * * 0' || inputs.fixed_point) && 'run' || 'skip' }}",
+        # The self-driven fixture's boot of the tree by the product, which
+        # proves it can be the next pin: main's push and the daily run, not
+        # the queue (some 2 min of each product job).
+        COSMIC_CI_SELF_BOOT: "${{ github.event_name == 'merge_group' && 'skip' || 'run' }}",
+        # In the queue each Linux leg's self-rebuild regression is a job of
+        # its own (part `rebuild`, 153 s of the regressions' 6 min on
+        # 45552392984), beside the leg's product or regressions job, which
+        # skips it.
+        COSMIC_CI_SELF_REBUILD: "${{ matrix.part == 'rebuild' && 'only' || (matrix.part == 'product' || matrix.part == 'regressions') && 'skip' || 'run' }}",
         # The small fixtures run beside the self-driven one, within one
         # worker budget of the leg's processors (phase_fixtures,
         # `fixture_lanes`): the two Linux legs whose fixture step the
@@ -137,8 +197,8 @@
         # Linux leg's sandbox holds the same declaration, so one that lies
         # fails there first.
         COSMIC_CI_DECLARED_KEYS: "${{ matrix.image && '0' || '1' }}",
-        # Pushes, the merge queue, the daily scheduled run and a manual
-        # run stand on verdicts; the weekly run (Sunday's) and a manual
+        # Pushes, pull requests, the merge queue, the daily scheduled run
+        # and a manual run stand on verdicts; the weekly run (Sunday's) and a manual
         # run with `every_test` run every test (orchestration.tl's
         # `stands`).
         COSMIC_CI_EVENT: "${{ (github.event_name == 'schedule' && github.event.schedule != '41 3 * * 0' || github.event_name == 'workflow_dispatch' && !inputs.every_test) && 'push' || github.event_name }}",
@@ -220,7 +280,7 @@
           with: {
             path: "${{ runner.temp }}/zig-build",
             key: "${{ steps.names.outputs.vendor }}full-${{ steps.names.outputs.core }}-${{ github.run_id }}-${{ github.run_attempt }}",
-            "restore-keys": "${{ steps.names.outputs.vendor }}full-${{ steps.names.outputs.core }}-\n${{ steps.names.outputs.vendor }}full-\n${{ steps.names.outputs.vendor }}\n",
+            "restore-keys": "${{ steps.names.outputs.vendor }}full-${{ steps.names.outputs.core }}-\n${{ steps.names.outputs.vendor }}boot-${{ steps.names.outputs.core }}-\n${{ steps.names.outputs.vendor }}full-\n${{ steps.names.outputs.vendor }}\n",
             "lookup-only": "${{ github.event.schedule == '41 3 * * 0' }}",
           },
         },
@@ -300,6 +360,41 @@
           "continue-on-error": true,
           run: "cosmic-driver cosmic_ci/driver.tl verdicts-merge \"${{ runner.temp }}/queue-verdicts\"",
         },
+        # A merge-queue run takes in what the last failed try of its pull
+        # request, built on main with the same change, reached (cosmic_ci/queue_verdicts.tl's
+        # `find_tried`): the queue keeps no cache, so this is all a try
+        # the deadline stopped keeps. None of the three fails the job.
+        {
+          name: "find this pull request's last failed try in the merge queue",
+          id: "tried-run",
+          if: "github.event_name == 'merge_group'",
+          shell: "sh",
+          "continue-on-error": true,
+          env: {HEAD_REF: "${{ github.event.merge_group.head_ref }}", BASE_SHA: "${{ github.event.merge_group.base_sha }}", SHA: "${{ github.sha }}", ARTIFACT: "queue-tried-verdicts-${{ matrix.name }}", PASSED_ARTIFACT: "${{ matrix.part == 'suite' && format('queue-verdicts-{0}', matrix.leg) || '' }}", RUN_ID: "${{ github.run_id }}", GH_TOKEN: "${{ github.token }}"},
+          run: "cosmic-driver cosmic_ci/driver.tl queue-tried-run",
+        },
+        {
+          name: "download the last failed try's verdicts",
+          id: "tried-download",
+          # By the id the lookup checked: a run attempted again holds a
+          # newer artifact of the same name.
+          if: "steps.tried-run.outputs.artifact != ''",
+          "continue-on-error": true,
+          uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
+          with: {
+            "artifact-ids": "${{ steps.tried-run.outputs.artifact }}",
+            "merge-multiple": true,
+            path: "${{ runner.temp }}/tried-verdicts",
+            "run-id": "${{ steps.tried-run.outputs.run }}",
+            "github-token": "${{ github.token }}",
+          },
+        },
+        {
+          name: "take in the last failed try's verdicts",
+          if: "steps.tried-download.outcome == 'success'",
+          "continue-on-error": true,
+          run: "cosmic-driver cosmic_ci/driver.tl verdicts-merge \"${{ runner.temp }}/tried-verdicts\"",
+        },
         {
           name: "restore compiles and parses",
           id: "compiles-restore",
@@ -372,17 +467,21 @@
         # moves: actions/checkout keeps its credentials in an
         # `includeIf.gitdir` of the checkout's own path, which a git run
         # in the moved tree does not match, so it would fetch with none.
+        # The macOS leg in the queue finds the base too, for the paths
+        # that tell whether it checks the pinned driver ("check the
+        # pinned CI driver"). Where it finds none it fails as
+        # linux-x86_64-format's does, which fails the entry anyway.
         {
           name: "find the base the markers are held to",
           id: "ceilings-base",
-          if: "matrix.leg == 'linux-x86_64' && (matrix.part == 'all' || matrix.part == 'format') && github.event_name != 'push' && github.event.schedule != '41 3 * * 1-6'",
+          if: "(matrix.leg == 'linux-x86_64' && (matrix.part == 'all' || matrix.part == 'format') && github.event_name != 'push' && github.event.schedule != '41 3 * * 1-6') || (matrix.leg == 'macos-aarch64' && github.event_name == 'merge_group')",
           shell: "sh",
           env: {SHA: "${{ github.sha }}", EVENT: "${{ github.event_name }}", REF: "${{ github.ref }}", BASE_REF: "${{ github.event.merge_group.base_ref }}", PR_BASE_REF: "${{ github.base_ref }}"},
           run: "cosmic-driver cosmic_ci/driver.tl ceilings-base",
         },
         {
           name: "name the base the ceilings are held to",
-          if: "steps.ceilings-base.outputs.sha != ''",
+          if: "matrix.leg == 'linux-x86_64' && steps.ceilings-base.outputs.sha != ''",
           shell: "sh",
           env: {BASE: "${{ steps.ceilings-base.outputs.sha }}"},
           run: "echo \"COSMIC_CEILINGS_BASE=$BASE\" >> \"$GITHUB_ENV\"",
@@ -395,7 +494,7 @@
         {
           name: "name the paths the commit changed",
           id: "changed",
-          if: "matrix.leg == 'linux-x86_64' && (matrix.part == 'all' || matrix.part == 'format') && (github.event_name == 'merge_group' || github.event_name == 'pull_request') && steps.ceilings-base.outputs.sha != ''",
+          if: "((matrix.leg == 'linux-x86_64' && (matrix.part == 'all' || matrix.part == 'format') && (github.event_name == 'merge_group' || github.event_name == 'pull_request')) || (matrix.leg == 'macos-aarch64' && github.event_name == 'merge_group')) && steps.ceilings-base.outputs.sha != ''",
           shell: "sh",
           "continue-on-error": true,
           env: {BASE: "${{ steps.ceilings-base.outputs.sha }}", OUT: "${{ runner.temp }}/changed-paths"},
@@ -421,11 +520,16 @@
         # Every test, unsandboxed: cosmic_ci's tests start the host's own
         # programs and are not all declared to run sandboxed. Every leg
         # of the daily, weekly and a manual run; in the queue, the
-        # `driver` job's; never on main's push, whose commit the queue
-        # checked.
+        # `driver` job's on Linux and the macOS leg's, where the entry
+        # changes ci/ or .github/ or its paths are not known
+        # (changed_paths.tl's `driver=skip`); never on main's push, whose
+        # commit the queue checked. cosmic_ci's tests start the host's
+        # programs, which macOS keeps elsewhere (/sbin/sha256sum): before
+        # the macOS leg ran them in the queue, such a break showed only in
+        # the next daily or manual run.
         {
           name: "check the pinned CI driver",
-          if: "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'",
+          if: "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'merge_group' && matrix.leg == 'macos-aarch64' && steps.changed.outputs.driver != 'skip')",
           env: {COSMIC_VERDICT_CACHE: "0", COSMIC_TEST_SANDBOX: "0"},
           run: "cosmic-driver test cosmic_ci",
         },
@@ -444,12 +548,12 @@
         {
           name: "run release Cosmic's native suite",
           id: "release-suite",
-          if: "github.event_name != 'pull_request' && (matrix.part == 'all' || matrix.part == 'suite')",
+          if: "(matrix.part == 'all' || matrix.part == 'suite')",
           run: "cosmic-driver cosmic_ci/driver.tl platform local-suite",
         },
         {
           name: "verify the delayed native database boundary",
-          if: "github.event_name != 'pull_request' && (matrix.part == 'all' || matrix.part == 'suite')",
+          if: "(matrix.part == 'all' || matrix.part == 'suite')",
           run: "cosmic-driver cosmic_ci/driver.tl platform local-boundary",
         },
         {
@@ -485,7 +589,7 @@
         # (ci/darwin-tests.txt).
         {
           name: "run the darwin suite",
-          if: "github.event_name != 'pull_request' && (matrix.part == 'all' || matrix.part == 'suite')",
+          if: "(matrix.part == 'all' || matrix.part == 'suite')",
           run: "cosmic-driver cosmic_ci/driver.tl platform darwin-suite",
         },
         # Fails where a part of spawn's sandbox a confined test needs did
@@ -501,25 +605,25 @@
         {
           name: "build local portable and checked artifacts",
           id: "assemble",
-          if: "(github.event_name != 'pull_request' && (matrix.part == 'all' || matrix.part == 'product')) || (github.event_name == 'pull_request' && steps.changed.outputs.fixtures != 'skip')",
+          if: "(github.event_name != 'pull_request' && (matrix.part == 'all' || matrix.part == 'product' || matrix.part == 'portable' || matrix.part == 'regressions' || matrix.part == 'rebuild')) || (github.event_name == 'pull_request' && steps.changed.outputs.fixtures != 'skip')",
           run: "cosmic-driver cosmic_ci/driver.tl platform assemble",
         },
         # What a save of zig's caches would carry that no build of this tree
         # reads (cosmic_ci/zig_prune.tl): only before main's save.
         {
           name: "prune the zig build outputs no step vouches for",
-          if: "always() && steps.assemble.outcome == 'success' && env.COSMIC_CI_SAVES == 'true' && (github.event.schedule == '41 3 * * 0' || !startsWith(steps.zig-cache-restore.outputs.cache-matched-key, format('{0}full-', steps.names.outputs.vendor)))",
+          if: "always() && (steps.assemble.outcome == 'success' || matrix.part == 'suite' && steps.boot.outcome == 'success') && env.COSMIC_CI_SAVES == 'true' && (github.event.schedule == '41 3 * * 0' || !startsWith(steps.zig-cache-restore.outputs.cache-matched-key, format('{0}full-', steps.names.outputs.vendor))) && (matrix.part != 'suite' || !startsWith(steps.zig-cache-restore.outputs.cache-matched-key, format('{0}boot-', steps.names.outputs.vendor)))",
           run: "cosmic-driver cosmic_ci/driver.tl zig-prune",
         },
         {
           name: "run runtime, launcher, rebuild, and identity regressions",
-          if: "(github.event_name != 'pull_request' && (matrix.part == 'all' || matrix.part == 'product')) || (github.event_name == 'pull_request' && steps.changed.outputs.fixtures != 'skip')",
+          if: "(github.event_name != 'pull_request' && (matrix.part == 'all' || matrix.part == 'product' || matrix.part == 'regressions' || matrix.part == 'rebuild')) || (github.event_name == 'pull_request' && steps.changed.outputs.fixtures != 'skip')",
           run: "cosmic-driver cosmic_ci/driver.tl platform fixtures",
         },
         {
           name: "run the product suite from fresh tracked source",
           id: "portable-suite",
-          if: "github.event_name != 'pull_request' && (matrix.part == 'all' || matrix.part == 'product')",
+          if: "github.event_name != 'pull_request' && (matrix.part == 'all' || matrix.part == 'product' || matrix.part == 'portable')",
           run: "cosmic-driver cosmic_ci/driver.tl platform portable",
         },
         {
@@ -529,13 +633,13 @@
         },
         {
           name: "attest the exact executed product bytes",
-          if: "github.event_name != 'pull_request' && (matrix.part == 'all' || matrix.part == 'product')",
+          if: "github.event_name != 'pull_request' && (matrix.part == 'all' || matrix.part == 'product' || matrix.part == 'portable')",
           run: "cosmic-driver cosmic_ci/driver.tl platform attest",
         },
         # Read by the `ci` join, and by prerelease.yml as main's run ends.
         {
           name: "upload the attested product",
-          if: "github.event_name != 'pull_request' && (matrix.part == 'all' || matrix.part == 'product')",
+          if: "github.event_name != 'pull_request' && (matrix.part == 'all' || matrix.part == 'product' || matrix.part == 'portable')",
           uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
           with: {
             name: "portable-product-${{ matrix.leg }}",
@@ -550,14 +654,31 @@
           if: "always() && steps.driver.outcome == 'success' && (env.COSMIC_CI_SAVES == 'true' || github.event_name == 'merge_group')",
           run: "cosmic-driver cosmic_ci/driver.tl compiles-trim \"${{ steps.names.outputs.since }}\" \"${{ runner.temp }}/compiles-restored.db\"",
         },
-        # A run that failed keeps what it restored too (`whole`). Cut to
+        # A run that failed keeps what it restored too (`whole`), but in
+        # the merge queue, which saves no cache, only what it used. Cut to
         # the rows this run used, named by their digest: for main's save,
-        # and in the merge queue for main's push of the commit.
+        # and in the merge queue for main's push of the commit or the pull
+        # request's next try.
         {
           name: "keep only this run's test verdicts",
           id: "verdicts-trim",
           if: "always() && steps.driver.outcome == 'success' && (env.COSMIC_CI_SAVES == 'true' || github.event_name == 'merge_group')",
-          run: "cosmic-driver cosmic_ci/driver.tl verdicts-trim ${{ job.status == 'success' && steps.names.outputs.since || 'whole' }}",
+          run: "cosmic-driver cosmic_ci/driver.tl verdicts-trim ${{ (job.status == 'success' || github.event_name == 'merge_group') && steps.names.outputs.since || 'whole' }}",
+        },
+        # Read by this pull request's next try in the merge queue ("find
+        # this pull request's last failed try"): the rows a failed try
+        # used.
+        {
+          name: "upload what this failed try in the merge queue reached",
+          if: "always() && github.event_name == 'merge_group' && job.status == 'failure' && steps.verdicts-trim.outputs.digest != ''",
+          "continue-on-error": true,
+          uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
+          with: {
+            name: "queue-tried-verdicts-${{ matrix.name }}",
+            path: "${{ runner.temp }}/verdicts/*.db",
+            "if-no-files-found": "ignore",
+            "retention-days": 1,
+          },
         },
         # The cache the verdicts belong in, named by this host, for the
         # relay (relay.yml), which runs on a host of its own.
@@ -668,6 +789,8 @@
         # and compiles to the newer commit's relay (relay.yml), saved a
         # minute after that merge: a save of this run's, made later, would
         # be the newest and lack them. Where GitHub does not say, it saves.
+        # macOS saves all the same: no relay runs on a macOS runner, so its
+        # push is the only main run that saves them.
         {
           name: "ask whether main moved past this commit",
           id: "main-newest",
@@ -701,10 +824,10 @@
         # where the rows differ from the entry restored. Not the macOS
         # leg's weekly run: its keys hold the tree's path, which that run
         # chooses by the commit (driver.tl place-tree), so its rows would
-        # answer no other run.
+        # match no other run.
         {
           name: "save test verdicts",
-          if: "always() && env.COSMIC_CI_SAVES == 'true' && steps.main-newest.outputs.newest != 'false' && steps.verdicts-trim.outputs.digest != '' && !(github.event.schedule == '41 3 * * 0' && env.COSMIC_CI_DECLARED_KEYS == '1') && steps.verdicts-restore.outputs.cache-matched-key != format('{0}{1}', steps.host-id.outputs.verdicts, steps.verdicts-trim.outputs.digest)",
+          if: "always() && env.COSMIC_CI_SAVES == 'true' && (matrix.leg == 'macos-aarch64' || steps.main-newest.outputs.newest != 'false') && steps.verdicts-trim.outputs.digest != '' && !(github.event.schedule == '41 3 * * 0' && env.COSMIC_CI_DECLARED_KEYS == '1') && steps.verdicts-restore.outputs.cache-matched-key != format('{0}{1}', steps.host-id.outputs.verdicts, steps.verdicts-trim.outputs.digest)",
           uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/verdicts",
@@ -717,7 +840,7 @@
         # which a save the relay made already leaves as it is.
         {
           name: "save compiles and parses",
-          if: "always() && env.COSMIC_CI_SAVES == 'true' && steps.main-newest.outputs.newest != 'false' && steps.release-suite.outcome == 'success' && steps.compiles-trim.outputs.digest != '' && steps.compiles-restore.outputs.cache-matched-key != format('compiles-{0}-{1}', matrix.leg, steps.compiles-trim.outputs.digest)",
+          if: "always() && env.COSMIC_CI_SAVES == 'true' && (matrix.leg == 'macos-aarch64' || steps.main-newest.outputs.newest != 'false') && steps.release-suite.outcome == 'success' && steps.compiles-trim.outputs.digest != '' && steps.compiles-restore.outputs.cache-matched-key != format('compiles-{0}-{1}', matrix.leg, steps.compiles-trim.outputs.digest)",
           uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/build-cache",
@@ -726,19 +849,22 @@
         },
         # Once per vendor part and leg, not per core change, which the
         # cache cannot hold, where assemble passed and main found no entry
-        # of this vendor part; and on the weekly run, which built cold.
+        # of this vendor part; and on the weekly run, which built cold. A
+        # suite job (macOS's on a push) builds only its boot, and saves it
+        # under `<vendor>boot-`, so it does not stand in for the whole
+        # leg's entry, which the daily run still saves.
         {
           name: "save zig build outputs",
-          if: "always() && steps.assemble.outcome == 'success' && env.COSMIC_CI_SAVES == 'true' && (github.event.schedule == '41 3 * * 0' || !startsWith(steps.zig-cache-restore.outputs.cache-matched-key, format('{0}full-', steps.names.outputs.vendor)))",
+          if: "always() && (steps.assemble.outcome == 'success' || matrix.part == 'suite' && steps.boot.outcome == 'success') && env.COSMIC_CI_SAVES == 'true' && (github.event.schedule == '41 3 * * 0' || !startsWith(steps.zig-cache-restore.outputs.cache-matched-key, format('{0}full-', steps.names.outputs.vendor))) && (matrix.part != 'suite' || !startsWith(steps.zig-cache-restore.outputs.cache-matched-key, format('{0}boot-', steps.names.outputs.vendor)))",
           uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/zig-build",
-            key: "${{ steps.zig-cache-restore.outputs.cache-primary-key }}",
+            key: "${{ matrix.part == 'suite' && format('{0}boot-{1}-{2}-{3}', steps.names.outputs.vendor, steps.names.outputs.core, github.run_id, github.run_attempt) || steps.zig-cache-restore.outputs.cache-primary-key }}",
           },
         },
         {
           name: "save the pinned zig",
-          if: "always() && steps.assemble.outcome == 'success' && env.COSMIC_CI_SAVES == 'true' && steps.zig-restore.outputs.cache-hit != 'true'",
+          if: "always() && (steps.assemble.outcome == 'success' || matrix.part == 'suite' && steps.boot.outcome == 'success') && env.COSMIC_CI_SAVES == 'true' && steps.zig-restore.outputs.cache-hit != 'true'",
           uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/cache/cosmic/zig",
@@ -753,24 +879,32 @@
     # `checked_suite_timeout_ns`), and the bounded performance fixture, on
     # linux-x86_64's host, beside the legs. Not on a pull request: the
     # merge queue, main's push, the scheduled and a manual run. Its verdicts are kept under a
-    # cache name of its own on that host. The queue runs the suite in two
+    # cache name of its own on that host. The queue runs the suite in three
     # shares at once (`cosmic test --shard`), each its own job, so the
-    # longest job of a queue run is not the suite whole (14 of its 16
-    # minutes); a share saves nothing, and the performance fixture runs
-    # in the first. Elsewhere it is one job, whose run checks the C
-    # functions too, which a share cannot.
+    # longest job of a queue run is not the suite whole (about 28
+    # minutes; two shares took 16.4 and 11.8, since tests are dealt by
+    # name, not time); a share saves nothing, and the performance fixture
+    # (`performance`) runs in the third. A manual run of a branch, its
+    # checks before the queue, runs the queue's shares too: whole, the
+    # suite took 1738-1749 s of its 1860 s deadline (45559361046,
+    # 45558617898) and missed it on slower runners (45557741219).
+    # Elsewhere it is one job, whose run checks the C functions too,
+    # which a share cannot.
     checked: {
-      if: "github.event_name != 'pull_request'",
+      needs: ["queue-ref"],
+      if: "!cancelled() && (github.event_name != 'merge_group' || needs.queue-ref.result == 'success') && github.event_name != 'pull_request'",
       name: "${{ matrix.name }}",
       strategy: {
         "fail-fast": false,
         matrix: {
-          include: "${{ fromJSON(github.event_name == 'pull_request' && '[{\"name\": \"linux-x86_64-checked\", \"shard\": \"\"}]' || github.event_name == 'merge_group' && '[{\"name\": \"linux-x86_64-checked-1\", \"shard\": \"1/2\"}, {\"name\": \"linux-x86_64-checked-2\", \"shard\": \"2/2\"}]' || github.event_name == 'push' && '[{\"name\": \"linux-x86_64-checked\", \"shard\": \"\"}]' || '[{\"name\": \"linux-x86_64-checked\", \"shard\": \"\"}]') }}",
+          include: "${{ fromJSON(github.event_name == 'pull_request' && '[{\"name\": \"linux-x86_64-checked\", \"shard\": \"\", \"performance\": \"run\"}]' || github.event_name == 'merge_group' && '[{\"name\": \"linux-x86_64-checked-1\", \"shard\": \"1/3\", \"performance\": \"skip\"}, {\"name\": \"linux-x86_64-checked-2\", \"shard\": \"2/3\", \"performance\": \"skip\"}, {\"name\": \"linux-x86_64-checked-3\", \"shard\": \"3/3\", \"performance\": \"run\"}]' || github.event_name == 'push' && '[{\"name\": \"linux-x86_64-checked\", \"shard\": \"\", \"performance\": \"run\"}]' || (github.event_name == 'schedule' || github.ref == 'refs/heads/main') && '[{\"name\": \"linux-x86_64-checked\", \"shard\": \"\", \"performance\": \"run\"}]' || '[{\"name\": \"linux-x86_64-checked-1\", \"shard\": \"1/3\", \"performance\": \"skip\"}, {\"name\": \"linux-x86_64-checked-2\", \"shard\": \"2/3\", \"performance\": \"skip\"}, {\"name\": \"linux-x86_64-checked-3\", \"shard\": \"3/3\", \"performance\": \"run\"}]') }}",
         },
       },
       defaults: {run: {"working-directory": "ci", shell: "leg-shell {0}"}},
       "runs-on": "ubuntu-24.04",
-      permissions: {contents: "read", packages: "read"},
+      # actions: to find and download the pull request's last failed try in
+      # the merge queue.
+      permissions: {contents: "read", packages: "read", actions: "read"},
       "timeout-minutes": 60,
       env: {
         COSMIC_WORKER: "linux-x86_64-checked",
@@ -876,6 +1010,37 @@
             "restore-keys": "${{ steps.host-id.outputs.verdicts }}\n",
           },
         },
+        # As the platform job's: what this pull request's last failed try
+        # in the merge queue reached.
+        {
+          name: "find this pull request's last failed try in the merge queue",
+          id: "tried-run",
+          if: "github.event_name == 'merge_group'",
+          shell: "sh",
+          "continue-on-error": true,
+          env: {HEAD_REF: "${{ github.event.merge_group.head_ref }}", BASE_SHA: "${{ github.event.merge_group.base_sha }}", SHA: "${{ github.sha }}", ARTIFACT: "queue-tried-verdicts-${{ matrix.name }}", RUN_ID: "${{ github.run_id }}", GH_TOKEN: "${{ github.token }}"},
+          run: "cosmic-driver cosmic_ci/driver.tl queue-tried-run",
+        },
+        {
+          name: "download the last failed try's verdicts",
+          id: "tried-download",
+          if: "steps.tried-run.outputs.artifact != ''",
+          "continue-on-error": true,
+          uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
+          with: {
+            "artifact-ids": "${{ steps.tried-run.outputs.artifact }}",
+            "merge-multiple": true,
+            path: "${{ runner.temp }}/tried-verdicts",
+            "run-id": "${{ steps.tried-run.outputs.run }}",
+            "github-token": "${{ github.token }}",
+          },
+        },
+        {
+          name: "take in the last failed try's verdicts",
+          if: "steps.tried-download.outcome == 'success'",
+          "continue-on-error": true,
+          run: "cosmic-driver cosmic_ci/driver.tl verdicts-merge \"${{ runner.temp }}/tried-verdicts\"",
+        },
         {
           name: "restore compiles and parses",
           id: "compiles-restore",
@@ -909,16 +1074,32 @@
         },
         {
           name: "check performance fixture histories on the checked core",
-          if: "matrix.shard != '2/2'",
+          if: "matrix.performance == 'run'",
           run: "cosmic-driver cosmic_ci/driver.tl platform performance-checked",
         },
-        # A run that failed keeps what it restored too (`whole`). Cut to
+        # A run that failed keeps what it restored too (`whole`), but in
+        # the merge queue, which saves no cache, only what it used. Cut to
         # the rows this run used, named by their digest.
         {
           name: "keep only this run's test verdicts",
           id: "verdicts-trim",
-          if: "always() && steps.driver.outcome == 'success' && env.COSMIC_CI_SAVES == 'true'",
-          run: "cosmic-driver cosmic_ci/driver.tl verdicts-trim ${{ job.status == 'success' && steps.names.outputs.since || 'whole' }}",
+          if: "always() && steps.driver.outcome == 'success' && (env.COSMIC_CI_SAVES == 'true' || github.event_name == 'merge_group')",
+          run: "cosmic-driver cosmic_ci/driver.tl verdicts-trim ${{ (job.status == 'success' || github.event_name == 'merge_group') && steps.names.outputs.since || 'whole' }}",
+        },
+        # Read by this pull request's next try in the merge queue where
+        # the run fails, whether this job passed or failed: no other step
+        # relays these rows.
+        {
+          name: "upload what this try in the merge queue reached",
+          if: "always() && github.event_name == 'merge_group' && steps.verdicts-trim.outputs.digest != ''",
+          "continue-on-error": true,
+          uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
+          with: {
+            name: "queue-tried-verdicts-${{ matrix.name }}",
+            path: "${{ runner.temp }}/verdicts/*.db",
+            "if-no-files-found": "ignore",
+            "retention-days": 1,
+          },
         },
         {
           name: "summarize worker operations",
@@ -988,10 +1169,10 @@
         # where the rows differ from the entry restored. Not the macOS
         # leg's scheduled runs: its keys hold the tree's path, which such a
         # run chooses by the commit (driver.tl place-tree), so its rows
-        # would answer no other run.
+        # would match no other run.
         {
           name: "save test verdicts",
-          if: "always() && steps.verdicts-trim.outputs.digest != '' && !(github.event_name == 'schedule' && env.COSMIC_CI_DECLARED_KEYS == '1') && steps.verdicts-restore.outputs.cache-matched-key != format('{0}{1}', steps.host-id.outputs.verdicts, steps.verdicts-trim.outputs.digest)",
+          if: "always() && env.COSMIC_CI_SAVES == 'true' && steps.verdicts-trim.outputs.digest != '' && !(github.event_name == 'schedule' && env.COSMIC_CI_DECLARED_KEYS == '1') && steps.verdicts-restore.outputs.cache-matched-key != format('{0}{1}', steps.host-id.outputs.verdicts, steps.verdicts-trim.outputs.digest)",
           uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/verdicts",
@@ -1005,16 +1186,29 @@
     # phase_checked_narrowing, bounded by `checked_narrowing_timeout_ns`),
     # on the release tool, on linux-x86_64's host, beside the legs. Not on
     # a pull request. Its verdicts stand apart (`narrowing.db`), under a
-    # cache name of its own.
+    # cache name of its own. As the checked suite's, the merge queue's run
+    # and a manual run of a branch's are three shares at once, each its
+    # own job, which saves nothing: whole, standing on no verdict, it took
+    # 1276 and 1289 s of its 1260 s deadline (#4241, #4245).
     narrowing: {
-      if: "github.event_name != 'pull_request'",
-      name: "linux-x86_64-checked-narrowing",
+      needs: ["queue-ref"],
+      if: "!cancelled() && (github.event_name != 'merge_group' || needs.queue-ref.result == 'success') && github.event_name != 'pull_request'",
+      name: "${{ matrix.name }}",
+      strategy: {
+        "fail-fast": false,
+        matrix: {
+          include: "${{ fromJSON(github.event_name == 'pull_request' && '[{\"name\": \"linux-x86_64-checked-narrowing\", \"shard\": \"\"}]' || github.event_name == 'merge_group' && '[{\"name\": \"linux-x86_64-checked-narrowing-1\", \"shard\": \"1/3\"}, {\"name\": \"linux-x86_64-checked-narrowing-2\", \"shard\": \"2/3\"}, {\"name\": \"linux-x86_64-checked-narrowing-3\", \"shard\": \"3/3\"}]' || github.event_name == 'push' && '[{\"name\": \"linux-x86_64-checked-narrowing\", \"shard\": \"\"}]' || (github.event_name == 'schedule' || github.ref == 'refs/heads/main') && '[{\"name\": \"linux-x86_64-checked-narrowing\", \"shard\": \"\"}]' || '[{\"name\": \"linux-x86_64-checked-narrowing-1\", \"shard\": \"1/3\"}, {\"name\": \"linux-x86_64-checked-narrowing-2\", \"shard\": \"2/3\"}, {\"name\": \"linux-x86_64-checked-narrowing-3\", \"shard\": \"3/3\"}]') }}",
+        },
+      },
       defaults: {run: {"working-directory": "ci", shell: "leg-shell {0}"}},
       "runs-on": "ubuntu-24.04",
-      permissions: {contents: "read", packages: "read"},
+      # actions: to find and download the pull request's last failed try in
+      # the merge queue.
+      permissions: {contents: "read", packages: "read", actions: "read"},
       "timeout-minutes": 60,
       env: {
         COSMIC_WORKER: "linux-x86_64-checked-narrowing",
+        COSMIC_CI_NARROWING_SHARD: "${{ matrix.shard }}",
         TARGET: "x86_64-linux-musl",
         COSMIC_CI_REQUIRE_SANDBOX: "1",
         COSMIC_CI_DECLARED_KEYS: "0",
@@ -1115,6 +1309,37 @@
             "restore-keys": "${{ steps.host-id.outputs.verdicts }}\n",
           },
         },
+        # As the platform job's: what this pull request's last failed try
+        # in the merge queue reached.
+        {
+          name: "find this pull request's last failed try in the merge queue",
+          id: "tried-run",
+          if: "github.event_name == 'merge_group'",
+          shell: "sh",
+          "continue-on-error": true,
+          env: {HEAD_REF: "${{ github.event.merge_group.head_ref }}", BASE_SHA: "${{ github.event.merge_group.base_sha }}", SHA: "${{ github.sha }}", ARTIFACT: "queue-tried-verdicts-${{ matrix.name }}", RUN_ID: "${{ github.run_id }}", GH_TOKEN: "${{ github.token }}"},
+          run: "cosmic-driver cosmic_ci/driver.tl queue-tried-run",
+        },
+        {
+          name: "download the last failed try's verdicts",
+          id: "tried-download",
+          if: "steps.tried-run.outputs.artifact != ''",
+          "continue-on-error": true,
+          uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
+          with: {
+            "artifact-ids": "${{ steps.tried-run.outputs.artifact }}",
+            "merge-multiple": true,
+            path: "${{ runner.temp }}/tried-verdicts",
+            "run-id": "${{ steps.tried-run.outputs.run }}",
+            "github-token": "${{ github.token }}",
+          },
+        },
+        {
+          name: "take in the last failed try's verdicts",
+          if: "steps.tried-download.outcome == 'success'",
+          "continue-on-error": true,
+          run: "cosmic-driver cosmic_ci/driver.tl verdicts-merge \"${{ runner.temp }}/tried-verdicts\"",
+        },
         {
           name: "restore compiles and parses",
           id: "compiles-restore",
@@ -1142,13 +1367,29 @@
           id: "checked-narrowing",
           run: "cosmic-driver cosmic_ci/driver.tl platform checked-narrowing",
         },
-        # A run that failed keeps what it restored too (`whole`). Cut to
+        # A run that failed keeps what it restored too (`whole`), but in
+        # the merge queue, which saves no cache, only what it used. Cut to
         # the rows this run used, named by their digest.
         {
           name: "keep only this run's test verdicts",
           id: "verdicts-trim",
-          if: "always() && steps.driver.outcome == 'success' && env.COSMIC_CI_SAVES == 'true'",
-          run: "cosmic-driver cosmic_ci/driver.tl verdicts-trim ${{ job.status == 'success' && steps.names.outputs.since || 'whole' }}",
+          if: "always() && steps.driver.outcome == 'success' && (env.COSMIC_CI_SAVES == 'true' || github.event_name == 'merge_group')",
+          run: "cosmic-driver cosmic_ci/driver.tl verdicts-trim ${{ (job.status == 'success' || github.event_name == 'merge_group') && steps.names.outputs.since || 'whole' }}",
+        },
+        # Read by this pull request's next try in the merge queue where
+        # the run fails, whether this job passed or failed: no other step
+        # relays these rows.
+        {
+          name: "upload what this try in the merge queue reached",
+          if: "always() && github.event_name == 'merge_group' && steps.verdicts-trim.outputs.digest != ''",
+          "continue-on-error": true,
+          uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
+          with: {
+            name: "queue-tried-verdicts-${{ matrix.name }}",
+            path: "${{ runner.temp }}/verdicts/*.db",
+            "if-no-files-found": "ignore",
+            "retention-days": 1,
+          },
         },
         {
           name: "summarize worker operations",
@@ -1161,7 +1402,7 @@
           if: "always()",
           uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
           with: {
-            name: "ci-driver-linux-x86_64-checked-narrowing",
+            name: "ci-driver-${{ matrix.name }}",
             path: "${{ runner.temp }}/cosmic-ci/operations.db",
             "if-no-files-found": "ignore",
             "retention-days": 7,
@@ -1172,7 +1413,7 @@
           if: "failure()",
           uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
           with: {
-            name: "platform-diagnostics-linux-x86_64-checked-narrowing",
+            name: "platform-diagnostics-${{ matrix.name }}",
             path: "${{ runner.temp }}/cosmic-ci/platform/local-diagnostics",
             "if-no-files-found": "ignore",
             "retention-days": 7,
@@ -1218,10 +1459,10 @@
         # where the rows differ from the entry restored. Not the macOS
         # leg's scheduled runs: its keys hold the tree's path, which such a
         # run chooses by the commit (driver.tl place-tree), so its rows
-        # would answer no other run.
+        # would match no other run.
         {
           name: "save test verdicts",
-          if: "always() && steps.verdicts-trim.outputs.digest != '' && !(github.event_name == 'schedule' && env.COSMIC_CI_DECLARED_KEYS == '1') && steps.verdicts-restore.outputs.cache-matched-key != format('{0}{1}', steps.host-id.outputs.verdicts, steps.verdicts-trim.outputs.digest)",
+          if: "always() && env.COSMIC_CI_SAVES == 'true' && steps.verdicts-trim.outputs.digest != '' && !(github.event_name == 'schedule' && env.COSMIC_CI_DECLARED_KEYS == '1') && steps.verdicts-restore.outputs.cache-matched-key != format('{0}{1}', steps.host-id.outputs.verdicts, steps.verdicts-trim.outputs.digest)",
           uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/verdicts",
@@ -1238,7 +1479,8 @@
     # grants), or where the paths changed are not known. The other runs
     # check it on each leg ("check the pinned CI driver" above).
     driver: {
-      if: "github.event_name == 'merge_group'",
+      needs: ["queue-ref"],
+      if: "!cancelled() && (github.event_name != 'merge_group' || needs.queue-ref.result == 'success') && github.event_name == 'merge_group'",
       name: "linux-x86_64-driver",
       defaults: {run: {"working-directory": "ci", shell: "leg-shell {0}"}},
       "runs-on": "ubuntu-24.04",
@@ -1302,13 +1544,6 @@
           env: {BASE: "${{ steps.ceilings-base.outputs.sha }}", OUT: "${{ runner.temp }}/changed-paths"},
           run: "cosmic-driver cosmic_ci/driver.tl changed-paths",
         },
-        {
-          name: "ask whether the change reaches the CI driver's tests",
-          id: "reach",
-          shell: "sh",
-          env: {PATHS: "${{ steps.changed.outputs.paths }}"},
-          run: "if [ -z \"$PATHS\" ] || grep -qE '^(ci|\\.github)/' \"$PATHS\"; then echo driver=run >> \"$GITHUB_OUTPUT\"; fi",
-        },
         # At a path of the commit's own, as the legs run it, so a test
         # that turns on the tree's path fails here too (driver.tl
         # place-tree).
@@ -1319,7 +1554,7 @@
         # Every test, unsandboxed, as the platform job's step.
         {
           name: "check the pinned CI driver",
-          if: "steps.reach.outputs.driver == 'run'",
+          if: "steps.changed.outputs.driver != 'skip'",
           env: {COSMIC_VERDICT_CACHE: "0", COSMIC_TEST_SANDBOX: "0"},
           run: "cosmic-driver test cosmic_ci",
         },
@@ -1335,20 +1570,49 @@
     },
 
     # The one check a ruleset requires: it fails when a leg, the checked
-    # suite, the checked narrowing run or the queue's pinned driver check
-    # failed or was cancelled. The checked jobs read as passed on a pull
+    # suite, the checked narrowing run, the queue's pinned driver check or
+    # its check of the queue ref's caches did not pass, or when the queue
+    # ref holds a cache once they have run. The checked jobs read as passed on a pull
     # request, which skips them; the driver job's result is read in the
     # queue alone, where it runs. On every run but a pull request's it is
     # the provenance join too, proving the legs attested identical bytes:
-    # the queue's and a push's three, the scheduled and a manual run's
-    # four.
+    # the queue's, a push's and a branch's manual run's three, the
+    # scheduled run's and a manual run of main's or with `macos` four.
     ci: {
-      needs: ["platform", "checked", "narrowing", "driver"],
+      needs: ["queue-ref", "platform", "checked", "narrowing", "driver"],
       if: "always()",
       "runs-on": "ubuntu-24.04",
+      # actions: to list the merge-queue ref's caches again.
+      permissions: {contents: "read", actions: "read"},
       "timeout-minutes": 5,
       env: {COSMIC_WORKER: "provenance"},
       steps: [
+        {
+          if: "github.event_name != 'pull_request'",
+          uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
+        },
+        # In the merge queue, fetched and checked against its pin with no
+        # cache restored, so the check below runs on what no restore wrote.
+        {
+          name: "fetch the pinned provenance driver",
+          id: "driver-fetch",
+          if: "github.event_name == 'merge_group'",
+          "working-directory": "ci",
+          shell: "sh",
+          run: "sh ../.github/scripts/cosmic-driver.sh",
+        },
+        # The ref's caches again, now every job has restored what it
+        # restores, whether or not it passed: a cache written to the ref
+        # while the run ran (by a runtime token an earlier run of the ref
+        # leaked) fails the run here, so it does not merge.
+        {
+          name: "refuse a cache the merge-queue ref saved, after every job",
+          if: "github.event_name == 'merge_group'",
+          "working-directory": "ci",
+          shell: "sh",
+          env: {GH_TOKEN: "${{ github.token }}"},
+          run: "cosmic-driver cosmic_ci/driver.tl queue-ref-caches",
+        },
         {
           name: "every job passed",
           env: {
@@ -1356,17 +1620,14 @@
             CHECKED: "${{ github.event_name == 'pull_request' && 'success' || needs.checked.result }}",
             NARROWING: "${{ github.event_name == 'pull_request' && 'success' || needs.narrowing.result }}",
             DRIVER: "${{ github.event_name == 'merge_group' && needs.driver.result || 'success' }}",
+            QUEUE_REF: "${{ github.event_name == 'merge_group' && needs.queue-ref.result || 'success' }}",
           },
-          run: "echo \"legs: $RESULT; checked suite: $CHECKED; checked narrowing: $NARROWING; pinned driver: $DRIVER\"; [ \"$RESULT\" = success ] && [ \"$CHECKED\" = success ] && [ \"$NARROWING\" = success ] && [ \"$DRIVER\" = success ]",
-        },
-        {
-          if: "github.event_name != 'pull_request'",
-          uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
+          run: "echo \"merge-queue ref: $QUEUE_REF; legs: $RESULT; checked suite: $CHECKED; checked narrowing: $NARROWING; pinned driver: $DRIVER\"; [ \"$QUEUE_REF\" = success ] && [ \"$RESULT\" = success ] && [ \"$CHECKED\" = success ] && [ \"$NARROWING\" = success ] && [ \"$DRIVER\" = success ]",
         },
         {
           name: "bootstrap the pinned provenance driver",
           id: "driver",
-          if: "github.event_name != 'pull_request'",
+          if: "github.event_name != 'pull_request' && github.event_name != 'merge_group'",
           uses: "./.github/actions/cosmic-driver",
         },
         {
@@ -1393,12 +1654,12 @@
           name: "compare the Cosmic bytes executed on every native host",
           if: "github.event_name != 'pull_request'",
           "working-directory": "ci",
-          env: {COSMIC_CI_PRODUCTS: "${{ (github.event_name == 'push' || github.event_name == 'merge_group') && '3' || '4' }}"},
+          env: {COSMIC_CI_PRODUCTS: "${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/main' || inputs.macos)) && '4' || '3' }}"},
           run: "cosmic-driver cosmic_ci/driver.tl provenance",
         },
         {
           name: "summarize provenance operations",
-          if: "always() && steps.driver.outcome == 'success'",
+          if: "always() && (steps.driver.outcome == 'success' || steps.driver-fetch.outcome == 'success')",
           "working-directory": "ci",
           run: "cosmic-driver cosmic_ci/driver.tl summarize",
         },

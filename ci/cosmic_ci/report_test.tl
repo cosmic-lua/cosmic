@@ -27,7 +27,7 @@ end
 --- (`string, got integer`): `$.a[0].b: want string, got integer` for the pointer `/a/0/b`.
 local shape_failure <const> = TestSupport.shape_failure
 
---- The lists the API answers are checked against the records `Report`
+--- The lists the API sends are checked against the records `Report`
 --- reads: a value of another shape is refused naming where it is, where
 --- the entries once read as empty, were skipped, or were taken as text.
 local function test_an_answer_of_another_shape_is_refused_by_path()
@@ -141,8 +141,8 @@ local function test_a_run_qualifies_by_what_its_restored_cache_held()
       "no parts, harness moved", 1, true) ~= nil, assert(runs[3]).why)
 end
 
---- A fake GitHub: a `Send` answering from `answers`, by the path it was
---- asked for, and logging each path in `calls`. An artifact's zip is
+--- A fake GitHub: a `Send` returning what `answers` holds for the path it
+--- was asked for, and logging each path in `calls`. An artifact's zip is
 --- served as GitHub does, a redirect to a link `fetch` writes from `zips`.
 local record Fake
   answers: mut {string:string}
@@ -187,7 +187,7 @@ local function fake(tmp: string): Fake
   return f
 end
 
---- The API's answer for `endpoint`, as JSON text.
+--- Sets what the fake's `Send` returns for `endpoint`, as JSON text.
 local function answer(f: Fake, endpoint: string, text: string)
   f.answers[endpoint] = text
 end
@@ -285,7 +285,7 @@ local record Answer
 end
 
 --- `driver.tl report` with `args`, in `f`'s environment; an unreadable
---- line answers 2, as the driver's dispatch does.
+--- line gives code 2, as the driver's dispatch exits 2.
 local function report(f: Fake, args: {string}): Answer, string
   local argv: mut {string} = {}
   for _, word in ipairs(args) do argv[#argv + 1] = word end

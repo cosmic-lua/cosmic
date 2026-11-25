@@ -21,14 +21,14 @@ local record vector
     -- k centroids by spherical k-means (k-means++ seeding from `seed`).
     -- Raises on k outside 1 to count, on iterations under 1, and on a
     -- corpus whose every vector is zero. A zero vector is no cluster's.
-    -- Once a signal guard has caught a signal it answers nil, "interrupted"
+    -- Once a signal guard caught a signal it returns nil, "interrupted"
     -- instead, leaving the corpus as it was and the signal untaken.
     kmeans: function(Corpus, k: integer, seed: integer, iterations: integer): {string}?, string?
     -- The ids and scores of the k best, best first. `metric` is
     -- "inner_product", "cosine" or "l2" (the score is the distance);
     -- `candidates` and `allow` may be nil. Raises on k < 1, a vector of
     -- another length, or another metric. Once a signal guard has caught a
-    -- signal it answers nil, "interrupted" instead (the corpus as it was,
+    -- signal it returns nil, "interrupted" instead (the corpus as it was,
     -- the signal untaken). The corpus's buffers are Lua userdata, so any
     -- call here may raise "not enough memory", leaving it as it was.
     search: function(Corpus, query: string, k: integer, metric: string,

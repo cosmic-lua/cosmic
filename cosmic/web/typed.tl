@@ -1,6 +1,6 @@
 --- Typed routes: a route whose path parameters, query and body are named by
 --- [`cosmic.shape`] specs, so its handler is given checked records and
---- input that fails them is answered before it runs. The route is erased to
+--- input that fails them is refused before it runs. The route is erased to
 --- the plain [`Web.Route`]: its handler closes over the binding.
 --- @public
 
@@ -36,7 +36,7 @@ end
 local BODY_METHODS <const>: {string:boolean} = { POST = true, PUT = true, PATCH = true, DELETE = true }
 
 --- A body slot for a JSON body: the Content-Type must be `application/json`
---- (or `application/*+json`), and a failure answers a problem body by
+--- (or `application/*+json`), and a failure gets a problem body by
 --- default.
 --- @param t Shape.Typed<B> The body's record and spec
 --- @return Types.Body<B> The slot
@@ -126,7 +126,7 @@ local function problem_errors(inv: Types.Invalid): Json.Value
   return Json.array(list)
 end
 
---- The default answer for `inv`: a problem body for a client that prefers
+--- The default response for `inv`: a problem body for a client that prefers
 --- JSON (a route with a JSON body offers it first, so a client that asks
 --- for nothing in particular is given JSON), else the app's error page.
 local function answer(req: Types.Request, inv: Types.Invalid, json_first: boolean): Types.Response
@@ -153,8 +153,8 @@ end
 --- slot (`p: NewItem` for an `ItemPath` slot is a type error). The first
 --- slot that fails ends the request, with every error of that source
 --- collected in an [`Input.Invalid`], which the route's `opts.on_invalid`
---- answers if given; without it the answer is a problem body for a client
---- that prefers JSON and the app's error page otherwise.
+--- responds to if given; without it the response is a problem body for a
+--- client that prefers JSON and the app's error page otherwise.
 ---
 --- The route that takes it raises, naming the pattern, when a path
 --- parameter and a field of the path spec do not match one to one, when a

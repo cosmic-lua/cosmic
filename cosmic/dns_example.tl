@@ -17,7 +17,7 @@ function Example.query()
       "0000010001")
 end
 
---- A multicast DNS question: an id of 0, no recursion, any type, and the bit that asks for the answer by unicast.
+--- A multicast DNS question: an id of 0, no recursion, any type, and the bit that asks for the response by unicast.
 function Example.multicast_query()
   local query: Dns.Message = {
     ...Dns.query("printer.local", Dns.ANY, 0),
@@ -31,8 +31,8 @@ function Example.multicast_query()
   assert(question.name == "printer.local" and question.type == Dns.ANY and question.unicast_response)
 end
 
---- A response as a server sends it, with the name of its answer compressed to a pointer at the question's:
---- decode follows the pointer, and reads the data of each record by its type.
+--- A response as a server sends it, with the names of its two answer records compressed to a pointer at the
+--- question's: decode follows the pointer, and reads the data of each record by its type.
 function Example.decode()
   local bytes = "\x12\x34\x81\x80\x00\x01\x00\x02\x00\x00\x00\x00" ..
     "\x07example\x03com\x00\x00\x01\x00\x01" ..
@@ -49,15 +49,15 @@ function Example.decode()
   assert(assert(response.answers[2]).address == "2001:db8::1")
 end
 
---- Bytes that are no message are a failure to handle, never a raise: here the header counts an answer that the
---- bytes do not hold.
+--- Bytes that are no message are a failure to handle, never a raise: here the header counts an answer record that
+--- the bytes do not hold.
 function Example.decode_refuses()
   local message, why = Dns.decode("\x00\x00\x81\x80\x00\x00\x00\x01\x00\x00\x00\x00")
   print(why)
   assert(message == nil and tostring(why) ~= "")
 end
 
---- A server's answer to a query: [`Dns.reply`] repeats what a response repeats, and each record is written from
+--- A server's response to a query: [`Dns.reply`] repeats what a response repeats, and each record is written from
 --- the field of its type, so no caller assembles the bytes of a record's data. A record that is read holds the
 --- same field.
 function Example.reply()

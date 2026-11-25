@@ -65,14 +65,14 @@ local SAME: {Same} = {
   { needs = "{ lua = true }", policy = 'Test.policy { profiles = { "cosmic" } }' },
   {
     needs = '{ lua = true, host = { "/proc" }, nests = true, network = { "127.0.0.1" } }',
-    policy = 'Test.policy { profiles = { "cosmic" }, grants = { { path = "/proc", letters = "r" } }, ' ..
-      'promises = { "nest" }, loopback = { "127.0.0.1" } }',
+    policy = 'Test.policy { profiles = { "cosmic" }, grants = { { path = "/proc", letters = "r" }, { calls = "nest" } }, ' ..
+      'loopback = { "127.0.0.1" } }',
   },
   -- The profile "proc" is the grant of /proc by hand, to the key.
   { needs = '{ host = { "/proc" } }', policy = 'Test.policy { profiles = { "proc" } }' },
   {
     needs = '{ lua = true, host = { "/proc" }, nests = true, network = { "127.0.0.1" } }',
-    policy = 'Test.policy { profiles = { "cosmic", "proc" }, promises = { "nest" }, ' ..
+    policy = 'Test.policy { profiles = { "cosmic", "proc" }, grants = { { calls = "nest" } }, ' ..
       'loopback = { "127.0.0.1" } }',
   },
   {
@@ -89,7 +89,7 @@ local SAME: {Same} = {
   },
   { needs = "{ tool = true, system = true }",
     policy = 'Test.policy { profiles = { "system", "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }' },
-  { needs = "{ nests = true }", policy = 'Test.policy { promises = { "nest" } }' },
+  { needs = "{ nests = true }", policy = 'Test.policy { grants = { { calls = "nest" } } }' },
   { needs = '{ env = { "PATH", "HOME", "PATH" } }', policy = 'Test.policy { env = { "PATH", "HOME", "PATH" } }' },
   { needs = '{ network = { "127.0.0.1", "127.0.0.2" } }',
     policy = 'Test.policy { loopback = { "127.0.0.1", "127.0.0.2" } }' },
@@ -121,14 +121,14 @@ local SAME: {Same} = {
   { needs = "{ cpu_features = true }", policy = "Test.policy { cpu_features = true }" },
   { needs = "{ }", policy = "Test.policy { cpu_features = false }" },
   -- A promise with no `needs` field changes no key before the filter runs.
-  { needs = "{ }", policy = 'Test.policy { promises = { "fork", "jit", "fattr" }, tmp = true }' },
+  { needs = "{ }", policy = 'Test.policy { grants = { { calls = "fork" }, { calls = "jit" }, { calls = "fattr" } }, tmp = true }' },
   -- A module's own limit, in seconds, is a field of its key.
   { needs = "{ timeout = 120 }", policy = "Test.policy { timeout = 120 }" },
   {
     needs = '{ reads = { "testdata" }, system = true, tool = true, nests = true, ' ..
       'env = { "PATH", "TMPDIR" }, network = { "127.0.0.1" } }',
-    policy = 'Test.policy { profiles = { "cosmic", "system" }, promises = { "nest", "fork" }, ' ..
-      'grants = { { path = "testdata", letters = "r" }, { path = "o/bin", letters = "rx" } }, ' ..
+    policy = 'Test.policy { profiles = { "cosmic", "system" }, ' ..
+      'grants = { { path = "testdata", letters = "r" }, { path = "o/bin", letters = "rx" }, { calls = "nest" }, { calls = "fork" } }, ' ..
       'env = { "PATH", "TMPDIR" }, ' ..
       'loopback = { "127.0.0.1" }, tmp = true, isolate = {}, limits = {} }',
   },
@@ -176,7 +176,9 @@ local function test_a_policy_with_no_needs_is_refused()
     { call = 'Test.policy { set_env = { A = "1" } }', says = "test.policy: set_env is not yet taken" },
     { call = 'Test.policy { set_env_digests = { A = "ab" } }', says = "test.policy: set_env_digests is refused" },
     { call = 'Test.policy { connect = { "example.com:443" } }',
-      says = "test.policy: connect is refused: no test reaches a host but loopback" },
+      says = "test.policy: has no field connect: a host is a grant now" },
+    { call = 'Test.policy { grants = { { connect = "example.com:443" } } }',
+      says = "connect is refused: no test reaches a host but loopback" },
     { call = "Test.policy { tmp = false }", says = "test.policy: tmp = false is not yet taken" },
     { call = "Test.policy { user = 1000 }", says = "test.policy: user is refused: the harness chooses" },
     { call = "Test.policy { user = 1000, group = 1000 }", says = "is refused: the harness chooses" },
@@ -248,8 +250,10 @@ local function test_a_policy_with_no_needs_is_refused()
     { call = 'Test.policy { grants = { { path = "/parent/a//b", letters = "r" } } }', says = "has an empty name" },
     { call = 'Test.policy { grants = { { path = "/parent/$HOME", letters = "r" } } }', says = "holds a $" },
     { call = 'Test.policy { database = "x.db" }', says = "test.policy: database is refused" },
-    { call = 'Test.policy { promises = { "exec" } }', says = "test.policy: promises: no promise exec" },
-    { call = "Test.policy { reeds = {} }", says = "test.policy: has no field reeds; it has connect, cpu_features, database, env" },
+    { call = 'Test.policy { grants = { { calls = "exec" } } }', says = "test.policy: grants[1].calls: no calls exec" },
+    { call = 'Test.policy { promises = { "nest" } }', says = "a promise is a grant now" },
+    { call = 'Test.policy { grants = { { calls = "nest", path = "x" } } }', says = "names calls and a path" },
+    { call = "Test.policy { reeds = {} }", says = "test.policy: has no field reeds; it has cpu_features, database, env, grants" },
     { call = 'Test.policy { env = "PATH" }', says = "test.policy: env takes a list of string literals, written out" },
     { call = "Test.policy { tmp = 1 }", says = "test.policy: tmp takes true or false" },
     { call = "Test.policy { cpu_features = 1 }", says = "test.policy: cpu_features takes true or false" },
@@ -336,8 +340,8 @@ local function test_a_policy_declares_requirements()
   end
   local function names(list: {string}): string return table.concat(list, " ") end
   assert(names(read('Test.policy { requires = { "root", "portable" } }').requires) == "root portable")
-  assert(#read('Test.policy { promises = { "nest" }, grants = { { path = "/proc", letters = "r" } } }').requires == 0)
-  local call = 'Test.policy { requires = { "root" }, promises = { "nest" } }'
+  assert(#read('Test.policy { grants = { { path = "/proc", letters = "r" }, { calls = "nest" } } }').requires == 0)
+  local call = 'Test.policy { requires = { "root" }, grants = { { calls = "nest" } } }'
   local handed = assert(runtime_needs(call))
   assert(names(assert(handed.requires)) == "root")
   local from_policy = read(call)

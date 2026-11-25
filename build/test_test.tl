@@ -480,7 +480,7 @@ local function coverage_of(lines: integer): Sqlite.Handle, {string:{integer:bool
   return db, { ["build.lib"] = hit }
 end
 
---- Writes the coverage of [`coverage_of`]'s module for the run `run`, answering the lines hit and the lines written.
+--- Writes the coverage of [`coverage_of`]'s module for the run `run`, returning the lines hit and the lines written.
 local function write_module(db: Sqlite.Handle, hits: {string:{integer:boolean}}, run: integer): integer, integer
   local wrote = assert(test.write_module_coverage(db,
     function(visit: function(string, string): boolean, string): boolean, string
@@ -490,7 +490,7 @@ local function write_module(db: Sqlite.Handle, hits: {string:{integer:boolean}},
   return wrote.hit, wrote.lines
 end
 
---- A module's coverage is a row for each executable line, hit where a test hit it, and the counts answered are of
+--- A module's coverage is a row for each executable line, hit where a test hit it, and the counts returned are of
 --- those rows: a line hit that the module does not have is no row and is not counted.
 local function test_a_modules_coverage_counts_the_rows_written_and_those_hit()
   local db, hits = coverage_of(9)
@@ -587,6 +587,13 @@ local function test_the_first_longest_running_line_says_where_every_tests_time_i
   assert(first:find("^longest running: a 31 s; every test's time: cosmic sql %-%-build \"select ") ~= nil, first)
   assert(first:find("from runs order by elapsed_ns desc", 1, true), first)
   assert(test.longest_detail("a 61 s", true) == "longest running: a 61 s")
+end
+
+--- A run past its deadline names its slowest tests, slowest first, ties by id, at most as many as asked.
+local function test_the_slowest_tests_come_first_and_as_many_as_asked()
+  local got = test.slowest({ ["a.tl t"] = 2500000000, ["b.tl u"] = 12340000000, ["c.tl v"] = 2500000000 }, 2)
+  assert(got == "b.tl u 12.3 s, a.tl t 2.5 s", got)
+  assert(test.slowest({}, 5) == "")
 end
 
 --- `--shard I/N` names one of N shares, from 1; nothing else does.

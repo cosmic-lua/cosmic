@@ -1,6 +1,6 @@
 --- The `docs` rows a link's name is looked up in, held in memory: what
 --- `cosmic fix` ([`build.links`]) and the build's index of links
---- ([`build.link_index`]) answer a name in full with, one table lookup a
+--- ([`build.link_index`]) resolve a name in full with, one table lookup a
 --- name rather than a scan of every row. The rule is [`cosmic.doc.exact`]'s
 --- for a name with a `.` -- a symbol as declared or by its last few
 --- names, a module's own row, a module with no row of its own by its
@@ -26,7 +26,7 @@ local record symbol_index
     signature: string
     exported: boolean
     file: string
-    --- Whether a name may answer with it: `cosmic docs` shows it, from
+    --- Whether a name may resolve to it: `cosmic docs` shows it, from
     --- the database that owns its module. A row not shown is still a
     --- type an alias may stand for, as [`cosmic.doc`] reads every row.
     shown: boolean
@@ -97,7 +97,7 @@ end
 --- `bound` ([`build.schema`]) of the database `db` holds under
 --- `qualifier` (`""` or `"out."`), where it holds that table: one
 --- written before it existed binds none. The first database read that
---- binds a name answers for it, as [`cosmic.doc`] reads them.
+--- binds a name settles it, as [`cosmic.doc`] reads them.
 function symbol_index.add_bound(index: symbol_index.Index, db: Sqlite.Handle,
                                 qualifier: string): boolean, string
   return doc_symbols.add_bound(index.bound, db, qualifier)
@@ -161,7 +161,7 @@ end
 --- defines (`function RunDb.years`) has an exported row (`years`) and the
 --- definition's (`RunDb.years`); one of a record the module does not
 --- export has the field's and the definition's ([`Stored.text`]). Either
---- pair would make one declaration two answers.
+--- pair would make one declaration two results.
 local function symbols(rows: {symbol_index.Row}): {link_resolve.Symbol}
   local chosen: mut {string: symbol_index.Row} = {}
   for _, row in ipairs(rows) do
@@ -230,7 +230,7 @@ end
 --- The members named `name` of the types `owners` stand for.
 local function through(index: symbol_index.Index, owners: {symbol_index.Row},
                        name: string): {symbol_index.Row}
-  -- Rows held in memory are always read: no answer is nil.
+  -- Rows held in memory are always read: no result is nil.
   local found, _ = alias_members.named(source_of(index), owners, name)
   return once_each({ found or {} })
 end

@@ -10,13 +10,18 @@
 ---   [`Html.href`] (from data, through an allowlist) or [`Html.trust_url`].
 ---   It is not escaped for an attribute: the page does that where it
 ---   puts the URL in one.
+--- - [`Html.SafeResourceUrl`] is a URL the page loads and runs or styles
+---   itself by (a `<script>`'s `src`, a `<link>`'s `href`), made only by
+---   [`Html.trust_resource_url`]: no allowlist can say that a script is the
+---   program's, so a [`Html.SafeUrl`] from data does not stand in for one.
 --- - [`Html.SafeUrlPart`] is percent-escaped text for a URL after literal
 ---   text (a path segment or a query), made by [`Html.url_part`] or
 ---   [`Html.url_query`].
 --- - [`Html.SafeJson`] is JSON text for an attribute such as `hx-vals`,
 ---   made by [`Html.json`] or [`Html.json_text`]. It has no unchecked door.
 --- - [`Html.raw`], [`Html.raw_attr`], [`Html.raw_url`],
----   [`Html.raw_url_part`] and [`Html.raw_json`] are the way back to the
+---   [`Html.raw_resource_url`], [`Html.raw_url_part`] and [`Html.raw_json`]
+---   are the way back to the
 ---   string.
 ---
 ---     local item = Html.escape("Fish & Chips")
@@ -60,6 +65,11 @@ local record Html
   --- by [`Html.href`] or [`Html.trust_url`]. Its text is a URL, not
   --- attribute-escaped.
   type SafeUrl = raw_html.SafeUrl
+
+  --- A URL of a script or stylesheet the page loads. Opaque: a value is
+  --- made by [`Html.trust_resource_url`] alone. Its text is not
+  --- attribute-escaped.
+  type SafeResourceUrl = raw_html.SafeResourceUrl
 
   --- Percent-escaped text that is safe in a URL attribute after literal
   --- text: a path segment, from [`Html.url_part`], or a query, from
@@ -140,15 +150,45 @@ function Html.href(s: string): Html.SafeUrl
   return raw.href(s)
 end
 
---- `s` as a URL that is already safe, unchecked: the one way to put a
---- URL you wrote into a page without the allowlist.
+--- `s` as a URL that is already safe, unchecked: the one way to make a
+--- [`Html.SafeUrl`] without the allowlist. A script's or a stylesheet's
+--- URL is a [`Html.SafeResourceUrl`] ([`Html.trust_resource_url`]).
 function Html.trust_url(s: string): Html.SafeUrl
   return raw.trust_url(s)
+end
+
+--- Whether a template's `{{if}}` or `{{with}}` holds of `v`: it does not
+--- of `nil`, `false`, `""`, a safe value of this module that holds `""`
+--- (`Html.trust("")`) or a table with no key (an empty list or map, or a
+--- record with no field set), and does of anything else, `0` among them.
+--- [`cosmic.template`]'s generated code calls it; a program has `#t > 0`
+--- and `s ~= ""`.
+---
+---     Html.filled({}) -- false
+---     Html.filled({ "a" }) -- true
+---     Html.filled(0) -- true
+---     Html.filled(Html.escape("")) -- false
+function Html.filled(v: any): boolean
+  return raw.filled(v)
 end
 
 --- The string a [`Html.SafeUrl`] holds.
 function Html.raw_url(x: Html.SafeUrl): string
   return raw.raw_url(x)
+end
+
+--- `s` as the URL of a script or stylesheet the page loads, unchecked: the
+--- program vouches that what it names is its own. The one way to fill the
+--- `src` of a `<script>` or the `href` of a `<link>` in a template.
+---
+---     Html.raw_resource_url(Html.trust_resource_url("/static/app.js")) -- "/static/app.js"
+function Html.trust_resource_url(s: string): Html.SafeResourceUrl
+  return raw.trust_resource_url(s)
+end
+
+--- The string a [`Html.SafeResourceUrl`] holds.
+function Html.raw_resource_url(x: Html.SafeResourceUrl): string
+  return raw.raw_resource_url(x)
 end
 
 --- `s` as a URL that may only be a relative reference on this origin, for
@@ -187,7 +227,7 @@ end
 --- `list` as a query string: each [`Url.Pair`] written `name=value`
 --- with both halves escaped as by [`Html.url_part`] but for the dot
 --- rule, joined by `&`, in order. A name may repeat. It takes the pairs
---- [`Url.encode_query`] takes and [`Url.decode_query`] answers (a
+--- [`Url.encode_query`] takes and [`Url.decode_query`] returns (a
 --- [`Url.Query`]'s `pairs`), and differs from that encoding only in
 --- writing a space `%20`, as a URL in a page does, not `+`. Raises,
 --- blaming its caller, for a [`Url.Pair`] whose name or value is not a
@@ -224,7 +264,7 @@ function Html.escape_css_attr(s: string | number): Html.SafeAttr
   return raw.escape_css_attr(s)
 end
 
---- `value` as JSON text, from [`Json.encode`]. Answers `nil` and a
+--- `value` as JSON text, from [`Json.encode`]. Returns `nil` and a
 --- Failure where it cannot be encoded (a function, a cycle, NaN, ...).
 ---
 ---     Html.raw_json(assert(Html.json({ id = 7 }))) -- '{"id":7}'
@@ -235,7 +275,7 @@ function Html.json(value: any): (Html.SafeJson) | (nil, Failure)
 end
 
 --- `text` as JSON text already encoded, if [`Json.check`] reads it.
---- Answers `nil` and a Failure otherwise.
+--- Returns `nil` and a Failure otherwise.
 function Html.json_text(text: string): (Html.SafeJson) | (nil, Failure)
   local ok, why = json.check(text)
   if not ok then return nil, Failure.new("json: " .. why) end

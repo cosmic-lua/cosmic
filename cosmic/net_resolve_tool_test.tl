@@ -1,7 +1,7 @@
 --- Net.resolve against a name server of the test's own. A lookup holds
---- its thread until it is answered, so it runs in a process of its own
+--- its thread until it gets a response, so it runs in a process of its own
 --- (this program, standalone), and this one is the server on a loopback
---- port, which answers canned records and sees each query as sent.
+--- port, which responds with canned records and sees each query as sent.
 
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
@@ -14,26 +14,27 @@ local Test = require("cosmic.test")
 local Udp = require("build.udp_fixture")
 local _ = require("build.standalone")
 
---- The program itself, which runs the lookup; a loopback alone answers.
+--- The program itself, which runs the lookup; only a server on the loopback
+--- can respond.
 Test.policy{ profiles = { "cosmic" }, loopback = { "127.0.0.1" } }
 
 local TYPE_A <const> = 1
 local TYPE_AAAA <const> = 28
 
---- One record of an answer.
+--- One answer record.
 local record Record
   type: integer
   data: string
 end
 
---- What the server answers a query for `name` of type `qtype`: nil sends
---- nothing, else a response code and its records.
+--- How the server responds to a query for `name` of type `qtype`: nil
+--- sends nothing, else a response code and its records.
 local record Reply
   rcode: integer
   records: {Record}
-  --- When set, the answer ends with `chain` as the owner of `chain_record`:
-  --- a name that is only compression pointers, each to the one before and
-  --- the first to the question's name.
+  --- When set, the response ends with `chain` as the owner of
+  --- `chain_record`: a name that is only compression pointers, each to the
+  --- one before and the first to the question's name.
   chain?: integer
   chain_record?: Record
 end
@@ -118,7 +119,7 @@ end
 ]]
 
 --- The same under a guard that a SIGINT, sent once the server has seen
---- a query, ends the wait of: prints what it answered.
+--- a query, ends the wait of: prints what the lookup returned.
 local GUARDED <const> = [[
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
@@ -133,8 +134,8 @@ return function(argv: {string}): integer
 end
 ]]
 
---- What `Net.resolve(name)` answers, as the lines the child printed,
---- against a server that answers each query as `serve` says, and the
+--- What `Net.resolve(name)` returns, as the lines the child printed,
+--- against a server that responds to each query as `serve` says, and the
 --- "type name" of each query the server saw.
 local function lookup(tmp: string, name: string, timeout_ms: integer,
                       serve: function(string, integer): Reply?,
@@ -241,7 +242,7 @@ end
 
 --- CVE-2026-69184: a name of nothing but compression pointers never adds a
 --- label, so only a bound on the jumps stops c-ares from walking a chain of
---- any length. 1.34.6 follows 200 of them and answers with the address; the
+--- any length. 1.34.6 follows 200 of them and returns the address; the
 --- reply is refused from 1.34.7 (at most 128 jumps) and the lookup fails.
 local function test_a_name_of_two_hundred_compression_pointers_is_refused(tmp: string)
   local started = Clock.now_ns()

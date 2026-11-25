@@ -108,13 +108,13 @@ static const char *parse_text (const char *text, struct vector *v) {
   return NULL;
 }
 
-/* What [`read_value`] answers for memory the allocator refused, in place of
+/* What [`read_value`] returns for memory the allocator refused, in place of
  * a message. */
 static const char out_of_memory[] = "out of memory";
 
-/* Reads `value` as a vector, a blob of floats or its text. Answers NULL,
+/* Reads `value` as a vector, a blob of floats or its text. Returns NULL,
  * or why it is not one: `out_of_memory`, or a message. Nothing is held
- * on an answer. */
+ * when it returns a reason. */
 static const char *read_value (sqlite3_value *value, struct vector *v) {
   v->values = NULL;
   v->owned = NULL;
@@ -152,7 +152,7 @@ static const char *read_value (sqlite3_value *value, struct vector *v) {
         /* SQLite's own values are malloc'd, so aligned: a table column is
          * copied out of its page (OP_Column), and a bound or computed
          * blob is held in a block of its own. This is for a virtual
-         * table that answers a static blob at an odd offset, which no
+         * table whose column is a static blob at an odd offset, which no
          * SQL in the tree reaches (cosmic/vector_sql_test.tl says so). */
         v->owned = sqlite3_malloc64(len);
         if (v->owned == NULL) return out_of_memory;
@@ -181,7 +181,7 @@ static const char *read_value (sqlite3_value *value, struct vector *v) {
 }
 
 /* Reads argument `value` as a vector, a blob of floats or its text. An
- * error is already the context's result when this answers false. */
+ * error is already the context's result when this returns false. */
 static int read_vector (sqlite3_context *ctx, sqlite3_value *value,
                         struct vector *v) {
   const char *why = read_value(value, v);
@@ -337,7 +337,7 @@ static float squared_l2_f16 (const _Float16 *a, const float *b, size_t n) {
  * VNNI multiplies an unsigned operand by a signed one, and
  * sum(row * query) = sum(row * (query + 128)) - 128 * sum(row).
  *
- * The integer sums are exact, so every kernel answers the same, whatever
+ * The integer sums are exact, so every kernel returns the same, whatever
  * order it sums in. They cannot overflow 32 bits: 16000 * 127 * 127 <
  * 2^31, and with the query biased by 128, below 16000 * 255 * 127. The
  * correction is unsigned arithmetic, which wraps: a `sum` that is not the
@@ -906,7 +906,7 @@ static struct corpus *check_corpus (lua_State *L, int arg) {
 
 /* Whether a guard of cosmic.signal has caught SIGINT or SIGTERM. It does
  * not take the signal: the guard's holder still sees it. The long calls
- * below ask every few hundred rows and, when it is so, stop and answer
+ * below ask every few hundred rows and, when it is so, stop and return
  * `nil, "interrupted"` ([`interrupted`]) as http and socket do. What they
  * hold is Lua's own, so stopping leaves nothing to release, and the
  * corpus is left as it was: search and kmeans never change the corpus,
@@ -916,7 +916,7 @@ static bool check_interrupt (void) {
   return cosmic_signal_caught();
 }
 
-/* The answer of a long call that stopped for a signal: `nil, "interrupted"`. */
+/* What a long call that stopped for a signal returns: `nil, "interrupted"`. */
 static int interrupted (lua_State *L) {
   lua_pushnil(L);
   lua_pushliteral(L, "interrupted");
@@ -955,7 +955,7 @@ static double length_of (const float *v, size_t n) {
 
 /* Quantizes `v` to int8 codes with one scale: the largest magnitude over
  * 127, each code the value over the scale rounded to nearest (ties to
- * even). Answers the scale and sets the sum of the squares of the codes
+ * even). Returns the scale and sets the sum of the squares of the codes
  * and the sum of the codes.
  * A vector whose scale is below a normal float's has no direction worth
  * keeping and becomes all zero codes, as the f32 corpus treats a length
@@ -1027,7 +1027,7 @@ static void quantize (const float *v, size_t dims, unsigned char *bits) {
   }
 }
 
-/* Stores `v`, which holds finite numbers, as row `row`. Answers the length
+/* Stores `v`, which holds finite numbers, as row `row`. Returns the length
  * of what was stored, in double, and sets an int8 row's header. */
 static double store_row (struct corpus *c, size_t row, const float *v) {
   size_t dims = c->dims;
@@ -1149,7 +1149,7 @@ static int corpus_count (lua_State *L) {
 
 /* Brings the bit vectors up to every vector added so far; the corpus is
  * at stack index 1. Only an f32 corpus builds them here, from its floats:
- * a quantized one made each row's as the row was added. Answers false,
+ * a quantized one made each row's as the row was added. Returns false,
  * with the corpus as it was, when a signal interrupted it. A new buffer
  * is made each time rather than grown in place: the rows already built
  * are copied, which costs less than the scan that follows. */
@@ -1452,7 +1452,7 @@ static int corpus_search (lua_State *L) {
      * sum in double, as the SQL distance functions do, behind a hot-path
      * cost check: they sum in float, so a row can score infinity or be
      * dropped as NaN here where l2_distance, inner_product and
-     * cosine_distance answer a finite double. */
+     * cosine_distance return a finite double. */
     /* A NaN key compares false both ways, which would leave the heap's
      * order depending on arrival; such a row is not a hit. */
     if (isnan(key)) continue;
@@ -1464,7 +1464,7 @@ static int corpus_search (lua_State *L) {
   int ids = lua_gettop(L);
   lua_createtable(L, (int)heap.size, 0);
   int scores = lua_gettop(L);
-  /* Popping the worst first fills the answer from its tail. */
+  /* Popping the worst first fills the result from its tail. */
   size_t n = heap.size;
   for (size_t j = 0; j < n; j++) {
     struct hit worst = heap.items[0];
@@ -1527,7 +1527,7 @@ static int vector_from_json (lua_State *L) {
     lua_pushliteral(L, "a vector's text holds no NUL");
     return 2;
   }
-  /* The parsed block is the guard's: pushing the answer allocates, and
+  /* The parsed block is the guard's: pushing the result allocates, and
    * a raise there must not leak the block. */
   struct cosmic_guard *guard = cosmic_guard_push(L, sqlite3_free);
   struct vector v;
@@ -1800,10 +1800,10 @@ static int vector_nearest (lua_State *L) {
 }
 
 /* vector_kernel(name?): the int8 dot product in use, "generic",
- * "avx512_vnni" or "avx_vnni"; given a name, switches to it and answers
+ * "avx512_vnni" or "avx_vnni"; given a name, switches to it and returns
  * it. Raises on a name this CPU cannot run. It is a member of
  * [`cosmic.internal.testing`], for tests that compare the kernels: a
- * corpus answers the same under each. */
+ * corpus's `search` returns the same under each. */
 static int vector_kernel (lua_State *L) {
   if (!lua_isnoneornil(L, 1)) {
     const char *name = luaL_checkstring(L, 1);
@@ -1894,7 +1894,7 @@ static void write_u32 (unsigned char *p, uint32_t x) {
   p[3] = (unsigned char)(x >> 24);
 }
 
-/* Reads `len` bytes at `bytes`, which are 8-aligned, as a block. Answers
+/* Reads `len` bytes at `bytes`, which are 8-aligned, as a block. Returns
  * NULL, or why they are not one. The header and the length are held
  * exactly, and each row's own length and scale are held to be finite and
  * not negative; the vectors' numbers are not read (that is O(dims *
@@ -1948,7 +1948,7 @@ static struct corpus block_corpus (const struct block *b) {
   return c;
 }
 
-/* Scores every row of `b` and offers the keys to `heap`. Answers false
+/* Scores every row of `b` and offers the keys to `heap`. Returns false
  * when a signal stopped it, after the first row and every few hundred
  * since. A row whose key is not a number is no hit, as in a corpus search
  * (see the TODO there on sums that overflow).
@@ -2192,7 +2192,7 @@ static void block_final (sqlite3_context *ctx) {
  * (id, distance) in order of distance, ties to the lower id. */
 enum { HIDDEN_BLOCK, HIDDEN_QUERY, HIDDEN_K, HIDDEN_METRIC, HIDDEN_COUNT };
 
-/* The first two columns are the answer's. */
+/* The first two columns are what a query yields. */
 enum { COLUMN_ID, COLUMN_DISTANCE, COLUMN_HIDDEN };
 
 struct block_hit {
@@ -2300,7 +2300,7 @@ static int block_error (sqlite3_vtab_cursor *base, const char *why) {
 
 /* Reads the block, whose blob is `value`; it is copied if it is not
  * 8-aligned (SQLite's own values are, so that is for a virtual table
- * that answers a blob at an odd offset). `*owned` is what to free. */
+ * whose column is a blob at an odd offset). `*owned` is what to free. */
 static const char *block_of_value (sqlite3_value *value, struct block *b, void **owned) {
   *owned = NULL;
   if (sqlite3_value_type(value) != SQLITE_BLOB) return "a vector block is a blob";
@@ -2331,7 +2331,7 @@ static int block_filter (sqlite3_vtab_cursor *base, int mask, const char *index_
   for (int i = 0, next = 0; i < HIDDEN_COUNT; i++) {
     if (mask & (1 << i)) given[i] = argv[next++];
   }
-  /* A NULL block, query or k answers no rows, as the functions answer NULL. */
+  /* A NULL block, query or k yields no rows, as the functions return NULL. */
   for (int i = 0; i < HIDDEN_K + 1; i++) {
     if (sqlite3_value_type(given[i]) == SQLITE_NULL) return SQLITE_OK;
   }
@@ -2396,7 +2396,7 @@ static int block_filter (sqlite3_vtab_cursor *base, int mask, const char *index_
       if (rc == SQLITE_ERROR) rc = SQLITE_INTERRUPT;
     }
     else {
-      /* Popping the worst first fills the answer from its tail. */
+      /* Popping the worst first fills the result from its tail. */
       size_t n = heap.size;
       for (size_t j = 0; j < n; j++) {
         struct hit worst = heap.items[0];
@@ -2478,7 +2478,7 @@ static int register_blocks (sqlite3 *db) {
 }
 
 /* The block `blob` (argument `arg`) holds, 8-aligned: copied into a
- * pushed userdata where the string is not. Answers NULL, or why it is not
+ * pushed userdata where the string is not. Returns NULL, or why it is not
  * a block. */
 static const char *lua_block (lua_State *L, int arg, struct block *b) {
   size_t len;
@@ -2550,7 +2550,7 @@ static bool codes_consistent (const struct block *b) {
   return true;
 }
 
-/* The length of stored row `row`, as [`store_row`] answers it when the
+/* The length of stored row `row`, as [`store_row`] returns it when the
  * row is added. `scratch` holds `dims` floats. */
 static double stored_length (const struct corpus *c, size_t row, float *scratch) {
   switch (c->storage) {
@@ -2679,7 +2679,7 @@ void cosmic_add_vector_kernel (lua_State *L) {
 int cosmic_open_vector (lua_State *L) {
 #ifdef INT8_VNNI
   /* The widest the CPU has; the integer sums are exact, so the choice
-   * changes no answer. */
+   * changes no result. */
   if (has_avx512_vnni()) {
     dot_i8_kernel = dot_i8_avx512_vnni;
     dot_i8_name = "avx512_vnni";

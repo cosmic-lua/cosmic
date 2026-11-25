@@ -97,11 +97,11 @@ local record Test
     mut env?: {string}
     --- The loopback addresses the tests reach, each a dotted quad of
     --- 127/8, `127.a.b.c`, as a request names it: a sandboxed worker
-    --- runs offline, with a loopback of its own that answers them, and
+    --- runs offline, with a loopback of its own that carries them, and
     --- is keyed like any other. No test reaches another host: what one
-    --- answered, no key could hold, so a test that needs a service
+    --- replied, no key could hold, so a test that needs a service
     --- starts its own on 127.0.0.1. Any other name or address -- `::1`
-    --- and `localhost` among them, whose answer turns on how the host
+    --- and `localhost` among them, whose resolution turns on how the host
     --- sets up IPv6 -- and a spelling no request's host is (a port,
     --- brackets, a leading zero) are refused, naming this rule, as the
     --- build refuses them before the module runs.
@@ -241,7 +241,7 @@ local record Test
   end
 
   --- What the run of a test does that makes the same work cost more than
-  --- a plain run does: what [`Test.mode`] answers. A test that holds one
+  --- a plain run does: what [`Test.mode`] returns. A test that holds one
   --- piece of work to a multiple of another ([`lang.speed`]) reads it to
   --- give each mode a limit of its own, since a mode need not slow both
   --- sides alike.
@@ -267,7 +267,7 @@ end
 --- that module has loaded refused: a table whose `handed` is called with
 --- the [`Needs`] the policy stands for, whose `loaded` the runner sets once the
 --- module has loaded, and whose `skipped` is called with the reason
---- each `skip` is given and answers the value `skip` raises to end the
+--- each `skip` is given and returns the value `skip` raises to end the
 --- test (nothing, to let it go on). Nil when none is installed.
 local function runner_in(module: any): {string:any}?
   if module is {string:any} then -- checked: is_on_record
@@ -369,14 +369,18 @@ local function grants_of(value: any): {Test.Grant}?, string
     if not given is {any:any} then return nil, at .. " takes a table" end -- declared: key_type
     local grant: Test.Grant = {}
     for key, field in pairs(given) do -- checked: any_use
-      if not (key == "path" or key == "letters" or key == "from") then
-        return nil, at .. " has no field " .. tostring(key) .. "; it has from, letters, path"
+      if not (key == "path" or key == "letters" or key == "from" or key == "calls" or key == "connect") then
+        return nil, at .. " has no field " .. tostring(key) .. "; it has calls, connect, from, letters, path"
       end
       if not field is string then return nil, at .. "." .. tostring(key) .. " takes a string" end
       if key == "path" then
         grant.path = field
       elseif key == "letters" then
         grant.letters = field
+      elseif key == "calls" then
+        grant.calls = field
+      elseif key == "connect" then
+        grant.connect = field
       else
         grant.from = field
       end
@@ -420,7 +424,7 @@ local function policy_of(given: any): Test.Policy?, string
   for key, value in pairs(given) do -- checked: any_use
     local takes = if key is string then TestPolicy.kind_of(key) else nil end
     if not (key is string) or takes == nil then
-      return nil, "has no field " .. tostring(key) .. "; it has " .. TestPolicy.field_list()
+      return nil, TestPolicy.no_field(tostring(key))
     end
     local why = ""
     if takes == "flag" then
@@ -459,10 +463,6 @@ local function policy_of(given: any): Test.Policy?, string
       out.profiles, why = strings_of(key, value)
     elseif key == "isolate" then
       out.isolate, why = strings_of(key, value)
-    elseif key == "promises" then
-      out.promises, why = strings_of(key, value)
-    elseif key == "connect" then
-      out.connect, why = strings_of(key, value)
     elseif key == "loopback" then
       out.loopback, why = strings_of(key, value)
     elseif key == "requires" then
@@ -475,23 +475,23 @@ local function policy_of(given: any): Test.Policy?, string
   return out, ""
 end
 
--- TODO: hand the promises to the runner, which keeps them in the key, once
+-- TODO: hand the calls grants to the runner, which keeps them in the key, once
 -- every module that starts a process declares "fork" (and the others it
 -- makes): the filter runs on every worker, but until a test says what it
--- makes, a promise it does not make cannot be told from one it does. Doing
--- it now would add `promises = { "fork" }` to hundreds of modules.
+-- makes, a call it does not make cannot be told from one it does. Doing
+-- it now would add `{ calls = "fork" }` to hundreds of modules.
 --- The `needs` a policy stands for, or nil and why. The test is sandboxed
 --- and keyed as that `needs` would have it: reads of the tree, host
 --- files, the variables, loopback addresses, the program (profile
 --- "cosmic": `lua`, run on a sealed database of the closure; with the grant of o/bin,
---- `tool`, itself), the system (profile "system") and nesting (promise
---- "nest"). What it cannot say is refused, naming the field, rather than
+--- `tool`, itself), the system (profile "system") and nesting (the grant
+--- `{ calls = "nest" }`). What it cannot say is refused, naming the field, rather than
 --- accepted as a declaration that moves no key: `isolate`, `set_env`,
 --- `limits`, `database`, a grant of more than "r" or from another path, `tmp = false`.
---- `connect`, `set_env_digests`, `user` and `group` are refused outright,
+--- A `connect` grant, `set_env_digests`, `user` and `group` are refused outright,
 --- since no test reaches a host but loopback, a digest holds no value to
 --- set, and the harness chooses a worker's user.
---- The promises "fork", "jit" and "fattr" are accepted and change
+--- The calls "fork", "jit" and "fattr" are accepted and change
 --- nothing: no worker holds them yet.
 ---
 --- Internal to the harness: it exists so that cosmic/test_policy_test.tl
@@ -542,7 +542,7 @@ end
 --- path a read of that host file; the profile "system" is `system`,
 --- "cosmic" is `lua`, "proc" is the host path /proc (the grant
 --- `{ path = "/proc", letters = "r" }`; on macOS, which has no /proc, a host
---- path not there is given and keyed as none); the promise "nest" is `nests`; `loopback` is
+--- path not there is given and keyed as none); the grant `{ calls = "nest" }` is `nests`; `loopback` is
 --- `network`. Five grants, written exactly so, are the fields they
 --- stand for rather than reads: `{ path = "o/cosmic.db", letters = "r" }`
 --- is `store = true`, `{ path = "/noexec", letters = "rwc" }` is
@@ -649,7 +649,7 @@ end
 --- [`Test.policy`] (`nest`, `proc`, `program:jq`, ...), and the runner
 --- decides before a worker starts: the tests are counted not applicable
 --- (`N n/a`) where the platform never has it, skipped where this host
---- lacks it, and run, under a key that holds the answer, where it is
+--- lacks it, and run, under a key that holds the result, where it is
 --- present. A test that returns silently for a missing host tool or
 --- platform feature passes having made no call to `assert`, which
 --- `cosmic test` lists as having made no call to `assert` and a held run fails. Raises for an

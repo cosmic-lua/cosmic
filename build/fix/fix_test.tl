@@ -31,7 +31,7 @@ end
 --- its summary.
 ---
 --- What a path is decided before what it is named. A path with nothing
---- at it is missing, whatever its suffix: answering `nope` with a
+--- at it is missing, whatever its suffix: reporting `nope` with a
 --- remark about Teal would say the wrong thing about a file the caller
 --- may only have mistyped.
 local function test_a_path_that_is_not_there_is_missing_before_it_is_judged(tmp: string)
@@ -534,7 +534,7 @@ local function test_a_link_checked_against_the_last_build_is_not_known_yet(tmp: 
 end
 
 --- A path that names no file is offered the one file of its name a link may name, wherever it is in the tree (`bin/`
---- too), and none where two are; never one the tree ignores (`node_modules/`, where no git answers).
+--- too), and none where two are; never one the tree ignores (`node_modules/`, where no git can say).
 local function test_a_path_to_no_file_is_offered_the_one_file_of_its_name(tmp: string)
   local root = assert(Fs.absolute(tmp))
   for _, dir in ipairs({ "/bin", "/lib", "/node_modules/x" }) do assert(Fs.mkdirs(root .. dir)) end
@@ -761,7 +761,7 @@ local function test_a_refusal_never_writes_and_says_why(tmp: string)
   end
 end
 
---- A file the memo holds as laid out is answered without the formatter, and one it does not is formatted: a memo that
+--- A file the memo holds as laid out is settled without the formatter, and one it does not is formatted: a memo that
 --- holds the code of another formatter, or another text, misses.
 local function test_the_memo_answers_a_file_it_holds_and_misses_one_it_does_not(tmp: string)
   local db = assert(Sqlite.memory())

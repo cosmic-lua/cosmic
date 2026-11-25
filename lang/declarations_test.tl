@@ -247,6 +247,19 @@ local CASES <const>: {Case} = {
     fix = "rename `__call` and call it as a method (`v:call(...)`)",
   },
   {
+    code = "schema_unknown",
+    source = "local t = { ddl = \"x\" }\nlocal schema S = t.ddl .. \"CREATE TABLE a (x)\"\nprint(t, S)\n",
+    msg = "the schema `S` joins the `ddl` of a name that is no schema whose DDL the checker knows",
+    fix = "join the `ddl` of a `local schema` declared above it",
+  },
+  {
+    code = "repeated_field",
+    source = "local schema Notes \"CREATE TABLE t (x)\"\nlocal record Store\n  type Notes = Notes\nend\n" ..
+      "function Store.Notes(): integer\n  return 1\nend\nreturn Store\n",
+    msg = "`Notes` is declared twice in `Store`: a function `Store.Notes` and the schema the record names",
+    fix = "rename the function or the type",
+  },
+  {
     code = "schema_member",
     source = "local schema S \"CREATE TABLE t (x)\"\nfunction S.count(): integer\n  return 1\nend\n",
     msg = "the function `S.count` is written into the schema `S`, whose handles have the methods of `cosmic.sqlite`'s " ..
@@ -593,8 +606,11 @@ end
 local function test_a_union_of_records_without_a_tag_names_why_the_closest_field_fails()
   local same = only(TAGS .. "local enum DK \"a\" end\nlocal record D\n  kind: DK\nend\nlocal type U = A | D\n")
   assert(same.code == "untagged_union" and has(same.msg, "have `kind` = \"a\""), same.msg)
-  local none = only("local record A\n  n: integer\nend\nlocal record B\n  m: integer\nend\nlocal type U = A | B\n")
+  -- records that share no field are told apart where each requires a field the other does not declare
+  assert(#errors_of("local record A\n  n: integer\nend\nlocal record B\n  m: integer\nend\nlocal type U = A | B\n") == 0)
+  local none = only("local record A\n  n?: integer\nend\nlocal record B\n  m: integer\nend\nlocal type U = A | B\n")
   assert(has(none.msg, "they share no field"), none.msg)
+  assert(has(none.fix, "give each a required field no other declares (`A` has none)"), none.fix)
   local mutable = only("local enum AK \"a\" end\nlocal enum BK \"b\" end\nlocal record A\n  mut kind: AK\nend\n" ..
       "local record B\n  kind: BK\nend\nlocal type U = A | B\n")
   assert(has(mutable.msg, "the field `kind` of `A` is `mut`, and a tag is a fixed field typed by one named enum"), mutable.msg)

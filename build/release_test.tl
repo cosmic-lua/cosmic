@@ -1,7 +1,7 @@
 --- `cosmic release` in process, over [`cosmic.http`]'s scripted
 --- transport ([`build.release.Io.script`]: a canned reply per request, in
 --- order, so no test reaches the network; [`build.release.Io.api`] points
---- it at http, since a canned reply cannot answer TLS). A run asks the
+--- it at http, since a canned reply cannot speak TLS). A run asks the
 --- API for the release tags (`YYYYMMDD-<commit>` and the earlier `next-<commit>`), main's history and the release of each
 --- tagged commit in it until enough are found -- or, for a `--commit`
 --- prefix, the tags of the commits it starts and each one's release -- then SHA256SUMS,
@@ -15,6 +15,7 @@ local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 local pinned_launcher = require("build.pinned_launcher")
 local release = require("build.release")
+local sys = require("cosmic.sys")
 
 --- `store`: a root the binary carries is read through
 --- [`Store.databases()`].
@@ -66,8 +67,8 @@ local function entry(commit: string, published: string, draft?: boolean, assets?
     tag_for(commit), tostring(draft == true), published, assets or all_assets)
 end
 
---- What git matching-refs answers for the tags of these commits (or
---- these tags, as [`tag_for`] takes them).
+--- What this stand-in for git matching-refs returns for the tags of
+--- these commits (or these tags, as [`tag_for`] takes them).
 local function refs(...: string): string
   local items: mut {string} = {}
   for i, commit in ipairs({ ... }) do items[i] = '{"ref":"refs/tags/' .. tag_for(commit) .. '"}' end
@@ -314,7 +315,7 @@ local function test_history_ends_once_every_tag_is_passed()
 end
 
 --- Past 100 full pages with a tag not yet passed, it fails rather than
---- answer in part.
+--- give part of the history.
 local function test_history_past_100_pages_fails()
   local blank: mut {string} = {}
   for i = 1, 100 do blank[i] = string.format("%040x", i) end
@@ -350,6 +351,37 @@ local function test_o_writes_the_verified_binary_executable(tmp: string)
   assert(assert(Fs.read(path)) == binary)
   local st = assert(Fs.stat(path))
   assert(st.mode & 0x1ff == 0x1ed, string.format("%o", st.mode))
+end
+
+--- `-o` a FIFO (or a device, `/dev/stdout`) takes the binary in place
+--- once it is verified, never a rename that would replace the FIFO; a
+--- binary that fails its digest never reaches it.
+local function test_o_writes_a_fifo_in_place_once_verified(tmp: string)
+  local pipe = tmp .. "/pipe"
+  assert(sys.mkfifo(pipe))
+  -- A reader that waits for no writer, so the verb's open does not wait.
+  local reader = assert(sys.open(pipe, sys.O_RDONLY | sys.O_NONBLOCK))
+  local ran = run({ "get", "-o", pipe }, newest_then(sums(), source(newest), ok(binary)))
+  assert(ran.code == 0, ran.err)
+  assert(assert(sys.read(reader, #binary + 1)) == binary)
+  failed(run({ "get", "-o", pipe }, newest_then(sums(), source(newest), ok("other bytes"))), "sha256 mismatch")
+  local after, _ = sys.read(reader, 64)
+  assert(after == nil or after == "", "a binary that failed its digest reached the FIFO: " .. tostring(after))
+  failed(run({ "get", "-o", pipe }, newest_then(sums(), source(newest), reply("404 Not Found", ""))), "HTTP 404")
+  local pin = tmp .. "/pin.fifo"
+  assert(sys.mkfifo(pin))
+  local pin_reader = assert(sys.open(pin, sys.O_RDONLY | sys.O_NONBLOCK))
+  local pinned = run({ "pin", pin }, newest_then(sums(), source(newest), ok(binary)))
+  assert(pinned.code == 0, pinned.err)
+  assert(assert(sys.read(pin_reader, 4096)):find(newest, 1, true) ~= nil, "the pin did not reach its FIFO")
+  assert(sys.close(pin_reader))
+  assert(sys.close(reader))
+  assert(assert(sys.lstat(pipe)).kind == "fifo", "the FIFO was replaced")
+  local ran_null = run({ "get", "-o", "/dev/null" }, newest_then(sums(), source(newest), ok(binary)))
+  assert(ran_null.code == 0, ran_null.err)
+  assert(assert(sys.lstat("/dev/null")).kind == "char")
+  local launched = run({ "launcher", pipe }, {})
+  assert(launched.code == 2 and launched.err:find("a launcher is a file", 1, true) ~= nil, launched.err)
 end
 
 local function test_a_binary_that_is_not_the_digest_leaves_nothing(tmp: string)
@@ -389,6 +421,14 @@ local function test_pin_writes_the_pin_once_the_bytes_check(tmp: string)
   local both = run({ "pin", "-o", path, pin }, newest_then(sums(), source(newest), ok(binary)))
   assert(both.code == 0, both.err)
   assert(assert(Fs.read(path)) == binary)
+end
+
+--- `pin -` prints the pin once the bytes check, writing no file.
+local function test_pin_to_a_dash_prints_it(tmp: string)
+  local ran = run({ "pin", "-" }, newest_then(sums(), source(newest), ok(binary)))
+  assert(ran.code == 0, ran.err)
+  assert(ran.out == release.pin_text("next-" .. newest, newest, digest), ran.out)
+  assert(#assert(Fs.list(tmp)) == 0, "no file is written")
 end
 
 --- `launcher` sets a project up: the launcher [`build.pinned_launcher`]
@@ -506,7 +546,9 @@ local function test_a_refusal_ends_in_its_own_usage()
       { "put the command first: cosmic release pin [options]; usage: cosmic release [list",
           "--commit", "abc1234", "pin", "f" },
       { "no such option: --pin; usage: cosmic release [list", "--pin", "f" },
-      { "pin: an empty file name; usage: cosmic release pin [options] <file>", "pin", "" },
+      { "pin: an empty file name; usage: cosmic release pin [options] <file>|-", "pin", "" },
+      { "-o takes a file the verified binary is written to, not -", "get", "-o", "-" },
+      { "launcher writes its pin beside it, as <file>.pin, so it takes a file, not -", "launcher", "-" },
       { "get: give -o <file> or --cache", "get" },
       { "takes no words, but was given 1 word; usage: cosmic release [list", "--json", "x" },
       { "no such subcommand: show; usage: cosmic release [list", "show" },
@@ -546,7 +588,7 @@ local function presenting(label: string): string
   return "\22\3\3" .. string.pack(">I2", #records) .. records
 end
 
---- The API's answer names the digests downloads are checked against, so
+--- The API's response names the digests downloads are checked against, so
 --- its server is trusted by the minimal roots, not every carried one: one presenting a
 --- root outside them is refused for this request's choice of roots, and
 --- one inside them only for the name it stands for.

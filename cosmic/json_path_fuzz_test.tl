@@ -342,13 +342,13 @@ local function selection_holds(input: string): boolean, string
   local fields = Fuzz.unpack(input)
   -- [`gen_selection`] packs three fields: the document, "holes" or not, the query.
   local text, holes, query = Array.at(fields, 1), Array.at(fields, 2) == "holes", Array.at(fields, 3)
-  -- A document of `null` alone decodes to Json.null; a refusal answers nil.
+  -- A document of `null` alone decodes to Json.null; decode returns nil only for a refusal.
   local doc, derr = Json.decode(text, { null_value = if not holes then Json.null else nil end })
   if derr ~= nil then return false, "a drawn document does not decode: " .. tostring(derr) end
   local parsed, qerr = Json.query(query)
   if parsed == nil then return false, "a drawn query does not read: " .. tostring(qerr) end
   local q: Json.Query = parsed
-  -- `$` selects the document itself: the reference starts from what select answers for it.
+  -- `$` selects the document itself: the reference starts from what select returns for it.
   local nodes: {Json.Match} = assert(Json.select(doc, (assert(Json.query("$")))))
   for _, seg in ipairs(q.segments) do
     local out: mut {Json.Match} = {}

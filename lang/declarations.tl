@@ -22,7 +22,8 @@
 ---   field that is neither `mut` nor omittable: `interface_disagrees`. What it lists is an interface, and no declaration lists itself, even
 ---   through the declarations it lists: `super_not_interface`, `super_cycle`, `listing_too_large`.
 --- - tags: a union with two records or more is legal only if each has one shared fixed field typed
----   by an enum, and no value of it is in two members: `untagged_union`.
+---   by an enum, and no value of it is in two members, or each requires a fixed field, never nil, that
+---   no other member declares: `untagged_union`.
 --- - dense arrays: `{T?}`, `{K: V?}` and an instance that makes one (`List<string?>` for `record
 ---   List<T>` that holds a `{T}`): `array_of_optional`.
 --- - keys: a map's key is `integer`, `string`, `boolean`, an enum or a record, class, interface or
@@ -139,6 +140,8 @@ local record Declarations
     "unused_type_parameter"
     -- a function statement of a `local schema`, whose handles never reach the table of the schema
     "schema_member"
+    -- a `local schema` that joins the `ddl` of a name that is no schema the checker knows the DDL of
+    "schema_unknown"
     -- a field named with two underscores that is the name of no metamethod
     "metamethod_unknown"
     -- `is {K: V}` on a record, which declares a map where the array part is a `{T}`
@@ -360,12 +363,21 @@ local record Declarations
 
   --- The module a file is: its path without `.tl`, `.d.tl` or a trailing `/init`, with dots for slashes.
   module_of: function(path: string): string
+  --- The module of the file the module of a declaration is in: `name` of `name@id`.
+  module_of_file: function(module: string): string
 
   --- The names of the type parameters of `list`.
   parameter_names: function(list: {Ast.TypeParam}): {string}
 
   --- The fields `decl` has from the interfaces it lists and leaves out ([`Declarations.inherited`]).
   inherited: function(store: Store, judge: Relation.Judge, decl: Types.Decl): {Types.Field}
+
+  --- The names a value of the record or class `decl` may hold: its fields, those it has from the interfaces it lists,
+  --- and its methods.
+  names_held: function(store: Store, judge: Relation.Judge, decl: Types.Decl): {string: boolean}
+
+  --- The field that tells the record `r` apart from the other records of `records` by being there, or nil.
+  presence_field: function(store: Store, judge: Relation.Judge, records: {Named}, r: Named): string?
 
   --- Whether `made`, the type of a method named `__close`, is what Lua calls at the end of a `<close>` local's block:
   --- a function that takes the value (and may take the error object Lua passes, declared `any`) and returns nothing.
@@ -383,7 +395,7 @@ Declarations.codes = {
   "array_of_optional", "float_key", "key_type", "shape_generic", "repeated_field", "repeated_value", "type_arguments",
   "type_too_deep", "alias_cycle", "bound_not_interface", "bound_as_type", "lists_overlap", "bound_not_met", "outer_type_parameter", "member_missing",
   "param_untyped", "metamethod_signature", "class_metamethod", "optional_metamethod", "thread_type",
-  "unused_type_parameter", "schema_member", "metamethod_unknown", "array_part_map", "store_refused",
+  "unused_type_parameter", "schema_member", "schema_unknown", "metamethod_unknown", "array_part_map", "store_refused",
 }
 
 Declarations.catalog = {
@@ -417,8 +429,10 @@ Declarations.catalog = {
   {
     code = "untagged_union", rule = "tagged unions",
     why = "a record is erased, so a union of records is told apart by a field of a type each member has to " ..
-      "itself: a fixed field of an enum, none of whose values is in another member's enum",
-    fix = "give <members> a fixed field of an enum, the same name in all, with different values in each",
+      "itself: a fixed field of an enum, none of whose values is in another member's enum, or a required " ..
+      "field, never nil, that no other member declares",
+    fix = "give <members> a fixed field of an enum, the same name in all, with different values in each, or " ..
+      "give each a required field no other declares",
   },
   {
     code = "array_of_optional", rule = "arrays are dense",
@@ -564,6 +578,13 @@ Declarations.catalog = {
     fix = "write a function that takes the handle (`local function <name>(db: <schema>, ...)`), or a record of them",
   },
   {
+    code = "schema_unknown", rule = "every fact has one source of truth",
+    why = "the checker reads the SQL sent to a handle of a schema against its DDL, so the DDL of a schema that joins " ..
+      "another's is the other's DDL as its module declares it: a name that is no `local schema` of this module, nor one " ..
+      "a required module's record names (`type Other = Other`), has no DDL to read",
+    fix = "join the `ddl` of a `local schema` declared above it, or of one a required module exports (`module.Other.ddl`)",
+  },
+  {
     code = "metamethod_unknown", rule = "dispatch only through declared types",
     why = "a name that begins with two underscores is read by Lua as a metamethod of the table that holds it, and the field " ..
       "of a record or interface with such a name stands for one (the fork wrote `metamethod __x:`), so a name that is " ..
@@ -623,6 +644,11 @@ local KIND_WORDS <const>: {Types.DeclKind: string} = {
 --- The key of a declaration in the program's tables.
 local function entry_key(module: string, names: {string}): string
   return module .. "\0" .. table.concat(names, ".")
+end
+
+--- The module of the file a declaration's module is in: `name` of `name@id`, which a declaration inside a function has.
+function Declarations.module_of_file(module: string): string
+  return (module:gsub("@.*$", ""))
 end
 
 function Declarations.module_of(path: string): string
@@ -2347,10 +2373,87 @@ local function finish_build(ctx: Ctx, build: Build, frames_names: {{string}}) --
   queue_checks(ctx, build, frames_names)
 end
 
+--- The DDL of the schema `e` names as a value: a `local schema` of the module declared before, or one a record names
+--- (`Store.Other` or `module.Other`, of `type Other = Other`). Nil where it names none, and false where its first name
+--- is no binding, which the scope builder reported.
+local function named_schema(ctx: Ctx, e: Ast.Exp): string | boolean
+  local head = if (e.kind == "Field") then e.object else e end
+  local binding = if (head.kind == "Name") then head.binding else nil end
+  local v = if binding ~= nil then ctx.scoped.vars[binding] else nil end
+  if v == nil then
+    return false
+  end
+  local held: Decl? = nil
+  local entry = ctx.by_binding[v.id]
+  if (e.kind == "Name") then
+    held = if entry ~= nil then entry.decl else nil end
+  elseif (e.kind == "Field") then
+    local record: Decl? = nil
+    if v.module ~= "" then
+      local info = known_module(ctx, v.module)
+      local export = if info ~= nil then info.export else nil end
+      record = if export ~= nil then export.decl else nil end
+    else
+      record = if entry ~= nil then entry.decl else nil end
+    end
+    local statics = if record ~= nil then ctx.program.statics[record] else nil end
+    local field = if statics ~= nil then statics[e.name] else nil end
+    local t = if field ~= nil then field.type else nil end
+    held = if t ~= nil and (t.tag == "named") and t.value then t.decl else nil end
+  end
+  local body = if held ~= nil then held.body else nil end
+  local ddl = if body ~= nil then body.schema else nil end
+  if ddl == nil then
+    return true
+  end
+  return ddl
+end
+
+--- The operands `Other.ddl` of the DDL `e` of a `local schema`, in the order the parser folded them.
+local function joined_schemas(e: Ast.Exp, out: mut {Ast.Exp})
+  if (e.kind == "Paren") then
+    joined_schemas(e.inner, out)
+  elseif (e.kind == "Binary") and e.op == ".." then
+    joined_schemas(e.left, out)
+    joined_schemas(e.right, out)
+  elseif (e.kind == "Field") and e.name == "ddl" then
+    out[#out + 1] = e.object
+  end
+end
+
+--- The DDL of `node`: the parser's folded text, each mark of another schema's `ddl` its DDL.
+local function schema_ddl(ctx: Ctx, node: Ast.Class): string
+  local text = node.schema or ""
+  local value = node.schema_value
+  if value == nil or not text:find("\0", 1, true) then
+    return text
+  end
+  local joined: mut {Ast.Exp} = {}
+  joined_schemas(value, joined)
+  local k = 0
+  return (text:gsub("\0", function(): string
+    k = k + 1
+    local other = joined[k]
+    local ddl: string | boolean = true
+    if other ~= nil then ddl = named_schema(ctx, other) end
+    if ddl is string then
+      return ddl
+    elseif ddl == true then
+      local place: Ast.Node = node.name
+      if other ~= nil then place = other end
+      report_at(ctx, "schema_unknown", place, "the schema " .. quoted(node.name.name) .. " joins the `ddl` " ..
+          "of a name that is no schema whose DDL the checker knows",
+        "join the `ddl` of a `local schema` declared above it, or of one a required module's record names " ..
+          "(`module.Other.ddl`, of `type Other = Other`)")
+    end
+    return ""
+  end))
+end
+
 --- The class of `local schema Name [[DDL]]`: it lists the class of [`cosmic.sqlite`]'s handles and
 --- holds its fields and methods, so that a handle of the schema is used as any handle is.
 local function schema_body(ctx: Ctx, build: Build, node: Ast.Class)
-  build.schema = node.schema
+  build.schema = schema_ddl(ctx, node)
   local _ = known_module(ctx, "cosmic.sqlite")
   local entry = ctx.program.entries[entry_key("cosmic.sqlite", { "Handle" })]
   local handle = if entry ~= nil then entry.decl else nil end
@@ -2460,6 +2563,36 @@ local function enter_declaration(ctx: Ctx, node: Ast.Node): {Ast.Node}
     end
   end
   ctx.program.params[decl] = written_params
+  -- `type Notes = Notes` of a `local schema` of the module: the table of the record holds the schema's value under the
+  -- name ([`lang.codegen`]'s `record_table`), so the declaration used as a value has it, as a schema's own name does.
+  if (node.kind == "Record") and #node.typeparams == 0 then
+    for _, m in ipairs(node.members) do
+      if (m.kind == "Alias") and (m.type.kind == "TypeName") and #m.type.path == 1 and #m.type.args == 0 then
+        local named = resolve_entry(ctx, m.type)
+        local held = if named ~= nil then named.decl else nil end
+        local held_body = if held ~= nil then held.body else nil end
+        -- A record declared inside a function is in a module of its own (`name@id`), in the file of the schema.
+        local file = false
+        if held ~= nil then
+          file = Declarations.module_of_file(held.module) == Declarations.module_of_file(decl.module)
+        end
+        local given = ctx.program.statics[decl] or {}
+        if held ~= nil and held_body ~= nil and held_body.schema ~= nil and file and given[m.name.name] ~= nil then
+          report_at(ctx, "repeated_field", m, quoted(m.name.name) .. " is declared twice in " .. quoted(decl.name) ..
+              ": a function " .. quoted(decl.name .. "." .. m.name.name) .. " and the schema the record names",
+            "rename the function or the type: the table of " .. quoted(decl.name) .. " holds the schema's value under " ..
+              "the type's name")
+        elseif held ~= nil and held_body ~= nil and held_body.schema ~= nil and file then
+          local statics: mut {string: Types.Field} = {}
+          for name, f in pairs(given) do
+            statics[name] = f
+          end
+          statics[m.name.name] = { name = m.name.name, type = store:named(held, {}, true), mut = false, omittable = false }
+          ctx.program.statics[decl] = statics
+        end
+      end
+    end
+  end
   if node.kind == "Interface" or node.kind == "Record" or node.kind == "Class" then
     finish_build(ctx, build, binder_names(ctx.frames))
   end
@@ -2776,6 +2909,88 @@ function Declarations.inherited(store: Store, judge: Relation.Judge, decl: Types
   return out
 end
 
+--- The names a value of the record or class `decl` may hold: its fields, those it has from the interfaces it lists,
+--- and its methods, which no record value holds but a class value does.
+function Declarations.names_held(store: Store, judge: Relation.Judge, decl: Types.Decl): {string: boolean}
+  local out: mut {string: boolean} = {}
+  local body = decl.body
+  if body == nil then
+    return out
+  end
+  for _, f in ipairs(body.fields) do
+    out[f.name] = true
+  end
+  for _, f in ipairs(Declarations.inherited(store, judge, decl)) do
+    out[f.name] = true
+  end
+  for _, m in ipairs(body.methods) do
+    out[m.name] = true
+  end
+  return out
+end
+
+--- The field that tells the record `r` apart from the other records of `records` by being there: the first `r`
+--- requires, fixed, of a type that is never nil, that no other record declares, so that `x.name ~= nil` tells `r`.
+--- Nil where `r` has none, or where a field every record types by an enum reads as a tag, which alone tells them.
+function Declarations.presence_field(store: Store, judge: Relation.Judge, records: {Named}, r: Named): string?
+  local body = r.decl.body
+  if body == nil then
+    return nil
+  end
+  local fields: mut {Types.Field} = {}
+  for _, f in ipairs(body.fields) do
+    fields[#fields + 1] = f
+  end
+  for _, f in ipairs(Declarations.inherited(store, judge, r.decl)) do
+    fields[#fields + 1] = f
+  end
+  local others: mut {{string: boolean}} = {}
+  local fields_of_others: mut {{Types.Field}} = {}
+  for _, m in ipairs(records) do
+    if m ~= r then
+      others[#others + 1] = Declarations.names_held(store, judge, m.decl)
+      local of_m: mut {Types.Field} = {}
+      local mbody = m.decl.body
+      if mbody ~= nil then
+        for _, f in ipairs(mbody.fields) do
+          of_m[#of_m + 1] = f
+        end
+      end
+      for _, f in ipairs(Declarations.inherited(store, judge, m.decl)) do
+        of_m[#of_m + 1] = f
+      end
+      fields_of_others[#fields_of_others + 1] = of_m
+    end
+  end
+  local function enum_typed(t?: Type): boolean
+    return t ~= nil and (t.tag == "named") and t.decl.kind == "enum"
+  end
+  for _, f in ipairs(fields) do
+    local everywhere = enum_typed(f.type)
+    for _, of_m in ipairs(fields_of_others) do
+      local g = field_named(of_m, f.name)
+      everywhere = everywhere and g ~= nil and enum_typed(g.type)
+    end
+    if everywhere then
+      return nil
+    end
+  end
+  for _, f in ipairs(fields) do
+    local t = f.type
+    if f.mut ~= true and f.omittable ~= true and not nilable(t) and t.tag ~= "any" and t.tag ~= "var" and
+        t.tag ~= "invalid" then
+      local alone = true
+      for _, held in ipairs(others) do
+        alone = alone and held[f.name] ~= true
+      end
+      if alone then
+        return f.name
+      end
+    end
+  end
+  return nil
+end
+
 --- Checks that the records of a union have a tag. Returns false where a body is not defined yet.
 local function check_union(ctx: Ctx, site: UnionSite): boolean
   local records: mut {Named} = {}
@@ -2894,6 +3109,26 @@ local function check_union(ctx: Ctx, site: UnionSite): boolean
       blamed = candidate.name
     end
   end
+  -- Else each record may be told by being there ([`Declarations.presence_field`]), where every other member is no
+  -- table.
+  local present = true
+  for _, m in ipairs(site.type.members) do
+    if m.tag == "array" or m.tag == "map" or m.tag == "any" or m.tag == "var" or
+        ((m.tag == "named") and (m.value or (m.decl.kind ~= "record" and m.decl.kind ~= "enum" and
+            m.decl.kind ~= "integer_enum" and m.decl.kind ~= "userdata"))) then
+      present = false
+    end
+  end
+  local unmarked: Named? = nil
+  for _, r in ipairs(records) do
+    if Declarations.presence_field(ctx.store, ctx.program.judge, records, r) == nil then
+      present = false
+      unmarked = unmarked or r
+    end
+  end
+  if present then
+    return true
+  end
   for _, r in ipairs(records) do
     if tainted(ctx, r) then
       return true
@@ -2909,7 +3144,9 @@ local function check_union(ctx: Ctx, site: UnionSite): boolean
   report_at(ctx, "untagged_union", site.node, "the union " .. quoted(shown) .. " holds " .. tostring(#records) ..
       " records that have no tag" .. reason,
     "give " .. table.concat(listed, ", ") .. " a fixed field of the same name whose type is one named enum, with values " ..
-      "different in each, so that `x.kind == \"...\"` tells them apart",
+      "different in each, so that `x.kind == \"...\"` tells them apart; or give each a required field no other " ..
+      "declares" .. (if unmarked ~= nil then " (" .. shown_of(unmarked) .. " has none)" else "" end) ..
+      ", so that `x.<field> ~= nil` does",
     { shown })
   return true
 end

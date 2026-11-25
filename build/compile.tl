@@ -12,7 +12,7 @@
 --- THE LUA IS RAW: one file's text exactly as the generator writes it, no wrapper and nothing joining one file to another.
 --- A file is checked as the module its path below the root names (`--root`, the working directory by default: [`lang/flow.tl`]
 --- as [`lang.flow`]; the path may be absolute, and one outside the root is refused), and a `require` of another named file is
---- answered with that file's text, so the parts of a program see each other's types as the boot's compile gives them.
+--- resolved to that file's text, so the parts of a program see each other's types as the boot's compile gives them.
 ---
 --- Unlike `cosmic fix` or a build it does not run [`Shape.record_of`]'s resolution, check contracts or hold a file to the
 --- tree's other rules: it is the checker and the generator and nothing else.
@@ -52,6 +52,8 @@ local record verb
     out: function(text: string): boolean, string
     --- Writes one complaint line, without its newline.
     err: function(line: string)
+    --- The bytes of standard input, for "-", or nil and why: [`Flags.read`]'s of "-" when nil.
+    stdin?: function(): string?, string
   end
 end
 
@@ -101,9 +103,16 @@ local function arguments(argv: {string}): Request?, string
   if request.directory == nil and compiled > 1 then
     return nil, "give -o <dir> to write one .lua per file, or name one file to print its Lua"
   end
+  local dashes = 0
+  for _, path in ipairs(request.files) do
+    if path == "-" then dashes = dashes + 1 end
+  end
+  if dashes > 1 then
+    return nil, "- is named more than once, and standard input is read once: name it once"
+  end
   for _, path in ipairs(request.files) do
     if path == "" then return nil, bare.empty_file end
-    if not base_of(path):match("^.+%.tl$") then
+    if path ~= "-" and not base_of(path):match("^.+%.tl$") then
       return nil, path .. ": not a .tl source: name the file you want compiled"
     end
   end
@@ -145,7 +154,7 @@ local function counted(n: integer): string
   return tostring(n) .. (if n == 1 then " type error" else " type errors" end)
 end
 
---- Runs the command line `argv`, `compile` at slot 1, and answers the
+--- Runs the command line `argv`, `compile` at slot 1, and returns the
 --- exit code. `streams` is where it writes: what a test stands in for.
 function verb.run(argv: {string}, streams?: verb.Io): integer
   local to = streams or { out = bare.out, err = bare.err }
@@ -176,28 +185,49 @@ function verb.run(argv: {string}, streams?: verb.Io): integer
   local holder_is_declaration: mut {string:boolean} = {}
   local resolved: mut {string:string} = {}
   local bases: mut {string:string} = {}
-  for _, path in ipairs(request.files) do
-    local text, why = Fs.read(path)
+  for _, given in ipairs(request.files) do
+    -- "-" is standard input, compiled as the module stdin at the root and named so in each message.
+    local path = if given == "-" then "stdin.tl" else given end
+    local text, why: string?, string = nil, ""
+    if given == "-" then
+      local stdin = to.stdin
+      if stdin ~= nil then
+        text, why = stdin()
+      else
+        local read, read_why = Flags.read(given)
+        text, why = read, read_why or ""
+      end
+    else
+      local read, read_why = Fs.read(path)
+      text, why = read, if read == nil then said(path, tostring(read_why)) ..
+          ": check the path, which is read from this directory" else "" end
+    end
     if text == nil then
-      complain(said(path, tostring(why)) .. ": check the path, which is read from this directory")
+      complain(why)
       return bare.undone
     end
-    local absolute, absolute_why = Fs.absolute(path)
-    if absolute == nil then
-      complain(tostring(absolute_why))
-      return bare.undone
-    end
-    local same = resolved[absolute]
-    if same ~= nil then
-      complain(path .. " and " .. same .. " are the same file, named twice: name it once")
-      return bare.refused
-    end
-    resolved[absolute] = path
-    local relative = below(absolute, root)
-    if relative == nil then
-      complain(path .. ": " .. absolute .. " is not under " .. root ..
-          ": pass --root <dir> naming a directory above it, or a path below the current directory")
-      return bare.refused
+    local relative = path
+    if given == "-" then
+      resolved["-"] = path
+    else
+      local absolute, absolute_why = Fs.absolute(path)
+      if absolute == nil then
+        complain(tostring(absolute_why))
+        return bare.undone
+      end
+      local same = resolved[absolute]
+      if same ~= nil then
+        complain(path .. " and " .. same .. " are the same file, named twice: name it once")
+        return bare.refused
+      end
+      resolved[absolute] = path
+      local below_root = below(absolute, root)
+      if below_root == nil then
+        complain(path .. ": " .. absolute .. " is not under " .. root ..
+            ": pass --root <dir> naming a directory above it, or a path below the current directory")
+        return bare.refused
+      end
+      relative = below_root
     end
     local name = require("build.compile_grammar").module_of(relative)
     local declaration = base_of(path):match("%.d%.tl$") ~= nil

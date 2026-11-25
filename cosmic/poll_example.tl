@@ -52,7 +52,7 @@ function Example.spawn()
   assert(Fs.remove_tree(dir))
 end
 
---- A wait bounded by its timeout answers false and a Failure of kind
+--- A wait bounded by its timeout returns false and a Failure of kind
 --- "timeout" when nothing comes in time.
 function Example.readable()
   local dir = assert(Fs.mkdtemp("cosmic-poll-example-"))
@@ -81,12 +81,12 @@ function Example.writable()
 end
 
 --- Sleeping tasks wake in the order of their times, not their starts.
-function Example.delay()
+function Example.sleep()
   local woke: mut {integer} = {}
   Poll.run(function()
     for _, ms in ipairs({ 20, 5 }) do
       Poll.spawn(function()
-        assert(Poll.delay(Clock.ms(ms)))
+        assert(Clock.sleep(Clock.ms(ms)))
         woke[#woke + 1] = ms
       end)
     end
@@ -95,8 +95,8 @@ function Example.delay()
   assert(woke[1] == 5 and woke[2] == 20)
 end
 
---- A cancelled task's wait answers a Failure of kind "cancelled", and it
---- unwinds on its own terms.
+--- A cancelled task's wait fails with a Failure of kind "cancelled", and
+--- it unwinds on its own terms.
 function Example.cancel()
   local waited: mut {string: string} = { answer = "" }
   Poll.run(function()
@@ -112,9 +112,9 @@ function Example.cancel()
   assert(waited["answer"] == "cancelled")
 end
 
---- A task that waits on whatever its waits answer outlasts `cancel`,
+--- A task that waits on whatever its waits return outlasts `cancel`,
 --- and is ended by `kill` where it waits: its `<close>` variables are
---- closed, and a join answers a Failure of kind "cancelled".
+--- closed, and a join returns false and a Failure of kind "cancelled".
 function Example.kill()
   local released = false
   Poll.run(function()

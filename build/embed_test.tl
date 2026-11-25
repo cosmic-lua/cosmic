@@ -43,7 +43,7 @@ local function test_cosmic_s_own_tree_is_refused(tmp: string)
   assert(trouble:find("bin/zig build boot", 1, true) ~= nil, trouble)
 end
 
---- In cosmic's own tree the program is the tool: its path in the tree's build directory is answered, and `out`
+--- In cosmic's own tree the program is the tool: its path in the tree's build directory is named, and `out`
 --- is given a copy of it, executable, in a directory made for it.
 local function test_cosmic_s_own_tool_is_named_and_copied(tmp: string)
   local root = tmp .. "/tree"
@@ -73,7 +73,7 @@ local function test_cosmic_s_own_tree_with_no_tool_names_the_boot(tmp: string)
   assert(not assert(Fs.status(out)).exists, "a directory was made for a copy that was not written")
 end
 
---- The verb in cosmic's own tree answers for the tool and builds no program: `--out` gets the copy, and what
+--- The verb in cosmic's own tree gives the tool and builds no program: `--out` gets the copy, and what
 --- chooses among a project's programs (`--host`, `--roots`, a path) is refused as a command line, writing nothing.
 local function test_build_in_cosmic_s_own_tree_takes_out_alone(tmp: string)
   local root = tmp .. "/tree"

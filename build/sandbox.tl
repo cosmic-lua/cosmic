@@ -22,15 +22,17 @@
 --- A SEALED RUN: `--database`, `--modules` and `--closure` each name the
 --- database the program runs on ([`Sandbox.Policy`]'s `database`), the
 --- program being this program's core and the words after it the main's
---- arguments. `--database` takes a file as it is. `--modules` and
+--- arguments. `--database` takes a file as it is, or standard input for
+--- `-`, kept in a file in a directory of the run's own (the program's own
+--- standard input is then at its end). `--modules` and
 --- `--closure` seal one first, through [`Store.seal`], into a directory
 --- of the run's own that the program's user can search, removed when it
 --- ends: the named modules (the first the main, and no requires followed),
 --- or the closure of the literal requires of a script, compiled here, in this unsealed process,
 --- by [`standalone.code`] (what a file run as `--standalone` is) and
---- sealed as the main. A command line that names two of the three, or
---- `--closure` with `--cosmic`, a module no store holds (a script's
---- require of one included) or a `--database` that is not there is refused (2); a script that cannot be read or does
+--- sealed as the main. A command line that names two of the three, a module no store holds (a script's
+--- require of one included), a `--database` that is not there, or a `--database -` with nothing piped
+--- in, is refused (2); a script that cannot be read or does
 --- not compile, or a seal that cannot be written, is a start that failed
 --- (125).
 ---
@@ -75,6 +77,7 @@ local Sandbox = require("cosmic.sandbox")
 local PolicyJson = require("cosmic.policy")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
+local Defer = require("cosmic.defer")
 local Compiled = require("cosmic.internal.compiled")
 local Globals = require("cosmic.internal.globals")
 local bare = require("build.bare")
@@ -96,9 +99,12 @@ local record verb
     --- it is when nil.
     run?: function(argv: {string}, opts: Child.Options): Child.Result?, string
     --- Runs `cosmic sandbox connect`'s client on the words after `connect`
-    --- and answers its exit status, as [`build.sandbox_connect`]'s `run`
+    --- and returns its exit status, as [`build.sandbox_connect`]'s `run`
     --- does, which is what it is when nil.
     connect?: function(args: {string}): integer
+    --- All of standard input, for `--database -`, or nil and why it could not be read; [`Flags.read`]
+    --- of "-" when nil.
+    stdin?: function(): string?, string
   end
 end
 
@@ -173,13 +179,12 @@ local limits <const>: {Limit} = {
   { flag = "--processes", field = "processes", least = 1 },
 }
 
---- The fields of a policy's JSON the flags give; the words of `isolate` and `promises` are left to [`PolicyJson.decode`].
+--- The fields of a policy's JSON the flags give; the words of `isolate` and of a grant's `calls` are left to
+--- [`PolicyJson.decode`].
 local record PolicyFields
   mut grants?: {{string:string}}
   mut profiles?: {string}
   mut isolate?: {string}
-  mut promises?: {string}
-  mut connect?: {string}
   mut loopback?: {string}
   mut env?: {string}
   mut tmp?: boolean
@@ -234,18 +239,21 @@ local function table_of(parsed: Flags.Parsed): PolicyFields?, string
     end
     grants[#grants + 1] = { path = path, letters = letters }
   end
+  for _, call in ipairs(list("--promise")) do
+    grants[#grants + 1] = { calls = call }
+  end
+  for _, target in ipairs(list("--connect")) do
+    grants[#grants + 1] = { connect = target }
+  end
   if #grants > 0 then policy.grants = grants end
   local profiles: mut {string} = {}
   if parsed.set["--system"] == true then profiles[#profiles + 1] = "system" end
   if parsed.set["--programs"] == true then profiles[#profiles + 1] = "programs" end
-  if parsed.set["--cosmic"] == true then profiles[#profiles + 1] = "cosmic" end
   if #profiles > 0 then policy.profiles = profiles end
   local function some(name: string): {string}?
     return if #list(name) > 0 then list(name) else nil end
   end
   policy.isolate = some("--isolate")
-  policy.promises = some("--promise")
-  policy.connect = some("--connect")
   policy.loopback = some("--loopback")
   policy.env = some("--env")
   if parsed.set["--tmp"] == true then policy.tmp = true end
@@ -343,10 +351,6 @@ local function request_of(argv: {string}): Request?, string
     return nil, table.concat(given, " and ") .. " are exclusive: each names the database the " ..
       "program runs on, which only one can"
   end
-  if request.closure and parsed.set["--cosmic"] == true then
-    return nil, "--closure and --cosmic are exclusive: --closure runs the script on a database of " ..
-      "its own, which holds the modules it requires and not this program's file"
-  end
   if at == nil then
     if #given == 1 and not request.closure then
       -- No command is this program's core on the database, with no arguments.
@@ -439,7 +443,7 @@ end
 --- The module a sealed script is, named `main`: Lua that runs `code`, the
 --- Lua of `file`, as `cosmic --standalone` does -- its `arg` the
 --- program's, its entry (a function, or a record's `main`) called with
---- them -- and answers its status. The script's own text is on the
+--- them -- and returns its status. The script's own text is on the
 --- first line, so an error's line is the file's.
 local function script_chunk(file: string, code: string): string
   return string.format("local file = %q return function(args) args[0] = file rawset(_G, 'arg', " ..
@@ -471,8 +475,25 @@ local record Sealing
   refused: boolean
 end
 
+--- Standard input, a sealed database `--database -` names, kept as program.db in a directory of this
+--- run's own ([`scratch`]) that the program's user can read.
+local function spooled(read: function(): string?, string, held: mut {string}): Sealing
+  local bytes, why = read()
+  -- A terminal, or nothing piped in, is the command line's to fix.
+  if bytes == nil then return { why = "--database -: " .. why, refused = true } end
+  local dir, dir_why = scratch(held)
+  if dir == nil then return { why = dir_why, refused = false } end
+  local path = dir .. "/program.db"
+  local wrote, write_why = Fs.write(path, bytes)
+  if not wrote then return { why = tostring(write_why), refused = false } end
+  -- 0644, in decimal, whatever the umask: the program's user reads it.
+  local readable, readable_why = sys.chmod(path, 4 * 64 + 4 * 8 + 4)
+  if not readable then return { why = path .. ": " .. tostring(readable_why), refused = false } end
+  return { path = path, why = "", refused = false }
+end
+
 --- Seals `names` (the main among them, or `opts.extra`) into a directory
---- of this run's own ([`scratch`]), and answers the database's path there,
+--- of this run's own ([`scratch`]), and returns the database's path there,
 --- or why not, and whether the command line is to blame (a name no store
 --- holds).
 local function sealed(names: {string}, opts: Store.SealOptions, held: mut {string}): Sealing
@@ -606,7 +627,7 @@ local function notes_pipe(): Notes?, string
   return nil, tostring(why)
 end
 
---- [`Child.run`], answering its failure in words, as [`verb.Io`]'s `run` does.
+--- [`Child.run`], returning its failure in words, as [`verb.Io`]'s `run` does.
 local function run_child(argv: {string}, opts: Child.Options): Child.Result?, string
   local result, why = Child.run(argv, opts)
   if result == nil then return nil, tostring(why) end
@@ -618,7 +639,7 @@ end
 --- given a terminal of its own for each rather than the caller's, whose
 --- control sequences it could otherwise write and whose input it could
 --- push into; a stream that is no terminal is the program's as it is.
---- Both answer the program's [`Child.Result`].
+--- Both return the program's [`Child.Result`].
 ---
 --- The network relay's decision lines (`opts.relay_log`) go to this
 --- process's standard error, which a sandboxed process may not hold as a
@@ -630,8 +651,7 @@ local function run_here(argv: {string}, opts: Child.Options): Child.Result?, str
   local terminal: TermRelay.Terminal?
   local notes: Notes?
   local policy = opts.policy
-  local connect = policy and policy.connect
-  local connects = policy ~= nil and connect ~= nil and #connect > 0
+  local connects = policy ~= nil and #Sandbox.connects(policy) > 0
   if opts.relay_log == "inherit" and connects and sys.isatty(2) then
     local made, why = notes_pipe()
     if made == nil then return nil, "the relay's log: " .. why end
@@ -646,6 +666,13 @@ local function run_here(argv: {string}, opts: Child.Options): Child.Result?, str
   end
   if result == nil then return nil, why end
   return result, ""
+end
+
+--- All of standard input, as [`verb.Io`]'s `stdin` reads it.
+local function read_stdin(): string?, string
+  local bytes, why = Flags.read("-")
+  if bytes == nil then return nil, why end
+  return bytes, ""
 end
 
 local standard: verb.Io = { err = bare.err, run = run_here }
@@ -672,7 +699,9 @@ local function execute(argv: {string}, io: verb.Io?, held: mut {string}): intege
   local sealing: Sealing?
   local request_database = request.database
   local request_modules = request.modules
-  if request_database ~= nil then
+  if request_database == "-" then
+    sealing = spooled(to.stdin or read_stdin, held)
+  elseif request_database ~= nil then
     local path, why = absolute(request_database, request.cwd)
     sealing = { path = path, why = why, refused = true }
   elseif request_modules ~= nil then
@@ -733,7 +762,7 @@ local function execute(argv: {string}, io: verb.Io?, held: mut {string}): intege
   return Child.shell_status(result)
 end
 
---- Runs the command line `argv`, the verb at slot 1, and answers the
+--- Runs the command line `argv`, the verb at slot 1, and returns the
 --- exit status ([`build/sandbox.tl`]'s head says what each means).
 --- @param argv the command line
 --- @param io where it complains and starts, or the process's own
@@ -742,12 +771,11 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   -- The directory a sealed database was written in, removed whatever the
   -- run's end.
   local held: mut {string} = {}
-  local status = execute(argv, io, held)
-  local dir = held[1]
-  if dir ~= nil then
-    local _, _ = Fs.remove_tree(dir)
-  end
-  return status
+  local _ <close> = Defer.new(function()
+    local dir = held[1]
+    if dir ~= nil then local _, _ = Fs.remove_tree(dir) end
+  end)
+  return execute(argv, io, held)
 end
 
 verb.spec = {

@@ -7,12 +7,12 @@
 -- reserved namespace that never satisfies an ordinary `require` for
 -- any caller: `require` caches a result under the name it was asked
 -- for, and a value that must be checked on every access can never be
--- that cached value, or the first caller's access would answer for
+-- that cached value, or the first caller's access would decide for
 -- every caller after it. The searcher hands it here directly instead,
 -- as the second argument `require` always passes a loader -- present
 -- only because this module was itself loaded, trusted, from the
 -- binary's own tree. Boot mode, before any such check exists, falls
--- back to requiring it by name, which only boot's own preload answers.
+-- back to requiring it by name, which only boot's own preload resolves.
 
 local type raw_store = require("cosmic.internal.store")
 local Array = require("cosmic.array")
@@ -20,6 +20,7 @@ local Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
+local layout = require("cosmic.internal.artifact_layout")
 
 local extra: any = select(2, ...) -- checked: any_use
 local store: raw_store
@@ -51,6 +52,12 @@ local record Store
     --- Required, and `true`, with `extra`: the bytecode of `extra` is
     --- loaded as given, which nothing checks. See [`Store.attach`].
     unchecked_bytecode?: boolean
+    --- Whether to carry the data the sealed names call for: the time zones
+    --- for [`cosmic.time`], the CA roots for [`cosmic.http`] and the files
+    --- of [`cosmic.web.htmx`]. True by default; `false` leaves them out,
+    --- for a program that requires those modules but never reads the data
+    --- (a time zone by name, a TLS peer's roots, a served file).
+    data?: boolean
   end
 
   --- What [`Store.attach`] is told beyond the path.
@@ -112,7 +119,7 @@ end
 --- One module's compiled bytes, as `string.dump` wrote them, for a caller
 --- that must load the chunk in an environment of its own; nil and a Failure for
 --- none. A database stores them as they are, or deflated where an older
---- build wrote it, and this answers them inflated.
+--- build wrote it, and this returns them inflated.
 function Store.bytecode(name: string): (string) | (nil, Failure)
   local value, why = store.bytecode(name)
   if value == nil then return nil, Failure.new(why) end
@@ -123,7 +130,7 @@ end
 --- decided. Nil when no database holds that key. Raises for a key the
 --- store withholds: a test's store names the rows it leaves out in its
 --- `withheld_meta` row (one key a line), and a read of one of them is an
---- error, not an answer, since a caller would take a nil for a missing
+--- error, not a result, since a caller would take a nil for a missing
 --- row and carry on.
 function Store.meta(key: string): string?
   local withheld = store.meta("withheld_meta")
@@ -161,7 +168,7 @@ end
 --- database holds its row without the source (a test's pure store);
 --- `false` for a name it holds a source of or no row of, and where there
 --- is no database. It tells a module that is present but withheld from one
---- that is absent, which [`Store.source`] alone answers with a failure in
+--- that is absent, where [`Store.source`] alone returns a failure in
 --- both cases. Nil and a Failure when the query failed.
 function Store.withheld(name: string): (string | false) | (nil, Failure)
   local databases = borrowed()
@@ -180,7 +187,7 @@ end
 
 --- Whether the binary's database holds a module or a declaration named
 --- `name`, with its source or without it: false for a name it has no row
---- of, which is the one case [`Store.source`] answers because the name is
+--- of, which is the one case [`Store.source`] fails because the name is
 --- absent; false too where the binary carries no database (a boot), which
 --- holds nothing. Nil and a Failure where the query failed.
 function Store.holds(name: string): (boolean) | (nil, Failure)
@@ -259,6 +266,31 @@ function Store.paths(): {string}
   return store.paths()
 end
 
+--- A program of the running core and `database`, as bytes, laid out as
+--- `cosmic build --host` lays one out: the core first, which the kernel
+--- runs directly, with no launcher and no shell, then the database it
+--- runs (its `main`). It runs only where this core runs. Write it with
+--- [`Fs.write`] and mode 0755 to start it. `database` is a SQLite
+--- database's bytes, as [`Store.seal`] writes one; nil and a Failure
+--- when it is not one, or when this process has no artifact of its own
+--- to take its core from (a bare core started on a database).
+---
+--- The program's modules run as the binary's own, trusted, raw bindings
+--- included, whatever their names: make a program only of a database the
+--- user chose to run, as [`Store.seal`] says of what it seals.
+---
+---     local names = Store.closure({ "hello" })
+---     assert(Store.seal(names, "hello.db", { main = "hello" }))
+---     local program = assert(Store.host_program(assert(Fs.read("hello.db"))))
+---     assert(Fs.write("hello", program, tonumber("755", 8)))
+function Store.host_program(database: string): (string) | (nil, Failure)
+  local core, trouble = store.trusted_core()
+  if core == nil then return nil, Failure.new("no core to make a program of: " .. trouble) end
+  local program, layout_trouble = layout.host_program(core, database)
+  if program == nil then return nil, Failure.new(layout_trouble) end
+  return program
+end
+
 --- Calls `fn` searching only the binary's own database, as a process
 --- that attached none would -- `require`, `meta`, `source` and
 --- `databases` included -- then puts every other back where it was,
@@ -283,7 +315,7 @@ local function reserved(name: string): boolean
     return true
   end
   -- Only the binary's own tree has wrappers, and the searcher loads the
-  -- chunk it answers with, which a name outside it need not be one.
+  -- chunk it returns, which a name outside it need not be one.
   if name:sub(1, 6) ~= "build." then
     return false
   end
@@ -292,7 +324,7 @@ local function reserved(name: string): boolean
   return raw is table
 end
 
---- The database whose row of `name` the search order answers with; nil
+--- The database whose row of `name` the search order finds; nil
 --- and why when none holds one or a query failed.
 local function locate(name: string, required?: string): Handle?, string
   local databases = Store.databases()
@@ -349,7 +381,7 @@ end
 
 --- Every module `roots` name and every module they require, directly or
 --- not, sorted, over the `imports` rows of the databases the store
---- searches, each module's from the database that answers for it
+--- searches, each module's from the database the search finds it in
 --- ([`Store.databases`], so a test declares `store`). A `local type`
 --- require, which Teal erases and the program never loads, is left out
 --- unless `opts.types` is true; the rows do not mark it, so it is told
@@ -428,7 +460,7 @@ end
 --- only a type checker reads one), the zones and CA roots
 --- it falls back on, and what was decided at the writing. Their
 --- columns are build/schema.tl's, so a database written here and one
---- written by the build answer the same queries.
+--- written by the build give the same rows for the same queries.
 local seal_schema: {string} = {
   "PRAGMA page_size = 4096",
   "PRAGMA auto_vacuum = 0",
@@ -463,7 +495,8 @@ end
 --- `identity`, the meta rows to record, and `main`. False and why on a
 --- failure.
 local function write_database(names: {string}, file: string, main: string?,
-                              identity: {MetaRow}, script: Store.Extra?): boolean, string
+                              identity: {MetaRow}, script: Store.Extra?,
+                              data: boolean): boolean, string
   local binary = Store.databases()
   -- The binary's own database is always the last of them.
   local binary_db = Array.at(binary, #binary)
@@ -536,9 +569,9 @@ local function write_database(names: {string}, file: string, main: string?,
             end
           end
         end
-        zones = zones or name == "cosmic.time"
-        roots = roots or name == "cosmic.http"
-        web = web or name == "cosmic.web.htmx"
+        zones = data and (zones or name == "cosmic.time")
+        roots = data and (roots or name == "cosmic.http")
+        web = data and (web or name == "cosmic.web.htmx")
       end
       if script ~= nil then
         -- Last, so the rows' order is the same whatever the script is.
@@ -628,7 +661,7 @@ end
 --- Writes a database holding exactly the modules `names` and returns its
 --- digest, the SHA-256 of its bytes in hex: a program's own store, which
 --- a process started on it searches in place of the tree's. Each
---- module's row is the one the store's search order answers with
+--- module's row is the one the store's search order finds
 --- (attached databases first, but the binary's own for `cosmic.*` and
 --- the wrappers of raw bindings), carried with the `imports` rows of
 --- those modules, and the `meta` rows a program needs to run: its
@@ -641,7 +674,7 @@ end
 --- along -- no docs, tests, catalog or notices -- except the time zones,
 --- only when `names` holds [`cosmic.time`], and the CA roots, only when
 --- it holds [`cosmic.http`]. `names` is taken as the whole program, so it
---- is usually [`Store.closure`]'s answer: a module it requires but
+--- is usually [`Store.closure`]'s result: a module it requires but
 --- leaves out is one the program cannot load.
 ---
 --- The bytes depend only on the rows (written in order, then vacuumed),
@@ -652,6 +685,9 @@ end
 --- tests that name a module, and its compile key, do not. It is written whole or not at all.
 --- With no `path` it goes to `<cache>/sandbox/<digest>.db` under
 --- [`Fs.cache_dir`], where a file of that digest is its own content.
+---
+--- `opts.data = false` leaves out the time zones, CA roots and web files
+--- that `names` would otherwise carry.
 ---
 --- `opts.extra` adds one module the store does not hold, a script compiled
 --- this run, as the main (kind `main`, after the others): `names` may then
@@ -746,7 +782,7 @@ function Store.seal(names: {string}, path?: string,
   local scratch: string = made_scratch
   local function build(): string?, string
     local written, write_trouble = write_database(sorted, scratch .. "/building.db",
-      main, identity, script)
+      main, identity, script, opts == nil or opts.data ~= false)
     if not written then
       return nil, write_trouble
     end

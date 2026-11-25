@@ -12,11 +12,11 @@
 --- configuration file, another program it starts. A test whose program
 --- needs one grants it too, or declares "system".
 ---
---- The libraries are the loader's own answer (`<loader> --list <program>`,
+--- The libraries are the loader's own list (`<loader> --list <program>`,
 --- which glibc's and musl's both take, and which `ldd` runs), asked in the
 --- process that keys the tests, not in a worker: that process starts the
 --- loader a granted file names, unsandboxed, as the test it keys would
---- start the file. A loader that does not answer leaves the program with
+--- start the file. A loader that gives no list leaves the program with
 --- its loader alone, and its test fails to start it. A program that is no
 --- ELF file of 64 bits and little-endian names nothing.
 ---
@@ -85,7 +85,7 @@ local function loader_of(head: string, path: string): string?
 end
 
 --- The files `loader --list path` says `path` loads, by the path each
---- resolved to: none where the loader does not answer.
+--- resolved to: none where the loader gives no list.
 local function libraries(loader: string, path: string): {string}
   local out: mut {string} = {}
   local result, _ = run({ loader, "--list", path },

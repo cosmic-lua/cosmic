@@ -6,7 +6,7 @@
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
-local stand_in = require("build.stand_in")
+local Fake = require("cosmic.fake")
 local this_program = require("build.this_program")
 
 local record test_sandbox_fixture
@@ -38,7 +38,7 @@ local record test_sandbox_fixture
   end
 end
 
---- Runs `cosmic test --all` on `root` with `env`, answering what it
+--- Runs `cosmic test --all` on `root` with `env`, returning what it
 --- printed and whether it passed.
 --- @param root the suite's tree, which the run starts in
 --- @param output the file the run's output is written to
@@ -56,7 +56,7 @@ function test_sandbox_fixture.run(root: string, output: string, env: {string:str
 end
 
 --- Runs `cosmic test` on `root` with the sandbox off (`COSMIC_TEST_SANDBOX=0`) and the environment this program has
---- besides what `extra` sets, answering what it printed and its exit status.
+--- besides what `extra` sets, returning what it printed and its exit status.
 --- @param root the suite's tree, which the run starts in
 --- @param extra variables to set on top of the environment
 function test_sandbox_fixture.unsandboxed(root: string, extra: {string:string}): test_sandbox_fixture.Unsandboxed
@@ -93,21 +93,21 @@ end
 ]]))
 end
 
---- Makes `root`, a tree for a suite, with a stand-in program
---- (build/stand_in.tl) at bin/probe for its tests to start, which
+--- Makes `root`, a tree for a suite, with a fake program
+--- ([`cosmic.fake`]) at bin/probe for its tests to start, which
 --- declare it -- not this program, which would take `tool` -- in the
 --- tree, since a sandboxed worker has a /tmp of its own over this
 --- test's.
---- @param tmp the test's directory, where the stand-in is built
+--- @param tmp the test's directory, where the fake is built
 --- @param root the suite's tree
 function test_sandbox_fixture.suite_tree(tmp: string, root: string)
   assert(Fs.mkdirs(root .. "/suite"))
   assert(Fs.mkdirs(root .. "/bin"))
-  assert(stand_in.place(assert(stand_in.build(tmp .. "/stand-in")), root .. "/bin/probe"))
+  assert(Fake.place(assert(Fake.build(tmp .. "/fake")), root .. "/bin/probe"))
 end
 
 --- Makes `root` as [`suite_tree`] does, with `hidden`, a directory outside it,
---- and a suite of one test that declares a file of the tree and the stand-in
+--- and a suite of one test that declares a file of the tree and the fake
 --- and fails with what it and a process it starts see, `seen|<cwd>|<tmp>|
 --- <data>|<secret>|<hidden exists>|<declared var>|<undeclared var>|<child>|end`.
 --- @param tmp the test's directory
@@ -148,7 +148,7 @@ end
 end
 
 --- Runs the program with `words` in `root`, unsandboxed (a sandbox nested in a test's own may be refused where the host
---- nests only two deep), compiling with the new checker, and answers what it said.
+--- nests only two deep), compiling with the new checker, and returns what it said.
 --- @param root the project the run starts in
 --- @param tmp a directory for its output and its TMPDIR
 --- @param words the program's arguments
@@ -183,7 +183,7 @@ function test_sandbox_fixture.spawn_fds(started: this_program.Program): {integer
   return fds
 end
 
---- Runs `words` after this program, past its launcher, and answers whether it exited 0, and what it wrote to stdout and
+--- Runs `words` after this program, past its launcher, and returns whether it exited 0, and what it wrote to stdout and
 --- stderr.
 --- @param words the program's arguments
 function test_sandbox_fixture.run_words(words: {string}): test_sandbox_fixture.Words

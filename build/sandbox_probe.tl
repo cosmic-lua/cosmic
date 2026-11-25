@@ -40,7 +40,7 @@ end
 
 --- The errnos a sandbox's setup is refused with, by name: what a
 --- seccomp filter, a kernel without the feature, or a switch that turns
---- it off answers.
+--- it off returns.
 local errno_names: {integer:string} = {
   [sys.EPERM] = "EPERM", [sys.ENOSYS] = "ENOSYS", [sys.EACCES] = "EACCES",
   [sys.EINVAL] = "EINVAL", [sys.ENOSPC] = "ENOSPC", [sys.EOPNOTSUPP] = "EOPNOTSUPP",

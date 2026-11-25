@@ -25,10 +25,9 @@ local ChildPolicy = require("build.child_policy_fixture")
 --- those of the servers, and the one the worker's own loopback is.
 Test.policy{
   profiles = { "cosmic" },
-  promises = { "nest" },
   loopback = { "127.0.0.1", "127.0.0.2" },
   env = { "TMPDIR" },
-  grants = { { path = "o/bin", letters = "rx" } },
+  grants = { { path = "o/bin", letters = "rx" }, { calls = "nest" } },
   requires = { "nest" },
 }
 
@@ -40,7 +39,7 @@ local record Ran
 end
 
 --- Runs `cosmic <words>` in `dir` with `input` on its standard input and the
---- environment `env` (the worker's own where nil), and answers how it ended;
+--- environment `env` (the worker's own where nil), and returns how it ended;
 --- ends the test, skipped, where the host gave the sandbox it asked for none.
 local function verb(dir: string, words: {string}, input: string, env?: {string:string}): Ran
   searchable.open(dir)
@@ -56,7 +55,7 @@ local function verb(dir: string, words: {string}, input: string, env?: {string:s
 end
 
 --- Serves each connection `listener` accepts as a task of the run: reads
---- what the client sends to its end, as a half-close, and answers `echo:` and
+--- what the client sends to its end, as a half-close, and replies `echo:` and
 --- all of it, then closes. `heard` is told each connection's bytes.
 local function echoing(listener: Net.Listener, heard: function(data: string)): Poll.Task
   return Poll.spawn(function()
@@ -80,7 +79,7 @@ local function echoing(listener: Net.Listener, heard: function(data: string)): P
   end)
 end
 
---- A server at 127.0.0.2, the one `body` is given the port of. Answers
+--- A server at 127.0.0.2, the one `body` is given the port of. Returns
 --- what `body` returned, the bytes the server heard, and its port.
 local function serving(body: function(port: integer, heard: {string}): Ran): Ran, {string}, integer
   local heard: mut {string} = {}
@@ -101,7 +100,7 @@ end
 --- The command line of a verb that grants `target` and runs the client for
 --- `host` and `port` as its program, this program's own file.
 local function client(target: string, host: string, port: integer): {string}
-  return { "sandbox", "--cosmic", "--connect", target, "--", assert(Proc.executable()), "sandbox", "connect",
+  return { "sandbox", "--connect", target, "--", assert(Proc.executable()), "sandbox", "connect",
     host, tostring(port) }
 end
 
@@ -110,7 +109,7 @@ local function test_the_client_carries_bytes_both_ways_with_the_half_close(tmp: 
     return verb(tmp, client("127.0.0.2:" .. tostring(port), "127.0.0.2", port), "ping")
   end)
   assert(ran.code == 0, tostring(ran.code) .. ": " .. ran.err)
-  -- The server answered only after the end of what was sent, which is the
+  -- The server replied only after the end of what was sent, which is the
   -- half-close, and the client's standard output ended with its end.
   assert(ran.out == "echo:ping", "the output: " .. ran.out)
   assert(heard[1] == "ping" and #heard == 1, "the server heard " .. table.concat(heard, "|"))
@@ -143,7 +142,7 @@ local function test_a_name_is_resolved_by_the_relay_and_never_by_the_program(tmp
 end
 
 --- What a proxy of the caller's is given: the line of its CONNECT and the
---- bytes it carries, answered `echo:` as the servers do.
+--- bytes it carries, replied to with `echo:` as the servers do.
 local function test_a_callers_https_proxy_is_the_relays_upstream(tmp: string)
   local made: support.Cell<Ran> = {}
   local request: support.Cell<string> = {}

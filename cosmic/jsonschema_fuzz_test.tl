@@ -2,8 +2,8 @@
 --- values from anyone: an MCP client compiles the `inputSchema` a server
 --- sends, and a server checks the arguments a client sends. Drawn schemas
 --- of the keywords it asserts, and drawn values, show that
---- [`JsonSchema.compile`] and a schema's `check` answer and never raise,
---- and that the combinators mean what they say: `not` turns an answer
+--- [`JsonSchema.compile`] and a schema's `check` return and never raise,
+--- and that the combinators mean what they say: `not` turns a result
 --- over, and `allOf` with `true`, `anyOf` or `oneOf` with `false`, and
 --- `if` it `then` `true` `else` `false` change none.
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
@@ -113,7 +113,7 @@ function Draw.schema(src: Fuzz.Source, depth: integer): string
 end
 
 --- Whether a failure is the bound on steps or depth, under which two
---- schemas that mean the same may answer apart.
+--- schemas that mean the same may disagree.
 local function bounded(why: string): boolean
   return String.contains(why, "steps") or String.contains(why, "levels")
 end
@@ -130,7 +130,7 @@ local function compiled(text: string): JsonSchema.Schema?
   return s
 end
 
---- `check`'s answer and its failure's message ("" when it allows).
+--- `check`'s result and its failure's message ("" when it allows).
 local function answer(s: JsonSchema.Schema, v: Json.Value): boolean, string
   local ok, why = s:check(v)
   if ok then return true, "" end
@@ -139,7 +139,7 @@ local function answer(s: JsonSchema.Schema, v: Json.Value): boolean, string
   return false, message
 end
 
---- A schema built around a drawn one, and the answer it must give.
+--- A schema built around a drawn one, and the result its `check` must return.
 local record Form
   text: string
   want: boolean

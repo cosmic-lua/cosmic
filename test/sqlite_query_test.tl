@@ -85,7 +85,7 @@ local function test_a_closed_query_fails_a_read()
 end
 
 --- A statement that does not prepare, or parameters that do not bind,
---- answer nil and why, and leave nothing open.
+--- make the query return nil and why, and leave nothing open.
 local function test_a_query_that_cannot_start_says_why()
   local db = numbers(1)
   local q, trouble = db:query("SELECT nothing FROM nowhere")

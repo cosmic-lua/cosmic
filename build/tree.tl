@@ -47,7 +47,7 @@ end
 -- TODO: refuse a host-built tool whose file was removed while it runs:
 -- with no started-as path, Proc.executable falls back to /proc/self/exe,
 -- which then reads ".../cosmic (deleted)", and a rebuild would write a
--- file of that name. Once Proc.executable says the file is gone, answer
+-- file of that name. Once Proc.executable says the file is gone, return
 -- nil for it here.
 function tree.own_tool(root: string, executable?: string): boolean?, string
   local running = executable

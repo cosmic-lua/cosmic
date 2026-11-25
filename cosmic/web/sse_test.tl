@@ -670,7 +670,7 @@ local function test_a_quiet_stream_ends_soon_after_its_client_leaves()
   Web.with_server(app, function(client: Web.LoopbackClient)
     local feed = open(client.host, "/s")
     assert(feed.status == 200 and chunk(feed) ~= nil)
-    assert(Poll.delay(Clock.ms(300)))
+    assert(Clock.sleep(Clock.ms(300)))
     assert(#closed == 0, "the stream ended while its client was there")
     local left_at = Clock.monotonic_ns()
     assert(feed.conn:close())
@@ -682,7 +682,7 @@ local function test_a_quiet_stream_ends_soon_after_its_client_leaves()
 end
 
 --- A stream that ends on its own, on a connection kept open, leaves the
---- next request on it to be answered whole, and says "end" once, though
+--- next request on it to get its whole response, and says "end" once, though
 --- its client closes afterwards.
 local function test_a_stream_that_ends_leaves_its_connection_to_the_next_request()
   local closed: mut {string} = {}
@@ -703,7 +703,7 @@ local function test_a_stream_that_ends_leaves_its_connection_to_the_next_request
     assert(line(feed) == "HTTP/1.1 200 OK")
     while not feed.buf:find("next", 1, true) do fill(feed) end
     assert(feed.conn:close())
-    assert(Poll.delay(Clock.ms(100)))
+    assert(Clock.sleep(Clock.ms(100)))
     assert(#closed == 1 and closed[1] == "end", table.concat(closed, ","))
   end)
 end
@@ -714,7 +714,7 @@ local function test_an_on_close_that_waits_runs_to_its_end_as_the_client_leaves(
   local app = Web.app{ routes = { Web.get("/s", function(req: Web.Request): Web.Response
     local source: Channel.Queue<Sse.Event> = Channel.new()
     return Sse.EventStream(req, Sse.from_queue(source), { heartbeat_ns = 0, on_close = function(why: string)
-      assert(Poll.delay(Clock.ms(30)))
+      assert(Clock.sleep(Clock.ms(30)))
       closed[#closed + 1] = why
     end })
   end) } }

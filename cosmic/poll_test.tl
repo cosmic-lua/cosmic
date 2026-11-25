@@ -9,7 +9,7 @@ local Test = require("cosmic.test")
 
 local process = require("cosmic.internal.process")
 
---- A wait's failure in the words it once answered: "" for none.
+--- A wait's failure in the words it once returned: "" for none.
 local function words(why?: Failure): string
   if why == nil then return "" end
   return why.message
@@ -35,12 +35,12 @@ local function test_tasks_take_turns_as_each_waits()
   Poll.run(function()
     local a = Poll.spawn(function()
       seen[#seen + 1] = "a1"
-      assert(Poll.delay(0))
+      assert(Clock.sleep(0))
       seen[#seen + 1] = "a2"
     end)
     local b = Poll.spawn(function()
       seen[#seen + 1] = "b1"
-      assert(Poll.delay(0))
+      assert(Clock.sleep(0))
       seen[#seen + 1] = "b2"
     end)
     seen[#seen + 1] = "main"
@@ -58,7 +58,7 @@ local function test_delays_end_in_the_order_of_their_times()
   Poll.run(function()
     for _, ms in ipairs({ 150, 50, 100 }) do
       Poll.spawn(function()
-        assert(Poll.delay(Clock.ms(ms)))
+        assert(Clock.sleep(Clock.ms(ms)))
         order[#order + 1] = ms
       end)
     end
@@ -74,7 +74,7 @@ local function test_a_readable_wait_ends_when_data_arrives(tmp: string)
       assert(Poll.readable(reader, Clock.seconds(5)))
       got = assert(sys.read(reader, 16))
     end)
-    assert(Poll.delay(Clock.ms(10)))
+    assert(Clock.sleep(Clock.ms(10)))
     assert(got == "", "the reader went on before anything was written")
     assert(sys.write(writer, "hi") == 2)
     assert(listener:join())
@@ -89,7 +89,7 @@ local function test_a_wait_past_its_timeout_answers_timeout(tmp: string)
   Poll.run(function()
     local ok, why = Poll.readable(reader, Clock.ms(20))
     assert(not ok and why.kind == "timeout", why)
-    local sleeper = Poll.spawn(function() local _, _ = Poll.delay(Clock.seconds(1)) end)
+    local sleeper = Poll.spawn(function() local _, _ = Clock.sleep(Clock.seconds(1)) end)
     local joined, join_why = sleeper:join(Clock.ms(10))
     assert(not joined and join_why.kind == "timeout", join_why)
     sleeper:cancel()
@@ -107,8 +107,8 @@ local function test_a_writable_wait_ends_at_once_where_there_is_room(tmp: string
   sys.close(writer)
 end
 
---- A cancelled task's wait, and every one after it, answers CANCELLED,
---- so the task unwinds on its own terms.
+--- A cancelled task's wait, and every one after it, fails with
+--- CANCELLED, so the task unwinds on its own terms.
 local function test_cancel_ends_a_wait_and_every_later_one(tmp: string)
   local reader, writer = fifo(tmp, "p")
   local answers: mut {string} = {}
@@ -117,11 +117,11 @@ local function test_cancel_ends_a_wait_and_every_later_one(tmp: string)
       local _, why = Poll.readable(reader)
       local said = words(why)
       answers[#answers + 1] = said
-      local _, again = Poll.delay(0)
+      local _, again = Clock.sleep(0)
       local said_again = words(again)
       answers[#answers + 1] = said_again
     end)
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     task:cancel()
     assert(task:join())
   end)
@@ -140,9 +140,9 @@ local function test_an_error_ends_the_run_and_closes_the_rest()
   local ok, err: boolean, any = pcall(Poll.run, function()
     Poll.spawn(function()
       local _ <close> = Defer.new(closer)
-      assert(Poll.delay(Clock.seconds(1)))
+      assert(Clock.sleep(Clock.seconds(1)))
     end)
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     error("broken", 0)
   end)
   assert(not ok and tostring(err):find("broken\nstack traceback:", 1, true) == 1, tostring(err))
@@ -155,7 +155,6 @@ end
 --- A raise names its module, however the call was wrong.
 local function test_a_raise_names_the_module()
   local raising: {function()} = {
-    function() local _, _ = Poll.delay(0) end,
     function() Poll.spawn(function() end) end,
     function() Poll.checked_ns(-1, "poll", "span", 1) end,
     function() local _, _ = Poll.ready({ 0 }, { sys.POLLIN }) end,
@@ -167,19 +166,19 @@ local function test_a_raise_names_the_module()
 end
 
 local function test_waiting_outside_a_task_raises()
-  Test.raises(function() local _, _ = Poll.delay(0) end, "outside Poll.run")
   Test.raises(function() Poll.spawn(function() end) end, "outside Poll.run")
   Poll.run(function()
     Test.raises(function() Poll.run(function() end) end, "already running")
-    local inner = coroutine.wrap(function() local _, _ = Poll.delay(0) end)
+    local notifier = Poll.notifier()
+    local inner = coroutine.wrap(function() local _, _ = notifier:wait(0) end)
     Test.raises(inner, "outside a task's own coroutine")
-    Test.raises(function() local _, _ = Poll.delay(-1) end, "from 0")
+    Test.raises(function() local _, _ = notifier:wait(-1) end, "from 0")
   end)
 end
 
 --- A wait on one descriptor goes on where there is no task to wait in --
 --- outside a run, in a coroutine of its own -- holding the thread for
---- as long as it would have waited, and answers as a task's does.
+--- as long as it would have waited, and returns as a task's does.
 local function test_a_wait_outside_a_task_holds_the_thread(tmp: string)
   local reader, writer = fifo(tmp, "p")
   local function outside()
@@ -205,7 +204,7 @@ local function test_tasks_waiting_only_on_each_other_raise()
     Poll.run(function()
       local other: Poll.Task?
       local first = Poll.spawn(function()
-        assert(Poll.delay(0))
+        assert(Clock.sleep(0))
         assert(assert(other, "other was spawned"):join())
       end)
       other = Poll.spawn(function() assert(first:join()) end)
@@ -238,7 +237,7 @@ local function test_many_tasks_wait_on_descriptors_at_once(tmp: string)
         got[i] = assert(sys.read(Array.at(readers, i), 16))
       end)
     end
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     for i = count, 1, -1 do assert(assert(sys.write(Array.at(writers, i), tostring(i))) > 0) end
   end)
   for i = 1, count do
@@ -248,8 +247,8 @@ local function test_many_tasks_wait_on_descriptors_at_once(tmp: string)
   end
 end
 
---- A wait answered one way is answered once: a readable wait with a
---- timeout, answered by data, leaves no timer to wake the task early
+--- A wait woken one way is woken once: a readable wait with a
+--- timeout, woken by data, leaves no timer to wake the task early
 --- from its next wait.
 local function test_a_wait_is_answered_once(tmp: string)
   local reader, writer = fifo(tmp, "p")
@@ -258,7 +257,7 @@ local function test_a_wait_is_answered_once(tmp: string)
   Poll.run(function()
     assert(Poll.readable(reader, Clock.ms(30)))
     local before = Clock.monotonic_ns()
-    assert(Poll.delay(Clock.ms(60)))
+    assert(Clock.sleep(Clock.ms(60)))
     waited = Clock.monotonic_ns() - before
   end)
   assert(waited >= Clock.ms(59), "the delay ended after " .. tostring(waited // Clock.ms(1)) .. " ms")
@@ -280,7 +279,7 @@ local function test_a_hang_up_or_a_closed_descriptor_ends_a_wait(tmp: string)
       assert(Poll.readable(reader, Clock.seconds(5)))
       assert(sys.read(reader, 16) == "", "the end of what was sent")
     end)
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     sys.close(writer)
     assert(task:join(Clock.seconds(5)))
     assert(Poll.readable(closed_reader, Clock.seconds(5)))
@@ -289,7 +288,7 @@ local function test_a_hang_up_or_a_closed_descriptor_ends_a_wait(tmp: string)
   sys.close(closed_writer)
 end
 
---- Two tasks waiting on one descriptor are both answered by it.
+--- Two tasks waiting on one descriptor are both woken by it.
 local function test_waits_sharing_a_descriptor_are_each_answered(tmp: string)
   local reader, writer = fifo(tmp, "p")
   local woke: integer = 0
@@ -300,7 +299,7 @@ local function test_waits_sharing_a_descriptor_are_each_answered(tmp: string)
         woke = woke + 1
       end)
     end
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     assert(sys.write(writer, "x") == 1)
   end)
   assert(woke == 2, "woke " .. tostring(woke))
@@ -326,7 +325,7 @@ local function test_cancel_before_a_start_or_of_itself_or_after_the_run()
   local kept: Poll.Task? = nil
   Poll.run(function()
     local early = Poll.spawn(function()
-      local _, why = Poll.delay(Clock.seconds(1))
+      local _, why = Clock.sleep(Clock.seconds(1))
       local said = words(why)
       answers[#answers + 1] = said
     end)
@@ -334,7 +333,7 @@ local function test_cancel_before_a_start_or_of_itself_or_after_the_run()
     local selfish: Poll.Task?
     selfish = Poll.spawn(function()
       assert(selfish, "selfish was spawned"):cancel()
-      local _, why = Poll.delay(Clock.seconds(1))
+      local _, why = Clock.sleep(Clock.seconds(1))
       local said = words(why)
       answers[#answers + 1] = said
     end)
@@ -353,12 +352,12 @@ local function test_a_cancelled_task_waiting_in_a_loop_lets_others_run()
   Poll.run(function()
     local spinner = Poll.spawn(function()
       for _ = 1, 100 do
-        local _, _ = Poll.delay(Clock.seconds(1))
+        local _, _ = Clock.sleep(Clock.seconds(1))
         spins = spins + 1
       end
     end)
     Poll.spawn(function()
-      assert(Poll.delay(0))
+      assert(Clock.sleep(0))
       spins_at_first = spins
     end)
     spinner:cancel()
@@ -383,13 +382,13 @@ local function test_a_raising_task_closes_its_own_close_variables()
 end
 
 --- A run that raised, for any reason, leaves the next free to run, and
---- a handle kept from it answers as a task that has ended.
+--- a handle kept from it behaves as a task that has ended.
 local function test_a_failed_run_leaves_the_next_free()
   local kept: Poll.Task? = nil
   Test.raises(function()
     Poll.run(function()
-      kept = Poll.spawn(function() local _, _ = Poll.delay(Clock.seconds(1)) end)
-      assert(Poll.delay(0))
+      kept = Poll.spawn(function() local _, _ = Clock.sleep(Clock.seconds(1)) end)
+      assert(Clock.sleep(0))
       error("broken", 0)
     end)
   end, "broken")
@@ -397,7 +396,7 @@ local function test_a_failed_run_leaves_the_next_free()
     Poll.run(function()
       local other: Poll.Task?
       local first = Poll.spawn(function()
-        assert(Poll.delay(0))
+        assert(Clock.sleep(0))
         assert(assert(other, "other was spawned"):join())
       end)
       other = Poll.spawn(function() assert(first:join()) end)
@@ -414,7 +413,6 @@ end
 --- deadlock.
 local function test_timeouts_are_bounded_and_timed_joins_are_no_deadlock()
   Poll.run(function()
-    Test.raises(function() local _, _ = Poll.delay(Poll.MOST_NS + 1) end, "from 0 to")
     Test.raises(function() local _, _ = Poll.readable(0, math.maxinteger) end, "from 0 to")
     local a: Poll.Task?
     local b = Poll.spawn(function() local _, _ = assert(a, "a was spawned"):join(Clock.ms(20)) end)
@@ -422,7 +420,7 @@ local function test_timeouts_are_bounded_and_timed_joins_are_no_deadlock()
   end)
 end
 
---- `in_task` answers whether the caller is a task of a running run.
+--- `in_task` returns whether the caller is a task of a running run.
 local function test_in_task_answers_only_in_a_task()
   assert(not Poll.in_task(), "outside a run")
   local inside: boolean = false
@@ -434,7 +432,7 @@ local function test_in_task_answers_only_in_a_task()
   assert(inside and not nested, tostring(inside) .. " " .. tostring(nested))
 end
 
---- `closing` answers the waits on a descriptor about to be closed.
+--- `closing` wakes the waits on a descriptor about to be closed.
 local function test_closing_answers_the_waits_on_a_descriptor(tmp: string)
   local reader, writer = fifo(tmp, "p")
   local answered: boolean = false
@@ -443,7 +441,7 @@ local function test_closing_answers_the_waits_on_a_descriptor(tmp: string)
       local ready, _ = Poll.readable(reader, Clock.seconds(5))
       answered = ready
     end)
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     Poll.closing(reader)
     assert(waiter:join(Clock.seconds(1)))
   end)
@@ -453,10 +451,52 @@ local function test_closing_answers_the_waits_on_a_descriptor(tmp: string)
   sys.close(writer)
 end
 
+--- `answer` wakes each wait on a descriptor as though it had the events, every place given only what it asked: a
+--- module that read into a buffer what another task waits on wakes that task to look there.
+local function test_answer_wakes_the_waits_on_a_descriptor_with_its_events(tmp: string)
+  local reader, writer = fifo(tmp, "a")
+  local readable: boolean = false
+  local answers: {integer}? = nil
+  local room_answer: integer? = nil
+  Poll.run(function()
+    local one = Poll.spawn(function()
+      local ready, _ = Poll.readable(reader, Clock.seconds(5))
+      readable = ready
+    end)
+    local both = Poll.spawn(function()
+      answers = assert(Poll.ready({ writer, reader }, { sys.POLLIN, sys.POLLIN }, Clock.seconds(5)))
+    end)
+    -- A wait for room on it asked for none of the events: it is not told them. (Whether the system answers it on its
+    -- own differs: macOS answers a wait for room on a FIFO's read end.)
+    local other = Poll.spawn(function()
+      local got, _ = Poll.ready({ reader }, { sys.POLLOUT }, Clock.seconds(5))
+      if got ~= nil then room_answer = got[1] end
+    end)
+    assert(Clock.sleep(0))
+    Poll.answer(reader, sys.POLLIN)
+    assert(one:join(Clock.seconds(1)))
+    assert(both:join(Clock.seconds(1)))
+    assert(Clock.sleep(Clock.ms(20)))
+    local room = room_answer
+    assert(room == nil or room & sys.POLLIN == 0, "a wait for room was answered with what it did not ask")
+    other:cancel()
+    local _, _ = other:join()
+    Test.raises(function() Poll.answer(-1, sys.POLLIN) end, "fd must be a descriptor")
+    Test.raises(function() Poll.answer(reader, -1) end, "events must be a mask")
+  end)
+  assert(readable, "the wait was not answered")
+  local got = assert(answers, "the wait on two was not answered")
+  assert(got[1] == 0 and got[2] == sys.POLLIN, tostring(got[1]) .. " " .. tostring(got[2]))
+  -- Outside a run it does nothing.
+  Poll.answer(reader, sys.POLLIN)
+  sys.close(reader)
+  sys.close(writer)
+end
+
 --- A killed task is ended where it waits and never resumed: its
---- `<close>` variables are closed, its joiners answer CANCELLED, and
---- neither its descriptor turning ready nor its timeout passing wakes
---- it after.
+--- `<close>` variables are closed, its joiners' joins fail with
+--- CANCELLED, and neither its descriptor turning ready nor its timeout
+--- passing wakes it after.
 local function test_kill_ends_a_parked_task_and_its_waits(tmp: string)
   local reader, writer = fifo(tmp, "p")
   local closed: boolean = false
@@ -474,11 +514,11 @@ local function test_kill_ends_a_parked_task_and_its_waits(tmp: string)
       local ok, why = sleeper:join()
       joined_ok, joined_why = ok, words(why)
     end)
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     sleeper:kill()
     assert(closed, "the killed task's <close> variable was not closed")
     assert(sys.write(writer, "x") == 1)
-    assert(Poll.delay(Clock.ms(50)))
+    assert(Clock.sleep(Clock.ms(50)))
     assert(joiner:join())
     local ok, why = sleeper:join()
     assert(not ok and why.kind == "cancelled", why)
@@ -490,7 +530,7 @@ local function test_kill_ends_a_parked_task_and_its_waits(tmp: string)
 end
 
 --- A task killed while it waits to be resumed -- not yet started, or
---- answered but not yet run, whether in the ready queue or in the batch
+--- woken but not yet run, whether in the ready queue or in the batch
 --- the run is resuming -- never runs again.
 local function test_kill_takes_a_ready_task_from_the_queue()
   local ran: mut {string} = {}
@@ -498,10 +538,10 @@ local function test_kill_takes_a_ready_task_from_the_queue()
     local unstarted = Poll.spawn(function() ran[#ran + 1] = "unstarted" end)
     unstarted:kill()
     local answered = Poll.spawn(function()
-      local _, _ = Poll.delay(Clock.seconds(1))
+      local _, _ = Clock.sleep(Clock.seconds(1))
       ran[#ran + 1] = "answered"
     end)
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     answered:cancel()
     answered:kill()
     local later: Poll.Task?
@@ -538,11 +578,15 @@ end
 local function test_kill_raises_what_a_close_handler_raises()
   local closed: boolean = false
   local wait_trouble: string = ""
+  local sleep_trouble: string = ""
   local in_task: boolean = false
   local closer = function() closed = true end
   local raiser = function()
-    local _, err: boolean, any = pcall(function() local _, _ = Poll.delay(0) end)
+    local _, err: boolean, any = pcall(function() local _, _ = Poll.notifier():wait(0) end)
     wait_trouble = tostring(err)
+    -- Clock.sleep holds the thread here, as a module's cleanup (ending a child) must wait.
+    local slept, why = Clock.sleep(Clock.ms(1))
+    sleep_trouble = if slept then "" else tostring(why) end
     local _, trouble: boolean, any = pcall(function() local _, _ = Poll.readable(0, 0) end)
     assert(tostring(trouble):find("while its task is killed", 1, true), tostring(trouble))
     in_task = Poll.in_task()
@@ -552,9 +596,9 @@ local function test_kill_raises_what_a_close_handler_raises()
     local task = Poll.spawn(function()
       local _ <close> = Defer.new(closer)
       local _ <close> = Defer.new(raiser)
-      local _, _ = Poll.delay(Clock.seconds(1))
+      local _, _ = Clock.sleep(Clock.seconds(1))
     end)
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     local killed, err: boolean, any = pcall(task.kill, task) -- checked: interface_method_value
     assert(not killed and err == "broken close", tostring(err))
     local ok, why = task:join()
@@ -562,20 +606,21 @@ local function test_kill_raises_what_a_close_handler_raises()
   end)
   assert(closed, "a <close> variable after the raising one was not closed")
   assert(wait_trouble:find("while its task is killed", 1, true), wait_trouble)
+  assert(sleep_trouble == "", "a killed task's close handler could not sleep: " .. sleep_trouble)
   assert(in_task, "in_task answered false for a task being killed")
   Test.raises(function()
     Poll.run(function()
       local task = Poll.spawn(function()
         local _ <close> = Defer.new(raiser)
-        local _, _ = Poll.delay(Clock.seconds(1))
+        local _, _ = Clock.sleep(Clock.seconds(1))
       end)
-      assert(Poll.delay(0))
+      assert(Clock.sleep(0))
       task:kill()
     end)
   end, "broken close")
 end
 
---- A wait on several descriptors answers what each had, by place, once
+--- A wait on several descriptors returns what each had, by place, once
 --- one is ready: here the second, while the first has nothing to read.
 local function test_a_ready_wait_answers_each_descriptor_s_events(tmp: string)
   local quiet, quiet_writer = fifo(tmp, "q")
@@ -585,7 +630,7 @@ local function test_a_ready_wait_answers_each_descriptor_s_events(tmp: string)
     local listener = Poll.spawn(function()
       answers = assert(Poll.ready({ quiet, reader }, { sys.POLLIN, sys.POLLIN }, Clock.seconds(5)))
     end)
-    assert(Poll.delay(Clock.ms(10)))
+    assert(Clock.sleep(Clock.ms(10)))
     assert(answers == nil, "the wait ended before anything was written")
     assert(sys.write(writer, "hi") == 2)
     assert(listener:join())
@@ -596,9 +641,9 @@ local function test_a_ready_wait_answers_each_descriptor_s_events(tmp: string)
   for _, fd in ipairs({ quiet, quiet_writer, reader, writer }) do sys.close(fd) end
 end
 
---- Past its timeout a ready wait answers nil and TIMEOUT, as a readable
---- wait fails; cancelled, it answers nil and CANCELLED; and a descriptor
---- about to close answers POLLNVAL.
+--- Past its timeout a ready wait returns nil and TIMEOUT, as a readable
+--- wait fails; cancelled, it returns nil and CANCELLED; and a descriptor
+--- about to close has POLLNVAL.
 local function test_a_ready_wait_times_out_is_cancelled_and_is_closed(tmp: string)
   local reader, writer = fifo(tmp, "p")
   local timed: string? = nil
@@ -613,13 +658,13 @@ local function test_a_ready_wait_times_out_is_cancelled_and_is_closed(tmp: strin
       assert(answers == nil)
       cancelled = words(why)
     end)
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     waiter:cancel()
     assert(waiter:join())
     local closer = Poll.spawn(function()
       closed = assert(Poll.ready({ writer, reader }, { sys.POLLIN, sys.POLLIN }, Clock.seconds(5)))
     end)
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     Poll.closing(reader)
     assert(closer:join(Clock.seconds(1)))
   end)
@@ -649,8 +694,8 @@ local function grown_since(base: number): number
   return collectgarbage("count") - base
 end
 
---- Long time waits answered early are not kept until their times come:
---- a server's tasks, each waiting with a long timeout and answered
+--- Long time waits woken early are not kept until their times come:
+--- a server's tasks, each waiting with a long timeout and woken
 --- first, would otherwise hold every wait it ever made, and its task,
 --- behind a wait due sooner that is still waiting.
 local function test_time_waits_answered_early_are_not_kept()
@@ -658,9 +703,9 @@ local function test_time_waits_answered_early_are_not_kept()
   local late: number = 0.0
   Poll.run(function()
     local sooner = Poll.spawn(function()
-      local _, _ = Poll.delay(Clock.minutes(30))
+      local _, _ = Clock.sleep(Clock.minutes(30))
     end)
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     collectgarbage()
     collectgarbage()
     local base = collectgarbage("count")
@@ -668,10 +713,10 @@ local function test_time_waits_answered_early_are_not_kept()
       local tasks: mut {Poll.Task} = {}
       for i = 1, 1000 do
         tasks[i] = Poll.spawn(function()
-          local _, _ = Poll.delay(Clock.minutes(60))
+          local _, _ = Clock.sleep(Clock.minutes(60))
         end)
       end
-      assert(Poll.delay(0))
+      assert(Clock.sleep(0))
       for _, task in ipairs(tasks) do task:cancel() end
       for _, task in ipairs(tasks) do assert(task:join()) end
       local grown = grown_since(base)
@@ -687,7 +732,7 @@ local function test_time_waits_answered_early_are_not_kept()
 end
 
 --- A task joined over and over with a timeout keeps none of the joins
---- its timeout answered, and still answers the joins left waiting, in
+--- its timeout ended, and still wakes the joins left waiting, in
 --- the order they began.
 local function test_joins_a_timeout_answers_are_not_kept()
   local early: number = 0.0
@@ -695,7 +740,7 @@ local function test_joins_a_timeout_answers_are_not_kept()
   local order: mut {string} = {}
   Poll.run(function()
     local sleeper = Poll.spawn(function()
-      local _, _ = Poll.delay(Clock.minutes(60))
+      local _, _ = Clock.sleep(Clock.minutes(60))
     end)
     local function joiner(name: string): Poll.Task
       return Poll.spawn(function()
@@ -704,7 +749,7 @@ local function test_joins_a_timeout_answers_are_not_kept()
       end)
     end
     local first = joiner("first")
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     collectgarbage()
     collectgarbage()
     local base = collectgarbage("count")
@@ -721,7 +766,7 @@ local function test_joins_a_timeout_answers_are_not_kept()
       end
     end
     local second = joiner("second")
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     sleeper:cancel()
     assert(first:join())
     assert(second:join())
@@ -730,16 +775,16 @@ local function test_joins_a_timeout_answers_are_not_kept()
   assert(table.concat(order, " ") == "first second", table.concat(order, " "))
 end
 
---- A join answered by a cancel, its task killed before it resumes,
+--- A join woken by a cancel, its task killed before it resumes,
 --- is no joiner's either, as one killed while it waits is not.
 local function test_joins_killed_after_their_answer_are_not_kept()
   local early: number = 0.0
   local late: number = 0.0
   Poll.run(function()
     local sleeper = Poll.spawn(function()
-      local _, _ = Poll.delay(Clock.minutes(60))
+      local _, _ = Clock.sleep(Clock.minutes(60))
     end)
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     collectgarbage()
     collectgarbage()
     local base = collectgarbage("count")
@@ -751,7 +796,7 @@ local function test_joins_killed_after_their_answer_are_not_kept()
         local waiting = Poll.spawn(function()
           local _, _ = sleeper:join(Clock.seconds(1))
         end)
-        assert(Poll.delay(0))
+        assert(Clock.sleep(0))
         answered:cancel()
         answered:kill()
         waiting:kill()
@@ -781,10 +826,10 @@ local function test_ended_descriptor_waits_leave_nothing_polled(tmp: string)
       local killed = Poll.spawn(function()
         local _, _ = Poll.readable(reader, Clock.seconds(100))
       end)
-      assert(Poll.delay(0))
+      assert(Clock.sleep(0))
       cancelled:cancel()
       killed:kill()
-      assert(Poll.delay(0))
+      assert(Clock.sleep(0))
       local first: Poll.Task?
       local second = Poll.spawn(function()
         local _, _ = assert(first, "first was spawned"):join()
@@ -800,10 +845,10 @@ local function test_ended_descriptor_waits_leave_nothing_polled(tmp: string)
 end
 
 --- Waits begin and end on descriptors many of them share, round after
---- round: each wait on a descriptor made ready is answered in the turn
+--- round: each wait on a descriptor made ready is woken in the turn
 --- it is, those of one turn in the order they began; a wait asking for
 --- none of what came stays waiting; and one cancelled, or on a
---- descriptor about to close, is answered so.
+--- descriptor about to close, is woken so.
 local function test_waits_sharing_descriptors_come_and_go(tmp: string)
   local count = 6
   local readers: mut {integer} = {}
@@ -837,13 +882,13 @@ local function test_waits_sharing_descriptors_come_and_go(tmp: string)
           table.insert(seen, tostring(i) .. "w")
         end)
       end
-      assert(Poll.delay(0))
-      assert(Poll.delay(0))
+      assert(Clock.sleep(0))
+      assert(Clock.sleep(0))
       local expected: mut {string} = {}
       for i = 1, count do table.insert(expected, tostring(i) .. "w") end
       assert(table.concat(seen, ",") == table.concat(expected, ","), table.concat(seen, ","))
       seen, expected = {}, {}
-      -- A cancel or a closing answers its waits at once, a write at the
+      -- A cancel or a closing wakes its waits at once, a write at the
       -- next poll.
       local at_once, written: mut {string}, mut {string} = {}, {}
       for i = 1, count do
@@ -861,7 +906,7 @@ local function test_waits_sharing_descriptors_come_and_go(tmp: string)
           written[#written + 1] = tostring(i) .. "q"
         end
       end
-      assert(Poll.delay(0))
+      assert(Clock.sleep(0))
       for _, list in ipairs({ at_once, written }) do
         for _, each in ipairs(list) do expected[#expected + 1] = each end
       end
@@ -876,7 +921,7 @@ local function test_waits_sharing_descriptors_come_and_go(tmp: string)
           table.insert(expected, tostring(i) .. "q")
         end
       end
-      assert(Poll.delay(0))
+      assert(Clock.sleep(0))
       assert(table.concat(seen, ",") == table.concat(expected, ","), table.concat(seen, ","))
       for i = 1, count do
         local how = (i + round) % 3
@@ -904,7 +949,7 @@ local function test_a_task_error_carries_the_task_s_stack()
   end
   local ok, err: boolean, any = pcall(Poll.run, function()
     local failing = Poll.spawn(function()
-      assert(Poll.delay(0))
+      assert(Clock.sleep(0))
       deep_in_the_task()
     end)
     assert(failing:join())
@@ -917,9 +962,9 @@ local function test_a_task_error_carries_the_task_s_stack()
   assert(not again and rawequal(value, raised), tostring(value))
 end
 
---- A cancel answers none of a shielded task's waits, which each wait
---- for what they wait for while the other tasks run; the first wait
---- after the shield answers CANCELLED. Shields nest, and one left by a
+--- A cancel wakes none of a shielded task's waits, which each wait for
+--- what they wait for while the other tasks run; the first wait after
+--- the shield fails with CANCELLED. Shields nest, and one left by a
 --- raise is let go.
 local function test_a_shielded_wait_outlasts_a_cancel()
   local seen: mut {string} = {}
@@ -927,27 +972,27 @@ local function test_a_shielded_wait_outlasts_a_cancel()
     local ticks: integer = 0
     local ticker = Poll.spawn(function()
       while true do
-        local ticked, _ = Poll.delay(Clock.ms(1))
+        local ticked, _ = Clock.sleep(Clock.ms(1))
         if not ticked then break end
         ticks = ticks + 1
       end
     end)
     local shielded = Poll.spawn(function()
       Poll.shielded(function()
-        local ok, why = Poll.delay(Clock.ms(30))
+        local ok, why = Clock.sleep(Clock.ms(30))
         table.insert(seen, "delay " .. tostring(ok) .. words(why))
         Poll.shielded(function()
-          local inner_ok, inner_why = Poll.delay(0)
+          local inner_ok, inner_why = Clock.sleep(0)
           table.insert(seen, "nested " .. tostring(inner_ok) .. words(inner_why))
         end)
-        ok, why = Poll.delay(0)
+        ok, why = Clock.sleep(0)
         table.insert(seen, "after nested " .. tostring(ok) .. words(why))
       end)
       Test.raises(function() Poll.shielded(function() error("inside", 0) end) end, "inside")
-      local ok, why = Poll.delay(Clock.ms(30))
+      local ok, why = Clock.sleep(Clock.ms(30))
       table.insert(seen, "after " .. tostring(ok) .. " " .. words(why))
     end)
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     shielded:cancel()
     local before = ticks
     assert(shielded:join())
@@ -968,10 +1013,10 @@ local function test_a_shielded_task_is_killed_and_closed()
     local victim = Poll.spawn(function()
       Poll.shielded(function()
         local _ <close> = Defer.new(closer)
-        local _, _ = Poll.delay(Clock.minutes(60))
+        local _, _ = Clock.sleep(Clock.minutes(60))
       end)
     end)
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     victim:cancel()
     victim:kill()
     local ok, why = victim:join()
@@ -982,10 +1027,10 @@ local function test_a_shielded_task_is_killed_and_closed()
     Poll.spawn(function()
       Poll.shielded(function()
         local _ <close> = Defer.new(closer)
-        local _, _ = Poll.delay(Clock.minutes(60))
+        local _, _ = Clock.sleep(Clock.minutes(60))
       end)
     end)
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     error("torn down", 0)
   end)
   assert(not ok and tostring(err):find("torn down", 1, true) == 1, tostring(err))
@@ -1000,10 +1045,10 @@ local function test_the_longest_wait_is_what_sys_poll_takes()
   Poll.run(function()
     -- Taken, and cut to a poll's own limit rather than wrapping it.
     local sleeper = Poll.spawn(function()
-      local ok, why = Poll.delay(Poll.MOST_NS)
+      local ok, why = Clock.sleep(Poll.MOST_NS)
       assert(not ok and why.kind == "cancelled", why)
     end)
-    assert(Poll.delay(Clock.ms(5)))
+    assert(Clock.sleep(Clock.ms(5)))
     sleeper:cancel()
     assert(sleeper:join())
   end)
@@ -1020,7 +1065,7 @@ local function test_a_wait_lasts_the_nanoseconds_it_is_given(tmp: string)
   local joined: integer = 0
   Poll.run(function()
     local began = Clock.monotonic_ns()
-    assert(Poll.delay(Clock.ms(80)))
+    assert(Clock.sleep(Clock.ms(80)))
     delayed = Clock.monotonic_ns() - began
     began = Clock.monotonic_ns()
     local ok, why = Poll.readable(reader, Clock.ms(80))
@@ -1030,14 +1075,14 @@ local function test_a_wait_lasts_the_nanoseconds_it_is_given(tmp: string)
     local answers, answered = Poll.ready({ reader }, { sys.POLLIN }, Clock.ms(80))
     assert(answers == nil and answered.kind == "timeout", answered)
     ready = Clock.monotonic_ns() - began
-    local sleeper = Poll.spawn(function() local _, _ = Poll.delay(Clock.seconds(30)) end)
+    local sleeper = Poll.spawn(function() local _, _ = Clock.sleep(Clock.seconds(30)) end)
     began = Clock.monotonic_ns()
     local ended, reason = sleeper:join(Clock.ms(80))
     assert(not ended and reason.kind == "timeout", reason)
     joined = Clock.monotonic_ns() - began
     sleeper:kill()
-    assert(Poll.delay(1))
-    assert(Poll.delay(0))
+    assert(Clock.sleep(1))
+    assert(Clock.sleep(0))
   end)
   for name, took in pairs({ delay = delayed, readable = readable, ready = ready, join = joined }) do
     assert(took >= Clock.ms(79) and took < Clock.seconds(10),
@@ -1047,7 +1092,7 @@ local function test_a_wait_lasts_the_nanoseconds_it_is_given(tmp: string)
   sys.close(writer)
 end
 
---- What a wait on one descriptor answers, in a task and out of one: true
+--- What a wait on one descriptor returns, in a task and out of one: true
 --- and "" at once for what is ready, false and TIMEOUT at about its
 --- timeout for what is not.
 local function test_one_wait_answers_alike_in_a_task_and_out_of_one(tmp: string)
@@ -1087,7 +1132,7 @@ local function test_a_wait_is_cancelled_and_refuses_what_is_no_wait(tmp: string)
       assert(not ok)
       cancelled = why.message
     end)
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     waiter:cancel()
     assert(waiter:join())
     assert(cancelled == Poll.CANCELLED, cancelled)
@@ -1148,9 +1193,9 @@ local function test_a_wait_raises_while_the_run_closes_its_tasks(tmp: string)
   local ok, err: boolean, any = pcall(Poll.run, function()
     Poll.spawn(function()
       local _ <close> = Defer.new(waiter)
-      local _, _ = Poll.delay(Clock.seconds(30))
+      local _, _ = Clock.sleep(Clock.seconds(30))
     end)
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     error("the run fails", 0)
   end)
   assert(not ok and tostring(err):find("the run fails", 1, true) ~= nil, tostring(err))
@@ -1169,7 +1214,7 @@ local function spawn_waiters(notifier: Poll.Notifier, n: integer, order: mut {in
       if ok then order[#order + 1] = id end
     end)
   end
-  assert(Poll.delay(0))
+  assert(Clock.sleep(0))
   assert(notifier:waiting() == n)
   return tasks
 end
@@ -1181,10 +1226,10 @@ local function test_notify_one_wakes_the_longest_waiter_only()
     local tasks = spawn_waiters(notifier, 3, order)
     notifier:notify_one()
     assert(notifier:waiting() == 2)
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     assert(#order == 1 and order[1] == 1)
     notifier:notify_one()
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     assert(#order == 2 and order[2] == 2)
     notifier:notify_all()
     for _, task in ipairs(tasks) do assert(task:join()) end
@@ -1229,7 +1274,7 @@ local function test_a_cancelled_notifier_wait_answers_cancelled_and_leaves()
       local _, again = notifier:wait()
       assert((again ~= nil and again.kind == "cancelled"))
     end)
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     assert(notifier:waiting() == 1)
     task:cancel()
     assert(task:join())
@@ -1279,7 +1324,7 @@ local function test_a_queue_pattern_loses_no_item()
     -- Queued before the consumer first waits, and in a burst.
     queue[#queue + 1] = 1
     notifier:notify_one()
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     queue[#queue + 1] = 2
     notifier:notify_one()
     queue[#queue + 1] = 3
@@ -1297,13 +1342,13 @@ local function test_notify_is_callable_from_a_close_handler()
       assert(notifier:wait(Clock.seconds(30)))
       done = true
     end)
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     local closing = function() notifier:notify_all() end
     local victim = Poll.spawn(function()
       local _ <close> = Defer.new(closing)
-      local _, _ = Poll.delay(Clock.seconds(30))
+      local _, _ = Clock.sleep(Clock.seconds(30))
     end)
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     victim:kill()
     assert(waiter:join(Clock.seconds(30)))
   end)
@@ -1339,7 +1384,7 @@ local function test_a_notice_for_a_waiter_killed_before_it_runs_passes_on()
         if woke then woken[#woken + 1] = id end
       end)
     end
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     notifier:notify_one()
     Array.at(tasks, 1):kill()
     assert(Array.at(tasks, 2):join(Clock.seconds(30)))
@@ -1359,7 +1404,7 @@ local function test_a_notice_for_a_waiter_killed_in_the_same_batch_passes_on()
       end)
       tasks[#tasks + 1] = task
     end
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     assert(notifier:waiting() == 2)
     -- Ready before the notice, so it runs ahead of the woken waiter in
     -- the one batch and kills it there.
@@ -1379,7 +1424,7 @@ local function test_a_waiter_cancelled_after_its_notice_still_answers_true()
       local woke, _ = notifier:wait(Clock.seconds(30))
       ok = woke
     end)
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     notifier:notify_one()
     task:cancel()
     assert(task:join(Clock.seconds(30)))
@@ -1395,7 +1440,7 @@ local function test_a_notice_beats_a_timeout_reached_in_the_same_tick()
       local ok, why = notifier:wait(Clock.ms(2))
       table.insert(answers, tostring(ok) .. ":" .. words(why))
     end)
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     -- Past the deadline, but not yet expired by the run.
     local until_ns = Clock.monotonic_ns() + Clock.ms(10)
     while Clock.monotonic_ns() < until_ns do end
@@ -1416,7 +1461,7 @@ local function test_a_timeout_beats_a_notice_sent_in_the_same_tick()
       table.insert(answers, tostring(ok) .. ":" .. words(why))
     end)
     local sender = Poll.spawn(function()
-      assert(Poll.delay(Clock.ms(5)))
+      assert(Clock.sleep(Clock.ms(5)))
       notifier:notify_one()
       spare = true
     end)
@@ -1437,7 +1482,7 @@ local function test_a_notifier_wait_without_a_timeout_is_woken_by_a_later_task()
       woken = woke
     end)
     local sender = Poll.spawn(function()
-      assert(Poll.delay(Clock.ms(20)))
+      assert(Clock.sleep(Clock.ms(20)))
       assert(notifier:waiting() == 1)
       notifier:notify_one()
     end)
@@ -1464,7 +1509,7 @@ local function test_within_outside_a_run_runs_f_in_a_run_it_waits_out()
   Poll.within(function()
     in_task = Poll.in_task()
     Poll.spawn(function()
-      assert(Poll.delay(0))
+      assert(Clock.sleep(0))
       left_ended = true
     end)
   end)
@@ -1488,7 +1533,7 @@ local function test_within_in_a_task_calls_f_there_and_leaves_its_tasks_to_the_r
           local _, _ = assert(caller, "the caller was spawned"):join()
         end)
         Poll.spawn(function()
-          assert(Poll.delay(0))
+          assert(Clock.sleep(0))
           left_ended = true
         end)
       end)
@@ -1518,10 +1563,10 @@ local function test_within_outside_a_run_raises_what_f_raised_as_a_run_does()
     Poll.within(function()
       Poll.spawn(function()
         local _held <close> = closing
-        local _, _ = Poll.delay(Poll.MOST_NS)
+        local _, _ = Clock.sleep(Poll.MOST_NS)
         resumed = true
       end)
-      assert(Poll.delay(0))
+      assert(Clock.sleep(0))
       error("f failed")
     end)
   end, "f failed")
@@ -1541,7 +1586,7 @@ local function test_within_in_a_task_raises_what_f_raised_to_its_caller()
   Poll.run(function()
     local ok, err: boolean, any = pcall(Poll.within, function()
       Poll.spawn(function()
-        assert(Poll.delay(0))
+        assert(Clock.sleep(0))
         left_ended = true
       end)
       error("f failed", 0)
@@ -1553,17 +1598,17 @@ local function test_within_in_a_task_raises_what_f_raised_to_its_caller()
   assert(left_ended, "the task f spawned did not go on")
 end
 
---- In a task, a cancel of the caller answers the wait `f` is in.
+--- In a task, a cancel of the caller wakes the wait `f` is in.
 local function test_within_in_a_task_is_cancelled_as_its_caller_is()
   local why: string = ""
   Poll.run(function()
     local caller = Poll.spawn(function()
       Poll.within(function()
-        local _, trouble = Poll.delay(Poll.MOST_NS)
+        local _, trouble = Clock.sleep(Poll.MOST_NS)
         why = words(trouble)
       end)
     end)
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     caller:cancel()
     assert(caller:join())
   end)
@@ -1604,9 +1649,11 @@ local function test_clock_sleep_in_a_task_lets_the_others_run()
   assert(table.concat(seen, " ") == "a1 b1 a2 b2", table.concat(seen, " "))
 end
 
+--- Under a C call a task cannot yield across, Clock.sleep sleeps the
+--- thread. In a killed task's `<close>` handler it raises, as
+--- test_kill_raises_what_a_close_handler_raises shows.
 local function test_clock_sleep_sleeps_the_thread_where_a_task_cannot_park()
   local under_c: boolean = false
-  local in_close: boolean = false
   Poll.run(function()
     local order: mut {integer} = { 2, 1 }
     table.sort(order, function(x: integer, y: integer): boolean
@@ -1614,18 +1661,8 @@ local function test_clock_sleep_sleeps_the_thread_where_a_task_cannot_park()
       under_c = slept
       return x < y
     end)
-    local task = Poll.spawn(function()
-      local _ <close> = Defer.new(function()
-        local slept, _ = Clock.sleep(0)
-        in_close = slept
-      end)
-      local _, _ = Clock.sleep(Clock.seconds(1))
-    end)
-    assert(Clock.sleep(0))
-    task:kill()
   end)
   assert(under_c, "a sleep under table.sort did not answer true")
-  assert(in_close, "a sleep in a killed task's <close> handler did not answer true")
 end
 
 local function test_clock_sleep_in_a_task_takes_a_span_longer_than_a_delay_does()

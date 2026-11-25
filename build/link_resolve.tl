@@ -43,21 +43,21 @@ local record link_resolve
     --- The absolute `path` with every symbolic link in it followed, or
     --- nil when it cannot be.
     real: function(path: string): string?
-    --- Why `symbols` cannot answer for the project's own code (it has
+    --- Why `symbols` cannot cover the project's own code (it has
     --- no database yet), or nil when it can.
     unbuilt: function(): string?
     --- Whether the build made for this resolution refused `module`, so
     --- what `symbols` holds of it is an earlier build's, which says
     --- nothing of its members now. Asked once `symbols` or `member` has
-    --- answered. Nil where no build was made.
+    --- returned. Nil where no build was made.
     mut refused?: function(module: string): boolean
     --- Whether the tree ignores the path `relative` to the root, which
-    --- `kind` then answers nil for: no fresh checkout has it.
+    --- `kind` then returns nil for: no fresh checkout has it.
     mut ignored?: function(relative: string): boolean
     --- Why what `symbols` and `member` hold is an earlier build's than
     --- the tree's, as a clause (`"the build refused typed.tl"`), so a
     --- module new since then is one they know nothing of; nil where it
-    --- is the tree's. Asked once either has answered.
+    --- is the tree's. Asked once either has returned.
     mut stale?: function(): string?
     --- The files of the tree named `basename`, each from the root: what
     --- a path that names no file may have meant. Nil where the context
@@ -405,7 +405,7 @@ local function moved(resolver: link_resolve.Resolver, dotted: string): string
   local every: mut {link_resolve.Symbol} = {}
   local own: mut {link_resolve.Symbol} = {}
   for _, symbol in ipairs(symbols_named(resolver, last)) do
-    -- Asked by one name, the symbols also answer a module of that name by its first row, which is not named so.
+    -- Asked by one name, the symbols also give a module of that name by its first row, which is not named so.
     if (symbol.symbol:gsub(":", ".")):match("([^.]+)$") == last then
       every[#every + 1] = symbol
       local file = symbol.file
@@ -420,7 +420,7 @@ local function moved(resolver: link_resolve.Resolver, dotted: string): string
   return "; " .. link_resolve.spelled(only) .. " has that name: link it in full"
 end
 
---- Why `found` is not one answer: none, or more than one.
+--- Why `found` is not one result: none, or more than one.
 local function one_of(found: mut {string}, none: string): string?
   if #found == 1 then
     return nil
@@ -438,7 +438,7 @@ end
 --- now: a project checked by one version of cosmic resolves against
 --- that version's globals, not those of the one its programs run on.
 --- Each step is a `rawget`, so a name the core refuses (`io`,
---- `dofile`), which only its metatable answers, does not resolve. Nor
+--- `dofile`), which only its metatable supplies, does not resolve. Nor
 --- does a step back into `_G` (`_G._G.print`) or into
 --- `package.loaded` or `package.preload`, which hold what this process
 --- happened to load, and `_G` again.
@@ -485,7 +485,7 @@ end
 
 --- Why a name in full `dotted` names nothing known, where the build made for this resolution refused the module it is
 --- of ([`Context.refused`]): that module is `dotted`'s longest prefix that is a module of the tree, its file `p.tl` or
---- `p/init.tl` there, or that the build refused. A module that built answers for its own members even under a parent
+--- `p/init.tl` there, or that the build refused. A module that built covers its own members even under a parent
 --- that did not, whether or not an earlier build knew it. Nil where it built, or where no build was made.
 local function refused_prefix(resolver: link_resolve.Resolver, dotted: string): string?
   local refused = resolver.context.refused
@@ -528,15 +528,15 @@ end
 
 --- Why a name of the module `module`, a module of the tree, names nothing where what the symbols hold is an earlier
 --- build's ([`Context.stale`]) and that build has no row of the module: it is new since, and the name may be one it
---- declares. A module the earlier build holds answers as it did then, a name it lacks failing for its own reason.
+--- declares. A module the earlier build holds resolves as it did then, a name it lacks failing for its own reason.
 local function stale_for(resolver: link_resolve.Resolver, module: string?): string?
-  -- TODO: a module changed since the earlier build answers as it was then, so a name added to it fails as naming
+  -- TODO: a module changed since the earlier build resolves as it was then, so a name added to it fails as naming
   -- nothing; say it is not known yet once the context can compare a file with what that build read of it.
   local stale = resolver.context.stale
   if stale == nil or module == nil then return nil end
   local why = stale()
   if why == nil then return nil end
-  -- Asked by the module's name, the symbols answer its own row or first row, and any symbol of another module that
+  -- Asked by the module's name, the symbols give its own row or first row, and any symbol of another module that
   -- ends in that name.
   for _, symbol in ipairs(symbols_named(resolver, module)) do
     if symbol.module == module then return nil end
@@ -566,7 +566,7 @@ local function respelled(resolver: link_resolve.Resolver, symbol: link_resolve.S
   return nil
 end
 
---- Why the symbols `candidates`, more than one, are not one answer to the name `written`, where spelling one in full
+--- Why the symbols `candidates`, more than one, are not one result for the name `written`, where spelling one in full
 --- would not tell it from the rest: two spell alike, or one is spelled as written. Each is named by its kind and file,
 --- with how a link spells it alone where one can. Nil where each has a spelling of its own, which [`one_of`] says.
 local function alike(resolver: link_resolve.Resolver, written: string, candidates: {link_resolve.Symbol}): string?
@@ -780,7 +780,7 @@ end
 --- than one thing. With `in_tree`, a symbol only when the file that
 --- declares it is a file of the tree: what a Markdown file's definition
 --- of a code-span label must name ([`build.links`]). A name no symbol
---- answers is not counted among those left unchecked
+--- matches is not counted among those left unchecked
 --- ([`Resolver.unchecked`]): it is asked, not linked.
 function link_resolve.meant(resolver: link_resolve.Resolver, from: string, content: string,
                             declared: function(): link_text.Declared,
@@ -875,7 +875,7 @@ function link_resolve.linkable(resolver: link_resolve.Resolver, from: string, co
 end
 
 --- A context over the project at `root` as it is on disk, its
---- symbols answered by `symbols` and `member`, and `unbuilt` saying
+--- symbols given by `symbols` and `member`, and `unbuilt` saying
 --- why they lack the project's own code, or nil.
 function link_resolve.on_disk(root: string,
                               symbols: function(query: string): {link_resolve.Symbol}?, string,

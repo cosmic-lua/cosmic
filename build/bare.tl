@@ -1,7 +1,7 @@
 --- What the bare verbs (`json`, `hash`, `codec`, `archive`, `fetch`,
 --- `time`, `rand`, `qr`, `acme`, `tailscale`: the specs with `bare = true`, build/verb_spec.tl) share:
 --- the standard output and error a run writes to, the complaint line's
---- `cosmic: <verb>: ` prefix, the exit codes every one of them answers,
+--- `cosmic: <verb>: ` prefix, the exit codes every one of them uses,
 --- the refusal to read a terminal, the escape that keeps a name or a
 --- header from moving the terminal, and the URL with its password taken
 --- out. A verb keeps the rest: its own `Io` record, whose fields a test
@@ -86,14 +86,14 @@ function bare.complainer(name: string, err: function(line: string)): function(li
 end
 
 --- The complaint for a write to standard output that did not go, for a
---- run that answers its complaint later than it makes it.
+--- run that reports its complaint later than it makes it.
 --- @param why what stopped the bytes
 function bare.lost(why: string): string
   return "standard output: " .. why
 end
 
 --- Whether a write to standard output went: true, or false after a
---- complaint of `standard output: <why>`. Takes what `out` answers.
+--- complaint of `standard output: <why>`. Takes what `out` returns.
 --- @param complain the run's complaint function
 --- @param ok whether the bytes all went
 --- @param why what stopped them, when they did not
@@ -105,7 +105,7 @@ end
 
 --- What a write to standard output returns as an exit code: 0, or
 --- [`bare.undone`] and a complaint, since a value lost to a full disk or a closed pipe
---- is no success. Takes what `out` answers.
+--- is no success. Takes what `out` returns.
 function bare.written(complain: function(line: string), ok: boolean, why: string): integer
   if bare.delivered(complain, ok, why) then return bare.ok end
   return bare.undone

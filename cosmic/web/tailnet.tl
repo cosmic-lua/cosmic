@@ -20,9 +20,9 @@
 ---     }
 ---
 --- [`Web.tailnet`] asks the daemon who the connection's far end is
---- ([`cosmic.tailscale.Client.whois_result`]) and keeps the answer on the request, where
+--- ([`cosmic.tailscale.Client.whois_result`]) and keeps the result on the request, where
 --- [`Web.who`] reads it and [`Web.require_cap`] tests it. It
---- answers by itself:
+--- responds by itself:
 ---
 --- - 403 to a request from no node of the tailnet, unless `required` is
 ---   false, when the request goes on with no identity;
@@ -33,7 +33,7 @@
 --- The address asked about is the connection's own, never one a header
 --- names: `trusted_proxy` moves [`Web.Request.client`], not this. A
 --- whois waits as a task of the server's run, so other connections go
---- on meanwhile, and an answer is kept for `cache_ns` per address. A
+--- on meanwhile, and a reply is kept for `cache_ns` per address. A
 --- connection from this node's own address has no identity: any process
 --- here can make one, a proxy or a Serve or Funnel forward among them.
 ---
@@ -63,12 +63,12 @@
 --- sets) is this node's own address has no identity, as a connection
 --- from it has none: the daemon names the node's owner then, though any
 --- process here can ask by the node's name. Where the daemon cannot be
---- asked about that address the answer is 503, as above. On the
+--- asked about that address the response is 503, as above. On the
 --- loopback this guards only against Serve's own forwards, since any
 --- local process can write the header there.
 --- `via = "funnel"` opens the site to the internet as well. A request
 --- through Funnel carries none of the headers and has no identity;
---- [`Web.tailnet_funnel`] tells it apart, so a public app can answer
+--- [`Web.tailnet_funnel`] tells it apart, so a public app can set
 --- `required = false` and still know who on the tailnet asks.
 --- @public
 
@@ -92,7 +92,7 @@ local record Reached
   --- through Serve, where the daemon presents it.
   certs?: Tls.Certs
   --- Through Serve: files the daemon's configuration, once the
-  --- listener is open. The answer takes it down when closed.
+  --- listener is open. The result takes it down when closed.
   put_up?: function(): Tailscale.Serving?, string
   --- Through Serve: removes the socket and its directory.
   cleanup?: function()
@@ -117,7 +117,7 @@ local record Tailnet
     --- test stands in for the daemon, or a program puts a cache of its
     --- own in front.
     whois?: function(address: string): Tailscale.WhoIsResult
-    --- Answer 403 to a request with no identity (true); false lets it
+    --- Respond 403 to a request with no identity (true); false lets it
     --- through with none.
     required?: boolean
     --- Read `tailscale serve`'s identity headers from a loopback peer
@@ -129,7 +129,7 @@ local record Tailnet
     --- with `serve`. It is the path exactly as the listener names it. See
     --- the module's description.
     socket?: string
-    --- How long an answer of the daemon is kept for its address, in
+    --- How long a reply of the daemon is kept for its address, in
     --- nanoseconds (60 seconds); 0 keeps none. A failure is never kept.
     cache_ns?: integer
   end
@@ -141,18 +141,18 @@ local IDENTITY: Types.Key<Tailnet.Identity> = Identities.TAILNET
 --- The key that marks a request Funnel brought from the internet.
 local FUNNEL: Types.Key<boolean> = Request.key("tailnet.funnel")
 
---- The most addresses a cache holds. A full one drops the answers that
+--- The most addresses a cache holds. A full one drops the replies that
 --- stopped counting, and starts again where that frees less than a
---- quarter of it, so that it is not swept on every answer.
+--- quarter of it, so that it is not swept on every reply.
 local CACHE_ENTRIES <const> = 4096
 
---- An answer of the daemon, and when it stops counting.
+--- A reply of the daemon, and when it stops counting.
 local record Kept
   result: Tailscale.WhoIsResult
   until_ns: integer
 end
 
---- The answers kept for some addresses, and how many.
+--- The replies kept for some addresses, and how many.
 local record Cache
   mut entries: mut {string: Kept}
   mut held: integer
@@ -173,7 +173,7 @@ local function room(cache: Cache, now: integer)
   cache.entries, cache.held = live, held
 end
 
---- The identity of a whois's answer.
+--- The identity a whois reply names.
 local function of_whois(who: Tailscale.WhoIs): Tailnet.Identity
   return {
     login_name = who.user.login_name,
@@ -254,7 +254,7 @@ local function daemon_whois(): function(address: string): Tailscale.WhoIsResult
     local c = client
     if c == nil then
       local made, why = Tailscale.connect()
-      if made == nil then return { kind = "failed", reason = why, status = 0 } end
+      if made == nil then return { kind = "failed", reason = tostring(why), status = 0 } end
       client = made
       c = made
     end
@@ -280,7 +280,7 @@ function Tailnet.middleware(opts?: Tailnet.Options): Types.Middleware
     error("web: tailnet: socket must be a socket's path", 2)
   end
   -- Peers and strangers apart, so that addresses off the tailnet,
-  -- which anyone has many of, never push a peer's answer out.
+  -- which anyone has many of, never push a peer's reply out.
   local peers: Cache = { entries = {}, held = 0 }
   local strangers: Cache = { entries = {}, held = 0 }
   local function asked(host: string): Tailscale.WhoIsResult
@@ -384,7 +384,7 @@ function Tailnet.funnel(req: Types.Request): boolean
   return req:get(FUNNEL) == true
 end
 
---- Middleware that answers 403 to a request whose identity lacks the
+--- Middleware that responds 403 to a request whose identity lacks the
 --- capability `name` (`example.com/cap/admin`), or that has none: put it
 --- inside [`Web.tailnet`], on the app, a mount or a route. A capability is
 --- granted in the tailnet policy's `grants`, with an `app` member naming it:
@@ -437,7 +437,7 @@ local function through_serve(client: Tailscale.Client, o: Types.TailnetServe, vi
     certs = nil,
     put_up = function(): Tailscale.Serving?, string
       local served, refused = client:serve(spec)
-      if served == nil then return nil, "web: tailnet: " .. refused end
+      if served == nil then return nil, "web: tailnet: " .. tostring(refused) end
       return served, ""
     end,
     cleanup = function()
@@ -478,11 +478,11 @@ function Tailnet.serving(o: Types.TailnetServe): Reached?, string
   local client = o.client
   if client == nil then
     local made, why = Tailscale.connect()
-    if made == nil then return nil, "web: tailnet: " .. why end
+    if made == nil then return nil, "web: tailnet: " .. tostring(why) end
     client = made
   end
   local status, why = client:status()
-  if status == nil then return nil, "web: tailnet: " .. why end
+  if status == nil then return nil, "web: tailnet: " .. tostring(why) end
   if status.backend_state ~= "Running" then
     return nil, "web: tailnet: the node is not running (" .. status.backend_state .. ")"
   end

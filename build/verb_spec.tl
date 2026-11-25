@@ -11,7 +11,7 @@ local record verb_spec
   record Spec
     --- The word that names it on the command line; the overview of `cosmic.cli.<name>` is its prose.
     name: string
-    --- Runs the command line, `name` at slot 1, and answers the exit code.
+    --- Runs the command line, `name` at slot 1, and returns the exit code.
     run: function(argv: {string}): integer
     --- True when the verb prints no summary, its output being data for a
     --- pipe and its exit status saying how it went, and the tool's
@@ -23,7 +23,7 @@ local record verb_spec
     fresh?: boolean
     --- True for a verb that only reads the tree's databases: it waits for
     --- no other run's lock, the working database's write lock or the
-    --- checkout's rebuild lock ([`build.rebuild_lock`]), and answers from
+    --- checkout's rebuild lock ([`build.rebuild_lock`]), and reads
     --- what is there. It writes only where no other run holds the lock it
     --- writes under: its staleness check stages the tree, makes a working
     --- database of another schema again ([`work.try_open_remaking`]) and
@@ -69,7 +69,7 @@ local record verb_spec
     program_slot?: function(argv: {string}): integer?
     --- The verb's section of doc/guides/quickstart.md: the text of its `## `
     --- heading, without the marks, or a string beginning "none: " that says
-    --- why the quickstart has none. [`build.tree_checks`]' `verbs` holds it to
+    --- why the quickstart has none. [`build.tree_checks.docs`]' `verbs` holds it to
     --- a heading the guide has.
     guide: string
     --- The test modules of the verb ("build.json_test"), at least one, each a

@@ -22,8 +22,10 @@ local record Types
   --- `<select>`, which takes no markup either), `attr`, `url` (a whole URL),
   --- `url_local` (a whole URL that must be a same-origin reference, in an
   --- attribute a dialect says so of), `urlpart` (a piece of one, after
-  --- literal text), `json` (the whole value, a `SafeJson`) and `selector`
-  --- (an identifier after `#` or `.` in a CSS selector) are the places a
+  --- literal text), `json` (the whole value, a `SafeJson`), `selector`
+  --- (an identifier after `#` or `.` in a CSS selector) and `url_trusted`
+  --- (the whole `src` of a `<script>` or `href` of a `<link>`, a `SafeResourceUrl`
+  --- alone) are the places a
   --- slot can stand in an `html` template (see `markup`).
   enum Slot
     "plain"
@@ -36,6 +38,7 @@ local record Types
     "urlpart"
     "json"
     "selector"
+    "url_trusted"
   end
 
   --- What a slot is in an attribute that a dialect classifies. `url` and
@@ -142,7 +145,7 @@ local record Types
     end_line: integer
   end
 
-  --- The lexer's answer: its items, and how many lines the template
+  --- The lexer's result: its items, and how many lines the template
   --- has (one more than its newlines).
   record Lexed
     --- The items, in the order they stand in the template.

@@ -23,8 +23,8 @@ end
 --- unless it names another: the working directory is not the test's.
 local where: mut {string} = {}
 
---- One run: `words` after `cosmic compile`, its output collected.
-local function run(words: {string}): Ran
+--- One run: `words` after `cosmic compile`, its output collected; `input` is standard input.
+local function run(words: {string}, input?: string): Ran
   local argv: mut {string} = { "compile" }
   local rooted = false
   for _, word in ipairs(words) do rooted = rooted or word == "--root" end
@@ -40,6 +40,12 @@ local function run(words: {string}): Ran
       return true, ""
     end,
     err = function(line: string) ran.err = ran.err .. line .. "\n" end,
+    stdin = function(): string?, string
+      if input == nil then
+        return nil, "standard input is a terminal; pipe the input in, or name a file"
+      end
+      return input, ""
+    end,
   })
   return ran
 end
@@ -288,4 +294,17 @@ local function test_a_file_alone_lists_the_refusals_standalone_makes_of_a_projec
   local second = run({ "--errors", global_at })
   assert(second.code == 0, second.err)
   assert(second.err:find("glob.tl:1:11:", 1, true) and second.err:find("`_G` is the table of the globals", 1, true), second.err)
+end
+
+local function test_a_dash_compiles_standard_input(tmp: string)
+  where[1] = tmp
+  local ran = run({ "-" }, "local x: integer = 1\nprint(x)\n")
+  assert(ran.code == 0, ran.err)
+  assert(ran.out == generated("local x: integer = 1\nprint(x)\n"), ran.out)
+  local twice = run({ "-o", tmp .. "/o", "-", "-" }, "print(1)\n")
+  assert(twice.code == 2 and twice.err:find("standard input is read once", 1, true) ~= nil, twice.err)
+  local typed = run({ "-" }, "local x: integer = 'a'\nprint(x)\n")
+  assert(typed.err:find("stdin.tl: 1 type error", 1, true) ~= nil, typed.err)
+  local terminal = run({ "-" })
+  assert(terminal.code == 5 and terminal.err:find("terminal", 1, true) ~= nil, terminal.err)
 end

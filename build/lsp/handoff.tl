@@ -4,13 +4,13 @@
 ---
 --- The new process is the process again (`exec` keeps the process id and
 --- the standard descriptors), so the editor's stream is the same pipe, and
---- what is read of it already and not yet answered is the handoff's
+--- what is read of it already and not yet handled is the handoff's
 --- `input`. What the new process needs besides is the session's: its
 --- root, the encoding negotiated and the editor's capabilities that the
---- answers read (`watch`, `snippets`, `lazy`), whether the person was told
---- of a root that is none already, and the open documents, each by URI and
---- the text the editor holds. A document has no version here: the session
---- keeps none.
+--- responses read (`watch`, `snippets`, `lazy`), whether the person was
+--- told of a root that is none already, and the open documents, each by
+--- URI and the text the editor holds. A document has no version here:
+--- the session keeps none.
 ---
 --- The file is `lsp-handoff-<pid>-<nonce>.json` in the build directory of
 --- the tree the process was started in, version 1. It is written only
@@ -54,7 +54,7 @@ local record handoff
     lazy: boolean
     told_outside: boolean
     documents: {Document}
-    --- The messages read and not answered, framed, to be read before
+    --- The messages read and not handled, framed, to be read before
     --- the stream goes on.
     input: string
   end

@@ -1,6 +1,6 @@
 --- Fuzz properties for [`cosmic.policy`]'s `decode`, which reads a
 --- policy from text that may come from anywhere: it is total on any
---- bytes, answering a policy or a refusal under the module's name; a
+--- bytes, returning a policy or a refusal under the module's name; a
 --- policy it takes merges and encodes, and its encoding decodes and
 --- encodes to the same text again. `FUZZ_SEED` and `FUZZ_ITERS` pick
 --- the inputs (build/fuzz/init.tl).
@@ -37,15 +37,20 @@ local function gen_policy(src: Fuzz.Source): {string:any}
   local fields: {string:any} = {}
   fields.profiles = list(src, PROFILES, 3) -- checked: map_field
   fields.isolate = list(src, ISOLATES, 3) -- checked: map_field
-  fields.promises = list(src, PROMISES, 5) -- checked: map_field
-  fields.connect = list(src, TARGETS, 4) -- checked: map_field
   fields.loopback = list(src, ADDRESSES, 3) -- checked: map_field
   fields.env = list(src, NAMES, 4) -- checked: map_field
   if src:int(0, 2) == 0 then
     local grants: mut {{string:string}} = {}
-    while Fuzz.more(src, #grants, 4) do
-      grants[#grants + 1] = { path = Fuzz.pick(src, PATHS), letters = Fuzz.pick(src, LETTERS),
-        from = src:int(0, 3) == 0 and Fuzz.pick(src, PATHS) or nil } -- checked: and_ternary
+    while Fuzz.more(src, #grants, 6) do
+      local kind = src:int(0, 3)
+      if kind == 0 then
+        grants[#grants + 1] = { calls = Fuzz.pick(src, PROMISES) }
+      elseif kind == 1 then
+        grants[#grants + 1] = { connect = Fuzz.pick(src, TARGETS) }
+      else
+        grants[#grants + 1] = { path = Fuzz.pick(src, PATHS), letters = Fuzz.pick(src, LETTERS),
+          from = src:int(0, 3) == 0 and Fuzz.pick(src, PATHS) or nil } -- checked: and_ternary
+      end
     end
     if #grants > 0 then fields.grants = grants end -- checked: map_field
   end

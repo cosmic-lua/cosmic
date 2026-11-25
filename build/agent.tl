@@ -125,8 +125,8 @@ local record verb
     wait?: function(ns: integer): boolean
     --- The time, as [`Clock.now_ns`] gives it; nil for that.
     now?: function(): integer
-    --- All of standard input.
-    read_all: function(): string
+    --- All of standard input ([`Flags.read`] of "-"), or nil and why it could not be read.
+    read_all: function(): string?, string
     --- The next whole line typed while the model works, without
     --- waiting: nil where none is whole yet.
     typed: function(): string?
@@ -212,14 +212,10 @@ local function hold(): verb.Hold
   }
 end
 
-local function read_all(): string
-  local parts: mut {string} = {}
-  while true do
-    local chunk, _ = Fs.take(Fs.stdin, 65536)
-    if chunk == nil or chunk == "" then break end
-    parts[#parts + 1] = chunk
-  end
-  return table.concat(parts)
+local function read_all(): string?, string
+  local text, why = Flags.read("-")
+  if text == nil then return nil, why end
+  return text, ""
 end
 
 local standard: verb.Io = {
@@ -326,7 +322,7 @@ end
 --- The policy the options of `got` ask for in `here`: nil and "" for
 --- --sandbox off, or nil and why.
 local function policy_of(r: Run, got: Flags.Parsed, here: string): Sandbox.Policy?, string
-  local grants: mut {Sandbox.Grant} = {}
+  local grants: mut {Sandbox.Path} = {}
   for _, given_grant in ipairs(got.all["--grant"] or {}) do
     local path, letters = given_grant:match("^(.-):(%a+)$")
     if letters ~= nil and letters:match("^[rwxc]+$") == nil then
@@ -553,7 +549,7 @@ local function session(r: Run, got: Flags.Parsed, db: Sqlite.Handle, newest: boo
         ", " .. model .. unfinished .. "); --new starts a fresh one")
   end
   local s = Agent.new({ model = model, effort = effort, sign = sign, base_url = base, cwd = here,
-    send = r.io.send, system = Prompt.build(here, Prompt.contexts(here), { servers = servers, tools = offered }),
+    send = r.io.send, system = Prompt.build(here, Prompt.contexts(here), { tools = offered }),
     sandbox = if policy == nil then nil else { policy } end, jobs = Jobs.new(), worker = Worker.new(), mcp = AgentMcp.new(servers, here), build = build(),
     tools = offered, messages = held, db = db, id = id, restarts = restarts, ended = ended, budget = budget })
   if budget ~= nil and budget.cost ~= nil and Agent.cost(model, {}) == nil then
@@ -709,6 +705,14 @@ local function resuming(s: Agent.Session): boolean, string
   return s:resume()
 end
 
+--- A run call's code as `cosmic fix` lays out a Teal file, for showing; nil where the formatter refuses it. The fix
+--- module is required at the first call, so a turn with no run call never loads it.
+local function laid_out(code: string): string?
+  local laid = require("build.fix").format_text(code, "run.tl").text
+  if laid == nil then return nil end
+  return (laid:gsub("\n+$", ""))
+end
+
 local function prompting(text: string): Go
   return function(s: Agent.Session): boolean, string
     return s:prompt(text)
@@ -716,14 +720,40 @@ local function prompting(text: string): Go
 end
 
 local function ask(r: Run, got: Flags.Parsed): integer
-  local text = table.concat(got.words, " ")
-  if text == "" then text = r.io.read_all() end
+  -- A word `-` stands for all of standard input, read once.
+  local wants = #got.words == 0
+  for _, word in ipairs(got.words) do
+    if word == "-" then wants = true end
+  end
+  local input = ""
+  if wants then
+    -- A terminal would wait for an end of input it was never told to give.
+    if r.io.tty() then
+      r.complain("ask: standard input is a terminal: give the prompt as words, or pipe it in")
+      return bare.refused
+    end
+    local read, read_why = r.io.read_all()
+    if read == nil then
+      r.complain("ask: " .. read_why)
+      return bare.undone
+    end
+    input = read
+    if input:match("^%s*$") then
+      r.complain("ask: standard input is empty")
+      return bare.refused
+    end
+  end
+  local words: mut {string} = {}
+  for _, word in ipairs(got.words) do
+    words[#words + 1] = if word == "-" then input else word end
+  end
+  local text = if #got.words == 0 then input else table.concat(words, " ") end
   if text:match("^%s*$") then
     r.complain("ask: give a prompt, as words or on standard input; " .. Flags.usage(Verb, "cosmic agent", { "ask" }))
     return bare.refused
   end
   local json = got.set["--json"] == true
-  local events = if json then Show.json(r.io.out) else Show.text(r.io.out, r.io.err) end
+  local events = if json then Show.json(r.io.out) else Show.text(r.io.out, r.io.err, laid_out) end
   return with_session(r, "ask", got, function(s: Agent.Session): integer
     if json then emit(r, { type = "session", id = s.id or 0 }) end
     -- A turn the last run left unfinished is finished first.
@@ -759,7 +789,7 @@ local function chat(r: Run, got: Flags.Parsed): integer
     r.complain("chat: " .. keep_why)
     return bare.refused
   end
-  local events = Show.text(r.io.out, r.io.err)
+  local events = Show.text(r.io.out, r.io.err, laid_out)
   return with_session(r, "chat", got, function(s: Agent.Session): integer
     local later: mut {string} = {}
     local steers: mut {string} = {}
@@ -804,7 +834,7 @@ local function resume(r: Run, got: Flags.Parsed): integer
       r.complain("resume: session " .. tostring(s.id) .. " has no unfinished turn")
       return bare.ok
     end
-    local ok, trouble = turn(r, s, Show.text(r.io.out, r.io.err), resuming)
+    local ok, trouble = turn(r, s, Show.text(r.io.out, r.io.err, laid_out), resuming)
     if not ok then
       r.complain("resume: " .. trouble)
       return bare.failed

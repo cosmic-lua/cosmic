@@ -1,7 +1,7 @@
 --- Go to definition for `cosmic lsp` ([`build.lsp.session`]): where the name under the cursor is declared, from the
 --- checker's own report of the document ([`check.read`]: its tree, its scopes and the type of each node).
 ---
---- What it answers:
+--- What it finds:
 ---
 --- - A name that refers to a local, a parameter, a function or a type of the document: where that binding is declared.
 --- - A type path ([`Stream.Reader`]) at its last name: the declaration of the type it names, in the module that declares it.
@@ -10,7 +10,7 @@
 ---   declares the type.
 --- - A name that is declared where it stands (a binding, the name in a `function R.f`): itself.
 ---
---- Nothing is answered for a place the report does not know: a global the standard library declares, a name the
+--- Nothing is found for a place the report does not know: a global the standard library declares, a name the
 --- checker left unresolved, a module the working database does not list and the binary carries no places of, a template, a text that does not parse, a document
 --- that requires a module the build refuses (a cycle of imports, a module the project does not have).
 ---
@@ -26,7 +26,7 @@
 --- A place in another module is looked up by its symbol in the `places` the stage derived of the module's file
 --- ([`source.places`]), and put in the module's text as it is written: the checker is served the
 --- module as a stub, whose positions are not the file's. Only an open document that differs from the staged file is
---- parsed. A module generated from another file (the syscall modules, from `core/*.h`) is answered in that file, at the
+--- parsed. A module generated from another file (the syscall modules, from `core/*.h`) is found in that file, at the
 --- line its `-- line` map gives; in an open document of the file, the lines of the generator run on its text. A symbol of
 --- the binary's own `cosmic.*` modules, which a project's working database does not list, is looked up in the places the
 --- tool carries ([`source.places`]), and its location is a file the tool writes below the build directory with the
@@ -204,7 +204,7 @@ end
 
 --- Where the field or method `name` of the type `decl` is declared: in the type, or in the interface it lists
 --- that declares it, or by a `function R.f()` statement of the module of either.
--- TODO: find an integer enum's member (`E.A`), which no [`place_of`] key names today; it answers nothing.
+-- TODO: find an integer enum's member (`E.A`), which no [`place_of`] key names today; it finds nothing.
 local function member_site(request: Request, decl: Types.Decl, name: string): Site?
   local owner = decl
   if not Report.has_member(decl, name) then owner = Report.declaring(decl, name) or decl end

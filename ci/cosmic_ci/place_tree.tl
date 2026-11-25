@@ -88,7 +88,7 @@ local record PlaceTree
   --- reason it was chosen, for the log; nil and why where an input is
   --- unset.
   name: function(env: {string:string}): Placed?, string
-  --- Runs the command: `mode` is "", "--name" or "--restore". Answers the
+  --- Runs the command: `mode` is "", "--name" or "--restore". Returns the
   --- exit status: 2 for a missing input, 1 for a workspace linked
   --- elsewhere or a move that failed.
   run: function(host: Host, mode: string): integer
@@ -114,7 +114,7 @@ function PlaceTree.name(env: {string:string}): PlaceTree.Placed?, string
   -- split on spaces) and shows its phases take it: the suite itself does.
   local seed, chosen: string, string
   local event = env["COSMIC_CI_EVENT"] or env["GITHUB_EVENT_NAME"] or ""
-  if env["COSMIC_CI_DECLARED_KEYS"] == "1" and (event == "push" or event == "merge_group") then
+  if env["COSMIC_CI_DECLARED_KEYS"] == "1" and (event == "push" or event == "pull_request" or event == "merge_group") then
     seed = Hash.hex_sha256("leg " .. worker .. "\n")
     chosen = "leg " .. worker .. ", a run that stands on verdicts keyed by the path"
   else

@@ -43,8 +43,8 @@ function BuildPaths.driver(words: {string}, values: {string:string}): BuildPaths
 end
 
 --- Where the running driver builds the project at `root`, which a
---- `cosmic test` it runs there reads what is placed for it from: its
---- cosmic.project's answer, which its build.paths gives too.
+--- `cosmic test` it runs there reads what is placed for it from: the
+--- directory its cosmic.project names, which its build.paths gives too.
 function BuildPaths.driven(root: string): string
   local location, trouble = Project.directory(root)
   assert(location, "build directory: " .. trouble)

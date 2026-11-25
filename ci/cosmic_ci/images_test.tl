@@ -86,7 +86,7 @@ local record Count
 end
 
 --- A `docker` that records each call's cwd, argv (one bracketed word
---- each) and, for a login, stdin, answers inspect with FAKE_INSPECT, and
+--- each) and, for a login, stdin, prints FAKE_INSPECT for inspect, and
 --- exits FAKE_STATUS from the subcommand named FAKE_FAIL.
 local fake_docker <const> = [[#!/bin/sh
 {

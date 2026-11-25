@@ -1,6 +1,6 @@
 --- Proves the packed blocks of core/vector.c: `vector_block`, the aggregate
 --- that packs rows into one blob, `vector_block_search`, the table-valued
---- function that answers each block's nearest rows, and the corpus loaded
+--- function that returns each block's nearest rows, and the corpus loaded
 --- from blocks. A search over blocks gives the ids and order of the
 --- per-row scan and of a corpus in the same storage, under every metric;
 --- a malformed block is refused, never read past.
@@ -203,7 +203,7 @@ local function test_f32_blocks_answer_what_the_per_row_scan_does()
 end
 
 --- Equal distances order by the lower id whichever block holds them, and a
---- block's own answer, cut at k, keeps the lower ids too.
+--- block's own result, cut at k, keeps the lower ids too.
 local function test_ties_go_to_the_lower_id_across_blocks()
   local db = assert(Sqlite.memory())
   assert(db:exec("CREATE TABLE r (seq INTEGER PRIMARY KEY, id INTEGER, v BLOB)"))
@@ -219,7 +219,7 @@ local function test_ties_go_to_the_lower_id_across_blocks()
   for _, metric in ipairs(metrics) do
     local found = packed_hits(db, same, 2, metric)
     assert(#found == 2 and found[1].id == 1 and found[2].id == 3, metric)
-    -- The first block holds ids 9 and 5; cut to one, it answers 5.
+    -- The first block holds ids 9 and 5; cut to one, it returns 5.
     local one = hits_of(db, "SELECT id, distance FROM blocks, vector_block_search(vectors, ?1, 1, ?2) WHERE n = 0",
       { { blob = same }, { text = metric } })
     assert(#one == 1 and one[1].id == 5, metric)
@@ -270,7 +270,7 @@ local function test_a_where_on_the_block_table_filters()
   end
 end
 
---- NULL block, query or k answers no rows, as the functions answer NULL;
+--- NULL block, query or k yields no rows, as the functions return NULL;
 --- a NULL vector is left out of its block; an empty set packs to NULL; a
 --- block of no rows searches to nothing.
 local function test_nulls_and_empty_blocks()
@@ -718,7 +718,7 @@ local function test_a_block_a_corpus_would_refuse_loads_nowhere()
   local _, _ = db:close()
 end
 
---- A corpus loaded from blocks answers a search with `candidates` as one
+--- A corpus loaded from blocks handles a search with `candidates` as one
 --- made by `add` does: its bit vectors are the signs of the numbers
 --- stored, which for numbers a storage holds exactly are `add`'s.
 local function test_a_corpus_from_blocks_takes_a_first_pass()
@@ -770,7 +770,7 @@ end
 
 --- Rows whose cosine rounds just past 1 are all at distance 0, so they
 --- rank by id: the nearest k of a block are the first k of every row a
---- block answers.
+--- block yields.
 local function test_cosine_rows_that_round_past_one_rank_by_id()
   local dims = 8
   local query = pack_random_vector(stream(6), dims)
@@ -872,9 +872,9 @@ local function test_vector_block_refuses_a_shorter_vector()
   local _, _ = db:close()
 end
 
---- The row numbers of the answer count from 0, and the tables that supply
+--- The row numbers of the result count from 0, and the tables that supply
 --- the arguments come first: a CROSS JOIN the other way round has no plan
---- for the block, and answers nothing for a metric.
+--- for the block, and yields nothing for a metric.
 local function test_the_function_joins_after_the_tables_that_supply_it()
   local db = assert(Sqlite.memory())
   assert(db:exec([[

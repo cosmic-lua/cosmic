@@ -10,8 +10,8 @@ local _ = require("build.standalone")
 local type _ = require("cosmic.mcp.server")
 
 --- This program, which the server runs as.
-Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } }, env = { "PATH", "TMPDIR" },
-  promises = { "nest" }, requires = { "nest" } }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" }, { calls = "nest" } }, env = { "PATH", "TMPDIR" },
+  requires = { "nest" } }
 
 --- The text of the first block of `result`, a tool's result as JSON.
 local function text_of(result: {string: Json.Value}): string
@@ -47,7 +47,7 @@ end
 ]=]))
   local self = assert(Proc.executable())
   local config = assert(Json.encode({ servers = { peek = { command = Json.array({ self, "--standalone", script }),
-    policy = { profiles = Json.array({ "cosmic" }), grants = Json.array({ { path = dir, letters = "r" } }) } } } }))
+    policy = { grants = Json.array({ { path = dir, letters = "r" } }) } } } }))
   assert(Fs.write(dir .. "/mcp.json", config))
   local set = AgentMcp.new(assert(AgentMcp.load(dir .. "/mcp.json")), dir)
   local granted = assert(AgentMcp.call(set, "peek", "peek", { path = dir .. "/granted" }))
@@ -85,7 +85,7 @@ end
 ]=]))
   local self = assert(Proc.executable())
   local config = assert(Json.encode({ servers = { crash = { command = Json.array({ self, "--standalone", script }),
-    policy = { profiles = Json.array({ "cosmic" }), env = Json.array({ "PATH" }),
+    policy = { env = Json.array({ "PATH" }),
       grants = Json.array({ { path = dir, letters = "r" } }) } } } }))
   assert(Fs.write(dir .. "/mcp.json", config))
   local set = AgentMcp.new(assert(AgentMcp.load(dir .. "/mcp.json")), dir)

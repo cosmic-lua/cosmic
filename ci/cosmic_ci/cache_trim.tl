@@ -38,7 +38,7 @@ local record CacheTrim
     "aliased"
     "unknown"
   end
-  --- [`CacheTrim.snapshot_safe`]'s answer: `owned` where the snapshot is nobody else's,
+  --- What [`CacheTrim.snapshot_safe`] returns: `owned` where the snapshot is nobody else's,
   --- `aliased` where it names the live cache, `unknown` where it could not be told.
   record Snapshot
     ownership: Ownership
@@ -193,7 +193,7 @@ local function output(env: {string:string}, values: string): string
   return if ok then "" else why end
 end
 
---- What [`invoke`] answered, kept where the function that runs it under `pcall` can read it.
+--- What [`invoke`] returned, kept where the function that runs it under `pcall` can read it.
 local record Invoked
   mut report?: Report
   mut trouble: string

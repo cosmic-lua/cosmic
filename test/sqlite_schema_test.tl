@@ -10,6 +10,26 @@ local schema Notes [[
   CREATE TABLE tags (note INTEGER NOT NULL, tag TEXT NOT NULL, PRIMARY KEY (note, tag));
 ]]
 
+local NOTE_TABLE <const> = "CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT NOT NULL)"
+local schema Joined = NOTE_TABLE .. "; " .. "CREATE TABLE tags (note INTEGER NOT NULL)"
+
+local function test_a_schema_of_joined_constants_holds_their_join()
+  assert(Joined.ddl == "CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT NOT NULL); CREATE TABLE tags (note INTEGER NOT NULL)")
+  local db = assert(Sqlite.memory({ schema = Joined }))
+  assert(db:run("INSERT INTO tags VALUES (1)"))
+  assert(db:close())
+end
+
+local schema Both = Notes.ddl .. "; CREATE TABLE extra (x)"
+
+local function test_a_schema_that_joins_another_holds_both()
+  assert(Both.ddl == Notes.ddl .. "; CREATE TABLE extra (x)")
+  local db = assert(Sqlite.memory({ schema = Both }))
+  assert(db:run("INSERT INTO notes (body) VALUES ('a')"))
+  assert(db:run("INSERT INTO extra VALUES (1)"))
+  assert(db:close())
+end
+
 local function has(failure: Failure, text: string): boolean
   return failure.message:find(text, 1, true) ~= nil
 end
@@ -21,6 +41,42 @@ local function test_a_memory_database_starts_with_the_tables()
   local index = assert(db:one("SELECT count(*) FROM sqlite_schema WHERE name = 'notes_body'"))
   assert(index:integer(1) == 1)
   assert(db:close())
+end
+
+--- A handle opened plainly takes the pragmas a transaction ignores, then holds the schema.
+local function test_hold_makes_the_tables_after_the_pragmas_and_checks_them_after(tmp: string)
+  local path = tmp .. "/held.db"
+  local db = assert(Sqlite.open(path, { writable = true }))
+  assert(db:exec("PRAGMA page_size = 8192"))
+  local notes = assert(Sqlite.hold(db, Notes))
+  assert(notes:run("INSERT INTO notes (body) VALUES (?1)", { "held" }))
+  assert(assert(notes:one("PRAGMA page_size")):integer(1) == 8192)
+  assert(db:close())
+  local reading = assert(Sqlite.open(path))
+  local held = assert(Sqlite.hold(reading, Notes))
+  assert(assert(held:one("SELECT body FROM notes")):text(1) == "held")
+  assert(reading:close())
+  local other = assert(Sqlite.memory())
+  assert(other:exec("CREATE TABLE notes (id INTEGER PRIMARY KEY)"))
+  local refused, why = Sqlite.hold(other, Notes)
+  assert(refused == nil)
+  assert(has(why, "the database does not hold the schema") and has(why, "no table tags"), why.message)
+  assert(other:close())
+end
+
+--- A read-only handle and one held to queries check the tables and make none.
+local function test_hold_makes_no_table_on_a_handle_that_cannot_write(tmp: string)
+  local path = tmp .. "/empty.db"
+  local made = assert(Sqlite.open(path, { writable = true }))
+  assert(made:exec("CREATE TABLE other (x)"))
+  assert(made:exec("DROP TABLE other"))
+  assert(made:close())
+  for _, reading in ipairs({ assert(Sqlite.open(path)), assert(Sqlite.open(path, { reads_only = true })) }) do
+    local refused, why = Sqlite.hold(reading, Notes)
+    assert(refused == nil)
+    assert(has(why, "no table notes"), why.message)
+    assert(reading:close())
+  end
 end
 
 local function test_a_new_file_gets_the_tables_and_keeps_its_rows(tmp: string)

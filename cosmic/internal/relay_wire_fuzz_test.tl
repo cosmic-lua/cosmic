@@ -2,26 +2,26 @@
 --- an untrusted program sends the relay: none raises on any bytes, none
 --- reports more bytes consumed than it was given, a read in pieces
 --- (every prefix of an input) agrees with the read of the whole, and a
---- request built from what a read answered reads back as the same
---- answer. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
+--- request built from what a read found reads back as the same
+--- result. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
 --- (build/fuzz/init.tl).
 
 local Fixture = require("build.relay_wire_fixture")
 local Fuzz = require("build.fuzz")
 local Wire = require("cosmic.internal.relay_wire")
 
---- What a reader answered, reduced to what the properties compare.
+--- A reader's result, reduced to what the properties compare.
 local record Answer
   --- `more`, `done` or `refused` (a hello's `name` and `no_sni` are done,
   --- and its `not_tls` and `malformed` refused).
   status: string
   consumed: integer
-  --- Every field the answer carries, so that two answers compare whole.
+  --- Every field the result carries, so that two results compare whole.
   key: string
 end
 
 --- A format of bytes: a reader of it, made afresh, as a function that
---- feeds the next bytes and answers; and a generator of them.
+--- feeds the next bytes and returns its result; and a generator of them.
 local record Format
   name: string
   fresh: function(): function(string): Answer
@@ -84,7 +84,7 @@ local function hello_fresh(): function(string): Answer
   end
 end
 
---- What `format` answers to `input` fed whole.
+--- The result of `format` for `input` fed whole.
 local function whole(format: Format, input: string): Answer
   return format.fresh()(input)
 end

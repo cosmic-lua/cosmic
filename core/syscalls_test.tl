@@ -18,10 +18,10 @@ local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local unix_socket = require("build.unix_socket")
 local type raw_process = require("cosmic.internal.process")
-local stand_in = require("build.stand_in")
+local Fake = require("cosmic.fake")
 
---- What the syscall table is tested on: /proc. A stand-in program
---- (build/stand_in.tl) is what a child here runs, reading nothing of the system's. The cases
+--- What the syscall table is tested on: /proc. A fake program
+--- ([`cosmic.fake`]) is what a child here runs, reading nothing of the system's. The cases
 --- that start this program itself to run a chunk, or unveil a child's
 --- root -- which a worker that declares neither `lua` nor `nests`
 --- cannot (see core/syscalls_tool_test.tl) -- are
@@ -36,11 +36,11 @@ local process = require("cosmic.internal.process")
 local cipher = require("cosmic.internal.cipher")
 local hash = require("cosmic.internal.hash")
 
---- A stand-in program built under `tmp` (build/stand_in.tl), which runs
+--- A fake program built under `tmp` ([`cosmic.fake`]), which runs
 --- the script its first argument holds: a static executable that reads
 --- only itself, so one confined needs nothing of the system's own.
 local function probe_in(tmp: string): string
-  return (assert(stand_in.build(tmp .. "/stand-in")))
+  return (assert(Fake.build(tmp .. "/fake")))
 end
 
 --- Asserts `value, message, number` is the failure shape: `nil` or
@@ -326,7 +326,7 @@ local function test_chown(tmp: string)
   raises(sys.chown, tmp .. "/a", own.uid, 4294967295)
 end
 
---- dumpable answers whether this process may be dumped, 0, 1 or 2,
+--- dumpable returns whether this process may be dumped, 0, 1 or 2,
 --- and sets it to 0 or 1 first where asked; any other value raises. Off
 --- Linux it is ENOSYS.
 local function test_dumpable()
@@ -371,7 +371,7 @@ local function linked_directory(tmp: string, socket: boolean): string
   return d
 end
 
---- Checks readdir's answer for [`linked_directory`].
+--- Checks what readdir returns for [`linked_directory`].
 local function names_links_as_links(entries: {string:sys.Kind}, what: string, socket: boolean)
   assert(entries["file"] == "file" and entries["sub"] == "dir", what)
   assert(entries["fifo"] == "fifo", what .. ": a named pipe: " .. tostring(entries["fifo"]))
@@ -474,7 +474,7 @@ local function test_a_failed_execve_keeps_sigpipe_ignored(tmp: string)
     "SIGPIPE is ignored again: " .. ignored)
 end
 
---- A count is what a read may answer, not what it allocates: one far
+--- A count is what a read may return, not what it allocates: one far
 --- past any memory reads a small file, a pipe, and a file that says it
 --- is empty (/proc's) whole.
 local function test_a_read_of_a_huge_count_answers_what_there_is(tmp: string)
@@ -625,7 +625,7 @@ end
 --- finds it.
 local function test_a_relative_program_is_found_from_the_child_s_directory(tmp: string)
   assert(sys.mkdir(tmp .. "/bin", 0x1c0))
-  assert(stand_in.place(probe_in(tmp), tmp .. "/bin/probe"))
+  assert(Fake.place(probe_in(tmp), tmp .. "/bin/probe"))
   local function status_of(path: string, cwd: string): integer
     local pid = assert(process.spawn(path, { path, "exit 3" }, nil, cwd, nil, nil, nil, false))
     return assert(process.waitpid(pid, false)).code
@@ -888,7 +888,7 @@ local function test_getgid_and_getgroups_answer_the_groups_the_process_runs_with
 end
 
 --- `setrlimit` holds the process to a soft limit `getrlimit` then
---- answers, which it can raise again to the hard one; it refuses a soft
+--- returns, which it can raise again to the hard one; it refuses a soft
 --- limit above a finite hard one, and a negative limit, a resource past
 --- an int or not a resource at all. Where the hard one is none, as
 --- macOS's RLIMIT_NOFILE's is, a soft one of none is the system's to
@@ -962,23 +962,23 @@ local function test_isatty_is_false_for_a_file_and_a_bad_descriptor(tmp: string)
   assert(sys.isatty(fd) == false)
 end
 
---- Entry `i` of the answers of a poll.
+--- Entry `i` of what a poll returns.
 local function revent(revents: {integer}, i: integer): integer
   local answer = revents[i]
   assert(answer, "the poll answers for descriptor " .. tostring(i))
   return answer
 end
 
---- The raw binding refuses a name it does not know; known answers are
---- [`cosmic.hash`]'s tests.
+--- The raw binding refuses a name it does not know; [`cosmic.hash`]'s
+--- tests check the known ones.
 local function test_digest_and_hmac_raise_on_an_unknown_algorithm()
   raises(hash.digest, "sha0", "abc")
   raises(hash.hmac, "sha0", "key", "abc")
 end
 
 --- The raw binding refuses an algorithm name it does not know, however
---- it is spelled, a known name with a NUL and more after it too; known
---- answers are [`cosmic.cipher`]'s tests.
+--- it is spelled, a known name with a NUL and more after it too;
+--- [`cosmic.cipher`]'s tests check the known ones.
 local function test_seal_and_open_raise_on_an_unknown_algorithm()
   local key, nonce = string.rep("k", 32), string.rep("n", 12)
   raises(cipher.seal, "aes-256-gcm", key, nonce, "message")
@@ -1020,7 +1020,7 @@ local function listed_in_map(text: string, id: integer): boolean
   return false
 end
 
---- `maps_id` answers whether this process's user namespace maps an id
+--- `maps_id` returns whether this process's user namespace maps an id
 --- as a user and as a group, as its maps list them: false with EINVAL
 --- where either does not; off Linux, ENOSYS. An id no namespace can
 --- map, -1 or past 32 bits, raises.
@@ -1042,7 +1042,7 @@ local function test_maps_id_answers_as_the_namespace_maps_list()
   raises(process.maps_id, 4294967295)
 end
 
---- `may_map_ids` answers whether this process is root holding
+--- `may_map_ids` returns whether this process is root holding
 --- CAP_SETGID (6), CAP_SETUID (7) and CAP_SETFCAP (31) in effect, as
 --- /proc/self/status says: false with EPERM where it is not; off Linux,
 --- ENOSYS.
@@ -1066,7 +1066,7 @@ local function test_may_map_ids_answers_as_the_status_says()
   end
 end
 
---- `own_proc` answers whether a sandbox gets a procfs of its own here:
+--- `own_proc` returns whether a sandbox gets a procfs of its own here:
 --- true, or false with the errno the kernel refused one with -- as it
 --- does a worker a Landlock ruleset holds, which may mount nothing --
 --- and off Linux, ENOSYS. That a sandbox then gets what it says is
@@ -1080,7 +1080,7 @@ local function test_own_proc_answers_or_says_why_not()
   end
 end
 
---- `sandbox_platform` answers true on Linux, the one platform with a
+--- `sandbox_platform` returns true on Linux, the one platform with a
 --- sandbox, whatever this host refuses of it, and false with ENOSYS
 --- elsewhere.
 local function test_sandbox_platform_answers_true_on_linux_alone()
@@ -1095,9 +1095,9 @@ local function test_sandbox_platform_answers_true_on_linux_alone()
 end
 
 --- Where the platform has no Landlock, a hold on what may run is refused,
---- with the errno the platform answers. On Linux, whatever this host
+--- with the platform's errno. On Linux, whatever this host
 --- refuses of it, it is core/syscalls_landlock_test.tl's, which requires
---- it: so this returns there, and only the platforms without one answer.
+--- it: so this returns there, and checks only the platforms without one.
 local function test_a_hold_on_running_the_platform_lacks_is_refused(tmp: string)
   if assert(sys.uname()).sysname == "Linux" then
     Test.skip("a platform with a sandbox answers this where a test requires one")
@@ -1136,9 +1136,9 @@ local function test_the_process_calls_are_off_the_public_table()
   end
 end
 
---- A descriptor given more than once answers in every entry, each
---- only the events that entry asked for, as Linux answers it: macOS
---- answers only one entry of such a descriptor, left to itself.
+--- A descriptor given more than once is reported in every entry, each
+--- with only the events that entry asked for, as Linux reports it:
+--- macOS, left to itself, reports only one entry of such a descriptor.
 local function test_poll_answers_every_entry_of_a_descriptor_given_twice()
   local ends = assert(process.pipe())
   assert(sys.write(ends.writer, "x") == 1)
@@ -1157,7 +1157,7 @@ local function test_poll_answers_every_entry_of_a_descriptor_given_twice()
   assert(revents[6] & sys.POLLOUT ~= 0 and revents[6] & sys.POLLIN == 0, said)
 end
 
---- A hangup and a descriptor not open are answered in every entry of a
+--- A hangup and a descriptor not open are reported in every entry of a
 --- descriptor given twice, whatever each asked for.
 local function test_poll_answers_a_hangup_and_a_closed_descriptor_in_every_entry()
   local ends = assert(process.pipe())

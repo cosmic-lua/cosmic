@@ -1,4 +1,4 @@
---- The driver of the new checker: one program built over the modules of a build, and for each module the answer a
+--- The driver of the new checker: one program built over the modules of a build, and for each module the result a
 --- build, a check of the tree or `cosmic compile` reads.
 ---
 --- A [`Driver.Build`] holds one [`Declarations.Program`], the store of every type, and asks its *providers* for the
@@ -43,7 +43,7 @@ local record Driver
   --- The text of a module and what the driver does with it ([`build.source_parse`]).
   type Source = SourceParse.Source
 
-  --- What answers for the module a `require` names: its source, or nil where it has none.
+  --- What provides the module a `require` names: its source, or nil where it has none.
   type Provider = function(module: string): Source?
 
   --- Whether an expression can be neither false nor nil ([`Driver.Outcome.never_false`]).
@@ -60,6 +60,13 @@ local record Driver
 
   --- An error or a warning of a module ([`build.source_parse`]).
   type Problem = SourceParse.Problem
+
+  --- The errors of an outcome that its markers do not hold ([`Driver.unheld`]), by stage, each in source order.
+  record Unheld
+    scope_errors: {Problem}
+    declared: {Problem}
+    bodies: {Problem}
+  end
 
   --- What a module came to.
   record Outcome
@@ -150,11 +157,11 @@ local record Driver
     --- (`scoped`, `declared`, `checked`), the codes that stage never refuses: a code free in one stage is still refused in
     --- another that has it.
     mut held: function(Build, result: Outcome, markers: boolean, free?: {string: {string}}): {string}
-    --- Replaces the text of the module `name` with `text`, and answers its outcome, or nil where no provider has `name`. A module cannot be lowered twice in one program, so
+    --- Replaces the text of the module `name` with `text`, and returns its outcome, or nil where no provider has `name`. A module cannot be lowered twice in one program, so
     --- the program forgets the module and every module that requires it, through others as well ([`Declarations.forget`]),
     --- and lowers them again when they are next asked for, from the syntax tree the build has already; the others keep
     --- what is lowered, those retired among them, and a retired module that requires it is read from its source again. An
-    --- outcome answered before for a module forgotten is no longer the build's. Where the module replaced, or one that
+    --- outcome returned before for a module forgotten is no longer the build's. Where the module replaced, or one that
     --- requires it, declares a global, the build begins a new program and lowers every module again. The splices of [`build.syntax_shape_specs`] are
     --- made in the text of [`Driver.Outcome.text`] and checked this way.
     mut replace: function(Build, name: string, text: string): Outcome?
@@ -164,17 +171,17 @@ local record Driver
     -- tree (1182 modules, 2270 declarations): 0.91 MB serialized (median 96 B and p90 1.6 KB a module), and some 25 MB of the
     -- 1.5 GB a build held before modules were retired, so the rows would save little memory; they would let a build read a
     -- module's declarations without reading its source.
-    --- Forgets the tokens, the syntax tree, the scopes and the result of the module `name` (and of the names it answers to):
+    --- Forgets the tokens, the syntax tree, the scopes and the result of the module `name` (and of the names it goes by):
     --- what the program knows of its declarations stays, so a module that requires it is lowered as before. The tokens,
     --- the tree and the scopes of a module are most of what a build holds, and the declarations the next module reads are a
     --- small part of it, so a caller that is done with a module retires it, and asks for the modules in the order they
     --- require one another. A module read again by [`Driver.Build.parsed`] is a new reading, outside the program;
-    --- [`Driver.Build.lower`] and [`Driver.Build.result`] answer nothing for it. A declaration file that declares
+    --- [`Driver.Build.lower`] and [`Driver.Build.result`] return nothing for it. A declaration file that declares
     --- globals is not forgotten.
     mut retire: function(Build, name: string)
     --- Whether the module `name` was retired ([`Driver.Build.retire`]) and no replacement has begun the program again since.
     mut retired: function(Build, name: string): boolean
-    --- [`Driver.Build.retire`] of every module the build holds but those `keep` answers true for: for a build whose result
+    --- [`Driver.Build.retire`] of every module the build holds but those `keep` returns true for: for a build whose result
     --- for a module is read once it is lowered, and whose lowering of the modules it requires is not read at all.
     mut retire_all: function(Build, keep?: function(Outcome): boolean)
     --- A build of its own over the same options and providers, made when first asked for and the same afterwards: a caller
@@ -189,15 +196,15 @@ local record Driver
   --- A source with the defaults: checked, no alias, and a test module only where `tests`.
   source: function(module: string, filename: string, text: string, dialect: Ast.Dialect, tests?: boolean): Source
 
-  --- A declaration file whose globals every module may use ([`Driver.Options.globals`]): not checked, answering to `aliases` as
+  --- A declaration file whose globals every module may use ([`Driver.Options.globals`]): not checked, going by `aliases` as
   --- well.
   declarations: function(module: string, filename: string, text: string, aliases: mut {string}): Source
 
-  --- The sources of a tree and the names they answer to.
+  --- The sources of a tree and the names they go by.
   type Index = SourceParse.Index
 
   --- The modules `entries` (pairs of a path below the root and its text) are: each `.tl` and `.d.tl` a module named by its
-  --- path ([`Declarations.module_of`]), checked. A module is answered to by that name alone, the one the run time resolves:
+  --- path ([`Declarations.module_of`]), checked. A module goes by that name alone, the one the run time resolves:
   --- `b/m.tl` is `b.m`, never `m`. A project inside the tree names its modules from its own root by being built from there.
   --- `skip` says which paths are left out. A module
   --- given as both `.tl` and `.d.tl` is refused before an index is made ([`Driver.declared`]); two files that are one module
@@ -210,8 +217,8 @@ local record Driver
   index: function(entries: {{string}}, skip: function(path: string): boolean, extras?: Extras): Index
 
   --- The complaints about the files of `entries` (as [`Driver.index`] takes them, less the `skip`ped paths) whose module is
-  --- one of `names`: a project's `require("math")` would be checked against `math.tl`, where the binary answers that call
-  --- with its own module. One to a line and in the order of the files: "" for none.
+  --- one of `names`: a project's `require("math")` would be checked against `math.tl`, where the binary resolves that call
+  --- to its own module. One to a line and in the order of the files: "" for none.
   reserved: function(entries: {{string}}, skip: function(path: string): boolean, names: {string: boolean}): string
 
   --- The files a module may be written in below the root, in the order a declaration comes before a source: `x.d.tl`,
@@ -245,7 +252,7 @@ local record Driver
   --- have meant, since a module is required by its whole name.
   ending: function(index: Index, name: string): {Source}
 
-  --- The provider of the `cosmic.*` modules `read` finds, each its stub or its source: `read` answers the text of a
+  --- The provider of the `cosmic.*` modules `read` finds, each its stub or its source: `read` returns the text of a
   --- module, or nil. They are lowered for the types they give and never checked. A module `declared` says is one is read as a
   --- declaration file, which has no code.
   standard: function(read: Reader, declared?: function(module: string): boolean): Provider
@@ -259,6 +266,11 @@ local record Driver
   --- A source as a build reads it, and no more: its text lexed and parsed ([`build.source_parse`]).
   type Parsed = SourceParse.Parsed
   parse: function(source: Source): Parsed
+
+  --- The errors of `result` that the markers of its text do not hold ([`build.ceilings`]). Unlike [`Driver.Build.held`],
+  --- it keeps errors of codes outside each stage's and takes no `free`, so it errs toward a doubt. With `markers` false (a
+  --- project's, which no marker holds) every error.
+  unheld: function(result: Outcome, markers: boolean): Unheld
 end
 
 Driver.source = SourceParse.source
@@ -383,26 +395,12 @@ end
 
 --- The problem for an error: its fix is the words of [`cosmic.removed`] where it is about a name cosmic withholds
 --- ([`build.removed_fix`]), else the fix the checker wrote.
-local TEMPLATE_CONDITION <const> = "`{{if}}` and `{{with}}` need a value that can be absent: make the field optional, or " ..
-  "drop the `{{if}}`"
-
 local function error_of(result: Driver.Outcome, stage: string, code: string, msg: string, fix: string, y: integer, x: integer,
                         offset: integer, length: integer, argument?: Check.Argument,
                         other?: Scopes.Place): Driver.Problem
   local instead = RemovedFix.fix({ tokens = result.chunk.tokens, scoped = result.scoped }, code, offset, length)
-  -- A condition of a template is written by the generator, over a local it names: the checker's fix would tell the template's
-  -- author to write a test of that local. What a template can say is whether a value is there.
-  local file = result.source.filename
-  if result.source.pinned ~= "" then
-    file = result.source.pinned
-  end
-  local told = instead or fix
-  if instead == nil and code == "condition_type" and file:match("%.tmpl$") ~= nil and
-      msg:find("no boolean or optional", 1, true) ~= nil then
-    told = TEMPLATE_CONDITION
-  end
   return {
-    kind = "error", stage = stage, code = code, msg = msg, fix = told, y = y, x = x, offset = offset,
+    kind = "error", stage = stage, code = code, msg = msg, fix = instead or fix, y = y, x = x, offset = offset,
     length = length, other = other, removed = instead ~= nil, argument = argument,
   }
 end
@@ -648,7 +646,7 @@ function Driver.new(options: Driver.Options): Driver.Build
     return held
   end
 
-  --- Makes `program` answer the modules a `require` names from the entries.
+  --- Makes `program` provide the modules a `require` names from the entries.
   local function attach()
     build.program.provider = function(self: Declarations.Program, module: string): boolean -- checked: field_fixed
       local entry = prepare(module)
@@ -662,7 +660,7 @@ function Driver.new(options: Driver.Options): Driver.Build
   end
   attach()
 
-  --- Forgets `entry`, under every name it answers to. The program keeps what it lowered of it.
+  --- Forgets `entry`, under every name it goes by. The program keeps what it lowered of it.
   local function release(entry: Entry, lowered: boolean)
     for key, held in pairs(entries) do
       if held == entry then
@@ -749,7 +747,7 @@ function Driver.new(options: Driver.Options): Driver.Build
     for key in pairs(retired) do
       retired[key] = nil
     end
-    -- Every entry again, each name answering to the entry its old one was.
+    -- Every entry again, each name standing for the entry its old one stood for.
     local made: mut {Entry: Entry} = {}
     local function again(entry: Entry): Entry
       if entry == held then
@@ -794,7 +792,7 @@ function Driver.new(options: Driver.Options): Driver.Build
     for module in pairs(set) do
       names[#names + 1] = module
     end
-    -- The names the modules answer to, before the program forgets them.
+    -- The names the modules go by, before the program forgets them.
     local answered: mut {string: boolean} = {}
     for key, info in pairs(build.program.modules) do
       if set[info.name] == true then
@@ -1037,6 +1035,35 @@ function Driver.new(options: Driver.Options): Driver.Build
   end
 
   return build
+end
+
+function Driver.unheld(result: Driver.Outcome, markers: boolean): Driver.Unheld
+  local source = result.source
+  -- As [`Driver.Build.held`] reads them: a text the build writes from another file has no markers, and a project's none.
+  local text = if source.pinned ~= "" or not markers then "" else source.text end
+  local file = if source.pinned ~= "" then source.pinned else source.filename end
+  local function stage(list: {Driver.Problem}, codes: {string}, name: Ceilings.Stage): {Driver.Problem}
+    local held = Ceilings.holds(name, file, text, codes)
+    local found: mut {integer: mut {string: integer}} = {}
+    for _, p in ipairs(list) do
+      local on = found[p.y] or {}
+      found[p.y] = on
+      on[p.code] = (on[p.code] or 0) + 1
+    end
+    -- A line's errors of a code are held together or refused together, as the markers count them.
+    local out: mut {Driver.Problem} = {}
+    for _, p in ipairs(list) do
+      if assert(assert(found[p.y])[p.code]) > ((held[p.y] or {})[p.code] or 0) then
+        out[#out + 1] = p
+      end
+    end
+    return out
+  end
+  return {
+    scope_errors = stage(result.scope_errors, Scopes.codes, "scoped"),
+    declared = stage(result.declared, Declarations.codes, "declared"),
+    bodies = stage(result.bodies, Check.codes, "checked"),
+  }
 end
 
 return Driver

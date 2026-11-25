@@ -2,7 +2,7 @@
 --- build reads has moved runs the projection that build left, and derives, compiles and writes nothing.
 ---
 --- The writer leaves a projection as it is where the file's signature ([`build.writer`]'s `signature_sql`) is the
---- one it would write. That signature is a function of rows of the working database and of the links' answers: the
+--- one it would write. That signature is a function of rows of the working database and of the links' results: the
 --- plan and inputs that derive and compile make of the staged files, the staged files, the zones, the web assets,
 --- the identities in `meta`, and the digest of what the tree's links found ([`link_index.pending`]), on disk too.
 --- The key here is a digest of what those are made from, taken after the stage and before any derive:
@@ -19,6 +19,8 @@
 --- The key is taken again once a build has written its projection, over the rows the build made, which are the rows
 --- the next run's stage finds, and with the links' digest the write signed.
 
+local type work_schema = require("build.work_schema")
+local type Database = work_schema.Database
 local Fs = require("cosmic.fs")
 local GrammarMode = require("build.grammar_mode")
 local Hash = require("cosmic.hash")
@@ -28,7 +30,7 @@ local Store = require("cosmic.store")
 local record run_stamp
   --- The tool string a compile of this binary's own compiler is keyed by ([`GrammarMode.tool`]): the compiler's
   --- identity the build that made this binary recorded (its `meta`'s `compiler`), so a project's rows made by
-  --- another compiler are compiled again. A worker's read of it is answered by the running tool
+  --- another compiler are compiled again. A worker reads it from the running tool
   --- ([`build.key_parts`]' `meta_readers` names this module for it).
   own_tool: function(): string
 
@@ -36,7 +38,7 @@ local record run_stamp
   --- (the tool string [`importer.compile_for`] is given), over the working database `db` as the stage left it. `links`
   --- is the digest of the links a write signed ([`writer.signed`]), in place of resolving them again. Returns nil where
   --- `db` or the links cannot say.
-  key: function(db: Sqlite.Handle, root: string, own: boolean, tool: string, target: string, links?: string): string?
+  key: function(db: Database, root: string, own: boolean, tool: string, target: string, links?: string): string?
 
   --- Whether the run whose key is `key` is the last good one of `target` in the tree directory `dir`, and the
   --- projection at `projection` is the one that run left.
@@ -80,13 +82,13 @@ function run_stamp.own_tool(): string
   return GrammarMode.tool(Store.meta("compiler") or "")
 end
 
-function run_stamp.key(db: Sqlite.Handle, root: string, own: boolean, tool: string, target: string,
+function run_stamp.key(db: Database, root: string, own: boolean, tool: string, target: string,
                        links?: string): string?
   local rows, _ = db:text_rows(inputs_sql)
   if rows == nil then return nil end
   local row = rows[1]
   if row == nil then return nil end
-  -- What the links found, the disk's answers among them, with the library they may name as the writer gives it.
+  -- What the links found, the disk's results among them, with the library they may name as the writer gives it.
   local digest = links
   if digest == nil then
     local link_index = require("build.link_index")

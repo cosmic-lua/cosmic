@@ -72,25 +72,23 @@ local record Ceilings
   --- no marker holds) the lines do not point to a marker.
   marked: function(stage: Stage, file: string, text: string, errors: {Finding}, codes: {string}, what: string,
                    markerless?: boolean): Judged
+
+  --- What the markers of `stage` in the file `file`, whose text is `text`, hold: by line and by each of `codes`, how many
+  --- findings of that code the line's markers allow. A line or a code with no marker is not in it.
+  holds: function(stage: Stage, file: string, text: string, codes: {string}): {integer: {string: integer}}
 end
 
 Ceilings.untyped_code = "call"
 Ceilings.untyped_message = "a call the checker gave no function, which no rule of the discipline judged"
 Ceilings.untyped_fix = "type what it calls through"
 
-function Ceilings.marked(stage: Ceilings.Stage, file: string, text: string, errors: {Ceilings.Finding}, codes: {string},
-                         what: string, markerless?: boolean): Ceilings.Judged
-  local out: mut {string} = {}
-  local unmarked: mut {Markers.Spot} = {}
-  local stale: mut {Markers.Spot} = {}
+function Ceilings.holds(stage: Ceilings.Stage, file: string, text: string, codes: {string}): {integer: {string: integer}}
   local wanted: mut {string: boolean} = {}
   for _, code in ipairs(codes) do
     wanted[code] = true
   end
-  -- What the markers hold, by line and code: those of this stage's codes alone.
   local held: mut {integer: mut {string: integer}} = {}
-  local marks = Markers.read(text, file).marks
-  for _, mark in ipairs(marks) do
+  for _, mark in ipairs(Markers.read(text, file).marks) do
     for _, segment in ipairs(mark.segments) do
       if segment.stage == tostring(stage) then
         for code, n in pairs(segment.counts) do
@@ -103,6 +101,20 @@ function Ceilings.marked(stage: Ceilings.Stage, file: string, text: string, erro
       end
     end
   end
+  return held
+end
+
+function Ceilings.marked(stage: Ceilings.Stage, file: string, text: string, errors: {Ceilings.Finding}, codes: {string},
+                         what: string, markerless?: boolean): Ceilings.Judged
+  local out: mut {string} = {}
+  local unmarked: mut {Markers.Spot} = {}
+  local stale: mut {Markers.Spot} = {}
+  local wanted: mut {string: boolean} = {}
+  for _, code in ipairs(codes) do
+    wanted[code] = true
+  end
+  -- What the markers hold, by line and code: those of this stage's codes alone.
+  local held = Ceilings.holds(stage, file, text, codes)
   -- The findings, by line and code, in the order of the lines.
   local found: mut {integer: mut {string: mut {Ceilings.Finding}}} = {}
   local lines: mut {integer} = {}

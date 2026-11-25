@@ -19,6 +19,12 @@ local record html
     userdata
   end
 
+  -- A URL the page loads and runs or styles itself by, which only
+  -- [`trust_resource_url`] makes.
+  record SafeResourceUrl
+    userdata
+  end
+
   -- One piece of a URL, which [`url_part`] and [`url_query`] make.
   record SafeUrlPart
     userdata
@@ -44,8 +50,15 @@ local record html
   href: function(s: string): SafeUrl
   -- The string as a URL, unchecked.
   trust_url: function(s: string): SafeUrl
+  -- Whether a template's {{if}} holds of the value: not nil, false, "", a
+  -- safe value holding "" or a table with no key.
+  filled: function(v: any): boolean
   -- The string a SafeUrl holds. Raises on anything else.
   raw_url: function(x: SafeUrl): string
+  -- The string as a URL of a resource the page loads, unchecked.
+  trust_resource_url: function(s: string): SafeResourceUrl
+  -- The string a SafeResourceUrl holds. Raises on anything else.
+  raw_resource_url: function(x: SafeResourceUrl): string
   -- The string, or the number's text, with every byte but A-Z a-z 0-9
   -- `-` `.` `_` `~` made %XX; a value of "." or ".." is made "%252E" or
   -- "%252E%252E". Raises on any other type.

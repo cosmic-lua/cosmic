@@ -28,8 +28,10 @@ default and is dropped from what to change.
    say in the PR description why any are left. Review again after a
    large fix.
 4. Take the TODO list from `bin/cosmic todos` (again after merging a
-   moved main), push, and open the PR.
-5. Enable auto-merge. Watch both the branch's run and the merge queue's.
+   moved main), push, and open the PR as a draft.
+5. Once the branch's run is green, mark the PR ready (`gh pr ready`),
+   which runs its check again with macOS's suite, and enable auto-merge
+   when that passes. Watch both the branch's run and the merge queue's.
    On a failure, find the cause and fix it; never skip or disable a test
    to get green. A queue-only build failure in code the change did not
    touch: never queue the same head again; see [`doc/contributing.md`]

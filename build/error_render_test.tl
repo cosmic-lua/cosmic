@@ -152,10 +152,7 @@ end
 
 --- A shipped database with a documented [`Fs.read`] and the worked examples the diagnostics point to.
 local function hinted(): ErrorRender.Hints, Sqlite.Handle
-  local db = assert(Sqlite.memory())
-  for _, statement in ipairs(schema.create("")) do
-    assert(db:exec(statement))
-  end
+  local db = assert(schema.hold(assert(Sqlite.memory())))
   assert(db:run(
     "INSERT INTO modules (path, file, kind, source_hash, key, source, bytecode, tests) " ..
       "VALUES ('cosmic.fs', 'cosmic/fs.tl', 'module', '', '', '', '', '')"))
@@ -195,15 +192,12 @@ local function test_a_call_or_a_field_the_checker_refused_points_at_the_example_
   local field = ErrorRender.lines(result_of("local o: Opts = { n = 1 }\nprint(o.zzz)\n"), hints)
   assert(#field == 1 and at(field, 1):sub(-#" -- see also: cosmic docs records_interfaces_methods") ==
       " -- see also: cosmic docs records_interfaces_methods", at(field, 1))
-  -- the replacement of a withheld global's field is the answer, and no example is pointed to beside it
+  -- the replacement of a withheld global's field is the fix, and no example is pointed to beside it
   local removed = ErrorRender.lines(result_of("print(os.getenv(\"HOME\"))\n"), hints)
   assert(#removed == 1 and at(removed, 1):find("os.getenv is not available: ", 1, true) ~= nil, at(removed, 1))
   assert(at(removed, 1):find("see also", 1, true) == nil, at(removed, 1))
   -- an example the databases lack is not advertised
-  local bare = assert(Sqlite.memory())
-  for _, statement in ipairs(schema.create("")) do
-    assert(bare:exec(statement))
-  end
+  local bare = assert(schema.hold(assert(Sqlite.memory())))
   local none = ErrorRender.lines(result_of("local o: Opts = { n = 1 }\nprint(o.zzz)\n"), function(): {Sqlite.Handle}, {boolean}
     return { bare }, { false }
   end)
@@ -255,7 +249,7 @@ local function test_the_fix_of_a_removed_name_beats_the_pointer_of_an_argument()
     { ["cosmic.hash"] = "local record Hash\n  alive: integer\nend\nreturn Hash\n" })
   local problem = result.errors[1]
   assert(problem ~= nil)
-  -- the same problem, made an argument's: the replacement is still the answer
+  -- the same problem, made an argument's: the replacement is still the fix
   local function marked(removed: boolean): Driver.Problem
     return {
       kind = problem.kind, stage = problem.stage, code = "not_assignable", msg = problem.msg, fix = problem.fix, y = problem.y,

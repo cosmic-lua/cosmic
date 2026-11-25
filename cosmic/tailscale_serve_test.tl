@@ -214,8 +214,8 @@ local function text_of(config: {string: Json.Value}): string
 end
 
 --- A serve files the program's sites and forwards under its stream,
---- beside what others serve, answers their URLs, and is gone once the
---- serving is closed; what others serve stays.
+--- beside what others serve, responds at their URLs, and is gone once
+--- the serving is closed; what others serve stays.
 local function test_a_serve_is_filed_under_its_stream_and_dropped_with_it(tmp: string)
   local said, d = across(tmp, [[
   local served = assert(ts:serve({
@@ -277,7 +277,7 @@ end
 local function test_a_port_others_serve_fails_and_ends_the_stream(tmp: string)
   local said, d = across(tmp, [[
   local served, why = ts:serve({ sites = { { port = 8443, handlers = { ["/"] = { text = "x" } } } } })
-  say(tostring(served) .. " " .. why)
+  say(tostring(served) .. " " .. tostring(why))
 ]])
   assert(said == "nil tailscale: serve: port 8443 is already served\n", said)
   assert(table.concat(d.lines, "; ") == "ended s1", table.concat(d.lines, "; "))
@@ -288,7 +288,7 @@ end
 local function test_a_port_taken_in_a_race_fails_on_the_second_read(tmp: string)
   local said, d = across(tmp, [[
   local served, why = ts:serve({ domain = "box.tail1234.ts.net", forwards = { { port = 22, to = "127.0.0.1:22" } } })
-  say(tostring(served) .. " " .. why)
+  say(tostring(served) .. " " .. tostring(why))
 ]], { race = true, takes = 22 })
   assert(said == "nil tailscale: serve: port 22 is already served\n", said)
   assert(table.concat(d.lines, "; ") == 'POST if-match="1"; ended s1', table.concat(d.lines, "; "))
@@ -310,7 +310,7 @@ end
 local function test_a_daemon_that_names_no_session_fails_the_serve(tmp: string)
   local said, d = across(tmp, [[
   local served, why = ts:serve({ domain = "box.tail1234.ts.net", forwards = { { port = 22, to = "127.0.0.1:22" } } })
-  say(tostring(served) .. " " .. why)
+  say(tostring(served) .. " " .. tostring(why))
 ]], { sessionless = true })
   assert(said == "nil tailscale: serve: the daemon names no session: it predates foreground serving\n", said)
   assert(table.concat(d.lines, "; ") == "ended s1", table.concat(d.lines, "; "))
@@ -322,7 +322,7 @@ local function test_a_daemon_that_drops_accept_app_caps_fails_the_serve(tmp: str
   local said, d = across(tmp, [[
   local served, why = ts:serve({ domain = "box.tail1234.ts.net", sites = { { port = 443,
     handlers = { ["/"] = { proxy = "unix:/tmp/app.sock", accept_caps = { "example.com/cap/admin" } } } } } })
-  say(tostring(served) .. " " .. why)
+  say(tostring(served) .. " " .. tostring(why))
 ]], { dated = true })
   assert(said == "nil tailscale: serve: the daemon did not keep AcceptAppCaps: it predates forwarding " ..
       "capabilities, and would pass a client's own header on\n", said)

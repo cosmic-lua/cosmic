@@ -149,9 +149,9 @@ function relay.loopback_listeners(): relay.Loopback?, string
 end
 
 --- The addresses of `up`'s host, resolved now and once, as the system's
---- resolver answers this process, or `servers` (c-ares's server list, for
---- tests) where given: what the start tells its relay. A numeric host is
---- its own address. Nil and why where it does not resolve.
+--- resolver gives them to this process, or `servers` (c-ares's server
+--- list, for tests) where given: what the start tells its relay. A numeric
+--- host is its own address. Nil and why where it does not resolve.
 --- @param up Config.Upstream The upstream
 --- @param servers string|nil Name servers in place of the system's
 --- @return {string}|nil The addresses, numeric text

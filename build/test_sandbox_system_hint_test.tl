@@ -20,15 +20,14 @@ local Test = require("cosmic.test")
 Test.policy{
   profiles = { "system", "cosmic", "proc" },
   grants = { { path = "o/bin", letters = "rx" }, { path = "/dev/urandom", letters = "r" },
-    { path = "/bin/sh", letters = "r" }, { path = "/etc/passwd", letters = "r" } },
-  promises = { "nest" },
+    { path = "/bin/sh", letters = "r" }, { path = "/etc/passwd", letters = "r" }, { calls = "nest" } },
   env = { "COSMIC_SANDBOX", "COSMIC_TEST_SANDBOX" },
   requires = { "path:/bin/sh", "path:/etc/passwd" },
 }
 
 --- End to end: a sandboxed test that starts /bin/sh, or reads /etc,
 --- without declaring `system` fails saying that is not in its sandbox and
---- what to declare -- where it checks the start's answer, and where a
+--- what to declare -- where it checks the start's result, and where a
 --- bare `assert` on it says nothing itself, as for a script whose `#!`
 --- names /bin/sh -- and one that declares it runs /bin/sh, its failure
 --- its own, saying nothing of the sandbox. A relative path or a URL a

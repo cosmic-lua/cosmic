@@ -17,7 +17,7 @@
 ---
 --- The text is checked after the rewrite a build makes of it first
 --- ([`build.syntax_shape_specs`]), so a column is the document's own. A `require`
---- is answered from an open document, then the working database
+--- is resolved from an open document, then the working database
 --- ([`build.lsp.source`]), then the binary's own `cosmic.*` modules.
 ---
 --- A file a build reads no module from ([`analysis_schema.is_module_file`]:
@@ -35,7 +35,7 @@
 --- and each module served is put in it again where what it is served as changes, so that a check lowers the standard library
 --- once and the stubs the document reaches, and not the project. A document whose text has not changed since its last check,
 --- with none of the modules it reads, its own listing or the hints moved since ([`Basis`]), publishes what it published then,
---- and answers the questions asked of its types from the result of that check ([`check.read`]), kept in memory for the few
+--- and responds to the questions asked of its types from the result of that check ([`check.read`]), kept in memory for the few
 --- documents asked of last ([`KEPT_AT_MOST`]): it depends on the editor's unsaved text, which the working database does
 --- not hold. A text being typed does not parse: completion reads the last text of the document that did
 --- ([`check.last`]).
@@ -152,7 +152,7 @@ local record check
     program: Declarations.Program
   end
 
-  --- The reading [`check.last`] answers, and the text of the document it was of.
+  --- The reading [`check.last`] returns, and the text of the document it was of.
   record Last
     reading: Reading
     text: string
@@ -187,7 +187,7 @@ local record check
     recent: mut {Document}
     --- The open documents, by name.
     open: mut {string:Document}
-    --- The document the last probe was made by, kept so that a probe of the same text is answered from its kept result.
+    --- The document the last probe was made by, kept so that a probe of the same text is served from its kept result.
     mut probed: Document?
     --- The databases a message's hint looks a name up in.
     hints: function(): Hinted
@@ -196,10 +196,10 @@ local record check
     --- through another open document may have closed or opened.
     mut graph_moved: boolean
     --- How many times each document was checked, by name, those
-    --- answered from its last check among them: what a test reads.
+    --- served from its last check among them: what a test reads.
     checks: mut {string:integer}
     --- How many times each document was checked for real, by name: the checks [`Checker`]'s `checks` counts that were
-    --- not answered from a kept result ([`Document`]'s `kept`). What a test reads.
+    --- not served from a kept result ([`Document`]'s `kept`). What a test reads.
     ran: mut {string:integer}
   end
 end
@@ -730,7 +730,7 @@ local function apart(checker: Checker, name: string): boolean
   return source.standing(checker.source).own and identity.is_foreign_tree(identity.first_of(name))
 end
 
---- Brings the stage up to the files on disk, and answers whether `document` is checked against it: false in a root no build
+--- Brings the stage up to the files on disk, and returns whether `document` is checked against it: false in a root no build
 --- was started in and for a file in a tree of its own. A build started where there was none moves every open document, which
 --- is checked again against the modules now found; the check that finds it says so, and no other need.
 local function staged(checker: Checker, document: Document): boolean
@@ -829,7 +829,7 @@ end
 --- program are those it was of), or nil where nothing was: a file no build reads, a root with no build, a template (whose
 --- places are in its Teal), a text that does not parse or whose `require`s are refused. The result outlives the check of
 --- another document: a replacement in the program ([`Driver.Build.replace`]) begins another and leaves an outcome
---- answered before as it was.
+--- returned before as it was.
 function check.read(checker: Checker, document: Document): check.Reading?
   if unread(document) or document.name:match("%.tmpl$") ~= nil then return nil end
   if not staged(checker, document) then return nil end
@@ -861,7 +861,7 @@ end
 --- as it would be if the person had typed it. nil where that is no text a build reads or its check read nothing. The check is
 --- made by a document of its own that nothing opens, so that what the document last published and what it kept stand, and that
 --- takes no place of a document's kept result ([`bounded`]); the last is kept, so that a probe of the same text, as an
---- editor asks again for each key typed or for an item's documentation, is answered from its result. It counts as no check
+--- editor asks again for each key typed or for an item's documentation, is served from its result. It counts as no check
 --- of the document, and the program reads the document's text again at the next real check
 --- ([`held.document`]).
 function check.probe(checker: Checker, document: Document, text: string): check.Reading?

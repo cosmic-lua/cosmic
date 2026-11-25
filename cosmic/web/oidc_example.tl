@@ -1,6 +1,6 @@
 --- Worked examples for [`Web.oidc`], shown by `cosmic docs` under
 --- the symbol each one demonstrates and run by `cosmic test` like any other
---- test. A stand-in provider answers in place of a real one's network.
+--- test. A stand-in provider takes the place of a real one's network.
 
 local Clock = require("cosmic.clock")
 local Http = require("cosmic.http")
@@ -17,7 +17,7 @@ local record Example
 end
 
 --- A page behind a login: a visit with nobody logged in is sent to the
---- provider, and the provider's answer logs in and comes back. The
+--- provider, and the provider's response logs in and comes back. The
 --- provider here is a stand-in that logs in anyone as `ada`.
 function Example.oidc()
   local issuer = "https://id.example.com"

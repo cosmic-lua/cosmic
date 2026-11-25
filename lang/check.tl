@@ -204,7 +204,8 @@ local record Check
 
   --- What the fix of a value that is none of the arms of a recursive alias adds, and what a table literal wanted as an
   --- interface is told in place of the generic fix, by the type (`<module> <name>`): the library's own advice for the type it
-  --- declares, in words that name its functions.
+  --- declares, in words that name its functions. A key `<module> <name> .<field>` is what the fix of a field the type
+  --- does not have adds: a field it had once.
   advice: {string: string}
 end
 
@@ -216,6 +217,22 @@ Check.advice = {
   ["cosmic.time Time.CivilFields"] = "write the literal where it is typed as the record that lists it: `local wall: Time.Wall = " ..
     "{ ... }`, or `Time.Civil`; for a date alone, `Time.parse_date(text, zone)` reads one",
   ["cosmic.json Json.Value"] = "for a record or a class of your own, call `Json.encode_any`, which takes any value",
+  ["cosmic.sandbox.policy rules.Policy .promises"] = "a promise is a grant now: write `grants = { { calls = \"fork\" } }`, " ..
+    "and read them with `Sandbox.calls(policy)`",
+  ["cosmic.sandbox.policy rules.Policy .connect"] = "a host is a grant now: write " ..
+    "`grants = { { connect = \"github.com:443\" } }`, and read them with `Sandbox.connects(policy)`",
+  ["cosmic.internal.test_policy test_policy.Policy .promises"] = "a promise is a grant now: write " ..
+    "`grants = { { calls = \"nest\" } }`",
+  -- The names other languages give what these records have under another, which programs guess most.
+  ["cosmic.json Json .parse"] = "`Json.decode(text)` reads JSON text: `local value, why = Json.decode(text)`",
+  ["cosmic.json Json .stringify"] = "`Json.encode(value)` writes JSON text: `local text, why = Json.encode(value)`",
+  ["cosmic.json Json .dumps"] = "`Json.encode(value)` writes JSON text: `local text, why = Json.encode(value)`",
+  ["cosmic.json Json .loads"] = "`Json.decode(text)` reads JSON text: `local value, why = Json.decode(text)`",
+  ["cosmic.fs Fs .exists"] = "`Fs.status(path)` tells whether anything is there: `local status = Fs.status(path)!`, " ..
+    "then `status.exists`",
+  ["cosmic.fs Fs .glob"] = "`Fs.walk(root)` lists every file under `root`, relative to it: filter the list with `path:match(...)`",
+  ["cosmic.fs Fs .listdir"] = "`Fs.list(path)` lists the names in a directory",
+  ["cosmic.fs Fs .readdir"] = "`Fs.list(path)` lists the names in a directory",
 }
 
 -- State ----------------------------------------------------------------------------------
@@ -519,6 +536,8 @@ local record Ctx
   mut written: Ast.Name?
   --- The name of the function of the string library each local that is given one and never assigned holds, by id.
   library: mut {integer: string}
+  --- Each `s:sub(...)` whose `s` is a string, by the call's id: its bounds bound what it answers ([`Operators.short_range`]).
+  string_subs: mut {integer: boolean}
   --- The reads of `table.move` not yet taken as the callee of a call, by the id of the node ([`Writes.move_stray`]).
   moves: mut {integer: Ast.Node}
   --- Whether the type of each node is kept in `types`.
@@ -589,6 +608,10 @@ end
 --- The text of the tokens of `node`, cut at a length a message can hold.
 local function text_of(ctx: Ctx, node: Ast.Node): string
   local b = base_of(node)
+  -- The `assert` of `e!` is written nowhere: its name is its text.
+  if b.last < b.first and node.kind == "Name" then
+    return node.text
+  end
   local tokens = ctx.tokens
   local last = math.min(b.last, b.first + 24)
   local parts: mut {string} = {}
@@ -1159,8 +1182,8 @@ end
 -- Refusals -----------------------------------------------------------------------------------
 
 --- The fix for a read `e` of an index that may be nil. A map's key may be missing, so its read is tested, taken with
---- `assert` or given a default. For an array, the counted loop and the range test are offered only where they could
---- apply: an array that is a local name, read at a name. [`Array.at`] and `assert` take any array and key; `or <default>` is steered from.
+--- `!` (`e!`, which is `assert(e)`) or given a default. For an array, the counted loop and the range test are offered only where they could
+--- apply: an array that is a local name, read at a name. [`Array.at`] and `!` take any array and key; `or <default>` is steered from.
 --
 -- A value that may hold a boolean (`t`) is not taken with `assert(x)`, which raises for false and is refused
 -- ([`asserted_boolean`]), nor given a default with `or`, which replaces false: it is named and said to be there.
@@ -1173,7 +1196,7 @@ local function index_fix(ctx: Ctx, e: Ast.Index, t: Type): string
     if flag then
       return "test it (`local v = " .. read .. " if v ~= nil then ... end`), or " .. named .. " where the key must be there"
     end
-    return "test it (`local v = " .. read .. " if v ~= nil then ... end`), take it with `assert(" .. read .. ")` where " ..
+    return "test it (`local v = " .. read .. " if v ~= nil then ... end`), take it with `" .. read .. "!` where " ..
       "the key must be there, or write `" .. read .. " or <default>` where a missing key means that default"
   end
   local object, at = peel(e.object), peel(e.key)
@@ -1184,7 +1207,7 @@ local function index_fix(ctx: Ctx, e: Ast.Index, t: Type): string
       quoted(read) .. " as a value), "
   end
   return parts .. "read it with `Array.at(" .. xs .. ", " .. key .. ")` (`cosmic.array`: raises when missing)" ..
-    (if flag then ", " .. named else " or `assert(" .. read .. ")`" end) .. ", or test it (`local v = " .. read .. " if v ~= nil then ... end`); `or <default>` turns an out-of-range " ..
+    (if flag then ", " .. named else " or `" .. read .. "!`" end) .. ", or test it (`local v = " .. read .. " if v ~= nil then ... end`); `or <default>` turns an out-of-range " ..
     "read into a wrong value"
 end
 
@@ -1199,7 +1222,7 @@ local function nil_fix(ctx: Ctx, node: Ast.Node, t: Type): string
       return "name the value and say it is there (`local v = " .. text_of(ctx, e) .. "` then `assert(v ~= nil)`), or test " ..
         "it first (`if v == nil then " .. Naming.on_nil(ctx, "v") .. " end`); " .. call .. " answers nil when it fails"
     end
-    return "take the value with `local v = assert(" .. text_of(ctx, e) .. ")`, or test it first (`if v == nil then " ..
+    return "take the value with `local v = " .. text_of(ctx, e) .. "!`, or test it first (`if v == nil then " ..
       Naming.on_nil(ctx, "v") .. " end`); " .. call .. " answers nil when it fails"
   end
   if e.kind == "Index" then
@@ -1208,10 +1231,10 @@ local function nil_fix(ctx: Ctx, node: Ast.Node, t: Type): string
   local s = text_of(ctx, e)
   if (e.kind == "Field") then
     return "copy " .. quoted(s) .. " to a local and test that: `local v = " .. s .. " if v ~= nil then ... end`, or " ..
-      (if flag then "say it is there with `assert(v ~= nil)`" else "take it with `assert(" .. s .. ")`" end)
+      (if flag then "say it is there with `assert(v ~= nil)`" else "take it with `" .. s .. "!`" end)
   end
   return "test it first (`if " .. s .. " == nil then " .. Naming.on_nil(ctx, s) .. " end`), or " ..
-    (if flag then "say it is there with `assert(" .. s .. " ~= nil)`" else "take it with `assert(" .. s .. ")`" end)
+    (if flag then "say it is there with `assert(" .. s .. " ~= nil)`" else "take it with `" .. s .. "!`" end)
 end
 
 --- Whether the type `t` names `invalid` anywhere.
@@ -1225,6 +1248,27 @@ local function names_invalid(t: Type): boolean
     end
   end
   return false
+end
+
+--- For `e` that names a local made by a `local` statement with a type that has no nil (a cursor made of a value, which
+--- runs out to nil later: `local p = 1`): the fix that declares it optional where it is made, so it may be nil. Nil for
+--- a parameter, a loop variable, a global, or a local whose type has nil or reads otherwise with `?`.
+function Naming.optional_local(ctx: Ctx, e: Ast.Node): string?
+  local at = peel(e)
+  if not (at.kind == "Name") then return nil end
+  local id = at.binding
+  if id == nil then return nil end
+  local v, t = ctx.scoped.vars[id], ctx.vars[id]
+  if v == nil or t == nil or v.kind ~= "local" then return nil end
+  -- A type that `T?` writes plainly: no union, function or type variable, whose `?` would read otherwise.
+  local tag = t.tag
+  if not (tag == "integer" or tag == "number" or tag == "string" or tag == "boolean" or tag == "true" or
+      tag == "false" or tag == "named" or tag == "array" or tag == "map") then
+    return nil
+  end
+  local shown = Types.display(t, ctx.binders, ctx.fn_names)
+  return "declare `" .. at.text .. "` `" .. shown .. "?` where it is declared (`local " .. at.text .. ": " .. shown ..
+    "? = ...`), so it may be nil"
 end
 
 --- Reports that the value of `node`, of type `got`, is not below `want`, and `r` says why. `where` is a phrase that
@@ -1273,8 +1317,12 @@ local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relat
   local e = peel(node)
   if code == "nil" then
     if got.tag == "nil" then
+      -- A local made of a value and set to nil later (a cursor that runs out) is declared optional where it is made.
+      local target = ctx.written
+      local cursor = if target ~= nil then Naming.optional_local(ctx, target) else nil end
       report(ctx, "nil_not_allowed", node, "nil is given" .. where .. ", where " .. quoted(w) .. " is wanted",
-        "give a value, or declare what takes it `" .. w .. "?` (a parameter or field `name?: T`)", shown)
+        if cursor ~= nil then cursor .. ", or give a value" else
+          "give a value, or declare what takes it `" .. w .. "?` (a parameter or field `name?: T`)" end, shown)
     elseif (e.kind == "Index") then
       report(ctx, "index_may_be_nil", node, s .. " is " .. quoted(g) .. " (an index read may be nil), where " ..
           quoted(w) .. " is wanted" .. where,
@@ -2439,9 +2487,11 @@ function TableLiterals.literal_record(ctx: Ctx, e: Ast.Table, n: Named): Type
       local field = TableLiterals.plain_field(ctx, n, name)
       if field == nil then
         local close = nearest(name, names_of(ctx, n))
+        local advised = Check.advice[n.decl.module .. " " .. n.decl.name .. " ." .. name]
         report(ctx, "literal_unknown", item, owner .. " has no field " .. quoted(name) ..
             (if close ~= "" then ", nearest " .. quoted(close) else "" end),
-          (if close ~= "" then "write " .. quoted(close) .. ", or declare " else "declare " end) .. quoted(name) .. " in " .. owner)
+          if advised ~= nil then advised else (if close ~= "" then "write " .. quoted(close) .. ", or declare " else
+            "declare " end) .. quoted(name) .. " in " .. owner end)
       elseif value ~= nil then
         given[name] = true
         local want = put_in(ctx, n, field.type)
@@ -2617,13 +2667,39 @@ function TableLiterals.literal_member(ctx: Ctx, e: Ast.Table, u: Union, written:
       end
     end
   end
+  -- A record told by being there: the one candidate that declares every field the literal names, where each
+  -- candidate is a record.
+  local every_record = true
+  for _, m in ipairs(candidates) do
+    every_record = every_record and (m.tag == "named") and not m.value and m.decl.kind == "record"
+  end
+  if every_record then
+    local declaring: mut {Type} = {}
+    for _, m in ipairs(candidates) do
+      if (m.tag == "named") then
+        local held = Declarations.names_held(ctx.store, ctx.judge, m.decl)
+        local all = true
+        for _, item in ipairs(e.items) do
+          local name = TableLiterals.item_name(item)
+          all = all and (name == nil or held[name] == true)
+        end
+        if all then
+          declaring[#declaring + 1] = m
+        end
+      end
+    end
+    if #declaring == 1 then
+      return declaring[1]
+    end
+  end
   local records = false
   for _, m in ipairs(candidates) do
     records = records or (m.tag == "named")
   end
   if records then
     report(ctx, "literal_ambiguous", e, "this literal could be any of " .. listed(type_names(ctx, candidates)),
-      "give the tag field of the member it is (`kind = \"...\"`), or type the literal first: `local v: Member = {...}`")
+      "give the tag field of the member it is (`kind = \"...\"`) or a field only that member declares, or type " ..
+        "the literal first: `local v: Member = {...}`")
   elseif shape == "empty" then
     local fix = "write an item, or type the literal as the one it is: `local v: " .. show(ctx, candidates[1]) .. " = {}`" -- checked: index_may_be_nil
     if (written.tag == "named") then
@@ -2916,6 +2992,49 @@ local function member_types(ctx: Ctx, t: Named, name: string): {Member}?
   return held
 end
 
+--- What `t` (named) has, for a read of the field `name` it does not have: the members `name` may mean ([`nearest`]
+--- `close`, then [`NearNames.related`] ones) with their types, then the names of the others; nil where it has none.
+function Naming.members_told(ctx: Ctx, t: Type, name: string, close: string): string?
+  local NearNames = require("lang.near_names")
+  if not (t.tag == "named") then return nil end
+  local index = members_index(ctx, t.decl, t.value)
+  if index == nil then return nil end
+  local names = names_of(ctx, t)
+  if #names == 0 then return nil end
+  local picked: mut {string} = {}
+  local taken: mut {string: boolean} = {}
+  local function pick(n: string)
+    if n ~= "" and taken[n] == nil and #picked < NearNames.TYPED then
+      picked[#picked + 1] = n
+      taken[n] = true
+    end
+  end
+  pick(close)
+  for _, n in ipairs(NearNames.related(name, names)) do pick(n) end
+  local typed: mut {string} = {}
+  for _, n in ipairs(picked) do
+    local list = index.by_name[n]
+    local first = if list ~= nil then list[1] else nil end
+    local shown = if first ~= nil then NearNames.cut(show(ctx, first.type), 120) else "" end
+    -- A type that holds a type variable of the checker's own (`?0.0`) is shown by its name alone.
+    typed[#typed + 1] = if shown ~= "" and shown:find("%?%d") == nil then "`" .. n .. ": " .. shown .. "`" else quoted(n) end
+  end
+  local rest: mut {string} = {}
+  local more = 0
+  for _, n in ipairs(names) do
+    if taken[n] == nil then
+      if #rest < NearNames.NAMED then rest[#rest + 1] = n else more = more + 1 end
+    end
+  end
+  local owner = quoted(Types.decl_name(t.decl))
+  local told = if #typed > 0 then owner .. " has " .. table.concat(typed, ", ") .. "; " ..
+      (if #rest > 0 then "its other members: " else "" end) else owner .. " has: " end
+  if #rest > 0 then
+    told = told .. table.concat(rest, ", ") .. (if more > 0 then ", and " .. tostring(more) .. " more" else "" end)
+  end
+  return told
+end
+
 local function field_unknown(ctx: Ctx, node: Ast.Node, t: Type, name: string)
   if (t.tag == "named") and t.value and (ctx.program.absent[t.decl] or {})[name] == true then
     -- The function is a field every value holds, filled where the value is made: the table of the functions has none.
@@ -2984,18 +3103,24 @@ local function field_unknown(ctx: Ctx, node: Ast.Node, t: Type, name: string)
   end
   local close = nearest(name, names)
   local declare = "declare " .. quoted(name) .. " in " .. owner
+  local told: string? = nil
   if (t.tag == "named") and Types.shape_record(t.decl) then
     declare = "add `" .. name .. ": T` to the braces of " .. owner
   elseif (t.tag == "named") and t.value and t.decl.kind == "integer_enum" then
     declare = "add the member `" .. name .. " = n` to " .. owner
   end
   if (t.tag == "named") and t.decl.module:sub(1, 7) == "cosmic." and ctx.input.module:sub(1, 7) ~= "cosmic." then
-    -- A record of cosmic's own modules is the binary's to a program, which cannot declare a field in it.
-    declare = "`cosmic docs " .. t.decl.module .. "` lists what " .. owner .. " has"
+    -- A record of cosmic's own modules is the binary's to a program, which cannot declare a field in it: what it has
+    -- is told here, so the next try needs no lookup.
+    told = Naming.members_told(ctx, t, name, close)
+    declare = told or ("`cosmic docs " .. t.decl.module .. "` lists what " .. owner .. " has")
   end
+  local advised = if (t.tag == "named") then Check.advice[t.decl.module .. " " .. t.decl.name .. " ." .. name] else nil end
   report(ctx, "field_unknown", node, owner .. " has no field " .. quoted(name) ..
       (if close ~= "" then ", nearest " .. quoted(close) else "" end),
-    if close ~= "" then "write " .. quoted(close) .. ", or " .. declare else declare end, { show(ctx, t) })
+    if advised ~= nil then advised elseif close ~= "" then
+      "write " .. quoted(close) .. (if told ~= nil then "; " else ", or " end) .. declare else declare end,
+    { show(ctx, t) })
 end
 
 --- How a message names the static `name` of `decl` that a statement of the module has yet to give, and that statement:
@@ -3944,8 +4069,9 @@ function Tests.table_members(ctx: Ctx, t: Type): {Type}?
 end
 
 --- How a run-time test tells that a value of type `value` is the record `r`: `{ "" }` where `r` is the one table `value`
---- may be, the tag field and its strings in `r` where a tag tells the tables apart, or nil where no test can tell (a
---- table of another kind, `any`, a type variable, a record with type arguments, which no tag tells).
+--- may be, the tag field and its strings in `r` where a tag tells the tables apart, the one field `r` alone has where
+--- that tells them ([`Tests.presence_field`]), or nil where no test can tell (a table of another kind, `any`, a type
+--- variable, a record with type arguments, which no tag tells).
 function Tests.record_tag(ctx: Ctx, value: Type, r: Type): {string}?
   if not ((r.tag == "named")) or r.value or #r.args > 0 then
     return nil
@@ -3964,8 +4090,12 @@ function Tests.record_tag(ctx: Ctx, value: Type, r: Type): {string}?
     return { "" }
   end
   local field = Tests.tag_field(ctx, tables)
-  local values = if field ~= nil then Tests.tag_values(ctx, r, field) else nil end
-  if field == nil or values == nil then
+  if field == nil then
+    local alone = Tests.presence_field(ctx, tables, r)
+    return if alone ~= nil then { alone } else nil end
+  end
+  local values = Tests.tag_values(ctx, r, field)
+  if values == nil then
     return nil
   end
   local out: mut {string} = { field }
@@ -3973,6 +4103,19 @@ function Tests.record_tag(ctx: Ctx, value: Type, r: Type): {string}?
     out[#out + 1] = v
   end
   return out
+end
+
+--- The field that tells the record `r` apart from the other records of `tables` by being there
+--- ([`Declarations.presence_field`]). Nil where a member of `tables` is not a record, or `r` has no such field.
+function Tests.presence_field(ctx: Ctx, tables: {Type}, r: Named): string?
+  local records: mut {Named} = {}
+  for _, m in ipairs(tables) do
+    if not ((m.tag == "named")) or m.value or m.decl.kind ~= "record" or m.decl.body == nil then
+      return nil
+    end
+    records[#records + 1] = m
+  end
+  return Declarations.presence_field(ctx.store, ctx.judge, records, r)
 end
 
 --- The field that tells the types of `list` apart: one every one declares with an enum, no value of which is in two of
@@ -4883,13 +5026,73 @@ end
 local record Operators
 end
 
+--- For a test of a local against nil (`p ~= nil`) where the local's declared type has no nil: it is to be declared
+--- optional where it is made, as a cursor that runs out is (`local p: integer? = 1`). Nil for any other test.
+function Operators.optional_fix(ctx: Ctx, node: Ast.Binary): string?
+  local name, other = peel(node.left), peel(node.right)
+  if (name.kind ~= "Name") then name, other = other, name end
+  if not (other.kind == "Nil") then return nil end
+  local fix = Naming.optional_local(ctx, name)
+  return if fix ~= nil then fix .. ", or remove the test" else nil end
+end
+
+--- The integer an integer literal or its negation (`-1`) writes, else nil.
+function Operators.literal_integer(e: Ast.Node): integer?
+  local at = peel(e)
+  if (at.kind == "Integer") then return at.value end
+  if (at.kind == "Unary") and at.op == "-" then
+    local inner = peel(at.operand)
+    if (inner.kind == "Integer") then return -inner.value end
+  end
+  return nil
+end
+
+--- The bounds of `s:sub(i, j)` when both are literals of one sign (`sub(1, 19)`, `sub(-3)`), else 0, 0 (never a bound
+--- of one sign).
+function Operators.literal_range(e: Ast.Node): integer, integer
+  local at = peel(e)
+  if not ((at.kind == "MethodCall") and at.name == "sub") or #at.args < 1 or #at.args > 2 then
+    return 0, 0
+  end
+  local i = Operators.literal_integer(assert(at.args[1]))
+  local j = if #at.args == 2 then Operators.literal_integer(assert(at.args[2])) else -1 end
+  if i == nil or j == nil or (i > 0) ~= (j > 0) or i == 0 or j == 0 then return 0, 0 end
+  return i, j
+end
+
+--- `s:sub(1, 19) == "local function test_"`: a literal longer than the range is never what the range answers, which
+--- finds a miscounted prefix.
+function Operators.short_range(ctx: Ctx, node: Ast.Binary)
+  local range, literal = peel(node.left), peel(node.right)
+  if not (literal.kind == "String") then range, literal = literal, range end
+  if not (literal.kind == "String") or not (range.kind == "MethodCall") or ctx.string_subs[range.id] ~= true then
+    return
+  end
+  local i, j = Operators.literal_range(range)
+  if i == 0 then return end
+  local most, n = math.max(0, j - i + 1), #literal.value
+  if n <= most then return end
+  local object = text_of(ctx, range.object)
+  local fix = if i > 0 then "write `" .. object .. ":sub(" .. tostring(i) .. ", " .. tostring(i + n - 1) .. ")`"
+    elseif j == -1 then "write `" .. object .. ":sub(" .. tostring(-n) .. ")`"
+    else "make the range " .. tostring(n) .. (if n == 1 then " byte" else " bytes" end) .. " long" end
+  report(ctx, "compare_disjoint", node, subject(ctx, range) .. " has at most " .. tostring(most) ..
+      (if most == 1 then " byte" else " bytes" end) .. " and " ..
+      subject(ctx, literal) .. " has " .. tostring(n) .. ": the test is never " ..
+      (if node.op == "==" then "true" else "false" end),
+    fix .. ", which is as long as the string")
+end
+
 --- `a == b` and `a ~= b`: both sides overlap, else the test is dead.
 function Operators.equality(ctx: Ctx, node: Ast.Binary, left: Type, right: Type)
   if not Operands.overlaps(ctx, left, right) then
     report(ctx, "compare_disjoint", node, subject(ctx, node.left) .. " is " .. tq(ctx, left) .. " and " ..
         subject(ctx, node.right) .. " is " .. tq(ctx, right) .. ", which share no value: the test is never " ..
         (if node.op == "==" then "true" else "false" end),
-      "compare values of one type, or remove the test", { show(ctx, left), show(ctx, right) })
+      Operators.optional_fix(ctx, node) or "compare values of one type, or remove the test",
+      { show(ctx, left), show(ctx, right) })
+  else
+    Operators.short_range(ctx, node)
   end
 end
 
@@ -7181,25 +7384,33 @@ function Calls.sqlite_function(ctx: Ctx, callee: Ast.Node): string?
   return at.name
 end
 
---- What `Sqlite.open(path, { schema = S })` and `Sqlite.memory({ schema = S })` return where `S` is a
---- `local schema`: the lists `rets` with each handle a handle of `S`.
+--- What `Sqlite.open(path, { schema = S })`, `Sqlite.memory({ schema = S })` and `Sqlite.hold(db, S)` return
+--- where `S` is a `local schema`: the lists `rets` with each handle a handle of `S`.
 function Calls.opened_handle(ctx: Ctx, node: Ast.Call, rets: {Alt}): {Alt}?
   local fn = Calls.sqlite_function(ctx, node.callee)
-  local opts = if fn == "open" then node.args[2] elseif fn == "memory" then node.args[1] else nil end
-  local given = if opts ~= nil then peel(opts) else nil end
-  if given == nil or not (given.kind == "Table") then
-    return nil
+  local value: Ast.Node? = nil
+  if fn == "hold" then
+    local given = node.args[2]
+    value = if given ~= nil then peel(given) else nil end
+  else
+    local opts = if fn == "open" then node.args[2] elseif fn == "memory" then node.args[1] else nil end
+    local given = if opts ~= nil then peel(opts) else nil end
+    if given == nil or not (given.kind == "Table") then
+      return nil
+    end
+    for _, item in ipairs(given.items) do
+      if (item.kind == "Named") and item.name == "schema" then
+        value = peel(item.value)
+      end
+    end
   end
   local schema: Type? = nil
-  for _, item in ipairs(given.items) do
-    local value = if (item.kind == "Named") and item.name == "schema" then peel(item.value) else nil end
-    -- A name or a field of one, which reads no value but the one the call was given.
-    if value ~= nil and ((value.kind == "Name") or ((value.kind == "Field") and (peel(value.object).kind == "Name"))) then
-      -- Read again, quiet: the call's own check of the argument reported what it found.
-      ctx.quiet = ctx.quiet + 1
-      schema = expr(ctx, value, nil)
-      ctx.quiet = ctx.quiet - 1
-    end
+  -- A name or a field of one, which reads no value but the one the call was given.
+  if value ~= nil and ((value.kind == "Name") or ((value.kind == "Field") and (peel(value.object).kind == "Name"))) then
+    -- Read again, quiet: the call's own check of the argument reported what it found.
+    ctx.quiet = ctx.quiet + 1
+    schema = expr(ctx, value, nil)
+    ctx.quiet = ctx.quiet - 1
   end
   if schema == nil or not (schema.tag == "named") or not schema.value then
     return nil
@@ -7342,7 +7553,7 @@ end
 
 --- The result columns of `e` where it is `db:rows(sql)` or `db:one(sql)`, either in `assert`, on a handle
 --- of a `local schema`, with literal SQL that SQLite prepares against its schema: the columns, and whether the
---- call answers a list of rows (`rows`) or one row (`one`). An element of a list [`Ctx.row_lists`] holds (`rows[1]`) is
+--- call returns a list of rows (`rows`) or one row (`one`). An element of a list [`Ctx.row_lists`] holds (`rows[1]`) is
 --- one row of its columns. Nil otherwise.
 function Calls.result_columns(ctx: Ctx, e: Ast.Node): {Sql.Column}?, boolean
   local at = peel(e)
@@ -7648,6 +7859,7 @@ local function apply_method(ctx: Ctx, node: Ast.MethodCall, object: Type, expect
     end
     ft, cands = common, overloads
   else
+    if node.name == "sub" and (t.tag == "string") then ctx.string_subs[node.id] = true end
     ft = member_read(ctx, node, t, node.name)
     module = ctx.member_module
     if ctx.cand_node == node then
@@ -8498,7 +8710,7 @@ end
 --- The local `t` whose length the limit `to` of a numeric loop with the index `var` is at most, and the literal `b`
 --- it stops short of that length by: `#t`, `#t - b`, or a `math.min` of such a one and other values that run no code
 --- of the program ([`Writes.keeps_length`] of each), so that nothing they run can change `t` between its length and the
---- loop. `math.min` answers the least of its arguments, so the limit is at most `#t - b`. Nil for another form.
+--- loop. `math.min` returns the least of its arguments, so the limit is at most `#t - b`. Nil for another form.
 function Writes.length_limit(to: Ast.Exp, var: integer): (Ast.Exp, integer) | (nil, integer)
   local at = peel(to)
   local slack = 0
@@ -10443,7 +10655,12 @@ local function stat(ctx: Ctx, s: Ast.Stat)
     if decl ~= nil then
       ctx.declared[decl] = true
     end
-    local ddl = if (s.kind == "Class") then s.schema else nil end
+    local schema_value = if (s.kind == "Class") then s.schema_value else nil end
+    if schema_value ~= nil then
+      local _ = expect(ctx, schema_value, expr(ctx, schema_value, ctx.store.string), ctx.store.string, " as the DDL of a schema")
+    end
+    local body = if decl ~= nil and (s.kind == "Class") and s.schema ~= nil then decl.body else nil end
+    local ddl = if body ~= nil then body.schema else nil end
     local refusal = if ddl ~= nil then require("lang.sql").schema(ddl) else nil end
     if refusal ~= nil then
       report(ctx, "sql_schema", s.name, "SQLite refuses the DDL of the schema " .. quoted(s.name.name) .. ": " .. refusal,
@@ -10531,7 +10748,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
       return false
     end, function(_node: Ast.Node, _spelled: string, _found: LoadOrder.Found) end),
     literals = {}, spreads = {}, tags = {}, declared = {}, union_fields = {}, spine = {},
-    ternaries = {}, spare = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, assigning = {}, quiet = 0, closers = 0, callee_module = "", member_module = "", moves = {},
+    ternaries = {}, spare = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, string_subs = {}, assigning = {}, quiet = 0, closers = 0, callee_module = "", member_module = "", moves = {},
     loops = {}, ranges = {}, map_reads = {}, keys = {}, edges = {}, guards = {}, ties = {}, coroutine_reads = {}, top = tops, module_table = module_table(input, lowered), initialized = {}, given = {}, handed = false, reads = {}, unfixed = {}, narrowed = {}, inert = {}, runs = {}, inferred = {}, boundaries = {}, types = {}, callees = {}, consts = {}, unread_schemas = {}, call_columns = {}, row_lists = {}, row_columns = {}, starts = {}, library = {}, typed = typed ~= false, warnings = {},
     unite = function(a: Type, b: Type): Type
       return store:union({ a, b })

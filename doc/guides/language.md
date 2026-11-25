@@ -193,8 +193,11 @@ print(area({ kind = "square", side = 2 }))
 
 `s is Circle` tests the tag too: where `s` is the union, it runs as a test of `s.kind` against the strings of
 `Circle`'s tag, and narrows alike. `is` takes one type (`is_union`): test each record apart. A record that is
-the one table a value may be (`R | string`) is told by `type(v) == "table"`. Where no tag tells a record from the other
-tables a value may be, `is` is refused (`is_on_record`), and the fix is a tag field of a literal type in each record.
+the one table a value may be (`R | string`) is told by `type(v) == "table"`. Records with no field that every one types
+by an enum may be told apart by being there instead: each requires a fixed field, never nil, that no other member
+declares. `g is Path` in `Path | Calls`, where only `Path` declares `path`, runs as `g.path ~= nil`, and a literal is
+the one member that declares every field it names. Where neither tells a record from the other tables a value may be,
+`is` is refused (`is_on_record`), and the fix is a tag field of a literal type in each record, or a field of its own.
 
 A test of a place against a string narrows it. Where `k == "a"` holds, `k` is `"a"`. Where it fails, an enum or a union
 of literals keeps its other strings, so a chain of tests over every string of an enum ends the function, and the
@@ -910,9 +913,27 @@ hi
 
 A schema's handles are made by [`Sqlite.open`] and [`Sqlite.memory`] alone: a table literal of `Notes`, `v is Notes` and a
 function written into `Notes` (`function Notes.f()`) are refused, since a handle's metatable is [`cosmic.sqlite`]'s. The
-value `Notes` has the field `ddl`. A module exports a schema as the type, `type Notes = Notes` in its record, and a
-function that opens a handle of it: another module that holds the value in a field holds a [`Sqlite.Schema`], which
-opens a plain handle.
+value `Notes` has the field `ddl`. A module exports a schema with `type Notes = Notes` in a record that takes no type
+parameters. The record's table then holds the value too, so another module opens a handle of it with `{ schema = Store.Notes }`. A field typed
+[`Sqlite.Schema`] holds a schema of no known tables, which opens a plain handle.
+
+The DDL may also be written `local schema Name = <exp>`. The expression joins its parts with `..`. A part is a string
+literal, a `<const>` local of the same block given one, or the `ddl` of another schema. That schema is a `local schema`
+declared above (`Notes.ddl`), or one a record names (`store.Notes.ddl`). So a schema of one piece per table reads as
+their join. A schema can also extend the schema of another module.
+
+```teal
+local NOTES <const> = "CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT NOT NULL);"
+local TAGS <const> = "CREATE TABLE tags (note INTEGER NOT NULL, tag TEXT NOT NULL);"
+local schema Tagged = NOTES .. TAGS
+local schema Dated = Tagged.ddl .. "CREATE TABLE dates (note INTEGER NOT NULL, at INTEGER NOT NULL);"
+
+print(Dated.ddl == NOTES .. TAGS .. "CREATE TABLE dates (note INTEGER NOT NULL, at INTEGER NOT NULL);")
+```
+
+```output
+true
+```
 
 ## a value or a failure
 
@@ -926,7 +947,7 @@ which list the call returned.
 
 A type parameter with a bound is never nil, since no bound holds `nil`.
 `T is Some` says only that: it takes every type that is never nil, and
-gives the body nothing more. A generic function answers `(T) | (nil, E)`
+gives the body nothing more. A generic function returns `(T) | (nil, E)`
 with it, and `(T | false) | (nil, E)` where "none" is a value. A type
 that may be nil, or a type parameter with no bound, meets no `Some`
 (`bound_unmet`).

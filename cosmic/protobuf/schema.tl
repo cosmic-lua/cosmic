@@ -14,7 +14,7 @@
 ---     local track = assert(TRACK:decode(bytes))
 ---
 --- The build writes a message's reader and writer from the record's own declaration and the table of the call
---- ([`message_of`]), so what `decode` answers is the record and a record literal is what `encode` takes.
+--- ([`message_of`]), so what `decode` returns is the record and a record literal is what `encode` takes.
 ---
 --- A bare number takes the encoding the field's type gives, and a helper names another:
 ---
@@ -23,8 +23,8 @@
 --- - `number`: a double. [`float`] is a float.
 --- - `boolean`: a bool.
 --- - `string`: any bytes, a `bytes`. [`string`] holds them to UTF-8, a `string` of a `.proto` file.
---- - an enum: [`enum`], with the codec [`enum_of`] answers for it.
---- - a record: [`message`], with the codec [`message_of`] answers for it, or [`self`] for the record's own.
+--- - an enum: [`enum`], with the codec [`enum_of`] returns for it.
+--- - a record: [`message`], with the codec [`message_of`] returns for it, or [`self`] for the record's own.
 --- - `{T}`: a repeated field of `T`'s encoding, written one field for each element and read packed or not.
 ---   `{ packed = true }` writes numbers, booleans and enums packed.
 --- - [`Unknown`]: what the record keeps of a message without understanding it. It takes no number.
@@ -54,11 +54,11 @@
 --- writes nothing of it back, and a record with one holds it as without the option. A required field with no
 --- default still fails for it.
 ---
---- `decode` never raises, whatever the bytes, under the wire codec's bounds. It answers nil and the first thing that did not fit, by the path of
+--- `decode` never raises, whatever the bytes, under the wire codec's bounds. It returns nil and the first thing that did not fit, by the path of
 --- fields from the root: `protobuf: Album.tracks[2].title (field 1): not UTF-8`. The bounds are the wire
 --- codec's ([`Protobuf.Options`]), and a bound that is no integer of 1 or more raises, as [`Protobuf.decode`]
---- raises for it. `encode` answers nil and why for a record the schema cannot write, such as an integer outside a
---- `fixed32`. A record that holds itself through its own fields, which no `decode` answers, has no bytes: `encode`
+--- raises for it. `encode` returns nil and why for a record the schema cannot write, such as an integer outside a
+--- `fixed32`. A record that holds itself through its own fields, which no `decode` returns, has no bytes: `encode`
 --- of one does not return.
 --- @public
 
@@ -109,7 +109,7 @@ local record Schema
   --- A message as the wire codec read it, which a codec's `read` takes.
   type Message = Protobuf.Message
 
-  --- An enum and its numbers, which [`enum_of`] answers.
+  --- An enum and its numbers, which [`enum_of`] returns.
   record Enum<E>
     --- The value of that number, or nil where the enum names none, or for nil.
     name: function(number: integer?): E?
@@ -117,7 +117,7 @@ local record Schema
     number: function(value: E): integer
   end
 
-  --- A message's reader and writer, which [`message_of`] answers.
+  --- A message's reader and writer, which [`message_of`] returns.
   record Codec<T>
     --- The record's name, as [`message_of`] was given it.
     name: string
@@ -130,7 +130,7 @@ local record Schema
     --- no root, a path from this message and why. `lenient` is [`DecodeOptions`]' (default false).
     read: function(message: Protobuf.Message, lenient?: boolean): T?, string
     --- What the build wrote to write the record: its bytes, or nil and a failure with no root. With `into`, the
-    --- writing of the message that holds this one, the fields go to it in place and the answer is "".
+    --- writing of the message that holds this one, the fields go to it in place and it returns "".
     write: function(value: T, into?: Writing): string?, string
   end
 
@@ -191,7 +191,7 @@ local record Schema
     message: function<T>(r: Reading, number: integer, field: string,
       read: function(Protobuf.Message, lenient?: boolean): T?, string): T?
     --- A required enum field: the value `named`, or `first` and a failure where the field is missing or the enum
-    --- names no such number. `first` is a value of the enum, which stands where there is none to answer.
+    --- names no such number. `first` is a value of the enum, which stands where there is none to return.
     need_enum: function<E>(r: Reading, number: integer, field: string, named: E?, first: E): E
     --- `value`, or `zero` where it is nil: a field with no presence, or with a default, which `zero` is then.
     or_zero: function<V>(value: V?, zero: V): V
@@ -341,13 +341,13 @@ local function fail(r: Schema.Reading, field: string, number: integer, why: stri
   if r.bad == "" then r.bad = trouble(field, number, why) end
 end
 
---- A failure the wire codec answered for the field.
+--- A failure the wire codec returned for the field.
 local function fail_wire(r: Schema.Reading, field: string, number: integer, why: string)
   fail(r, field, number, bare(why))
 end
 
 --- A failure below the field `field`, which may be an element (`tracks[2]`): `inner` is what the read of the
---- message it holds answered, a path from that message and why.
+--- message it holds returned, a path from that message and why.
 local function fail_below(r: Schema.Reading, field: string, inner: string)
   if r.bad == "" then r.bad = "." .. field .. inner end
 end
@@ -768,8 +768,8 @@ local function kept_bytes(kept: Schema.Unknown, present?: {integer: boolean}): s
   return Protobuf.encode(rest)
 end
 
---- Ends the message `w` is writing: one written in place inside another is closed there and answers "", and the
---- outermost answers the bytes.
+--- Ends the message `w` is writing, and returns "" for one written in place inside another, which is closed there,
+--- and the bytes for the outermost.
 local function close(w: Schema.Writing, kept?: Schema.Unknown, present?: {integer: boolean}): string?, string
   local nested = w.depth > 0
   if nested then w.depth = w.depth - 1 end

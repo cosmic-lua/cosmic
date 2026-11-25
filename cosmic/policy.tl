@@ -109,16 +109,20 @@ function PolicyJson.encode(p: Sandbox.Policy): string
     if #list > 0 then fields[name] = Json.array(list) end
   end
   put("isolate", merged.isolate or {})
-  put("promises", merged.promises or {})
-  put("connect", merged.connect or {})
   put("loopback", merged.loopback or {})
   put("env", merged.env or {})
   local grants: mut {Json.Value} = {}
   for _, grant in ipairs(merged.grants or {}) do
-    local written: mut {string: Json.Value} = { path = grant.path, letters = grant.letters }
-    local from = grant.from
-    if from ~= nil then written["from"] = from end
-    grants[#grants + 1] = written
+    if grant is Sandbox.Calls then
+      grants[#grants + 1] = { calls = grant.calls }
+    elseif grant is Sandbox.Connect then
+      grants[#grants + 1] = { connect = grant.connect }
+    else
+      local written: mut {string: Json.Value} = { path = grant.path, letters = grant.letters }
+      local from = grant.from
+      if from ~= nil then written["from"] = from end
+      grants[#grants + 1] = written
+    end
   end
   if #grants > 0 then fields["grants"] = Json.array(grants) end
   if next(digests) ~= nil then fields["set_env_digests"] = digests end

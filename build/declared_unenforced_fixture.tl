@@ -70,7 +70,7 @@ function declared_unenforced_fixture.environment(cache: string): {string:string}
   return env
 end
 
---- Runs `cosmic test` on `root`, answering its exit status and what it
+--- Runs `cosmic test` on `root`, returning its exit status and what it
 --- printed, which must say it started.
 function declared_unenforced_fixture.run(root: string, output: string, env: {string:string}): declared_unenforced_fixture.Run
   local fd = assert(Fs.open_write(output))

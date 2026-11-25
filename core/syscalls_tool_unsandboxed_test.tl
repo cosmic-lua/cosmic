@@ -1,6 +1,6 @@
 --- The cases of core/syscalls_tool_test.tl that need no sandbox: what a
---- start refuses as an argument before it makes one, what a platform with
---- no sandbox answers a start that asks for one, and an exit watch, which
+--- start refuses as an argument before it makes one, how a platform with
+--- no sandbox refuses a start that asks for one, and an exit watch, which
 --- starts this very program to run a chunk. They run on every platform,
 --- as the cases that unveil a child's root are Linux's alone.
 
@@ -9,24 +9,24 @@ local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local type raw_process = require("cosmic.internal.process")
 local this_program = require("build.this_program")
-local stand_in = require("build.stand_in")
+local Fake = require("cosmic.fake")
 
 --- The program itself, which the exit watch starts only to run a chunk
 --- (`lua`); and `nests`, since a worker held by a Landlock ruleset is
 --- refused a start that unveils a root before the start reads its
 --- arguments (build.confine's `forbid_running`), and these cases pass
---- such starts to see them refused. The stand-in they name is built in
+--- such starts to see them refused. The fake they name is built in
 --- the test's own directory and never started.
 Test.policy{
   profiles = { "cosmic" },
-  promises = { "nest" },
+  grants = { { calls = "nest" } },
 }
 
 local process = require("cosmic.internal.process")
 
---- A stand-in program built under `tmp` (build/stand_in.tl).
+--- A fake program built under `tmp` ([`cosmic.fake`]).
 local function probe_in(tmp: string): string
-  return (assert(stand_in.build(tmp .. "/stand-in")))
+  return (assert(Fake.build(tmp .. "/fake")))
 end
 
 --- Whether `sandbox` is refused as an argument, which raises before any
@@ -79,10 +79,10 @@ local function test_an_unveiled_path_is_absolute_and_bound_at_a_plain_name(tmp: 
 end
 
 --- Where the platform has no sandbox, a start that asks for one is
---- refused with an errno a refusal answers, and no argument that would be
+--- refused with an errno that marks a refusal, and no argument that would be
 --- accepted on Linux raises. On Linux, whatever this host refuses of the
 --- sandbox, these starts are core/syscalls_tool_test.tl's, which requires
---- one: so this returns there, and only the platforms without one answer.
+--- one: so this returns there, and checks only the platforms without one.
 local function test_a_sandbox_the_platform_lacks_is_refused(tmp: string)
   if assert(sys.uname()).sysname == "Linux" then
     Test.skip("a platform with a sandbox answers this where a test requires one")

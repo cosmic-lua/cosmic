@@ -234,7 +234,7 @@ function Example.utf8_operations()
 end
 
 -- TODO: write this coroutine example of the reference with typed coroutines, once lang/stdlib.d.tl declares them: the
--- checker declares no `coroutine.yield`, and `coroutine.close` answers one of two lists of values; the markers on the
+-- checker declares no `coroutine.yield`, and `coroutine.close` returns one of two lists of values; the markers on the
 -- lines hold them until then.
 
 --- coroutine.create makes a suspended thread; coroutine.resume returns success
@@ -334,7 +334,7 @@ end
 --- (`if v`, and `v and v.field`, whose right operand sees v not nil) and
 --- assert conditions narrow locals. A `type()` test narrows as `is` would:
 --- `any` to string, number, boolean or nil, and a union to the members of
---- that Lua type ("number" answers for integer too; `is integer` tells them
+--- that Lua type ("number" covers integer too; `is integer` tells them
 --- apart). Each accepts a variable, not an arbitrary expression. A union
 --- may contain only one table type unless every table member is a
 --- record/interface declared with a runtime discriminator using `where`. string|enum and unions of two enums

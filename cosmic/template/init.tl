@@ -22,7 +22,7 @@
 ---     {{range .items}}..{{else}}none{{end}}       `none` when there is no element
 ---     {{range $x := .items}}{{$x.name}}{{end}}    `$x` is each element, as dot is
 ---     {{range $i, $x := .items}}{{$i}}{{end}}     `$i` its index: 1, 2, ...
----     {{with .owner}}{{.name}}{{else}}nobody{{end}}  dot is the value, if truthy
+---     {{with .owner}}{{.name}}{{else}}nobody{{end}}  dot is the value, if filled
 ---     {{"{{"}}                          literal text: writes {{
 ---
 --- A name in a field path is a field of the record: a typo is a type
@@ -34,11 +34,19 @@
 ---
 --- A stage is a function by import path, whose module the generated
 --- source requires; composing one template in another is a stage naming
---- its `render`. A stage answers exactly one value, wherever it stands:
---- one declared to answer a fixed number of values above one is a type
+--- its `render`. A stage returns exactly one value, wherever it stands:
+--- one declared to return a fixed number of values above one is a type
 --- error on the template's line, so a function that can fail (`nil,
---- reason`) is wrapped by the caller into a stage that answers a value.
---- Truthiness is Lua's: only `nil` and `false` are false, not `""` or `0`.
+--- reason`) is wrapped by the caller into a stage that returns a value.
+--- An `{{if}}` or a `{{with}}` holds of a value that is filled
+--- ([`html.filled`]): not `nil`, `false` or empty. `""`, a safe value of
+--- [`cosmic.html`] that holds `""` (an empty `SafeHtml`) and a table with
+--- no key are empty: an empty list or map, and a record with no field set
+--- too, so `{{with .options}}` over a record of optional fields means "has
+--- some field set". `0` is filled, as in Lua (Go's templates take it for
+--- false). So
+--- `{{with .tools}}<tools>{{range .}}..{{end}}</tools>{{end}}` leaves the
+--- section out when the list is empty, with no nil to stand for "none".
 ---
 --- A value starts from dot, from `$` or from a variable. `range` and `with`
 --- make dot the element or the value, so `$` is how a block reaches the
@@ -73,7 +81,7 @@
 --- a slot takes a string, a number or a `SafeAttr`; in a quoted URL
 --- attribute value (`href`, `src`, `action` and the like), a slot that
 --- begins the value takes a string (checked by [`html.href`], which allows
---- a web or mail link or a relative reference and else answers
+--- a web or mail link or a relative reference and else returns
 --- `about:invalid`) or a `SafeUrl`; a slot after literal text is one piece
 --- of the URL (`href="/items/{{.id}}"`, `href="/s?q={{.q}}"`) and takes a
 --- string, a number or a `SafeUrlPart`, escaped by [`html.url_part`] so
@@ -95,7 +103,14 @@
 --- or the legacy `hx-ws` (a socket URL after `connect:`),
 --- in `hx-vals`, `hx-headers` or `hx-request` unless the template says
 --- `{{use htmx}}` (they are JSON that htmx may run), in `<script>` or `<style>`, and a few like them
---- (cosmic/template/markup.tl lists them). An `html` template must also end in plain text, since its
+--- (cosmic/template/markup.tl lists them). In a `<script>`, `nonce` and
+--- `integrity` take a string as any attribute does, and `src` takes a
+--- slot only as the whole value and only a [`html.SafeResourceUrl`]
+--- (`<script src="{{.js}}" nonce="{{.nonce}}" defer></script>`), as does
+--- the `href` of a `<link>`: only [`html.trust_resource_url`] makes one,
+--- since no allowlist can say a script or a stylesheet is the program's,
+--- so a `SafeUrl` from [`html.href`] does not stand in for it.
+--- An `html` template must also end in plain text, since its
 --- `SafeHtml` can go into another's text slot. `{{mode text}}` returns a
 --- `string` and escapes nothing, for anything that is not HTML; a slot
 --- there takes a string or a number.
@@ -116,8 +131,8 @@
 --- `ws-connect` are URLs, a slot as in `href` (a whole one, or a part after
 --- literal text); but a string given whole must be a same-origin reference
 --- ([`html.local_href`]: no scheme, no `//host`, else `about:invalid`) and
---- only a `SafeUrl` can name another origin, since htmx swaps what the URL
---- answers into the page. `hx-vals`, `hx-headers` and `hx-request` take a
+--- only a `SafeUrl` can name another origin, since htmx swaps the URL's
+--- response into the page. `hx-vals`, `hx-headers` and `hx-request` take a
 --- [`html.SafeJson`] as the whole value (`hx-vals='{{.vals}}'`), entity
 --- escaped for either quote, with nothing before or after the slot: JSON
 --- text cannot begin with the `js:` that makes htmx run it. A selector
@@ -145,8 +160,7 @@
 --- `{{range}}` and `{{with}}` take one `{{else}}` but no `{{else if}}`:
 --- nest an `{{if}}`. A range's `{{else}}` runs when the list has no first
 --- element, and dot there is what it is outside the range; the list is
---- read once. It is the way to say "none": `{{if .items}}` is true of an
---- empty list, which is a table.
+--- read once. `{{if .items}}` is false of an empty list too, as above.
 ---
 --- Line N of the template is line N of the source, so a type error reads
 --- as `page.tmpl:12: ...`.

@@ -184,7 +184,7 @@ static int testing_fail_allocations (lua_State *L) {
   return 0;
 }
 
-/* allow_allocations(): grants every allocation again, and answers how
+/* allow_allocations(): grants every allocation again, and returns how
  * many were refused since fail_allocations, and how many granted. */
 static int testing_allow_allocations (lua_State *L) {
   allocator.failing = 0;
@@ -310,7 +310,7 @@ static int testing_c_heap (lua_State *L) {
 
 /* fail_at(point, skip): arms `point` to fail once, after letting `skip`
  * calls through it (0 by default); fail_at() disarms. Either way,
- * answers whether the point armed before was left unfired. */
+ * returns whether the point armed before was left unfired. */
 static int testing_fail_at (lua_State *L) {
   size_t len = 0;
   const char *point = luaL_optlstring(L, 1, NULL, &len);
@@ -353,7 +353,7 @@ static int testing_executable_path (lua_State *L) {
 
 /* mountinfo_local_flock(text, device): whether the mountinfo `text`
  * lists the filesystem on `device` with local_lock "flock" or "all",
- * as cosmic_mountinfo_local_flock answers it for `flock_kind`. */
+ * as cosmic_mountinfo_local_flock returns it for `flock_kind`. */
 static int testing_mountinfo_local_flock (lua_State *L) {
   size_t used;
   const char *text = luaL_checklstring(L, 1, &used);

@@ -1,9 +1,9 @@
 --- `spawn`'s `grants` (core/process.h) on a live child: the kernel's own
 --- verdict on the Landlock ruleset `grants_ruleset` (core/sandbox_rules.c)
---- builds from each grant's descriptor. The child is a stand-in
---- (build/stand_in.tl), which does what its script says, so a path the
---- ruleset refuses shows as a command that fails, with the errno Landlock
---- answers. Where the platform has no Landlock they are not applicable, and
+--- builds from each grant's descriptor. The child is a fake
+--- ([`cosmic.fake`]), which does what its script says, so a path the
+--- ruleset refuses shows as a command that fails, with Landlock's
+--- errno. Where the platform has no Landlock they are not applicable, and
 --- where this host's kernel gives none they are skipped (`requires`). What
 --- a start refuses of a grant before any ruleset is made is
 --- core/grants_refused_test.tl's, which needs none.
@@ -14,7 +14,7 @@ local Net = require("cosmic.net")
 local Test = require("cosmic.test")
 local unix_socket = require("build.unix_socket")
 local sys = require("cosmic.sys")
-local stand_in = require("build.stand_in")
+local Fake = require("cosmic.fake")
 local type raw_process = require("cosmic.internal.process")
 -- Required, so the module whose loader is handed the raw table is of this
 -- test's import closure, and the store has it to hand it from.
@@ -91,7 +91,7 @@ end
 local DENIED <const> = "Permission denied"
 
 local function test_a_granted_path_is_read_and_its_sibling_is_not(tmp: string)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   assert(Fs.mkdirs(tmp .. "/ro"))
   assert(Fs.mkdirs(tmp .. "/other"))
   assert(Fs.write(tmp .. "/ro/a", "alpha\n"))
@@ -118,7 +118,7 @@ local function test_a_granted_path_is_read_and_its_sibling_is_not(tmp: string)
 end
 
 local function test_a_write_needs_w_and_a_truncate_too(tmp: string)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   local file = tmp .. "/f"
   assert(Fs.write(file, "kept"))
   local without = under(tmp, probe, { { path = file, access = "r" } },
@@ -143,10 +143,10 @@ end
 --- does not handle truncation (below ABI 3) the child's filter refuses
 --- it, and truncate: the promises filter, or, without `promises`, one that holds
 --- truncation alone. Where the grants' ruleset handles it (ABI 3),
---- Landlock's verdict is the answer.
+--- Landlock's verdict decides.
 local function test_a_truncation_that_writes_nothing_is_held_on_every_abi(tmp: string)
   local abi = abi_or_skip()
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   local file = tmp .. "/f"
   local script = "truncate-unwritten " .. file
   local refusal = if abi >= 3 then DENIED else "not permitted" end
@@ -174,7 +174,7 @@ local function test_a_truncation_that_writes_nothing_is_held_on_every_abi(tmp: s
 end
 
 local function test_c_creates_and_removes_where_granted_and_nowhere_else(tmp: string)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   assert(Fs.mkdirs(tmp .. "/open"))
   assert(Fs.mkdirs(tmp .. "/shut"))
   assert(Fs.write(tmp .. "/shut/old", "x"))
@@ -197,7 +197,7 @@ local function test_c_creates_and_removes_where_granted_and_nowhere_else(tmp: st
 end
 
 local function test_a_rename_between_grants_needs_c_on_both(tmp: string)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   assert(Fs.mkdirs(tmp .. "/a"))
   assert(Fs.mkdirs(tmp .. "/b"))
   assert(Fs.mkdirs(tmp .. "/c"))
@@ -212,7 +212,7 @@ local function test_a_rename_between_grants_needs_c_on_both(tmp: string)
   local refused = under(tmp, probe, read_only, "rename " .. tmp .. "/a/g " .. tmp .. "/c/g")
   assert(refused.code == 1 and refused.said:find(DENIED, 1, true) ~= nil, "refused: " .. refused.said)
   -- A file may not move to where it would gain rights it has not where it is
-  -- (no read in a, one in b): Landlock answers EXDEV.
+  -- (no read in a, one in b): Landlock refuses it with EXDEV.
   local more: {raw_process.Grant} = { { path = tmp .. "/a", access = "c" }, { path = tmp .. "/b", access = "rc" } }
   local gained = under(tmp, probe, more, "rename " .. tmp .. "/a/g " .. tmp .. "/b/g")
   assert(gained.code == 1 and gained.said:find("Cross-device link", 1, true) ~= nil, "EXDEV: " .. gained.said)
@@ -222,9 +222,9 @@ local function test_a_rename_between_grants_needs_c_on_both(tmp: string)
 end
 
 local function test_x_runs_a_granted_program_and_no_other(tmp: string)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   assert(Fs.mkdirs(tmp .. "/bin"))
-  local other = assert(stand_in.build(tmp .. "/bin/other"))
+  local other = assert(Fake.build(tmp .. "/bin/other"))
   local script = "run " .. other .. " print inner"
   local without = under(tmp, probe, { { path = other, access = "r" } }, script)
   assert(without.code == 127 and without.said == "", "not run: " .. tostring(without.code) .. " " .. without.said)
@@ -233,7 +233,7 @@ local function test_x_runs_a_granted_program_and_no_other(tmp: string)
 end
 
 local function test_a_grant_that_does_not_exist_fails_the_start_naming_it(tmp: string)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   local missing = tmp .. "/missing"
   local outcome = start(tmp, probe, { { path = probe, access = "rx" }, { path = missing, access = "r" } },
     "print never")
@@ -245,7 +245,7 @@ local function test_a_grant_that_does_not_exist_fails_the_start_naming_it(tmp: s
 end
 
 local function test_a_link_is_followed_to_its_target(tmp: string)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   assert(Fs.mkdirs(tmp .. "/real"))
   assert(Fs.write(tmp .. "/real/a", "alpha\n"))
   assert(sys.symlink(tmp .. "/real", tmp .. "/link"))
@@ -257,7 +257,7 @@ end
 local function test_u_connects_to_a_granted_socket_where_the_kernel_can_hold_it(tmp: string)
   local abi = abi_or_skip()
   unix_socket.skip_if_refused(tmp)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   assert(Fs.mkdirs(tmp .. "/s"))
   local socket = tmp .. "/s/sock"
   local _listener <close> = assert(Net.listen(Net.unix(socket), { timeout_ns = Clock.seconds(5) }))
@@ -280,7 +280,7 @@ end
 
 local function test_the_child_is_held_to_no_tcp_where_the_kernel_can(tmp: string)
   local abi = abi_or_skip()
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   local tcp = under(tmp, probe, {}, "connect-tcp 127.0.0.1 9")
   -- ABI 4 refuses a connect outright, whatever the port, and no grant gives
   -- one; below it the connection reaches the stack and is refused as nothing
@@ -300,7 +300,7 @@ end
 
 local function test_a_signal_to_a_process_outside_is_refused_where_the_kernel_scopes_it(tmp: string)
   local abi = abi_or_skip()
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   local sleeper = assert(process.spawn(probe, { probe, "sleep-forever" }, nil, nil, nil, nil, nil,
     false))
   -- The start may skip the test, which must not leave the sleeper running.
@@ -341,7 +341,7 @@ end
 
 local function test_a_forked_process_signals_itself_where_the_kernel_scopes_signals(tmp: string)
   local abi = abi_or_skip()
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   -- The grandchild's pid is not the one the filter was built for.
   local own = forking(tmp, probe, "run " .. probe .. " signal TERM")
   if abi >= 6 then
@@ -354,10 +354,10 @@ end
 
 local function test_a_process_signals_what_it_forked_where_the_kernel_scopes_signals(tmp: string)
   local abi = abi_or_skip()
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   local pidfile = tmp .. "/grandchild.pid"
   local grandchild = tmp .. "/grandchild"
-  assert(stand_in.place(probe, grandchild, "write-pid " .. pidfile .. "\nsleep-forever"))
+  assert(Fake.place(probe, grandchild, "write-pid " .. pidfile .. "\nsleep-forever"))
   local killed = forking(tmp, probe, "start " .. grandchild .. "; wait-for " .. pidfile ..
       "; signal KILL @" .. pidfile)
   end_left_by(pidfile)
@@ -371,7 +371,7 @@ end
 
 local function test_a_signal_outside_the_domain_is_refused_though_the_filter_lets_it_pass(tmp: string)
   abi_or_skip()
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   local sleeper = assert(process.spawn(probe, { probe, "sleep-forever" }, nil, nil, nil, nil, nil,
     false))
   -- The start may skip the test, which must not leave the sleeper running.
@@ -384,7 +384,7 @@ local function test_a_signal_outside_the_domain_is_refused_though_the_filter_let
   assert(assert(process.waitpid(sleeper, false)).signal == sys.SIGKILL)
   if not started then error(result, 0) end
   local refused = assert(sent, "pcall ran `forking` to its end")
-  -- Above ABI 6 the filter takes any pid and Landlock's EPERM is the answer;
+  -- Above ABI 6 the filter takes any pid and Landlock's EPERM is what fails it;
   -- below, the filter's own is.
   assert(refused.code == 1 and refused.said:find("not permitted", 1, true) ~= nil,
     "refused: " .. refused.said)
@@ -392,7 +392,7 @@ local function test_a_signal_outside_the_domain_is_refused_though_the_filter_let
 end
 
 local function test_no_grants_grant_nothing_and_the_program_needs_its_own(tmp: string)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   local none = start(tmp, probe, {}, "print never")
   if unsandboxable(none) then Test.skip(assert(none.refused)) end
   local refused = none.refused
@@ -404,7 +404,7 @@ local function test_no_grants_grant_nothing_and_the_program_needs_its_own(tmp: s
 end
 
 local function test_c_on_a_file_grants_nothing(tmp: string)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   local file = tmp .. "/f"
   assert(Fs.write(file, "kept\n"))
   -- A file takes no creation right, so the grant adds no rule: the start goes on and

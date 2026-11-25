@@ -120,7 +120,7 @@ local function test_help_lists_each_option_a_verb_parses(tmp: string)
   -- the verb's own name counts, as it does in the index.
   local joined = verbs_fixture.expect(tmp, "docs", { "docs", "COSMIC_TEST_TIMEOUT" }, 0).stdout
   assert(joined:find("cosmic.cli.test", 1, true), joined)
-  -- Where the variable is declared (cosmic.env) it answers too, first.
+  -- Where the variable is declared (cosmic.env) it is listed too, first.
   assert(joined:find("Env.Name.COSMIC_TEST_TIMEOUT", 1, true), joined)
   local named = verbs_fixture.expect(tmp, "docs", { "docs", "cli", "launcher" }, 0).stdout
   assert(named:find("cosmic.cli.build", 1, true), named)
@@ -229,7 +229,7 @@ local function test_help_is_a_short_index_of_every_verb(tmp: string)
   assert(lines <= #Cli.order + alone + 32, tostring(lines) .. " lines:\n" .. all)
   -- A usage follows the word that names its verb, or what is typed
   -- where a verb has no word of its own.
-  for _, line in ipairs({ "\n  cosmic test [selector...]  ", "\n  cosmic <file.tl> [args]  ",
+  for _, line in ipairs({ "\n  cosmic test [selector...]  ", "\n  cosmic <file.tl|-> [args]  ",
       "\n  cosmic --standalone [--check] <file.tl> [args]\n", "\n  cosmic -e '<chunk>' [args]  ",
       "\n  cosmic --version  ", "\n  cosmic bom [list | licenses | cyclonedx] ...\n" }) do
     assert(all:find(line, 1, true), line .. ":\n" .. all)

@@ -13,6 +13,7 @@ local Test = require("cosmic.test")
 local agent = require("build.agent")
 local agent_fixture = require("build.agent_fixture")
 local Sandbox = require("cosmic.sandbox")
+local Sessions = require("cosmic.agent.sessions")
 local sys = require("cosmic.sys")
 
 -- The host programs the tests start, each where hosts keep it: named,
@@ -49,12 +50,21 @@ local home = ""
 
 local KEYED <const>: {string: string} = { ANTHROPIC_API_KEY = "k", ANTHROPIC_BASE_URL = "https://api.test" }
 
---- How a run waits for each line typed: `wait` answers each call in turn
+--- How a run waits for each line typed: `wait` returns the next of `answers` at each call
 --- (true where a line came), and moves `now` on by what it waited.
 local record Waited
   answers: {boolean}
   mut now: integer
   mut asked: integer
+end
+
+--- The count of rows `query` finds in the sessions.db of `home`.
+local function kept_count(query: string): integer
+  local db = assert(Sessions.open(home .. "/.local/share/cosmic/agent/sessions.db"))
+  local rows = assert(db:rows(query))
+  local n = assert(rows[1]):integer(1)
+  local _, _ = db:close()
+  return n
 end
 
 --- Runs `cosmic agent` with `argv`, `env` (and HOME), the API's
@@ -88,7 +98,7 @@ local function cli(argv: {string}, env: {string: string}, replies: {Json.Value},
       at = at + 1
       return (typed or {})[at]
     end,
-    read_all = function(): string return "from stdin" end,
+    read_all = function(): string?, string return "from stdin", "" end,
     typed = function(): string? return table.remove(early, 1) end,
     hold = function(): agent.Hold
       return { caught = function(): integer return 0 end, release = function() end }
@@ -176,17 +186,31 @@ local function test_ask_and_chat()
     text_reply("hi back"),
   })
   assert(r.code == 0 and r.out == "hi back", r.out .. r.err)
-  assert(r.err:find("bash\n    $ true", 1, true) ~= nil, r.err)
+  assert(r.err:find("```console\n$ true\n```\n", 1, true) ~= nil, r.err)
+  -- Run's code shows as `cosmic fix` lays it out, and as written where it does not parse.
+  r = cli({ "ask", "--new", "x" }, KEYED, {
+    { content = { { type = "tool_use", id = "a", name = "run", input = { code = "for i = 1, 2 do if i > 1 then print(i) end end" } },
+      { type = "tool_use", id = "b", name = "run", input = { code = "print((" } } }, stop_reason = "tool_use" },
+    text_reply("done"),
+  })
+  assert(r.err:find("```teal\nfor i = 1, 2 do\n  if i > 1 then print(i) end\nend\n```\n", 1, true) ~= nil, r.err)
+  assert(r.err:find("```teal\nprint((\n```\n", 1, true) ~= nil, r.err)
   assert(said(a, 1):find('"hello there"', 1, true) ~= nil, said(a, 1))
   r, a = cli({ "ask" }, KEYED, { text_reply("ok") })
   assert(r.code == 0 and said(a, 1):find("from stdin", 1, true) ~= nil)
+  -- A word `-` is standard input, in its place among the words.
+  r, a = cli({ "ask", "read this:", "-" }, KEYED, { text_reply("ok") })
+  assert(r.code == 0 and said(a, 1):find('"read this: from stdin"', 1, true) ~= nil, said(a, 1))
+  -- Each `-` is the same input, read once.
+  r, a = cli({ "ask", "-", "and", "-" }, KEYED, { text_reply("ok") })
+  assert(r.code == 0 and said(a, 1):find('"from stdin and from stdin"', 1, true) ~= nil, said(a, 1))
   r = cli({ "ask", "--effort", "lots", "x" }, KEYED, {})
   assert(r.code == Flags.REFUSED and r.err:find("--effort") ~= nil, r.err)
   r = cli({ "ask", "x" }, KEYED, { text_reply("no", "refusal") })
   assert(r.code == Flags.FAILED and r.err:find("refused") ~= nil, r.err)
   r = cli({ "ask", "x" }, KEYED, { { content = { { type = "tool_use", id = "t", name = "read",
     input = { path = "/no/such/file" } } }, stop_reason = "tool_use" }, text_reply("gone") })
-  assert(r.code == 0 and r.err:find("read failed", 1, true) ~= nil, r.err)
+  assert(r.code == 0 and r.err:find("read /no/such/file\n```error\n", 1, true) ~= nil, r.err)
   -- --tools shows the model those tools alone, and a name no tool has is refused before any request.
   r, a = cli({ "ask", "--new", "--tools", "run,read", "x" }, KEYED, { text_reply("ok") })
   local body = assert(a.bodies[1])
@@ -320,10 +344,8 @@ local function test_sessions_are_kept_and_go_on()
   r = cli({ "ask", "run it" }, KEYED, { { content = { { type = "tool_use", id = "t", name = "bash",
     input = { command = "echo kept-output-marker" } } }, stop_reason = "tool_use" }, text_reply("ran") })
   assert(r.code == 0, r.err)
-  r, a = cli({ "ask", "--with", "sql", "find it" }, KEYED, { { content = { { type = "tool_use", id = "t", name = "sql",
-    input = { query = "SELECT text FROM outputs_fts WHERE outputs_fts MATCH '\"kept-output\"'" } } },
-    stop_reason = "tool_use" }, text_reply("found") })
-  assert(r.code == 0 and said(a, 2):find("text\\nkept-output-marker", 1, true) ~= nil, said(a, 2))
+  local found = kept_count("SELECT count(*) FROM outputs_fts WHERE outputs_fts MATCH '\"kept-output-marker\"'")
+  assert(found == 1, tostring(found))
 end
 
 local function test_the_sandbox_on_the_command_line()
@@ -381,11 +403,9 @@ local function test_a_job_never_read_is_kept_as_the_session_ends()
     input = { command = "echo bg-job-marker; sleep 30", background = true } } }, stop_reason = "tool_use" },
     text_reply("started") })
   assert(ran.code == 0, ran.err)
-  local a: Api
-  ran, a = cli({ "ask", "--with", "sql", "find it" }, KEYED, { { content = { { type = "tool_use", id = "t", name = "sql",
-    input = { query = "SELECT count(*) FROM outputs WHERE tool = 'bash' AND input LIKE '%background%' " ..
-        "AND input LIKE '%bg-job-marker%' AND call IS NULL" } } }, stop_reason = "tool_use" }, text_reply("found") })
-  assert(ran.code == 0 and said(a, 2):find("count(*)\\n1", 1, true) ~= nil, said(a, 2))
+  local found = kept_count("SELECT count(*) FROM outputs WHERE tool = 'bash' AND input LIKE '%background%' " ..
+      "AND input LIKE '%bg-job-marker%' AND call IS NULL")
+  assert(found == 1, tostring(found))
 end
 
 local function test_the_command_line_is_refused_where_it_should_be()

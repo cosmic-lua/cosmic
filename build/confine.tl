@@ -139,7 +139,7 @@ confine.system_paths = system_paths
 --- test of how a program meets a failed write, and macOS has none.
 --- /proc alone does not enter a key: a sandboxed process's is a
 --- procfs of its own pid namespace, holding its own processes and
---- nothing of the host's. The devices' every answer is the same, or none
+--- nothing of the host's. The devices always give the same, or none
 --- a key could hold (/dev/urandom's), so the key holds them through the
 --- host's identity alone.
 -- TODO: keep a confined process from the host's state where the kernel
@@ -170,7 +170,7 @@ local record Declared
   --- How the declaration in `confinement` is held: nil where a process
   --- the kernel cannot confine starts unconfined, and otherwise what
   --- names the call that asked for no fallback, for the failure a spawn
-  --- answers instead (see [`confine.must_confine`]).
+  --- returns instead (see [`confine.must_confine`]).
   mut strict?: string
   --- What the library whose work is running declared its processes need,
   --- or nil: see [`confine.declaring`].
@@ -229,8 +229,8 @@ end
 --- naming the declaration that lets it.
 local function nests_refusal(program: string, module: string): string
   return string.format("%s cannot start in a root of its own: %s's worker is held by a " ..
-      "Landlock ruleset, under which the kernel refuses every mount; declare the promise " ..
-      "\"nest\" in its Test.policy", program, module)
+      "Landlock ruleset, under which the kernel refuses every mount; declare " ..
+      "the grant { calls = \"nest\" } in its Test.policy", program, module)
 end
 
 --- `wanted`, each relative path taken from the directory this process
@@ -299,7 +299,7 @@ end
 --- the spawn fails: `nil`, a message naming the program, the part of the
 --- sandbox that could not be applied and why, errno's name included, and
 --- the errno. The failure fails the test too, whatever it made of the
---- spawn's answer, so a test cannot pass by passing over a process it
+--- spawn's result, so a test cannot pass by passing over a process it
 --- never ran. So does every running stand-in's failure (see `enter`),
 --- one inside another included.
 ---
@@ -400,7 +400,7 @@ end
 --- Whether this platform has a sandbox at all (core/process.h's
 --- `sandbox_platform`): Linux has, whatever this host then refuses of
 --- it; another platform has none to give or to check. Only the probe of
---- the host asks ([`build.tree_checks`]' `restricted`): a test declares
+--- the host asks ([`build.tree_checks.declares`]' `restricted`): a test declares
 --- `requires`, or ends itself with [`Test.skip`].
 function confine.sandbox_platform(): boolean
   local ok, _, _ = sandbox_platform()
@@ -417,7 +417,7 @@ function confine.may_map_ids(): boolean
 end
 
 --- Whether this host gives a sandboxed process a procfs of its own pid
---- namespace (core/process.h's `unveil`), as the kernel answers a
+--- namespace (core/process.h's `unveil`), as the kernel tells a
 --- child started to mount one (core/process.h's `own_proc`). A user
 --- namespace may mount a procfs only where one is wholly visible, which
 --- a container's masked /proc paths are not; where one is not, a
@@ -455,9 +455,9 @@ end
 --- Whether this host permits loopback sockets: a TCP listener bound to
 --- 127.0.0.1 at a port the kernel chooses, and a UDP socket bound the
 --- same way. Both are tried, since a host may refuse one kind alone, and
---- the name [`build.host_requires`] answers for is the pair. A refusal
---- answers absent (EPERM or EACCES, or EAFNOSUPPORT, EPROTONOSUPPORT or
---- ENOSYS, as a filter of address families answers), as does a network
+--- the name [`build.host_requires`] checks is the pair. A refusal
+--- means absent (EPERM or EACCES, or EAFNOSUPPORT, EPROTONOSUPPORT or
+--- ENOSYS, as a filter of address families gives), as does a network
 --- namespace with no loopback address up (EADDRNOTAVAIL). Any other
 --- failure cannot tell whether loopback is permitted, so it raises.
 function confine.loopback_available(): boolean, string
@@ -651,7 +651,7 @@ end
 --- of a missing file is a read too), of its nearest existing ancestor
 --- with the missing names after it as written, "." and ".." included:
 --- the first of them is missing, so nothing after it is reached, and
---- the answer is that ancestor's. Each run of slashes is one, and a
+--- the result is that ancestor's. Each run of slashes is one, and a
 --- name the path ends in with "/" after it is sought in its directory
 --- when the whole is not there, as a file is. "" for a relative path,
 --- or one not even "/" of which resolves. Nothing is remembered between
@@ -773,8 +773,8 @@ local function policy_kind(sandbox: raw_process.Sandbox): string
   return "held"
 end
 
---- `sandbox` as the core reads it -- raw, with no metamethod answering
---- for a field -- in a plain table of its own; nil when a field holds
+--- `sandbox` as the core reads it -- raw, with no metamethod standing
+--- in for a field -- in a plain table of its own; nil when a field holds
 --- what the core would refuse, for the core to refuse, or one this does
 --- not copy, which the core is given as it is.
 local function plain_sandbox(sandbox: raw_process.Sandbox): raw_process.Sandbox?
@@ -932,7 +932,7 @@ end
 -- Proc.find's finding nothing on PATH, where the sandbox has none of
 -- the system's programs, once cosmic.child hears from the stand-in
 -- before it adds its own hint: today a sandboxed start of "sh" says
--- Proc.find("sh") answers where a shell would find it, which there it
+-- Proc.find("sh") returns where a shell would find it, which there it
 -- does not.
 local function unseen(path: string, use: confine.Use): string?
   local first = path:match("^/+([^/]+)")
@@ -963,12 +963,12 @@ confine.unseen = unseen
 
 --- The first spawn [`must_confine`] refused while each running stand-in
 --- ran, by its entry: which fails that stand-in's call, whatever the
---- test made of the spawn's answer.
+--- test made of the spawn's result.
 local refusals: mut {Entry:string} = {}
 
 --- Refuses a spawn `must` holds to its sandbox: `program` could not
 --- start with `part` of it applied, for `why` (`errno`). Every running
---- stand-in hears it. Answers the message the spawn fails with.
+--- stand-in hears it. Returns the message the spawn fails with.
 local function refuse(must: string, program: string, part: string, why: string,
                       errno: integer): string
   local name = sys.errno_name(errno) or ("errno " .. tostring(errno))
@@ -986,7 +986,7 @@ end
 --- held by a Landlock ruleset ([`held_by`]), which would refuse its
 --- mounts: not tried, so it never falls back to running unconfined.
 --- Every running stand-in hears it, which fails its test whatever the
---- test made of the answer. Answers the message the spawn fails with.
+--- test made of the result. Returns the message the spawn fails with.
 local function refuse_nesting(program: string, module: string): string
   local message = nests_refusal(program, module)
   for _, each in ipairs(entered) do
@@ -999,7 +999,7 @@ end
 local type Leave = function(): string?
 
 --- Stands in for the process table's `spawn` until the function this
---- answers is called, which puts back what it stood in for and answers
+--- returns is called, which puts back what it stood in for and returns
 --- the first spawn [`must_confine`] refused meanwhile, or nil. `own` holds
 --- the directories the running test owns, which a confined process may
 --- change: its own directory first, where a process it starts makes its
@@ -1015,7 +1015,7 @@ local type Leave = function(): string?
 --- process as the process table's own does, once it no longer stands
 --- in -- or, under [`must_confine`], none.
 ---
---- Beside that function it answers a list that the stand-in fills, as
+--- Beside that function it returns a list that the stand-in fills, as
 --- each start that found nothing for what a sandboxed worker's sandbox
 --- left out fails, with why ([`confine.unseen`]).
 local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
@@ -1030,7 +1030,7 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
                            fds?: {integer:integer}, sandbox?: raw_process.Sandbox,
                            credentials?: raw_process.Credentials, terminal?: boolean | string):
       integer?, string, integer
-    -- Declared as the real spawn is. A process that started is answered by
+    -- Declared as the real spawn is. For a process that started it returns
     -- its pid with nil in the reason and errno slots: they are filled only by
     -- a failure, and the real one leaves them out.
     if entry.ended then
@@ -1185,7 +1185,7 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
         if declared_strict ~= nil then
           -- Nothing ran, and nothing runs in its place. A program exec
           -- could not have run unconfined either failed there, not in
-          -- the sandbox: its failure is its own to answer.
+          -- the sandbox: its failure is its own to report.
           if not runnable(path) then return pid, trouble, errno end
           return nil, refuse(declared_strict, path, "unveil and offline", trouble, errno), errno
         end

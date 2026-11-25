@@ -97,7 +97,7 @@ local record session_fixture
     result: Initialized
   end
 
-  --- What a session answered: its exit status, the body of each message
+  --- What a session produced: its exit status, the body of each message
   --- it sent, its complaints, how it served each module, and how many
   --- dependents it checked, all told ([`dependents.Queue`]), and as it
   --- sent each message, where it was asked to tell, and how many times
@@ -162,7 +162,7 @@ end
 --- Makes the directory `root` a project to a session, as one a build has
 --- been made of is ([`rebuild.stage`]): its build directory holds a
 --- projection, here an empty one, which docs leave out
---- ([`docs.databases`]). Answers `root`.
+--- ([`docs.databases`]). Returns `root`.
 function session_fixture.made_project(root: string): string
   local directory = assert(build_paths.prepare(root))
   assert(Fs.write(build_paths.under(directory).projection, ""))
@@ -176,8 +176,7 @@ end
 --- default [`Store.databases`] carries the real ones).
 function session_fixture.carrying(path: string, file: string, text: string, places: {{string}},
                                   members?: {{string}}): Sqlite.Handle
-  local db = assert(Sqlite.memory())
-  for _, statement in ipairs(schema.create("")) do assert(db:exec(statement)) end
+  local db = assert(schema.hold(assert(Sqlite.memory())))
   assert(db:run("INSERT INTO modules (path, file, kind, source_hash, key, bytecode, tests, source) " ..
       "VALUES (?1, ?2, 'module', CAST(?3 AS BLOB), x'00', x'00', '', deflate(?4))",
     { { text = path }, { text = file }, { text = Hash.hex_sha256(text) }, { text = text } }))
@@ -300,7 +299,7 @@ local function serve(serving: Serving, reader: Stream.Reader, arrived?: protocol
 end
 
 --- What one session at `root`, served `batches` of messages in one
---- stream, answers, `between` called after each batch but the last,
+--- stream, sends back, `between` called after each batch but the last,
 --- reading docs from `store` when given.
 function session_fixture.served_between(root: string, batches: {{string}},
                                         between: function(after: integer), store?: {Sqlite.Handle}): Ran
@@ -311,14 +310,14 @@ function session_fixture.served_between(root: string, batches: {{string}},
   return ran_of(serving, serve(serving, reader), {})
 end
 
---- What a session at `root` answers `messages` with, reading docs from
---- `store` when given.
+--- What a session at `root` responds to `messages` with, reading docs
+--- from `store` when given.
 function session_fixture.served(root: string, messages: {string}, store?: {Sqlite.Handle}, carried?: string): Ran
   local serving = begin(root, store, carried)
   return ran_of(serving, serve(serving, Stream.from_string(session_fixture.framed(messages))), {})
 end
 
---- What a session at `root` answers `messages` with, holding its tool to the tree through `reenter`
+--- What a session at `root` responds to `messages` with, holding its tool to the tree through `reenter`
 --- ([`session.Options`]); `resumed`, a session a predecessor handed over ([`session.handed`]), serves them instead,
 --- after the messages it was left.
 function session_fixture.served_holding(root: string, messages: {string},
@@ -339,8 +338,8 @@ function session_fixture.served_holding(root: string, messages: {string},
   return ran_of(serving, serve(serving, Stream.from_string(session_fixture.framed(messages))), {})
 end
 
---- What a session at `root` answers `messages` with, where `arrived`
---- answers, between the dependents it checks, the message that has
+--- What a session at `root` responds to `messages` with, where `arrived`
+--- returns, between the dependents it checks, the message that has
 --- arrived since, if any, given how many it has checked: what an editor
 --- sends while the session checks ([`protocol.Poll`]). It tells how many
 --- dependents were checked as each message was sent.
@@ -373,22 +372,22 @@ function session_fixture.sent(body: string): session_fixture.Sent
   return (assert(SENT:decode_into(body)))
 end
 
---- What the tests read of an answer to `initialize`.
+--- What the tests read of a response to `initialize`.
 function session_fixture.initialized(body: string): session_fixture.Initialized
   return (assert(INITIALIZE_SENT:decode_into(body))).result
 end
 
---- The body of the message of `ran` answering request `id`.
+--- The body of the message of `ran` responding to request `id`.
 function session_fixture.answer(ran: Ran, id: integer): string
   for _, body in ipairs(ran.sent) do
     local sent = session_fixture.sent(body)
-    -- A request the server makes has a method; an answer has none.
+    -- A request the server makes has a method; a response has none.
     if sent.id == id and sent.method == nil then return body end
   end
   error("no answer to request " .. tostring(id) .. ": " .. table.concat(ran.sent, "\n") .. ran.err)
 end
 
---- The code of the error the message `body` answers with.
+--- The code of the error the message `body` responds with.
 function session_fixture.failed(body: string): integer
   local why = assert(session_fixture.sent(body).error, body)
   return why.code

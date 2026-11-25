@@ -5,8 +5,8 @@
 --- JSON, so a later command can go on with it (`--continue`,
 --- `--session`). Each tool's whole output is a row of `outputs` too,
 --- indexed for full-text search (FTS5, trigram), so the model reads a
---- short part of it and finds the rest, with Host.history in run (or
---- the sql tool), when it needs it.
+--- short part of it and reads the rest, with Host.output or Host.history in run,
+--- when it needs it.
 ---
 --- cosmic agent keeps each conversation in sessions.db, in its data
 --- directory ($XDG_DATA_HOME/cosmic/agent, or ~/.local/share/cosmic/agent), as
@@ -19,7 +19,7 @@
 ---     outputs       id, session, tool, input (JSON), text (the whole
 ---                   output), is_error, call (the tool_use id), shown
 ---                   (what the model read, where less than text)
----     outputs_fts   FTS5 over outputs.text, trigram, for queries (but their own)
+---     outputs_fts   FTS5 over outputs.text, trigram, for queries
 ---     requests      each request to the API: when (started, Unix ms) and
 ---                   how long (ms); what was asked (model, effort,
 ---                   max_tokens, betas, system, shape: the rest of the
@@ -27,7 +27,7 @@
 ---                   request_headers: as JSON, less any that may hold a
 ---                   credential; build: the cosmic that sent it); what
 ---                   came back (status, error, served: the model that
----                   answered, stop_reason, request_id, headers: the
+---                   replied, stop_reason, request_id, headers: the
 ---                   reply's, as JSON, less credentials, first_ms: how
 ---                   soon its content began, reply: the whole message,
 ---                   put back together from the stream, or the stream
@@ -37,7 +37,7 @@
 ---                   USD at the list prices it knows, NULL for
 ---                   another model or a reply with no usage); after a
 ---                   fallback, the token counts are the attempt that
----                   answered, and cost sums every attempt at its own
+---                   replied, and cost sums every attempt at its own
 ---                   model's price (an upper bound: some declines before
 ---                   output are not billed), a compaction's included;
 ---                   cache_miss and cache_missed: why the cache missed
@@ -58,7 +58,7 @@
 ---     kept          session, key, value (JSON): what a snippet of the
 ---                   run tool kept for a later one (cosmic.agent.host's
 ---                   store), which a resumed session reads again; the
----                   history and sql read every session's
+---                   history call reads every session's
 ---
 --- A database of version 1 is made version 2 as it opens. There is no
 --- way back: an older cosmic refuses a newer one's database.
@@ -177,7 +177,7 @@ local record Sessions
     mut reply?: string
   end
 
-  --- What answered a tool call, as the model read it.
+  --- The result of a tool call, as the model read it.
   record Answer
     --- What the model read.
     text: string
@@ -205,6 +205,8 @@ CREATE TABLE outputs (id INTEGER PRIMARY KEY, session INTEGER NOT NULL REFERENCE
 CREATE INDEX outputs_by_call ON outputs (session, call);
 CREATE VIRTUAL TABLE outputs_fts USING fts5(text, content = 'outputs', content_rowid = 'id',
   tokenize = 'trigram');
+-- 'sql' was a tool that read this database, whose rows were kept out of the index; the step stays as it was made,
+-- since databases made by it are migrated by what it says.
 CREATE TRIGGER outputs_indexed AFTER INSERT ON outputs WHEN new.tool <> 'sql' BEGIN
   INSERT INTO outputs_fts (rowid, text) VALUES (new.id, new.text);
 END;
@@ -263,7 +265,7 @@ function Sessions.open(path: string): Sqlite.Handle?, string
   -- waits for the lock, then finds the schema made.
   local migrated, migrate_why = db:migrate({ SCHEMA, KEPT })
   if migrated == nil then return refused(tostring(migrate_why)) end
-  -- WAL lets a reader (the sql tool, sqlite3) in beside a writer, once the
+  -- WAL lets a reader (Host.history, sqlite3) in beside a writer, once the
   -- file is known to be ours; a database busy past the wait may refuse the
   -- switch, which is no reason to fail.
   local _, _ = db:wal()
@@ -414,7 +416,7 @@ function Sessions.kept(db: Sqlite.Handle, id: integer, key: string): string?, st
   return row:text(1), ""
 end
 
---- What answered the tool call `call` in session `id`, as the model
+--- The result of the tool call `call` in session `id`, as the model
 --- read it: nil where nothing did (why is "" then).
 function Sessions.answer(db: Sqlite.Handle, id: integer, call: string): Sessions.Answer?, string
   local found, why = db:map([[SELECT coalesce(shown, text), is_error FROM outputs

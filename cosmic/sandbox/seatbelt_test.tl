@@ -78,8 +78,8 @@ local function test_more_parameters_than_a_start_takes_are_refused()
 end
 
 local function test_promises_are_precise_and_fattr_only_reaches_writable_grants()
-  local out = compile({ promises = { "jit", "fork", "fattr" }, grants = {
-    { path = "read", letters = "r" }, { path = "write", letters = "w" },
+  local out = compile({ grants = {
+    { path = "read", letters = "r" }, { path = "write", letters = "w" }, { calls = "jit" }, { calls = "fork" }, { calls = "fattr" },
   } }, { read = { path = "/read", directory = false }, write = { path = "/write", directory = false } })
   assert(out.text == BASE .. [[(allow process-fork)
 (allow dynamic-code-generation)
@@ -88,7 +88,7 @@ local function test_promises_are_precise_and_fattr_only_reaches_writable_grants(
 (allow file-write-mode file-write-owner file-write-times file-write-flags file-write-xattr (literal (param "PATH_2")))
 ]], out.text)
   assert(not out.text:find("mach", 1, true) and not out.text:find("file-write*", 1, true))
-  local read = compile({ promises = { "fattr" }, grants = { { path = "read", letters = "r" } } },
+  local read = compile({ grants = { { path = "read", letters = "r" }, { calls = "fattr" } } },
     { read = { path = "/read", directory = false } })
   assert(not read.text:find("file-write", 1, true))
 end
@@ -135,8 +135,8 @@ local function test_system_expands_mac_paths_only_and_cosmic_names_the_supplied_
     ["/lib"] = { path = "/lib", directory = true },
     ["program"] = { path = "/opt/cosmic", directory = false },
   }
-  local out = assert(Seatbelt.compile({ profiles = { "system", "cosmic" } },
-    { paths = paths, executable = "program" }))
+  local out = assert(Seatbelt.compile({ profiles = { "system" }, grants = { { path = "program", letters = "rx" } } },
+    { paths = paths }))
   assert(out.parameters["PATH_1"] == "/System/Cryptexes/OS")
   assert(out.parameters["PATH_2"] == "/System/Library")
   assert(out.parameters["PATH_3"] == "/dev/null")
@@ -166,16 +166,16 @@ local function test_unmet_policy_fields_are_refused()
   end
   local cases: {Unmet} = {
     { policy = { isolate = { "file" } }, says = "isolate" },
-    { policy = { connect = { "example.com:443" } }, says = "connect needs the port of the network relay" },
+    { policy = { grants = { { connect = "example.com:443" } } }, says = "connect needs the port of the network relay" },
     { policy = { loopback = { "127.0.0.1" } }, says = "loopback" },
-    { policy = { promises = { "nest" } }, says = "nest" },
+    { policy = { grants = { { calls = "nest" } } }, says = "nest" },
     { policy = { grants = { { path = "a", from = "b", letters = "r" } } }, says = "from" },
     { policy = { limits = { processes = 2 } }, says = "limits.processes" },
     { policy = { database = { path = "/does/not/exist" } }, says = "database" },
     { policy = { set_env_digests = { A = string.rep("0", 64) } }, says = "set_env_digests" },
     { policy = { profiles = { "unrecognized" } }, says = "profiles" },
     { policy = { grants = { { path = "a", letters = "bad" } } }, says = "letters" },
-    { policy = { profiles = { "cosmic" } }, says = "executable" },
+    { policy = { profiles = { "cosmic" } }, says = "no profile \"cosmic\"" },
     { policy = { set_env = { A = "secret" }, set_env_digests = { A = string.rep("0", 64) } },
       says = "set_env_digests" },
   }
@@ -189,10 +189,10 @@ end
 --- profile lets the program connect to the relay's port on the loopback over
 --- TCP, and to nothing else, nor bind or listen anywhere.
 local function test_connect_reaches_the_relay_port_alone()
-  local out = assert(Seatbelt.compile({ connect = { "example.com:443" } }, { paths = {}, relay_port = 49152 }))
+  local out = assert(Seatbelt.compile({ grants = { { connect = "example.com:443" } } }, { paths = {}, relay_port = 49152 }))
   assert(out.text == BASE .. '(allow network-outbound (remote tcp "localhost:49152"))\n', out.text)
   for _, port in ipairs({ 0, 65536, -1 }) do
-    local refused, why = Seatbelt.compile({ connect = { "example.com:443" } }, { paths = {}, relay_port = port })
+    local refused, why = Seatbelt.compile({ grants = { { connect = "example.com:443" } } }, { paths = {}, relay_port = port })
     assert(refused == nil and why:find("connect needs the port", 1, true) ~= nil, tostring(why))
   end
   local stray, why = Seatbelt.compile({}, { paths = {}, relay_port = 49152 })
@@ -236,7 +236,7 @@ local function test_tmp_is_granted_through_a_parameter_the_caller_sets()
 ]], out.text)
   assert(out.tmp == "TMP" and out.parameters["TMP"] == nil)
   assert(compile({}).tmp == nil)
-  local held = compile({ tmp = true, promises = { "fattr" } })
+  local held = compile({ tmp = true, grants = { { calls = "fattr" } } })
   assert(held.text:find('file-write-xattr (subpath (param "TMP"))', 1, true), held.text)
 end
 
@@ -248,9 +248,8 @@ local function test_a_database_grants_its_core_and_itself_and_not_this_programs_
     [database] = { path = database, directory = false },
     ["/launcher"] = { path = "/private/launcher", directory = false },
   }
-  local policy: Sandbox.Policy = { database = { path = database }, profiles = { "cosmic" } }
-  local out = assert(Seatbelt.compile(policy,
-    { paths = paths, core = "/core", database = database, executable = "/launcher" }))
+  local policy: Sandbox.Policy = { database = { path = database } }
+  local out = assert(Seatbelt.compile(policy, { paths = paths, core = "/core", database = database }))
   assert(out.text == BASE .. '(allow file-read* file-map-executable (literal (param "PATH_1")))\n' ..
       '(allow process-exec file-map-executable (literal (param "PATH_1")))\n' ..
       '(allow file-read* file-map-executable (literal (param "PATH_2")))\n', out.text)
@@ -262,26 +261,21 @@ local function test_a_database_grants_its_core_and_itself_and_not_this_programs_
   end
 end
 
---- A core that applies its profile at boot runs already: it and this
---- program are granted `r`, which maps and does not run, unless the
+--- A core that applies its profile at boot runs already: it is granted `r`, which maps and does not run, unless the
 --- policy's own grant gives `x`.
-local function test_a_booted_core_and_this_program_are_read_and_not_run()
+local function test_a_booted_core_is_read_and_not_run()
   local paths: {string:Seatbelt.Path} = {
     ["/core"] = { path = "/private/core", directory = false },
     ["/launcher"] = { path = "/private/launcher", directory = false },
   }
-  local policy: Sandbox.Policy = { profiles = { "cosmic" } }
-  local out = assert(Seatbelt.compile(policy,
-    { paths = paths, core = "/core", executable = "/launcher", booted = true }))
+  local policy: Sandbox.Policy = {}
+  local out = assert(Seatbelt.compile(policy, { paths = paths, core = "/core", booted = true }))
   assert(not out.text:find("process-exec", 1, true), out.text)
   assert(out.text:find('(allow file-read* file-map-executable (literal (param "PATH_1")))', 1, true), out.text)
-  assert(out.text:find('(allow file-read* file-map-executable (literal (param "PATH_2")))', 1, true), out.text)
-  local started = assert(Seatbelt.compile(policy,
-    { paths = paths, core = "/core", executable = "/launcher" }))
+  local started = assert(Seatbelt.compile(policy, { paths = paths, core = "/core" }))
   assert(started.text:find("process-exec", 1, true), started.text)
-  local granted: Sandbox.Policy = { profiles = { "cosmic" }, grants = { { path = "/launcher", letters = "rx" } } }
-  local runs = assert(Seatbelt.compile(granted,
-    { paths = paths, core = "/core", executable = "/launcher", booted = true }))
+  local granted: Sandbox.Policy = { grants = { { path = "/launcher", letters = "rx" } } }
+  local runs = assert(Seatbelt.compile(granted, { paths = paths, core = "/core", booted = true }))
   local _, execs = runs.text:gsub("process%-exec", "")
   assert(execs == 1, runs.text)
 end
@@ -334,7 +328,7 @@ local function test_system_profile_means_the_same_raw_merged_and_through_json()
   for _, other in ipairs({ profile, merged, decoded }) do
     assert(other.profiles == nil)
     local seen: mut {string:string} = {}
-    for _, grant in ipairs(other.grants or {}) do seen[grant.path] = grant.letters end
+    for _, grant in ipairs(Sandbox.paths(other)) do seen[grant.path] = grant.letters end
     assert(seen["/System/Library"] == "r" and seen["/sbin"] == "r" and seen["/lib64"] == nil)
     assert(seen["/private/var/db/dyld"] == "r" and seen["/dev/dtracehelper"] == "rw")
     local got = compile(other, paths)
@@ -361,7 +355,7 @@ local function test_compiling_does_not_mutate_the_policy_or_paths()
   local paths: {string:Seatbelt.Path} = { ["a//b"] = { path = "/real", directory = false } }
   local out = compile(policy, paths)
   assert(out.parameters["PATH_1"] == "/real")
-  local grant = assert(assert(policy.grants)[1], "the policy kept its grant")
+  local grant = assert(Sandbox.paths(policy)[1], "the policy kept its grant")
   assert(grant.path == "a//b" and grant.letters == "xr")
   local kept = assert(paths["a//b"], "the paths kept their entry")
   assert(assert(policy.profiles)[1] == "system" and kept.path == "/real")

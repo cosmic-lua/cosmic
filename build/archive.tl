@@ -15,6 +15,7 @@
 --- `bare = true` makes it one of the bare verbs (build/bare.tl).
 
 local Archive = require("cosmic.archive")
+local type Failure = require("cosmic.failure")
 local Verb = require("cosmic.cli.archive")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
@@ -47,8 +48,8 @@ end
 --- The subcommands, each with the options it takes, as [`cosmic.cli.archive`] describes them.
 local subcommands = Verb.subcommands or {}
 
---- What a run answers: an exit code and the complaint that goes with it
---- (none for 0).
+--- What a run ends with: an exit code and the complaint that goes
+--- with it (none for 0).
 local record Outcome
   code: integer
   why: string
@@ -268,6 +269,14 @@ end
 local record Clashes
   mut count: integer
   first: mut {string}
+end
+
+-- How far `extract` has read its input: whether it stopped unpacking,
+-- whether the input ended, and the Failure that ended it, if any.
+local record Reading
+  mut halted: boolean
+  mut finished: boolean
+  mut finish_why?: Failure
 end
 
 --- The path under `dest` that writing `entry` would replace, if any: not
@@ -526,7 +535,7 @@ local function extract_streamed(file: string, source: Stream.Reader, dest: strin
   -- files in the way. Read as the entries pass; the entries are not kept.
   local found: mut {integer: boolean} = {}
   local clashes: Clashes = { count = 0, first = {} }
-  local reading = { halted = false, finished = false, finish_why = "" }
+  local reading: Reading = { halted = false, finished = false }
   local function record(entry: Archive.Entry)
     local name = normal(entry.path)
     for slot, member in ipairs(wanted) do
@@ -544,25 +553,33 @@ local function extract_streamed(file: string, source: Stream.Reader, dest: strin
       reading.finished, reading.finish_why = true, why
       return nil
     end
+    if entry == false then
+      reading.finished = true
+      return nil
+    end
     record(entry)
     return entry
   end
   local watched: Archive.Reader = { -- checked: literal_shape
-    next = function(_self: Archive.Reader): Archive.Entry?, string
-      if reading.halted then return nil, "" end
+    next = function(_self: Archive.Reader): (Archive.Entry | false) | (nil, Failure)
+      if reading.halted then return false end
       local entry = advance()
-      if entry == nil then return nil, reading.finish_why end
+      if entry == nil then
+        local why = reading.finish_why
+        if why ~= nil then return nil, why end
+        return false
+      end
       -- Files are already in the way and nothing will be written: read
       -- on for the rest of the listing without unpacking any more.
       if clashes.count > 0 then
         reading.halted = true
-        return nil, ""
+        return false
       end
-      return entry, ""
+      return entry
     end,
     -- Whatever ends the extraction, the input is read to its end below
     -- and closed once there.
-    close = function(_self: Archive.Reader): boolean, string return true, "" end,
+    close = function(_self: Archive.Reader): (true) | (false, Failure) return true end,
   }
 
   local written, extract_why = Archive.extract(watched, tree, {
@@ -574,8 +591,9 @@ local function extract_streamed(file: string, source: Stream.Reader, dest: strin
   -- before anything was written: its trouble comes first.
   while advance() ~= nil do end
   local _, _ = inner:close()
-  if reading.finish_why ~= "" then
-    return give_up(fail(bare.refused, trouble_of(file, file, reading.finish_why)))
+  local finish_why = reading.finish_why
+  if finish_why ~= nil then
+    return give_up(fail(bare.refused, trouble_of(file, file, tostring(finish_why))))
   end
   local missing: mut {string} = {}
   for slot, member in ipairs(wanted) do
@@ -807,7 +825,7 @@ local function add_file(writer: Stream.ArchiveWriter, item: Item): boolean, stri
   end
   -- A writer does not close its body.
   local _, _ = body:close()
-  if not ok then return false, added end
+  if not ok then return false, tostring(added) end
   if more_why ~= "" then return false, item.full .. ": " .. more_why end
   if more is string and more ~= "" then
     return false, item.full .. ": grew past " .. plural.count(item.size, "byte") .. " as it was read"
@@ -833,14 +851,16 @@ local function create(out: string, paths: {string}, reproducible: boolean, to: v
   local writer, writer_why = Archive.create(out, { deterministic = reproducible })
   if writer == nil then return fail(bare.refused, bare_message(tostring(writer_why))) end
   for _, item in ipairs(packed) do
-    local ok: boolean
-    local why: string
+    local ok, why = true, ""
     if item.kind == "dir" then
-      ok, why = writer:add_dir(item.name, { mode = item.mode, mtime = item.mtime })
+      local made, made_why = writer:add_dir(item.name, { mode = item.mode, mtime = item.mtime })
+      if not made then ok, why = false, tostring(made_why) end
     elseif item.kind == "link" then
-      ok, why = writer:add_symlink(item.name, item.target, { mtime = item.mtime })
+      local made, made_why = writer:add_symlink(item.name, item.target, { mtime = item.mtime })
+      if not made then ok, why = false, tostring(made_why) end
     else
-      ok, why = add_file(writer, item)
+      local made, made_why = add_file(writer, item)
+      if not made then ok, why = false, made_why end
     end
     if not ok then
       local _, _ = writer:abort()
@@ -848,7 +868,7 @@ local function create(out: string, paths: {string}, reproducible: boolean, to: v
     end
   end
   local closed, close_why = writer:close()
-  if not closed then return fail(bare.refused, out .. ": " .. close_why) end
+  if not closed then return fail(bare.refused, out .. ": " .. tostring(close_why)) end
   local lines: mut {string} = {}
   for _, item in ipairs(packed) do lines[#lines + 1] = escaped(item.name) end
   local ok, out_why = to.out(if #lines > 0 then (table.concat(lines, "\n") .. "\n") else "" end)

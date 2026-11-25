@@ -14,15 +14,15 @@
 ---
 --- A program is named by its absolute path, and one in the session's working directory, which the tools write, is
 --- not run. A server with a `command` runs under a sandbox by default: the "system" profile, a /tmp of its own and its own
---- program, merged with the `policy` given ([`PolicyJson.decode`]'s fields: grants, connect, env, promises, ...).
+--- program, merged with the `policy` given ([`PolicyJson.decode`]'s fields: grants, connect, env, ...).
 --- So it reaches no file of the user's, no host and no key of the environment but those its policy names. `"sandbox":
 --- "off"` runs it with the agent's rights and its whole environment, the API key too: only for a server the user
 --- trusts as the agent itself. A server with a `url` is reached over Streamable HTTP from the agent. A name is
 --- lower-case letters, digits and `_`, from a letter. `description` says what the server is for, which the model
 --- reads.
 ---
---- What a server answers is untrusted input, as its tools' descriptions are: the snippet and the model read it. So is
---- the end of its standard error, which a call that gets no answer tells, with the values of the environment variables
+--- What a server replies is untrusted input, as its tools' descriptions are: the snippet and the model read it. So is
+--- the end of its standard error, which a call that gets no reply tells, with the values of the environment variables
 --- its policy passes put as their names.
 
 local Child = require("cosmic.child")
@@ -72,7 +72,7 @@ local record AgentMcp
     --- The servers whose standard error a call out reads, by name ([`draining`]): one reads at a time.
     drained: mut {string: boolean}
     --- The last part of what each server started over stdio wrote to its standard error, by name: read while a call
-    --- to it is out, and told where a call gets no answer.
+    --- to it is out, and told where a call gets no reply.
     tails: mut {string: string}
   end
 end
@@ -84,7 +84,7 @@ local HTTP_TIMEOUT <const> = 120 * 1000000000
 local TAIL <const> = 4096
 local TOLD <const> = 1024
 
---- How long a server that gave no answer is read for what it wrote last.
+--- How long a server that gave no reply is read for what it wrote last.
 local LAST_READ <const> = Clock.ms(100)
 --- The policy a server with a command runs under, before its config's.
 local function default_policy(): Sandbox.Policy
@@ -298,7 +298,7 @@ local function told_of(server: AgentMcp.Server?, text: string): string
   return (String.as_utf8(out):gsub("[%z\1-\8\11-\31\127]", ""))
 end
 
---- Why a call to the server `name` of `set` got no answer, `why`, and the end of what it wrote to its standard error,
+--- Why a call to the server `name` of `set` got no reply, `why`, and the end of what it wrote to its standard error,
 --- read until it ends or LAST_READ passes: a server that ended has said why there. What it wrote is untrusted input.
 local function unanswered(set: AgentMcp.Set, name: string, why: string): string
   -- Where a call beside it reads the server's standard error, that call keeps the tail.
@@ -309,7 +309,7 @@ local function unanswered(set: AgentMcp.Set, name: string, why: string): string
   return why .. "; the end of its standard error: " .. told_of(set.servers[name], told)
 end
 
---- Ends the server `name` of `set`, where it was started: a call that failed with no answer may have left it out of
+--- Ends the server `name` of `set`, where it was started: a call that failed with no reply may have left it out of
 --- step, and the next starts it again.
 local function ended(set: AgentMcp.Set, name: string)
   local session, handle = set.sessions[name], set.handles[name]
@@ -319,7 +319,7 @@ local function ended(set: AgentMcp.Set, name: string)
   if handle ~= nil then local _, _ = handle:close() end
 end
 
---- `value`, a record or a list of records the client answered, as the text of its JSON.
+--- `value`, a record or a list of records the client got, as the text of its JSON.
 local function json_text(value: any): (string) | (nil, Failure)
   return Json.encode_any(value)
 end
@@ -371,7 +371,7 @@ function AgentMcp.tools(set: AgentMcp.Set, name: string): ({Json.Value}) | (nil,
   return Json.decode_array(text, { null_value = Json.null })
 end
 
---- What the tool `tool` of the server `name` answered `arguments`, as a JSON object: its content, structuredContent
+--- What the MCP server `name` replied for the tool `tool` called with `arguments`, as a JSON object: its content, structuredContent
 --- and isError, as the server sent them.
 function AgentMcp.call(set: AgentMcp.Set, name: string, tool: string, arguments: {string: Json.Value}):
     ({string: Json.Value}) | (nil, Failure)

@@ -141,7 +141,7 @@ fmt["end"] = fmt.bracket
 return fmt
 ]]
 
---- A stage that answers two values, a value that may be absent and its reason, which is the only shape of more than one result
+--- A stage that returns two values, a value that may be absent and its reason, which is the only shape of more than one result
 --- an exported function may have (the discipline of the new checker refuses any other).
 local MULTI <const> = [[
 local record multi
@@ -216,7 +216,7 @@ local function esc_attr(s: string): string
 end
 
 -- TODO: once a `load` environment can hold a module and a function together without `any` (or a test can hand
--- `require` the real [`cosmic.html`] another way), [`load_module`] answers it typed and loses its `any_use`.
+-- `require` the real [`cosmic.html`] another way), [`load_module`] returns it typed and loses its `any_use`.
 
 --- The module `path` of `lua`, loaded against the real [`cosmic.html`].
 local function load_module(lua: {string: string}, path: string): any
@@ -659,6 +659,23 @@ local function test_a_range_over_strings_and_a_with_over_an_optional_field(tmp: 
   assert(none == "\nnone", none)
 end
 
+--- `{{if}}` and `{{with}}` hold of a value that is there and not empty: an empty list, map or string is false, 0 is
+--- true, and a list or a string needs no `?` to be tested.
+local function test_if_and_with_are_false_of_an_empty_list_or_string(tmp: string)
+  local template = HEAD .. "{{with .list}}<ul>{{range .}}<li>{{.}}</li>{{end}}</ul>{{else}}none{{end}}" ..
+    "|{{if .title}}t{{else}}no title{{end}}|{{if .n}}n{{end}}|{{with .owner}}{{.name}}{{else}}nobody{{end}}"
+  local outs = renders(tmp, "empty-is-false", template, {
+    { list = { "a" }, title = "x", n = 0, owner = { name = "u" } },
+    { list = {}, title = "", n = 1 },
+  })
+  assert(outs[1] == "\n<ul><li>a</li></ul>|t|n|u", outs[1])
+  assert(outs[2] == "\nnone|no title|n|nobody", outs[2])
+  -- A text template tests the same way.
+  local text = renders(tmp, "empty-is-false-text", "{{type Page from data}}{{mode text}}\n{{with .list}}{{range .}}{{.}},{{end}}{{end}}" ..
+      "{{if .title}}!{{end}}", { { list = {}, title = "" }, { list = { "a", "b" }, title = "t" } })
+  assert(text[1] == "\n" and text[2] == "\na,b,!", table.concat(text, "/"))
+end
+
 local function test_a_stage_answering_a_safe_type_fits_the_slot_that_takes_it(tmp: string)
   local page: Page = { title = "/a<b" }
   local out = render(tmp, "stages", HEAD ..
@@ -708,7 +725,7 @@ local function test_a_block_that_adds_a_bare_attribute_renders_it_only_when_its_
       '<option value="c&quot;">x</option><br/>\n<input readonly name="b">', off)
 end
 
---- A stage that counts its calls, and one that answers the count.
+--- A stage that counts its calls, and one that returns the count.
 local COUNTER <const> = [[
 local record counter
   mut calls: integer
@@ -816,7 +833,7 @@ local function test_a_misspelled_field_after_a_variable_is_a_type_error_on_its_l
 end
 
 local function test_a_binding_named_like_a_generated_name_or_a_module_builds_and_renders(tmp: string)
-  local names = { "html", "d", "d1", "v", "parts", "render", "_one", "_text", "T", "fmt", "data", "end", "table" }
+  local names = { "html", "d", "d1", "v", "parts", "render", "_one", "_sure", "_text", "T", "fmt", "data", "end", "table" }
   local body: mut {string} = {}
   for _, name in ipairs(names) do
     body[#body + 1] = "{{range $i, $" .. name .. " := .items}}{{$" .. name .. ".name | fmt.upper}}{{$i}}{{end}}"

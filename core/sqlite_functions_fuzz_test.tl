@@ -5,7 +5,7 @@
 --- and `uuid_blob` decode text, `ieee754` takes bytes and
 --- integers apart and back, `tointeger` reads an integer literal and
 --- `toreal` text as `CAST` does, `uint` orders text, and `carray` reads
---- a bound list back. Each is total: it answers a
+--- a bound list back. Each is total: it returns a
 --- value or NULL, or fails its statement with a message, and never
 --- takes the process down. What an encoder writes, its decoder reads
 --- back. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
@@ -128,7 +128,7 @@ local NUMBERS <const> = { "0", "-0", "1.5", "-2", "1e10", "1E-400", "12345678901
 
 --- What `decimal` makes of a text, which it reads leniently, never as
 --- NULL: a decimal reads back as itself and compares equal to itself,
---- and adding or multiplying two answers a value or fails its statement.
+--- and adding or multiplying two returns a value or fails its statement.
 --- A NULL is `""` here, and a statement's failure is nil.
 local function test_decimal_is_total_and_canonical(tmp: string)
   Fuzz.run({
@@ -234,7 +234,7 @@ end
 
 --- A real's eight bytes, as ieee754.c reads a blob: whatever real they
 --- hold goes back to the same bytes, through `ieee754_to_blob`, through its
---- integer and through `ieee754(M, E)`; `ieee754(M, E)` answers a real for
+--- integer and through `ieee754(M, E)`; `ieee754(M, E)` returns a real for
 --- any integers but the least M, and `ieee754_inc` a real or NULL.
 local function test_ieee754_is_total_and_round_trips(tmp: string)
   Fuzz.run({
@@ -302,8 +302,8 @@ end
 --- digits past an integer's 19, exponents around a real's limits, signs,
 --- points, spaces and NUL. A text drawn whole as a plain decimal is
 --- `well`: it must convert. One drawn as a 64-bit integer, edges among
---- them, is `integer`: `tointeger` must answer it, and `toreal` must
---- answer it exactly or not at all.
+--- them, is `integer`: `tointeger` must convert it, and `toreal` must
+--- convert it exactly or not at all.
 local function gen_number(src: Fuzz.Source): string
   local digits = "0123456789"
   local function run(max: integer): string
@@ -339,10 +339,10 @@ local function gen_number(src: Fuzz.Source): string
   return Fuzz.pack({ "any", table.concat(parts) })
 end
 
---- What `tointeger` and `toreal` make of a text: `toreal` answers what
---- `CAST` does when it answers, and a well-formed decimal converts;
---- `tointeger` answers an integer literal an integer holds as itself, and
---- NULL for anything else.
+--- What `tointeger` and `toreal` make of a text: `toreal`, when it
+--- returns a value, returns what `CAST` does, and a well-formed decimal
+--- converts; `tointeger` returns an integer literal an integer holds as
+--- itself, and NULL for anything else.
 local function test_totype_reads_text_exactly(tmp: string)
   Fuzz.run({
     name = "sqlite totype text",
@@ -456,7 +456,7 @@ local DAMAGES <const> = { "depth", "child", "bytes", "length", "parent", "rowid"
 --- A file holding an R*Tree damaged in one of those ways, written to
 --- disk and opened again, so a damaged root reaches the table's connect
 --- as well as its queries: querying, checking and writing the tree each
---- answer or fail their statement, in bounded time, and never take the
+--- succeed or fail their statement, in bounded time, and never take the
 --- process down.
 local function test_rtree_survives_damaged_trees(tmp: string)
   local Clock = require("cosmic.clock")

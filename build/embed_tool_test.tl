@@ -527,7 +527,7 @@ local function test_a_pages_module_no_module_requires_is_carried(tmp: string)
   assert(table.concat(modules, " ") == "cmd.spam.main store.helper store.pages", table.concat(modules, " "))
   local documented = rows_of(path, "SELECT count(*) FROM docs WHERE module = 'store.pages' AND symbol = 'pages.fry'")
   assert(support.nth(documented, 1):text(1) == "1", "the pages module's field is documented")
-  -- Run from its source, it answers so too.
+  -- Run from its source, it says so too.
   local help = verbs_fixture.run(tmp, { "cmd/spam/main.tl", "help", "fry" })
   assert(help.code == 0 and help.stdout:find("Fries the spam, golden.", 1, true) ~= nil, help.stdout .. help.stderr)
 end
@@ -836,7 +836,7 @@ end
 end
 
 --- A [`cosmic.failure`] that nothing catches is reported by the text its
---- `__tostring` answers, `path: message`, as a person reads it.
+--- `__tostring` returns, `path: message`, as a person reads it.
 local function test_an_uncaught_failure_is_reported_by_its_text(tmp: string)
   assert(Fs.mkdirs(tmp .. "/cmd/boom"))
   assert(Fs.write(tmp .. "/cmd/boom/main.tl", [[
@@ -949,7 +949,7 @@ end
 --- The files under `static/` go into the program's database whole, with
 --- the type, hash, gzip and zstd they are served by, and a built program serves
 --- them from there, not from a directory beside it: run from a directory
---- with a decoy `static/`, it answers the embedded bytes. A file not worth
+--- with a decoy `static/`, it serves the embedded bytes. A file not worth
 --- compressing has no variants on a warm build (an edited module, the
 --- compressed cache kept) as on a cold one, so the static handler serves
 --- its bytes and no empty zstd body. A cold and a warm build run the same
@@ -1379,8 +1379,8 @@ local function test_a_stale_partial_projection_is_removed(tmp: string)
   assert(not assert(Fs.status(stale)).exists, "the stale partial projection stood")
 end
 
---- What the `build` verb asks of the tool, answered for a tool that carries the host's core alone, whatever this one
---- carries, and whose boot of every core answers `boot.answer` (nil: it does not boot) and records the command line
+--- What the `build` verb asks of the tool, supplied for a tool that carries the host's core alone, whatever this one
+--- carries, and whose boot of every core returns `boot.answer` (nil: it does not boot) and records the command line
 --- it was to re-enter, a line each, in `boot.asked`.
 local function host_only_tool(boot: mut {string:string}): embed.Portable
   return {
@@ -1392,7 +1392,7 @@ local function host_only_tool(boot: mut {string:string}): embed.Portable
   }
 end
 
---- `words` run as a command line in `tmp` on a tool `portable` answers for.
+--- `words` run as a command line in `tmp` on a tool `portable` stands in for.
 local function build_on(portable: embed.Portable, tmp: string, words: {string}): invoke.Result
   local own = embed.portable
   embed.portable = portable
@@ -1648,7 +1648,7 @@ local function write_till(tmp: string)
     "# Closing the till\n\nAt the end of the day, reconcile the journal against the drawer.\n"))
 end
 
---- A program that names the module documenting its commands answers its users from its own documentation, with
+--- A program that names the module documenting its commands serves its users from its own documentation, with
 --- nothing but itself: a command's help ends with the field's doc comment, `docs` looks a name up, searches the
 --- comments and guides, puts a misspelling right, and knows nothing of the standard library's.
 local function test_a_built_program_answers_help_and_docs_from_the_documentation_it_carries(tmp: string)
@@ -1732,7 +1732,7 @@ local function test_a_built_program_answers_help_and_docs_from_the_documentation
   end
 end
 
---- Run from its source by the tool, the program answers from the project's own build and from none of the
+--- Run from its source by the tool, the program serves from the project's own build and from none of the
 --- tool's documentation, which the same store holds: a command's help ends with its page, and the tool's guides
 --- and the standard library are not the program's to show.
 local function test_a_program_run_from_its_source_answers_from_the_projects_documentation_alone(tmp: string)
@@ -1756,7 +1756,7 @@ local function test_a_program_run_from_its_source_answers_from_the_projects_docu
     listed.stdout .. listed.stderr)
 end
 
---- Run from its source beside another program, a program answers as it would built: neither the other's
+--- Run from its source beside another program, a program behaves as it would built: neither the other's
 --- module nor its guide, which stands in for the project's of that name in that one alone, and its own guides
 --- under the guide's name, one in place of the project's of the same name.
 local function test_a_program_run_from_its_source_answers_for_itself_alone(tmp: string)

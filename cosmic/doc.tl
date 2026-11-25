@@ -3,13 +3,13 @@
 --- databases and a project's; a program built with `cosmic build` carries its project's public rows and may ask
 --- it of those.
 ---
---- A caller lists its databases in a [`Doc.view`], in the order they answer, and asks the view: [`Doc.lookup`]
+--- A caller lists its databases in a [`Doc.view`], in the order they are read, and asks the view: [`Doc.lookup`]
 --- for what a query names, [`Doc.render`] for an entry's page, [`Doc.answer`] for the page of some words whole,
 --- [`Doc.uses`] for where a symbol is referred to.
 ---
 --- A query is a symbol first -- [`Fs.read`], `read`, [`cosmic.fs`] -- and
 --- words to search the documentation for when no symbol is called that.
---- A qualified name that names nothing (Proc.which) answers from what
+--- A qualified name that names nothing (Proc.which) resolves to what
 --- its qualifier offers, and a search ranks first the functions whose
 --- documentation names its first word as what they stand in for.
 
@@ -25,7 +25,7 @@ local source_run = require("cosmic.internal.source_run")
 local symbols = require("cosmic.internal.symbols")
 
 local record Doc
-  --- A command of the program that answers, which a row of `docs` documents: `cosmic test`, documented by the
+  --- A command of the view's program, which a row of `docs` describes: `cosmic test`, documented by the
   --- overview of [`cosmic.cli.test`]. A lookup of `name` that also names a module points to the command,
   --- its row's page shows its `usage`, `about`, `options` and `examples` under it, and a search reads them with
   --- the row's own text.
@@ -48,15 +48,15 @@ local record Doc
   end
   --- One ordered database view and the owner of every module in it.
   record View
-    --- The databases asked, in the order they answer.
+    --- The databases, in the order they are read.
     databases: {Sqlite.Handle}
-    --- Which databases are public sources, by index: one answers only
-    --- for the modules it records as public ([`symbols.public_modules`]),
+    --- Which databases are public sources, by index: one covers only
+    --- the modules it records as public ([`symbols.public_modules`]),
     --- the standard library's in the binary a project builds with, which
     --- is what the project sees of it. A project's own database, and
-    --- every database inside cosmic's own tree, answer for everything.
+    --- every database inside cosmic's own tree, cover everything.
     public: {integer: boolean}
-    --- The index of the database that answers for each module: the first that holds it.
+    --- The index of the database that covers each module: the first that holds it.
     owners: {string: integer}
     --- How many places refer to a module/symbol pair, keyed by
     --- [`use_key`] -- computed on demand, once per command, by
@@ -75,9 +75,9 @@ local record Doc
     --- as [`symbols.add_bound`] reads them: nil until a type's
     --- reference asks, then cached as `use_counts` is.
     mut bound?: {string: string}
-    --- The commands of the program that answers, none unless the caller sets them.
+    --- The commands of the documented program, none unless the caller sets them.
     mut commands: {Command}
-    --- The program that answers, as its user types it, where it is not the tool ([`Doc.program`]): a page's
+    --- The documented program, as its user types it, where it is not the tool ([`Doc.program`]): a page's
     --- hints name its `docs` command, and no page counts the uses and links of a symbol, a program having no
     --- command that lists them. Nil for the tool.
     mut program?: string
@@ -210,7 +210,7 @@ end
 --- A symbol as an `examples_fts` phrase: [`Fs.read`] and `Fs:read` alike
 --- become `"Fs read"`, which matches those adjacent tokens in that order
 --- in an example's text or source. Looser than an exact join on purpose:
---- one example answers for every symbol its code mentions, not only the
+--- one example covers every symbol its code mentions, not only the
 --- one whose name it shares.
 ---
 --- On its own this over-matches: FTS5's tokenizer splits on `_`, so
@@ -500,10 +500,10 @@ local function modules_ending(db: Sqlite.Handle, query: string): {Doc.Entry}?, s
   return entries_of(rows), ""
 end
 
---- What a module with no documentation row of its own answers for its
---- name: the symbol it hands out, which carries the module's comment
---- (a `cmd/<name>/main.tl` that returns a function has no record to
---- hold it). `module` is the module's whole name.
+--- What a lookup of its name finds for a module with no documentation
+--- row of its own: the symbol it hands out, which carries the module's
+--- comment (a `cmd/<name>/main.tl` that returns a function has no
+--- record to hold it). `module` is the module's whole name.
 local function module_symbol(db: Sqlite.Handle, public: boolean,
                              module: string): {Doc.Entry}?, string
   local rows, trouble = db:rows(
@@ -522,7 +522,7 @@ end
 local function named(db: Sqlite.Handle, public: boolean, query: string): {Doc.Entry}?, string
   -- TODO: a function a record declares as a field and its file defines has two rows of one source symbol (`years` and
   -- `RunDb.years`), so `cosmic docs` shows it twice. Fix: the build writes one row for it, and this
-  -- answers once, as a link to it resolves once; nothing blocks it.
+  -- returns it once, as a link to it resolves once; nothing blocks it.
   local rows, trouble = db:rows(
     "SELECT " .. columns .. " FROM docs d WHERE " .. symbols.named_where("d") ..
       " AND " .. symbols.shown_in(db, "d", public) .. " ORDER BY d.module, d.id",
@@ -565,7 +565,7 @@ end
 --- finds it.
 --- A `local` declaration is left out too, whichever source is read: it
 --- is not the module's surface, though `cosmic docs <name>` finds it in
---- a source that answers for the module's internals.
+--- a source that covers the module's internals.
 --- A call the module's own record declares as a field of function type
 --- (`lstat: function(...)` in [`cosmic.sys`]'s syscall table) is listed
 --- too, as a function; a record's plain data field, and any field of a
@@ -954,8 +954,8 @@ local function searched_examples(db: Sqlite.Handle, public: boolean, fts: string
   return out, ""
 end
 
---- Raises where `db` is a test's pure store, which leaves the documentation out: it would answer every query as
---- nothing found, or as a table it lacks, and a test would pass on the first.
+--- Raises where `db` is a test's pure store, which leaves the documentation out: every query would find
+--- nothing, or fail on a table it lacks, and a test would pass on the first.
 local function refuse_pure(db: Sqlite.Handle)
   local pure, _ = db:rows("SELECT 1 FROM meta WHERE key = 'pure_store'")
   if pure ~= nil and #pure > 0 then
@@ -965,7 +965,7 @@ local function refuse_pure(db: Sqlite.Handle)
 end
 
 --- Whether `db` holds the shipped tables at all: a database built
---- before they existed answers no query here.
+--- before they existed lacks them.
 local function has_docs(db: Sqlite.Handle): boolean?, string
   local rows, trouble = db:rows(
     "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'docs'")
@@ -979,7 +979,7 @@ local function documented_text(db: Sqlite.Handle): boolean?, string
 end
 
 --- Whether `db` holds documentation at all: what a caller asks of a database before it lists it among a view's,
---- one that holds none answering nothing. Nil and a [`Failure`] when it cannot be read.
+--- one that holds none finds nothing. Nil and a [`Failure`] when it cannot be read.
 function Doc.documented(db: Sqlite.Handle): (boolean) | (nil, Failure)
   local value, why = documented_text(db)
   if value == nil then return nil, Failure.new(why) end
@@ -987,7 +987,7 @@ function Doc.documented(db: Sqlite.Handle): (boolean) | (nil, Failure)
 end
 
 --- Whether `db` holds `links`: a database built before it existed has
---- no links to answer with.
+--- no links to read.
 local function has_links(db: Sqlite.Handle): boolean?, string
   local rows, trouble = db:rows(
     "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'links'")
@@ -1150,7 +1150,7 @@ local function searched(db: Sqlite.Handle, public: boolean, query: string): {Doc
   if from_guides == nil then
     return nil, guides_trouble
   end
-  -- A section shows the part of its guide that answers, so the guide's
+  -- A section shows the part of its guide that matches, so the guide's
   -- own row, which shows only its opening, is left out. The sections
   -- come after the first few rows, which keeps the member a reader
   -- named ahead of a guide that merely says the words.
@@ -1180,7 +1180,7 @@ local function searched(db: Sqlite.Handle, public: boolean, query: string): {Doc
 end
 
 --- Whether `db` holds the `catalog` and the index over it: a database built before the codes of the checker were written to
---- it has none to answer with.
+--- it lacks them.
 local function has_catalog(db: Sqlite.Handle): boolean?, string
   local rows, trouble = db:rows(
     "SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name IN ('catalog', 'catalog_fts')")
@@ -1195,7 +1195,7 @@ end
 --- The entries of the catalog rows of kind `code` ([`build.error_catalog`]) that `where` selects, from the first database
 --- that holds any: the rule behind a code of the checker, its reason and its fix, in the text of the row. None in a
 --- program's own view ([`Doc.program`]): its users are asked about the program, not the checker the tool documents,
---- so it answers no code, built or run from its source.
+--- so it finds no code, built or run from its source.
 local function coded_entries(view: Doc.View, join: string, where: string, binds: {Sqlite.Value},
                              limit: integer): mut {Doc.Entry}?, string
   if view.program ~= nil then
@@ -1242,7 +1242,7 @@ end
 
 --- The places that refer to what `query` names, by the rule
 --- [`symbols.used_where`] keeps: the uses, then the links, which also
---- answer a query that is a file's path from the root, alone or with
+--- match a query that is a file's path from the root, alone or with
 --- `#` and a heading's anchor (`doc/writing.md#every-example-runs`). A
 --- path alone finds the links to its headings too, and a bare lowercase
 --- name the links to each module it is the last name of, as
@@ -1299,7 +1299,7 @@ local function uses_of(db: Sqlite.Handle, public: boolean, query: string): {Doc.
   return out, ""
 end
 
---- Whether the database at `index` of `view` answers for `module`: the
+--- Whether the database at `index` of `view` covers `module`: the
 --- first that holds it, or, for "" -- a Markdown, C or Zig file's link,
 --- which names no module -- the first that is not
 --- a public source, the tree's own projection, as only a tree's own
@@ -1314,7 +1314,7 @@ local function answers_for(view: Doc.View, index: integer, module: string): bool
   return view.owners[module] == index
 end
 
---- One lookup over `databases`, in order, with a module answered by an
+--- One lookup over `databases`, in order, with a module found in an
 --- earlier database hiding it in every later one.
 --- @param look what to read from each database
 local function across<T>(view: Doc.View,
@@ -1356,7 +1356,7 @@ local function database_of(view: Doc.View, owner: integer): Sqlite.Handle
 end
 
 --- Whether `module` is one the database that owns it records as public
---- ([`symbols.public_modules`]): what a public source answers for. A
+--- ([`symbols.public_modules`]): what a public source covers. A
 --- database that cannot say records none.
 local function is_public(view: Doc.View, module: string): boolean
   local owner = view.owners[module]
@@ -1579,7 +1579,7 @@ function Doc.view(databases: {Sqlite.Handle}, public?: {boolean}): (Doc.View) | 
   return value
 end
 
---- Answers the documentation of the project's last build as a `cmd/<name>/main.tl` run from its source would
+--- Returns the documentation of the project's last build as a `cmd/<name>/main.tl` run from its source would
 --- carry it built ([`build.embed`]), in place of `db`, the store's connection to that build. The run names the
 --- program and the build ([`cosmic.internal.source_run`]'s `main` and `projection`). What it carries: the docs of
 --- each module it carries that any module may require, or that sits under its own `cmd/<name>/` (the main, a
@@ -1784,18 +1784,18 @@ local function program_text(databases: {Sqlite.Handle}, program: string, command
     value_records = {}, public_modules = {}, commands = commands or {}, program = program }, ""
 end
 
---- A view of a program's own documentation, for the program to answer its users from: `databases` are its
---- store's, each a public source, so only the modules any module may require answer. The standard library's
---- answer nothing, a program's users being asked about the program: neither a `cosmic.*` module nor a guide
+--- A view of a program's own documentation, for the program to show its users: `databases` are its
+--- store's, each a public source, so only the modules any module may require are found. The standard library's
+--- show nothing, a program's users being asked about the program: neither a `cosmic.*` module nor a guide
 --- the tool carries, which is a guide's row in a database that documents the standard library without the
 --- guide's module. A test's store, which declares `store_text`, holds its tree's public guides as modules, so
---- there they answer as they do in the built program. So the built
---- program answers from what `cosmic build` put in it, and the same program run from its source by the tool
---- answers from the project's last build, which the tool's store holds beside its own. A database that
+--- there they are found as they are in the built program. So the built
+--- program reads what `cosmic build` put in it, and the same program run from its source by the tool
+--- reads the project's last build, which the tool's store holds beside its own. A database that
 --- holds no documentation is left out. `program` is what its user types to run it, which the hints of a page
 --- name, and `commands` are its commands, as [`Doc.Command`] says. Nil and a [`Failure`] when a database cannot be read;
 --- raises on a test's store that withholds the documentation, naming `store_text`. A `cmd/<name>/main.tl` run
---- from its source answers as it would built ([`scope_to_program`]), `pages` the module its commands' pages are
+--- from its source finds what it would find built ([`scope_to_program`]), `pages` the module its commands' pages are
 --- read from ([`Flags.Documented`]), which a build carries for being named.
 function Doc.program(databases: {Sqlite.Handle}, program: string, commands?: {Doc.Command},
                      pages?: string): (Doc.View) | (nil, Failure)
@@ -1824,8 +1824,8 @@ local function guide_text(view: Doc.View, name: string): string?, string
 end
 
 --- The text of the guide `name` of `view`'s documentation, `doc/guides/<name>.md`, as a reader is shown it
---- ([`Doc.shown`]): what follows its title. A guide under `doc/guides/internal/`, or one the view does not answer
---- for (the tool's, in [`Doc.program`]'s view), is none. False where there is none; nil and a [`Failure`]
+--- ([`Doc.shown`]): what follows its title. A guide under `doc/guides/internal/`, or one the view does not cover
+--- (the tool's, in [`Doc.program`]'s view), is none. False where there is none; nil and a [`Failure`]
 --- when a database cannot be read.
 function Doc.guide(view: Doc.View, name: string): (string | false) | (nil, Failure)
   local value, why = guide_text(view, name)
@@ -1851,7 +1851,7 @@ local function command_of(view: Doc.View, entry: Doc.Entry): Doc.Command?
   return nil
 end
 
---- `entries` as a lookup's answer, with the entries of `ahead` standing before them.
+--- `entries` as a lookup's result, with the entries of `ahead` standing before them.
 local function lookup(entries: {Doc.Entry}, exact: boolean, count: integer,
                       partial?: boolean, ahead?: {Doc.Entry}): Doc.Lookup
   local items: mut {Doc.Entry} = {}
@@ -1875,7 +1875,7 @@ end
 --- The commands whose symbol, prose and help together carry every word of `query`, as the entries that document
 --- them (`cosmic.cli.<verb>` for the tool's): the search reads doc comments, and what a command's help says -- its
 --- `about`, `usage`, `options` and `examples` ([`Doc.Command`]) -- is data, so it is matched here instead, as the
---- binary answering has it and `render` shows it. Each word is a phrase, as [`fts_query`] quotes it:
+--- documented binary has it and `render` shows it. Each word is a phrase, as [`fts_query`] quotes it:
 --- `COSMIC_TEST_TIMEOUT` must be those three tokens in a row. They come after what the index found, as the lesser
 --- match: most of what a verb's options say is said again, closer, by the code they drive. Those whose row,
 --- `about` and `usage` carry the words come first, then those that needed their options or examples, each in the
@@ -1988,7 +1988,7 @@ end
 --- ([`Distance.reach`]): of the words the databases of `view` list (`docs_words`), the one the fewest edits from
 --- `word`, then the one more rows carry, counted over every database, then by spelling. A `word` under four
 --- letters has none, being near too many. A word a search never
---- requires ([`STOP_WORDS`]) is no answer, and a database written before it listed its words offers none. The
+--- requires ([`STOP_WORDS`]) is never returned, and a database written before it listed its words offers none. The
 --- words are those of every row, a public source's private rows among them: a word only those hold is searched
 --- for and finds nothing, and none of them is shown.
 local function nearest_word(view: Doc.View, word: string): string?, string
@@ -2062,19 +2062,19 @@ end
 
 --- The lookups of a member that call one another and are called before they are defined, as functions of one
 --- record declared first: what a dotted query names through a type alias, in full, or from a module's last name,
---- and what a removed name answers.
+--- and what a removed name resolves to.
 local record Members
 end
 
 --- What `query` names, across `databases`, by the first rule that
---- answers:
+--- matches:
 --- - the public module a bare lowercase name ends (`json`, `fs`), with
 ---   its verb, if it is one (`test`), as a see-also line after it;
 --- - its exact matches, when it names a symbol or a module, a member of
 ---   a type an alias stands for, or a module's member written in full
 ---   ([`cosmic.fs.read`]) or from its last name (`Cli.order`);
 --- - a field of a global [`cosmic.removed`] lists as withheld, which no
----   live row answers (`os.getenv`): what to write instead, as the
+---   live row covers (`os.getenv`): what to write instead, as the
 ---   compiler says it (see [`Members.removed_by`]);
 --- - for a qualified name that names nothing, what its qualifier offers
 ---   (see `scoped`);
@@ -2108,15 +2108,15 @@ local function lookup_names(view: Doc.View, query: string, as_respelled?: boolea
   end
   if #modules > 0 then
     -- What only shares the module's name, an internal record (`json`),
-    -- is not another answer.
+    -- is not another result.
     local seen: mut {string: boolean} = {}
     for _, entry in ipairs(modules) do
       seen[entry.module .. "\n" .. entry.symbol] = true
     end
-    -- With a library module of the name, the module answers first, then
+    -- With a library module of the name, the module comes first, then
     -- the other symbols, and the verb `cosmic <query>` names is a
     -- see-also line after the modules. Otherwise (a tool's or a
-    -- project's own module of the name) the verb answers first, as
+    -- project's own module of the name) the verb comes first, as
     -- `cosmic docs sql` says it does.
     local answers: mut {Doc.Entry} = {}
     local rest: mut {Doc.Entry} = {}
@@ -2166,7 +2166,7 @@ local function lookup_names(view: Doc.View, query: string, as_respelled?: boolea
   if #exact > 0 then
     local named_count = #exact
     -- A raw binding's name is also what its wrapper stands in for:
-    -- "unlink" answers with sys.unlink and then Fs.remove.
+    -- "unlink" finds sys.unlink and then Fs.remove.
     local raw = query:match("^[%w_]+$") ~= nil
     for _, entry in ipairs(exact) do
       if entry.module ~= "cosmic.sys" then
@@ -2203,12 +2203,12 @@ local function lookup_names(view: Doc.View, query: string, as_respelled?: boolea
     end
     return lookup(answers, true, named_count), ""
   end
-  -- A field of a withheld global answers what replaces it, before a search offers another module's member of the same name.
+  -- A field of a withheld global resolves to what replaces it, before a search offers another module's member of the same name.
   local gone = Members.removed_by(query)
   if gone ~= nil then
     return lookup({ gone }, true, 1), ""
   end
-  -- A module the index lists is always answered, though it has no row
+  -- A module the index lists is always found, though it has no row
   -- of its own to name it.
   local owner = view.owners[query]
   if owner ~= nil then
@@ -2346,10 +2346,10 @@ local function lookup_text(view: Doc.View, query: string): Doc.Lookup?, string
   return ruled, ""
 end
 
---- What `query` names, as [`lookup_names`] answers, and ahead of it the row of the code of the checker it is, when it is
+--- What `query` names, as [`lookup_names`] finds it, and ahead of it the row of the code of the checker it is, when it is
 --- one (`not_assignable`): the rule behind the code, then the symbols that share its name (the enum member of [`Codes.Code`]),
---- which stay reachable. A query that only searches (nothing is named exactly) answers the code's row alone. A program's
---- own view ([`Doc.program`]) answers no code.
+--- which stay reachable. A query that only searches (nothing is named exactly) finds the code's row alone. A program's
+--- own view ([`Doc.program`]) finds no code.
 function Doc.lookup(view: Doc.View, query: string): (Doc.Lookup) | (nil, Failure)
   local value, why = lookup_text(view, query)
   if value == nil then return nil, Failure.new(why) end
@@ -2360,8 +2360,11 @@ end
 --- up to the first `.`, `?` or `!` that a space or the end follows,
 --- outside backticks and not closing "e.g" or "i.e".
 local function first_sentence(documented: string): string
-  local trimmed = String.trim(link_text.unlinked(documented))
-  local paragraph = (trimmed:match("^(.-)\n%s*\n") or trimmed):gsub("%s+", " ")
+  -- The first paragraph is cut out before its links are read: a module's whole text costs many times as much, and
+  -- what is past the paragraph is never shown.
+  local whole = String.trim(documented)
+  local head = String.trim(link_text.unlinked(whole:match("^(.-)\n%s*\n") or whole))
+  local paragraph = (head:match("^(.-)\n%s*\n") or head):gsub("%s+", " ")
   local quoted = false
   for at = 1, #paragraph do
     local char = paragraph:sub(at, at)
@@ -2484,8 +2487,8 @@ local function exact_text(view: Doc.View, query: string): {Doc.Entry}?, string
   return Members.in_full(view, query)
 end
 
---- What `query` names exactly, by the rule [`Doc.lookup`] answers an
---- exact query with: the public modules a bare lowercase name ends
+--- What `query` names exactly, by the rule [`Doc.lookup`] applies to
+--- an exact query: the public modules a bare lowercase name ends
 --- (only those, when there are any), else every row `named` finds,
 --- else the module the index lists under that whole name, else the
 --- member of a type an alias stands for ([`Sqlite.Handle.close`], whose
@@ -2505,7 +2508,7 @@ end
 --- of cosmic.cli, whose value is `local module: Module`); else, as
 --- [`Doc.exact`] does, the member of a type an alias of the module
 --- stands for (`Handle.close` of [`cosmic.sqlite`]). None when the view
---- holds no such module. The database that owns the module answers.
+--- holds no such module. The database that owns the module is read.
 local function member_of(view: Doc.View, module: string, name: string): {Doc.Entry}?, string
   local owner = view.owners[module]
   if owner == nil then
@@ -2610,9 +2613,9 @@ function Members.by_last_name(view: Doc.View, query: string): {Doc.Entry}?, stri
   return out, ""
 end
 
---- What a name [`cosmic.removed`] lists as withheld answers: one entry of kind `removed` saying what to write instead,
---- for a field of a withheld global (`os.getenv`) or a withheld field of `package` (`package.path`), with the words a
---- refusal at run time raises with; none for any other name.
+--- What a name [`cosmic.removed`] lists as withheld resolves to: one entry of kind `removed` saying what to write
+--- instead, for a field of a withheld global (`os.getenv`) or a withheld field of `package` (`package.path`), with
+--- the words a refusal at run time raises with; none for any other name.
 function Members.removed_by(query: string): Doc.Entry?
   local qualifier, name = query:match("^([%w_]+)%.([%w_]+)$")
   if qualifier == nil or (Removed.names[qualifier] == nil and Removed.replacements[query] == nil) then
@@ -3104,7 +3107,7 @@ local function render_text(view: Doc.View, entry: Doc.Entry): {string}?, string
   -- The call a module's page ends by naming, as the way to see any
   -- member's own page: the most used of those with an example, else
   -- the most used. None where the module lists no call, whose first
-  -- declaration may be its own record, which answers as the module.
+  -- declaration may be its own record, which stands for the module.
   local pointed: string?
   if entry.symbol == "" then
     local declared, declared_trouble = across(view,
@@ -3407,9 +3410,9 @@ local function index_lines(index: {Doc.Summary}, limit?: integer): mut {string}
 end
 
 --- The queries `cosmic docs <words...>` looks up, each as
---- [`Doc.lookup`] answers it: every word alone when there are several
+--- [`Doc.lookup`] resolves it: every word alone when there are several
 --- and each is a qualified name, else the words together. Nil for no words or
---- `cosmic` alone, which [`Doc.answer`] answers with a list of modules.
+--- `cosmic` alone, for which [`Doc.answer`] lists the modules.
 function Doc.asked(words: {string}): {string}?
   local query = table.concat(words, " ")
   if query == "" or query == "cosmic" or query == "cosmic." then
@@ -3648,7 +3651,7 @@ end
 ---   `kind` "module", with its `text` the first sentence, and `closed`
 ---   ([`Doc.Summary`]) where not every module may require it.
 --- A query that finds nothing has no line. Each object carries `stale`, true,
---- where `stale` is set: the lookup answers from the last build, the tree not
+--- where `stale` is set: the lookup reads the last build, the tree not
 --- building as it stands. Nil and a [`Failure`] when a database
 --- cannot be read; `found` is false when a query found nothing, and `said`
 --- is empty.

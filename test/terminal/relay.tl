@@ -240,7 +240,7 @@ do
   local caller = new_caller()
   local opts: Child.Options = { stdin = caller.slave, stdout = caller.slave, stderr = caller.slave,
     timeout_ns = Clock.seconds(60) }
-  local child, why = Child.start({ exe, "sandbox", "--cosmic", "--connect", "127.0.0.2:9", "--", exe,
+  local child, why = Child.start({ exe, "sandbox", "--connect", "127.0.0.2:9", "--", exe,
     "sandbox", "connect", "example.invalid", "443" }, opts)
   assert(child, why)
   local result = assert(child:wait())
@@ -266,8 +266,7 @@ end
 -- A terminal as a policy's `relay_log` is refused naming the option.
 do
   local caller = new_caller()
-  local started, why = Child.start({ exe, "--help" }, { timeout_ns = Child.FOREVER, policy = { profiles = { "cosmic" },
-    connect = { "127.0.0.2:9" } }, relay_log = caller.slave })
+  local started, why = Child.start({ exe, "--help" }, { timeout_ns = Child.FOREVER, policy = { grants = { { connect = "127.0.0.2:9" } } }, relay_log = caller.slave })
   assert(started == nil, "a terminal as the relay's log was taken")
   print("relay: refused: " .. tostring(why))
   finish(caller)

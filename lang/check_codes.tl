@@ -270,7 +270,7 @@ Codes.catalog = {
     code = "nil_not_allowed", rule = "nil is its own type",
     why = "a type admits nil only as `T?` or a `name?: T` field, so a value that may be nil is no operand, argument, " ..
       "index base or callee of a type that is not",
-    fix = "test it (`if <value> == nil then return nil, why end`), take it with `assert(<value>)`, or declare " ..
+    fix = "test it (`if <value> == nil then return nil, why end`), take it with `<value>!`, or declare " ..
       "what receives it `T?`",
   },
   {
@@ -285,7 +285,7 @@ Codes.catalog = {
     fix = "iterate with `for _, row in ipairs(<xs>)`, count the keys (`for <i> = 1, #<xs> do`, whose body reads " ..
       "`<xs>[<i>]` as a value while it calls nothing, shortens nothing and assigns neither `<xs>` nor `<i>`), test the " ..
       "index (`if <i> >= 1 and <i> <= #<xs> then`, a block held to the same), read it " ..
-      "with `Array.at(<xs>, <i>)` (`cosmic.array`, which raises when it is missing) or `assert(<xs>[<i>])`, read it " ..
+      "with `Array.at(<xs>, <i>)` (`cosmic.array`, which raises when it is missing) or `<xs>[<i>]!`, read it " ..
       "into a local and test it (`local row = <xs>[<i>] if row ~= nil then ... end`), or test the length " ..
       "(`if #<xs> ~= 0 then ... <xs>[1] ... end`). `<xs>[<i>] or <default>` turns an out-of-range read into a wrong value",
   },
@@ -534,7 +534,8 @@ Codes.catalog = {
   },
   {
     code = "compare_disjoint", rule = "the relation",
-    why = "`==` of two types that share no value is never true, which finds the dead test",
+    why = "`==` of two types that share no value, or of a literal `s:sub(i, j)` range shorter than the string it is " ..
+      "tested against, is never true, which finds the dead test",
     fix = "compare values of one type, or remove the test",
   },
   {

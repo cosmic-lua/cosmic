@@ -18,6 +18,193 @@
 ---
 --- See [`build.work`] for what each table holds.
 
+-- The SQL of the schema, first: [`Analysis`] is made of these constants, and the record holds it.
+
+--- The patterns of [`apart`].
+local TESTDATA <const> = "testdata/*"
+local NESTED_TESTDATA <const> = "*/testdata/*"
+
+--- The SQL condition under which the path in the column `path` is a static
+--- asset, as [`analysis_schema.static_asset`] says: under `static/`, or
+--- under `static/` of a directory directly under `cmd/`. Constant text,
+--- so the `inputs` view, and the schema that holds it, is too.
+local STATIC_PATHS <const> = "(path GLOB 'static/?*' OR (path GLOB 'cmd/?*/static/?*' AND " ..
+  "instr(substr(path, 5), '/') = instr(substr(path, 5), '/static/')))"
+
+--- The SQL that holds the path in the column `path` outside the static
+--- assets and outside every pattern of [`apart`].
+local OUTSIDE_APART <const> = "AND NOT " .. STATIC_PATHS .. " AND path NOT GLOB '" .. TESTDATA ..
+  "' AND path NOT GLOB '" .. NESTED_TESTDATA .. "'"
+
+--- The globs of [`kinds`].
+local DECL_GLOB <const> = "*.d.tl"
+local TEST_GLOB <const> = "*_test.tl"
+local EXAMPLE_GLOB <const> = "*_example.tl"
+local MAIN_GLOB <const> = "cmd/*/main.tl"
+local MAIN_EXCEPT <const> = "cmd/*/*/*"
+
+--- The kinds of [`named_kinds`].
+local BINDING <const> = "binding"
+local LANGUAGE <const> = "language"
+
+--- What a line names a kind by, before the kind.
+local KIND_TAG <const> = "--- @kind "
+
+--- The text of a row of `files` in the `inputs` view, a file saved with CR LF line ends read as one with LF, and a
+--- line feed after its last line.
+local FILE_TEXT <const> = "(replace(CAST(data AS TEXT), char(13) || char(10), char(10)) || char(10))"
+
+--- The doc block that opens [`FILE_TEXT`]: the cut [`leading_block`] makes, found by a recursive walk over the lines,
+--- which `GLOB` and `instr` cannot do.
+local FILE_BLOCK <const> = "substr(" .. FILE_TEXT .. ", 1, (WITH RECURSIVE r(p) AS (SELECT 1 UNION ALL SELECT p + " ..
+  "instr(substr(" .. FILE_TEXT .. ", p), char(10)) FROM r WHERE substr(" .. FILE_TEXT .. ", p, 2) = '--') " ..
+  "SELECT max(p) FROM r) - 1)"
+
+--- The SQL expression for the kind of the row of `files` in the `inputs` view: `binding`, `language`, `decl`, `test`,
+--- `example`, `main` or `module` ([`kinds`]). A declaration file whose doc block ([`FILE_BLOCK`]) names its kind
+--- ([`named_kinds`]) on a line of its own is that kind.
+local KIND_CASE <const> = "CASE" ..
+  " WHEN path GLOB '" .. DECL_GLOB .. "' AND instr(char(10) || " .. FILE_BLOCK .. ", char(10) || '" .. KIND_TAG ..
+  BINDING .. "' || char(10)) > 0 THEN '" .. BINDING .. "'" ..
+  " WHEN path GLOB '" .. DECL_GLOB .. "' AND instr(char(10) || " .. FILE_BLOCK .. ", char(10) || '" .. KIND_TAG ..
+  LANGUAGE .. "' || char(10)) > 0 THEN '" .. LANGUAGE .. "'" ..
+  " WHEN path GLOB '" .. DECL_GLOB .. "' THEN 'decl'" ..
+  " WHEN path GLOB '" .. TEST_GLOB .. "' THEN 'test'" ..
+  " WHEN path GLOB '" .. EXAMPLE_GLOB .. "' THEN 'example'" ..
+  " WHEN path GLOB '" .. MAIN_GLOB .. "' AND path NOT GLOB '" .. MAIN_EXCEPT .. "' THEN 'main'" ..
+  " ELSE 'module' END"
+
+local DERIVED <const> = [[CREATE TABLE IF NOT EXISTS derived (file TEXT PRIMARY KEY,
+                                        path TEXT NOT NULL,
+                                        kind TEXT NOT NULL,
+                                        origin TEXT NOT NULL,
+                                        from_hash TEXT NOT NULL,
+                                        source TEXT NOT NULL,
+                                        source_hash TEXT NOT NULL) WITHOUT ROWID]]
+local INPUTS <const> = [[CREATE VIEW IF NOT EXISTS inputs AS
+      SELECT path AS file,
+             replace(CASE WHEN path GLOB '*/init.d.tl' THEN substr(path, 1, length(path) - 10)
+                          WHEN path GLOB '*.d.tl' THEN substr(path, 1, length(path) - 5)
+                          WHEN path GLOB '*/init.tl' THEN substr(path, 1, length(path) - 8)
+                          ELSE substr(path, 1, length(path) - 3) END, '/', '.') AS path,
+             ]] .. KIND_CASE .. [[ AS kind,
+             'tree' AS origin,
+             sha256 AS from_hash,
+             CAST(data AS TEXT) AS source,
+             sha256 AS source_hash
+        FROM files WHERE path GLOB '*.tl'
+          ]] .. OUTSIDE_APART .. [[
+      UNION ALL
+      SELECT file, path, kind, origin, from_hash, source, source_hash FROM derived]]
+local PARSED <const> = [[CREATE TABLE IF NOT EXISTS parsed (source_hash TEXT PRIMARY KEY,
+                                       has_return INTEGER NOT NULL,
+                                       export TEXT NOT NULL) WITHOUT ROWID]]
+local REQUIRES <const> = [[CREATE TABLE IF NOT EXISTS requires (source_hash TEXT NOT NULL,
+                                         ordinal INTEGER NOT NULL,
+                                         name TEXT NOT NULL,
+                                         PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]]
+local TESTS <const> = [[CREATE TABLE IF NOT EXISTS tests (source_hash TEXT NOT NULL,
+                                      ordinal INTEGER NOT NULL,
+                                      name TEXT NOT NULL,
+                                      PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]]
+local CATALOG <const> = [[CREATE TABLE IF NOT EXISTS catalog (source_hash TEXT NOT NULL,
+                                        ordinal INTEGER NOT NULL,
+                                        symbol TEXT NOT NULL,
+                                        message TEXT NOT NULL,
+                                        line INTEGER NOT NULL,
+                                        PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]]
+local DOCS <const> = [[CREATE TABLE IF NOT EXISTS docs (source_hash TEXT NOT NULL,
+                                     ordinal INTEGER NOT NULL,
+                                     symbol TEXT NOT NULL,
+                                     source_symbol TEXT NOT NULL,
+                                     exported INTEGER NOT NULL,
+                                     kind TEXT NOT NULL,
+                                     signature TEXT NOT NULL,
+                                     text TEXT NOT NULL,
+                                     line INTEGER NOT NULL,
+                                     PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]]
+local REFS <const> = [[CREATE TABLE IF NOT EXISTS refs (source_hash TEXT NOT NULL,
+                                     ordinal INTEGER NOT NULL,
+                                     module TEXT NOT NULL,
+                                     member TEXT NOT NULL,
+                                     line INTEGER NOT NULL,
+                                     PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]]
+local BOUND <const> = [[CREATE TABLE IF NOT EXISTS bound (source_hash TEXT NOT NULL,
+                                      ordinal INTEGER NOT NULL,
+                                      name TEXT NOT NULL,
+                                      module TEXT NOT NULL,
+                                      PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]]
+local EXAMPLES <const> = [[CREATE TABLE IF NOT EXISTS examples (source_hash TEXT NOT NULL,
+                                         ordinal INTEGER NOT NULL,
+                                         name TEXT NOT NULL,
+                                         text TEXT NOT NULL,
+                                         source TEXT NOT NULL,
+                                         line INTEGER NOT NULL,
+                                         PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]]
+local TEST_INPUTS <const> = [[CREATE TABLE IF NOT EXISTS test_inputs (source_hash TEXT NOT NULL,
+                                            ordinal INTEGER NOT NULL,
+                                            field TEXT NOT NULL,
+                                            value TEXT NOT NULL,
+                                            PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]]
+local LINKS <const> = [[CREATE TABLE IF NOT EXISTS links (source_hash TEXT NOT NULL,
+                                      ordinal INTEGER NOT NULL,
+                                      line INTEGER NOT NULL,
+                                      column INTEGER NOT NULL,
+                                      form TEXT NOT NULL,
+                                      doc INTEGER NOT NULL,
+                                      text TEXT NOT NULL,
+                                      target TEXT NOT NULL,
+                                      own INTEGER NOT NULL,
+                                      alias TEXT NOT NULL,
+                                      PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]]
+local STUBS <const> = [[CREATE TABLE IF NOT EXISTS stubs (source_hash TEXT PRIMARY KEY,
+                                      text TEXT NOT NULL,
+                                      pruned INTEGER NOT NULL) WITHOUT ROWID]]
+local GLOBALS <const> = [[CREATE TABLE IF NOT EXISTS globals (source_hash TEXT NOT NULL,
+                                        ordinal INTEGER NOT NULL,
+                                        line INTEGER NOT NULL,
+                                        column INTEGER NOT NULL,
+                                        PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]]
+local PLACES <const> = [[CREATE TABLE IF NOT EXISTS places (source_hash TEXT NOT NULL,
+                                       ordinal INTEGER NOT NULL,
+                                       symbol TEXT NOT NULL,
+                                       kind TEXT NOT NULL,
+                                       line INTEGER NOT NULL,
+                                       column INTEGER NOT NULL,
+                                       length INTEGER NOT NULL,
+                                       plain INTEGER NOT NULL,
+                                       PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]]
+local MEMBERS <const> = [[CREATE TABLE IF NOT EXISTS members (source_hash TEXT NOT NULL,
+                                        ordinal INTEGER NOT NULL,
+                                        owner TEXT NOT NULL,
+                                        name TEXT NOT NULL,
+                                        kind TEXT NOT NULL,
+                                        scope TEXT NOT NULL,
+                                        type TEXT NOT NULL,
+                                        PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]]
+local EXECUTABLE <const> = [[CREATE TABLE IF NOT EXISTS executable (source_hash TEXT PRIMARY KEY,
+                                           lines TEXT NOT NULL) WITHOUT ROWID]]
+
+--- The tables and the view of a parse, as one schema: [`build.work`]'s `Database` joins it, and a handle of that
+--- reads every table here. Alone it holds no `files`, which the `inputs` view reads.
+local schema Analysis = DERIVED .. ";\n" ..
+  INPUTS .. ";\n" ..
+  PARSED .. ";\n" ..
+  REQUIRES .. ";\n" ..
+  TESTS .. ";\n" ..
+  CATALOG .. ";\n" ..
+  DOCS .. ";\n" ..
+  REFS .. ";\n" ..
+  BOUND .. ";\n" ..
+  EXAMPLES .. ";\n" ..
+  TEST_INPUTS .. ";\n" ..
+  LINKS .. ";\n" ..
+  STUBS .. ";\n" ..
+  GLOBALS .. ";\n" ..
+  PLACES .. ";\n" ..
+  MEMBERS .. ";\n" ..
+EXECUTABLE
+
 local record analysis_schema
   --- The statements that create `derived` and `inputs`, then each of
   --- `tables`, in order.
@@ -26,6 +213,8 @@ local record analysis_schema
   --- came from: rows in them are only ever as right as the code that
   --- derived them.
   mut tables: {string}
+  --- The schema of [`analysis_schema.statements`], joined ([`Analysis`]).
+  type Analysis = Analysis
 
   --- A static asset ([`analysis_schema.static_asset`]).
   record StaticAsset
@@ -42,7 +231,7 @@ end
 --- projects. A static asset ([`analysis_schema.static_asset`]) is none
 --- either. The `inputs` view leaves the Teal there out, and
 --- [`build.derivation`] the templates.
-local apart <const>: {string} = { "testdata/*", "*/testdata/*" }
+local apart <const>: {string} = { TESTDATA, NESTED_TESTDATA }
 
 --- The static asset ([`cosmic.layout`]'s `static`) the file `path`, below
 --- the root, is, or nil when it is none: `static/css/app.css` is the asset
@@ -56,24 +245,22 @@ function analysis_schema.static_asset(path: string): analysis_schema.StaticAsset
   return nil
 end
 
---- The SQL condition under which the path in `column` is a static asset, as
---- [`analysis_schema.static_asset`] says: under `static/`, or under
---- `static/` of a directory directly under `cmd/`.
+--- `sql`, written of the column `path`, of the column `column`: an SQL
+--- identifier of the query, never data.
+local function of_column(sql: string, column: string): string
+  return (sql:gsub("%f[%w_]path%f[^%w_]", function(): string return column end))
+end
+
+--- The SQL condition under which the path in `column` is a static asset
+--- ([`STATIC_PATHS`]).
 function analysis_schema.static_files(column: string): string
-  local rest = "substr(" .. column .. ", 5)"
-  return "(" .. column .. " GLOB 'static/?*' OR (" .. column .. " GLOB 'cmd/?*/static/?*' AND instr(" .. rest ..
-    ", '/') = instr(" .. rest .. ", '/static/')))"
+  return of_column(STATIC_PATHS, column)
 end
 
 --- The SQL that holds the path in `column` outside every pattern of
---- [`apart`], an `AND <column> NOT GLOB '<pattern>'` each, and outside the
---- static assets.
+--- [`apart`] and outside the static assets ([`OUTSIDE_APART`]).
 function analysis_schema.outside_apart(column: string): string
-  local out: mut {string} = { "AND NOT " .. analysis_schema.static_files(column) }
-  for _, pattern in ipairs(apart) do
-    out[#out + 1] = "AND " .. column .. " NOT GLOB '" .. pattern .. "'"
-  end
-  return table.concat(out, " ")
+  return of_column(OUTSIDE_APART, column)
 end
 
 --- Whether `path` matches the `GLOB` pattern `glob`, its `*` any run of characters (a `/` too).
@@ -95,12 +282,13 @@ end
 
 --- What a Teal file is by its path, in the order they are asked: a declaration, a test, an example, a program's main
 --- (`except` a main of a directory below `cmd/<name>/`), else a module. The one definition of the kind: the `inputs` view
---- asks it in SQL ([`kind_case`]) and everything else through [`analysis_schema.kind_of`], both of this table.
+--- asks it in SQL ([`KIND_CASE`]) and everything else through [`analysis_schema.kind_of`], both of these constants, in
+--- this order.
 local kinds <const>: {{string}} = {
-  { "*.d.tl", "decl", "" },
-  { "*_test.tl", "test", "" },
-  { "*_example.tl", "example", "" },
-  { "cmd/*/main.tl", "main", "cmd/*/*/*" },
+  { DECL_GLOB, "decl", "" },
+  { TEST_GLOB, "test", "" },
+  { EXAMPLE_GLOB, "example", "" },
+  { MAIN_GLOB, "main", MAIN_EXCEPT },
 }
 
 --- The kinds a declaration file names itself by, a line of its leading doc block: `--- @kind <kind>`. A declaration that
@@ -108,12 +296,12 @@ local kinds <const>: {{string}} = {
 --- contract of the error slots ([`build.syntax_contracts`]) holds the calls of; the generator of a derived declaration
 --- writes it too ([`build.gen_syscalls`]). `language` is the language's own declarations, the build's globals
 --- ([`analysis_schema.is_language_file`]). This list is the one source of the kinds a declaration may name, asked in SQL
---- ([`kind_case`]) and in Teal ([`analysis_schema.kind_of`]).
-local named_kinds <const>: {string} = { "binding", "language" }
+--- ([`KIND_CASE`]) and in Teal ([`analysis_schema.kind_of`]).
+local named_kinds <const>: {string} = { BINDING, LANGUAGE }
 
 --- The line a declaration file holds to name `kind` (one of [`named_kinds`]).
 local function tag_of(kind: string): string
-  return "--- @kind " .. kind
+  return KIND_TAG .. kind
 end
 
 --- The line a declaration file holds to say it declares a table of C bindings, as [`analysis_schema.declares_binding`] reads it.
@@ -155,7 +343,7 @@ end
 
 --- The doc block that opens `text`: its first lines up to the first one that does not begin with `--`, a blank line
 --- among them, each ended by a line feed, whatever line ends the file has. A tag outside it (in a string, a function's
---- doc, the code) says nothing. [`tag_in_block`] is the same cut in SQL.
+--- doc, the code) says nothing. [`FILE_BLOCK`] is the same cut in SQL.
 local function leading_block(text: string): string
   local out: mut {string} = {}
   for line in (text:gsub("\r\n", "\n") .. "\n"):gmatch("([^\n]*)\n") do
@@ -169,15 +357,6 @@ end
 --- as one with LF.
 local function holds_line(text: string, tag: string): boolean
   return ("\n" .. leading_block(text)):find("\n" .. tag .. "\n", 1, true) ~= nil
-end
-
---- The SQL expression that is true where the doc block that opens the text `source` holds `tag` as a line of its own:
---- the cut [`leading_block`] makes, found by a recursive walk over the lines, which `GLOB` and `instr` cannot do.
-local function tag_in_block(source: string, tag: string): string
-  local text = "(replace(" .. source .. ", char(13) || char(10), char(10)) || char(10))"
-  local walk = "(WITH RECURSIVE r(p) AS (SELECT 1 UNION ALL SELECT p + instr(substr(" .. text .. ", p), char(10)) " ..
-    "FROM r WHERE substr(" .. text .. ", p, 2) = '--') SELECT max(p) FROM r)"
-  return "instr(char(10) || substr(" .. text .. ", 1, " .. walk .. " - 1), char(10) || '" .. tag .. "' || char(10)) > 0"
 end
 
 --- Whether the text of a declaration file holds [`analysis_schema.binding_tag`] as a line of its own, a file saved with
@@ -221,27 +400,6 @@ function analysis_schema.is_support(path: string): boolean
   return globbed("test/*", path)
 end
 
---- The SQL expression for the kind of the file whose path is in `column`: `binding`, `language`, `decl`, `test`, `example`,
---- `main` or `module` ([`kinds`]). With `source`, the SQL expression for its text, a declaration file that names its kind
---- ([`named_kinds`]) is that kind.
-local function kind_case(column: string, source?: string): string
-  local out: mut {string} = { "CASE" }
-  if source ~= nil then
-    for _, kind in ipairs(named_kinds) do
-      out[#out + 1] = " WHEN " .. column .. " GLOB '*.d.tl' AND " .. tag_in_block(source, tag_of(kind)) ..
-        " THEN '" .. kind .. "'"
-    end
-  end
-  for _, rule in ipairs(kinds) do
-    local glob, kind, except = assert(rule[1]), assert(rule[2]), assert(rule[3])
-    local clause = " WHEN " .. column .. " GLOB '" .. glob .. "'"
-    if except ~= "" then clause = clause .. " AND " .. column .. " NOT GLOB '" .. except .. "'" end
-    out[#out + 1] = clause .. " THEN '" .. kind .. "'"
-  end
-  out[#out + 1] = " ELSE 'module' END"
-  return table.concat(out)
-end
-
 local declaration_kind <const> = "decl"
 
 --- The kinds that are a declaration, a file of types that no program runs, not a module: the one place that says
@@ -263,7 +421,7 @@ function analysis_schema.not_declaration(column: string): string
   return column .. " NOT IN ('" .. table.concat(declarations, "', '") .. "')"
 end
 
---- The complaint about two files that answer to one import path (`x.tl` and `x/init.tl`), `files` being their names joined with
+--- The complaint about two files one import path could mean (`x.tl` and `x/init.tl`), `files` being their names joined with
 --- " and ": the derive's refusal of them ([`build.derivation`]), which the editor words the same.
 function analysis_schema.sharing(files: string, path: string): string
   return files .. " both answer to import path '" .. path .. "'; delete or rename one"
@@ -299,116 +457,23 @@ analysis_schema.tables = {
 }
 
 analysis_schema.statements = {
-  [[CREATE TABLE IF NOT EXISTS derived (file TEXT PRIMARY KEY,
-                                        path TEXT NOT NULL,
-                                        kind TEXT NOT NULL,
-                                        origin TEXT NOT NULL,
-                                        from_hash TEXT NOT NULL,
-                                        source TEXT NOT NULL,
-                                        source_hash TEXT NOT NULL) WITHOUT ROWID]],
-  [[CREATE VIEW IF NOT EXISTS inputs AS
-      SELECT path AS file,
-             replace(CASE WHEN path GLOB '*/init.d.tl' THEN substr(path, 1, length(path) - 10)
-                          WHEN path GLOB '*.d.tl' THEN substr(path, 1, length(path) - 5)
-                          WHEN path GLOB '*/init.tl' THEN substr(path, 1, length(path) - 8)
-                          ELSE substr(path, 1, length(path) - 3) END, '/', '.') AS path,
-             ]] .. kind_case("path", "CAST(data AS TEXT)") .. [[ AS kind,
-             'tree' AS origin,
-             sha256 AS from_hash,
-             CAST(data AS TEXT) AS source,
-             sha256 AS source_hash
-        FROM files WHERE path GLOB '*.tl'
-          ]] .. analysis_schema.outside_apart("path") .. [[
-      UNION ALL
-      SELECT file, path, kind, origin, from_hash, source, source_hash FROM derived]],
-  [[CREATE TABLE IF NOT EXISTS parsed (source_hash TEXT PRIMARY KEY,
-                                       has_return INTEGER NOT NULL,
-                                       export TEXT NOT NULL) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS requires (source_hash TEXT NOT NULL,
-                                         ordinal INTEGER NOT NULL,
-                                         name TEXT NOT NULL,
-                                         PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS tests (source_hash TEXT NOT NULL,
-                                      ordinal INTEGER NOT NULL,
-                                      name TEXT NOT NULL,
-                                      PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS catalog (source_hash TEXT NOT NULL,
-                                        ordinal INTEGER NOT NULL,
-                                        symbol TEXT NOT NULL,
-                                        message TEXT NOT NULL,
-                                        line INTEGER NOT NULL,
-                                        PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS docs (source_hash TEXT NOT NULL,
-                                     ordinal INTEGER NOT NULL,
-                                     symbol TEXT NOT NULL,
-                                     source_symbol TEXT NOT NULL,
-                                     exported INTEGER NOT NULL,
-                                     kind TEXT NOT NULL,
-                                     signature TEXT NOT NULL,
-                                     text TEXT NOT NULL,
-                                     line INTEGER NOT NULL,
-                                     PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS refs (source_hash TEXT NOT NULL,
-                                     ordinal INTEGER NOT NULL,
-                                     module TEXT NOT NULL,
-                                     member TEXT NOT NULL,
-                                     line INTEGER NOT NULL,
-                                     PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS bound (source_hash TEXT NOT NULL,
-                                      ordinal INTEGER NOT NULL,
-                                      name TEXT NOT NULL,
-                                      module TEXT NOT NULL,
-                                      PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS examples (source_hash TEXT NOT NULL,
-                                         ordinal INTEGER NOT NULL,
-                                         name TEXT NOT NULL,
-                                         text TEXT NOT NULL,
-                                         source TEXT NOT NULL,
-                                         line INTEGER NOT NULL,
-                                         PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS test_inputs (source_hash TEXT NOT NULL,
-                                            ordinal INTEGER NOT NULL,
-                                            field TEXT NOT NULL,
-                                            value TEXT NOT NULL,
-                                            PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS links (source_hash TEXT NOT NULL,
-                                      ordinal INTEGER NOT NULL,
-                                      line INTEGER NOT NULL,
-                                      column INTEGER NOT NULL,
-                                      form TEXT NOT NULL,
-                                      doc INTEGER NOT NULL,
-                                      text TEXT NOT NULL,
-                                      target TEXT NOT NULL,
-                                      own INTEGER NOT NULL,
-                                      alias TEXT NOT NULL,
-                                      PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS stubs (source_hash TEXT PRIMARY KEY,
-                                      text TEXT NOT NULL,
-                                      pruned INTEGER NOT NULL) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS globals (source_hash TEXT NOT NULL,
-                                        ordinal INTEGER NOT NULL,
-                                        line INTEGER NOT NULL,
-                                        column INTEGER NOT NULL,
-                                        PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS places (source_hash TEXT NOT NULL,
-                                       ordinal INTEGER NOT NULL,
-                                       symbol TEXT NOT NULL,
-                                       kind TEXT NOT NULL,
-                                       line INTEGER NOT NULL,
-                                       column INTEGER NOT NULL,
-                                       length INTEGER NOT NULL,
-                                       plain INTEGER NOT NULL,
-                                       PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS members (source_hash TEXT NOT NULL,
-                                        ordinal INTEGER NOT NULL,
-                                        owner TEXT NOT NULL,
-                                        name TEXT NOT NULL,
-                                        kind TEXT NOT NULL,
-                                        scope TEXT NOT NULL,
-                                        type TEXT NOT NULL,
-                                        PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS executable (source_hash TEXT PRIMARY KEY,
-                                           lines TEXT NOT NULL) WITHOUT ROWID]],
+  DERIVED,
+  INPUTS,
+  PARSED,
+  REQUIRES,
+  TESTS,
+  CATALOG,
+  DOCS,
+  REFS,
+  BOUND,
+  EXAMPLES,
+  TEST_INPUTS,
+  LINKS,
+  STUBS,
+  GLOBALS,
+  PLACES,
+  MEMBERS,
+  EXECUTABLE,
 }
 
 return analysis_schema

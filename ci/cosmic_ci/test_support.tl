@@ -3,7 +3,7 @@ local record TestSupport
 end
 
 --- An HTTP/1.1 response of `status` (`"200 OK"`), the header lines `head`
---- (each ending in CRLF) and `body`, as a plain-HTTP API answers.
+--- (each ending in CRLF) and `body`, as a plain-HTTP API sends one.
 function TestSupport.reply(status: string, head: string, body?: string): string
   body = body or ""
   return "HTTP/1.1 " .. status .. "\r\n" .. head ..

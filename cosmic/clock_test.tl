@@ -6,7 +6,7 @@ local NS <const> = 1000000000
 local function test_the_constructors_scale_a_count_to_nanoseconds()
   assert(Clock.ms(1) == 1000000 and Clock.seconds(1) == NS and Clock.minutes(1) == 60 * NS)
   assert(Clock.hours(1) == 3600 * NS and Clock.ms(0) == 0 and Clock.ms(-5) == -5000000)
-  -- A float is as good as an integer when the span is whole, and is answered as one.
+  -- A float is as good as an integer when the span is whole, and is returned as one.
   assert(Clock.ms(1.5) == 1500000 and math.type(Clock.ms(1.5)) == "integer")
   assert(Clock.seconds(0.25) == 250000000 and Clock.minutes(1.5) == 90 * NS)
   assert(Clock.hours(0.5) == 1800 * NS and Clock.hours(2.0) == 7200 * NS)
@@ -67,16 +67,27 @@ local function test_sleep_refuses_a_negative_span()
   Test.raises(function() local _, _ = Clock.sleep(-1) end)
 end
 
---- Work that keeps the thread running for about `span` nanoseconds of wall time.
-local function busy_for(span: integer)
-  local until_ns = Clock.monotonic_ns() + span
+--- Work that runs until this thread has used `span` nanoseconds of CPU
+--- time, and returns the wall time that took. A loaded host may give the
+--- thread a small share of the wall time (CI's runners gave 9 ms of 50),
+--- so the work is bounded by the CPU it uses, not by wall time. The wall
+--- time is capped at `cap`, under the harness's 30 s a test: a CPU clock
+--- that does not advance while the thread runs fails there, with what it
+--- used, rather than times out.
+local function busy_for_cpu(span: integer, cap: integer): integer
+  local started, wall_started = Clock.cpu_ns(), Clock.monotonic_ns()
   local sum = 0
-  while Clock.monotonic_ns() < until_ns do
+  while Clock.cpu_ns() - started < span do
+    local wall = Clock.monotonic_ns() - wall_started
+    if wall >= cap then
+      error("used " .. tostring(Clock.cpu_ns() - started) .. " ns of CPU in " .. tostring(wall) .. " ns of running")
+    end
     for i = 1, 1000 do
       sum = sum + i % 7
     end
   end
   assert(sum >= 0)
+  return Clock.monotonic_ns() - wall_started
 end
 
 local function test_cpu_ns_does_not_go_back()
@@ -91,10 +102,11 @@ end
 
 local function test_cpu_ns_advances_while_the_thread_runs()
   local before = Clock.cpu_ns()
-  busy_for(Clock.ms(50))
+  local wall = busy_for_cpu(Clock.ms(20), Clock.seconds(5))
   local used = Clock.cpu_ns() - before
-  -- Under load the thread may be given less than the wall time it spans, so only a share of it is asked for.
-  assert(used >= Clock.ms(10), "used " .. tostring(used) .. " ns of CPU in 50 ms of running")
+  -- A thread uses no more CPU time than the wall time it runs for.
+  assert(used >= Clock.ms(20) and used <= wall + Clock.ms(5), "used " .. tostring(used) .. " ns of CPU in " ..
+      tostring(wall) .. " ns of running")
 end
 
 local function test_cpu_ns_does_not_count_a_sleep()
@@ -122,11 +134,13 @@ local function test_a_span_counts_the_cpu_time_of_work()
   local spans: Clock.Spans = {}
   do
     local _work <close> = Clock.span(spans, "work")
-    busy_for(Clock.ms(50))
+    busy_for_cpu(Clock.ms(20), Clock.seconds(5))
   end
   local work = assert(spans["work"])
-  -- Under load the thread may be given less than the wall time it spans, so only a share of it is asked for.
-  assert(work.count == 1 and work.cpu_ns >= Clock.ms(10), tostring(work.cpu_ns))
+  -- The span opened before the work began and closed after it ended, so it holds all of its CPU time, and no
+  -- more than the wall time it spans.
+  assert(work.count == 1 and work.cpu_ns >= Clock.ms(20) and work.cpu_ns <= work.wall_ns + Clock.ms(5),
+    tostring(work.cpu_ns) .. " ns of CPU in " .. tostring(work.wall_ns) .. " ns")
 end
 
 local function test_an_outer_span_holds_the_time_of_the_spans_inside_it()

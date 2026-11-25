@@ -44,9 +44,9 @@
 --- A request with `Authorization: Bearer` skips the token layer by default
 --- (`bearer_exempt`): a cross-site page cannot set that header, and a
 --- `fetch` that does needs a CORS preflight. A route that takes a cookie
---- or a bearer token must answer an invalid bearer token 401, never fall
---- back to the cookie. Basic authentication is ambient in a browser and is
---- never exempt. The better answer for an API is structural: mount it
+--- or a bearer token must respond 401 to an invalid bearer token, never
+--- fall back to the cookie. Basic authentication is ambient in a browser
+--- and is never exempt. The better way for an API is structural: mount it
 --- with no session and no CSRF middleware at all.
 ---
 --- Behind a proxy that ends TLS, the request's scheme is http unless the
@@ -59,6 +59,8 @@
 --- token does the work. A refusal of an htmx request says to reload the page.
 --- @public
 
+local CsrfField = require("cosmic.web.csrf_field")
+local CsrfMeta = require("cosmic.web.csrf_meta")
 local Codec = require("cosmic.codec")
 local Hash = require("cosmic.hash")
 local Html = require("cosmic.html")
@@ -87,11 +89,11 @@ local record Csrf
     --- Treat `Sec-Fetch-Site: same-site` as cross-site (false); an `Origin`
     --- of another origin is refused either way.
     strict_same_site?: boolean
-    --- Requests this answers true for are not checked (nil).
+    --- Requests this returns true for are not checked (nil).
     exempt?: function(Types.Request): boolean
     --- Skip the token layer for a request with `Authorization: Bearer` (true).
     bearer_exempt?: boolean
-    --- Answers a refused request, given why ("origin", "cross-site",
+    --- Responds to a refused request, given why ("origin", "cross-site",
     --- "referer" or "token"); the default is a 403 through the app's error
     --- page.
     on_failure?: function(Types.Request, string): Types.Response
@@ -158,8 +160,8 @@ end
 --- @param req Types.Request The request
 --- @return Html.SafeHtml The `<input>`
 function Csrf.field(req: Types.Request): Html.SafeHtml
-  -- A token is base64url: nothing in it needs escaping.
-  return Html.trust('<input type="hidden" name="' .. Csrf.FIELD .. '" value="' .. Csrf.token(req) .. '">')
+  -- The markup is the template csrf_field.tmpl (cosmic.template).
+  return CsrfField.render({ name = Csrf.FIELD, token = Csrf.token(req) })
 end
 
 --- A `<meta name="csrf-token">` tag with this request's token, for a script
@@ -168,7 +170,8 @@ end
 --- @param req Types.Request The request
 --- @return Html.SafeHtml The tag
 function Csrf.meta(req: Types.Request): Html.SafeHtml
-  return Html.trust('<meta name="csrf-token" content="' .. Csrf.token(req) .. '">')
+  -- The markup is the template csrf_meta.tmpl (cosmic.template).
+  return CsrfMeta.render({ name = Csrf.FIELD, token = Csrf.token(req) })
 end
 
 --- The JSON object `{"X-CSRF-Token": "..."}` for an `hx-headers` attribute,
@@ -316,9 +319,9 @@ local function checked(req: Types.Request): boolean
   return false
 end
 
---- The default answer to a refused request.
+--- The default response to a refused request.
 local function refuse(req: Types.Request, reason: string): Types.Response
-  -- TODO: once Response.abort can carry headers, answer an htmx request with
+  -- TODO: once Response.abort can carry headers, refuse an htmx request with
   -- `HX-Trigger: {"csrf-failed": {"reason": ...}}` so a page can react to it.
   if req.headers["hx-request"] == "true" then
     return Response.abort(403, "The request was refused; reload the page and try again.")

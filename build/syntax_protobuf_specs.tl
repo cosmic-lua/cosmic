@@ -3,7 +3,7 @@
 --- the declaration off the checker's types and the table off the call's syntax, checks one against the other, and
 --- splices into the call the Teal functions that write and read the record, or that turn the enum's values to
 --- numbers and back, over [`cosmic.protobuf.schema`]'s `build`. The checker types that code as any other, so what a
---- call answers is typed by what the functions answer.
+--- call returns is typed by what the functions return.
 ---
 --- A call is found and its name read as [`build.syntax_shape_specs`] reads [`Shape.record_of`]'s, with the parts the
 --- two share ([`build.syntax_record_calls`]): the module binds [`cosmic.protobuf.schema`] at its top level, the name

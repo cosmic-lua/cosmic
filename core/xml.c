@@ -56,9 +56,9 @@ struct parser {
   lua_State *L;
   /* How many events the call's table holds. */
   lua_Integer count;
-  /* Names are answered without their namespace. */
+  /* Names are reported without their namespace. */
   bool local_names;
-  /* What `lua_pcall` answered for the last append; past LUA_OK, the
+  /* What `lua_pcall` returned for the last append; past LUA_OK, the
    * error it left is on the stack's top. */
   int status;
   /* Character data not yet appended: expat hands it over in pieces,
@@ -100,7 +100,7 @@ static void release (struct parser *p) {
 }
 
 /* A name as Lua sees it. A parser asked for namespaces is given names
- * as expat writes them, `uri}local`, and answers them in Clark's
+ * as expat writes them, `uri}local`, and reports them in Clark's
  * notation, `{uri}local`, or, asked for local names, as `local` alone;
  * an unqualified name has no `}`. */
 static void push_name (lua_State *L, const XML_Char *name, bool local) {
@@ -298,7 +298,7 @@ static bool parse (struct parser *p, const char *s, size_t len, bool final) {
   return p->status == LUA_OK && !p->out_of_memory && !p->too_long;
 }
 
-/* The answer to a call that collected events into the table at EVENTS:
+/* What a call that collected events into the table at EVENTS returns:
  * the table and "", or nil and why. Any failure finishes the parser; a
  * raise caught inside the call is raised again. */
 static int answer (lua_State *L, struct parser *p, bool parsed) {

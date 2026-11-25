@@ -74,6 +74,7 @@ local worker = require("build.test_worker")
 local log = require("build.logger").log
 local bind = require("build.bind")
 local Stamp = require("build.stamp")
+local CodeWalk = require("build.code_walk")
 local type State = require("build.test_state")
 -- Declares what text this module reads ([`build.code_walk`]'s `markers`): the stubs and places the sealed program's digest holds.
 local _ = require("build.reads.all")
@@ -284,7 +285,7 @@ end
 
 --- The environment every worker this process starts has
 --- ([`test_key.worker_environment`]), which is what a test's read of a
---- variable answers and so what its key holds: defined beside it.
+--- variable gives and so what its key holds: defined beside it.
 local worker_view: function(): {string:string}
 
 --- What a lookup made inside [`Store.alone`], which hands nothing back,
@@ -362,7 +363,7 @@ local harness_own <const>: {string} = { "build.test_sandbox", "build.test_policy
 --- cosmic.stream and the rest) applies no sandbox, and stays out. The
 --- exceptions are cosmic.sandbox and cosmic.sandbox.policy, held alone
 --- too: the policy layer's `merge` (and the profiles it joins, "system"'s
---- paths among them) and `check`, which cosmic.sandbox answers under its
+--- paths among them) and `check`, which cosmic.sandbox exports under its
 --- own name, and cosmic.sandbox's `loaders`, `reach` and `user_id`, decide
 --- what a worker started under a policy may reach, and
 --- [`test_policy.runs`] merges a policy through them. Their other requires
@@ -379,11 +380,11 @@ local harness_alone <const>: {string} = { "cosmic.child", "cosmic.sandbox",
   "cosmic.sandbox.policy" }
 
 --- The code that makes a key and looks a verdict up under one:
---- build.test_key itself and build.stamp, which answers it the harness's
+--- build.test_key itself and build.stamp, which gives it the harness's
 --- digests and the sealed program's rows from the tool's stamps, each held
 --- alone, and the closure of the key's
 --- computation ([`build.declared_key`]) and of the shared verdicts'
---- ([`build.shared_verdicts`]), and of what the host answers a module's
+--- ([`build.shared_verdicts`]), and of what the host reports of a module's
 --- requirements ([`build.host_requires`]), which a key holds, as the
 --- `imports` table has it.
 --- What this module decides of a worker's hold is part of it: which
@@ -575,7 +576,7 @@ local function projection_type_only(path: string): {string:{string:boolean}}?, s
 end
 
 --- The names `key_roots` and `key_own` hold ([`closure_of`]), over the
---- requires each module makes by value (`by_value`, which answers them as
+--- requires each module makes by value (`by_value`, which returns them as
 --- [`test_key.value_imports`] does).
 local function key_code(by_value: function(string): {string}): {string}
   return closure_of(key_roots, key_own, by_value)
@@ -866,7 +867,7 @@ local function caches_of(rec: Recording, m: Module): {string}
 end
 
 --- Stops using the shared verdicts for the rest of the run, saying why
---- once: a cache that cannot answer -- corrupt, or another format's --
+--- once: a cache that cannot be read -- corrupt, or another format's --
 --- costs the run nothing but what it would have saved.
 local function drop_shared(rec: Recording, trouble: string)
   local shared = rec.shared
@@ -1052,7 +1053,7 @@ end
 
 --- The digest of the modules of the program's own database that the tree
 --- lacks -- the standard library, in a project's tree -- by the rows
---- [`test_key.extras_rows`] answers of each, which a sealed database
+--- [`test_key.extras_rows`] returns for each, which a sealed database
 --- carries whole ([`sealed_fill`]) and so a key of a worker on one holds
 --- ([`declared_of`]). Worked out once a run needs it, from the program's
 --- own database, which sealing nothing reads, or from the rows the build
@@ -1120,7 +1121,7 @@ local program_of = test_key.program_of
 --- -- so they are the same in every checkout.
 -- TODO: enforce the rule in the worker, which holds only `require` to its
 -- closure today: have `stat`, `lstat` and `fstat` of a path of the tree
--- answer fixed times and inode there, once core/syscalls_fs.c's stat takes a
+-- return fixed times and inode there, once core/syscalls_fs.c's stat takes a
 -- hold from build.test_worker (C, and a boot):
 -- today a test that leans on a file of the tree's times sees what its
 -- checkout gave it, and stands on a sibling's verdict where they differ.
@@ -1469,7 +1470,7 @@ local sealed_schema <const>: {string} = {
 --- worker loads). A standard-library module's stub (build.stub), which
 --- a checker the worker runs reads in place of its source, comes from
 --- where its row does too, as does a module's `places` (what `cosmic lsp`
---- answers a go to definition of a standard-library symbol from). The time zones, CA roots and web assets go only
+--- responds to a go to definition of a standard-library symbol from). The time zones, CA roots and web assets go only
 --- where the set holds the module that reads them, as [`Store.seal`] does:
 --- they are most of a small database's bytes.
 -- TODO: carry only the standard library a closure requires, in a project's
@@ -1495,7 +1496,7 @@ local sealed_fill <const>: {string} = {
     "(SELECT path FROM main.modules) ORDER BY path, requires",
   -- A lookup of the module each row requires (`EXISTS`), not `requires IN
   -- (SELECT path FROM main.modules)`: the program's `imports` has no index
-  -- by `requires`, and the planner may answer the `IN` by walking the
+  -- by `requires`, and the planner may resolve the `IN` by walking the
   -- table once for each module carried.
   "INSERT OR IGNORE INTO main.imports SELECT path, requires FROM program.imports i " ..
     "WHERE path IN temp.extra AND EXISTS (SELECT 1 FROM main.modules m WHERE m.path = i.requires) " ..
@@ -1649,7 +1650,7 @@ function test_key.drop_sealing(rec: Recording)
   if not gone then log:complain("test: " .. tostring(trouble)) end
 end
 
---- The meta rows a sealed database of a worker holds, as `read` answers
+--- The meta rows a sealed database of a worker holds, as `read` returns
 --- them for the running process ([`Store.meta`]): the digest of this core,
 --- which a core started on the file checks, the module that runs, the
 --- runtime's basis, the digest of the core's inputs where the worker's
@@ -1684,12 +1685,75 @@ function test_key.sealed_meta(with_compiler: boolean, with_image: boolean,
   return meta, ""
 end
 
+--- The stamps of the code a worker reads that a sealed database carries, by key, with the walk of [`build.code_walk`]
+--- each is worked out over: the code that reads and checks ([`build.code_identity`]) and the analyzer
+--- ([`build.importer`]'s `analyzer_identity`).
+local walked_stamps <const>: {{key: string, walk: string}} = { { key = "stamp_coded", walk = CodeWalk.pipeline },
+  { key = "stamp_analyzer", walk = CodeWalk.analyzer } }
+
+--- The stamps of [`walked_stamps`] that the sealed database `sealed` carries of the program's database `program`: each
+--- that `program` holds of its own rows ([`build.stamp`]'s `read`), where `sealed` holds the code of its walk as `program`
+--- does. That is each module the walk reaches, which both reach alike over their `imports`, with its source and by the
+--- same hash; and the runtime's basis, which the analyzer's holds too, as [`test_key.sealed_meta`] copies it. So the
+--- code a worker carries on `sealed` works out the same, and it reads the stamps rather than lexing each walk again for
+--- each test that builds a pipeline. A walk's source is a module's, never a declaration's: no path of the tree is both.
+--- Read whatever COSMIC_STAMPS says, as a worker does not see it, so the database is the same either way. `stamped`,
+--- where given, is what `program` holds of its stamps, by key, read once for the many sealed databases of a run.
+function test_key.sealed_stamps(sealed: Sqlite.Handle, program: Sqlite.Handle,
+                                stamped?: {string:string}): {{key: string, value: string}}
+  local function walk(db: Sqlite.Handle, which: string): {string}?
+    local names, _ = CodeWalk.reach(which, function(name: string): {string}?, string
+      local rows, trouble = db:text_rows("SELECT requires FROM imports WHERE path = ?1 ORDER BY requires",
+        { { text = name } })
+      if rows == nil then return nil, tostring(trouble) end
+      local out: mut {string} = {}
+      for _, row in ipairs(rows) do out[#out + 1] = row:text(1) end
+      return out, ""
+    end)
+    return names
+  end
+  local function source_hash(db: Sqlite.Handle, name: string): string?
+    local rows, _ = db:text_rows("SELECT lower(hex(source_hash)) FROM modules WHERE path = ?1 AND length(source) > 0",
+      { { text = name } })
+    local row = if rows ~= nil then rows[1] else nil end
+    return if row ~= nil then row:text(1) else nil end
+  end
+  local function held_alike(which: string): boolean
+    -- Most closures hold no walk at all: their roots say so before either walk is taken.
+    for _, root in ipairs(CodeWalk.roots_of(which)) do
+      if source_hash(sealed, root) == nil then return false end
+    end
+    local held, carried = walk(sealed, which), walk(program, which)
+    if held == nil or carried == nil or #held ~= #carried then return false end
+    for i, name in ipairs(held) do
+      if carried[i] ~= name then return false end
+      local hash = source_hash(sealed, name)
+      if hash == nil or hash ~= source_hash(program, name) then return false end
+    end
+    return true
+  end
+  local out: mut {{key: string, value: string}} = {}
+  for _, walked in ipairs(walked_stamps) do
+    local value = if stamped ~= nil then stamped[walked.key] else Stamp.read(walked.key, program) end
+    if value ~= nil and held_alike(walked.walk) then
+      out[#out + 1] = { key = walked.key, value = value }
+    end
+  end
+  return out
+end
+
+--- What each program's database holds of its stamps of [`walked_stamps`], by its path and then by key: binding them
+--- to its rows digests every module, so they are read once a run rather than for each of its sealed databases.
+local program_stamps: mut {string:{string:string}} = {}
+
 --- Writes the sealed database of the closure store at `store`, which was
 --- written from the projection `whole`, to `out`: [`sealed_fill`]'s
 --- statements over them and the program's own database (`sealing`), the
---- modules every worker loads ([`worker.loads`]) going along, and the meta
---- rows the core on a database reads ([`test_key.sealed_meta`]). Written
---- aside and moved into place, so one at `out` is whole.
+--- modules every worker loads ([`worker.loads`]) going along, the meta
+--- rows the core on a database reads ([`test_key.sealed_meta`]), and the
+--- stamps of the program it holds the code of ([`test_key.sealed_stamps`]),
+--- bound to its rows ([`build.stamp`]'s `of`). Written aside and moved
+--- into place, so one at `out` is whole.
 local function write_sealed(sealing: Sealing, store: string, whole: string, out: string,
                             with_compiler: boolean, with_image: boolean): boolean, string
   local meta, meta_trouble = test_key.sealed_meta(with_compiler, with_image, Store.meta)
@@ -1759,6 +1823,34 @@ local function write_sealed(sealing: Sealing, store: string, whole: string, out:
           "INSERT INTO main.meta (key, value) VALUES (?1, ?2)",
           { { text = pair[1] }, { text = pair[2] } })
         if not inserted then return false, insert_trouble end
+      end
+      local program, program_trouble = Sqlite.open(sealing.program)
+      if program == nil then
+        return false, Failure.new(sealing.program .. ": " .. tostring(program_trouble))
+      end
+      local stamped = program_stamps[sealing.program]
+      if stamped == nil then
+        local read: mut {string:string} = {}
+        for _, walked in ipairs(walked_stamps) do
+          local value = Stamp.read(walked.key, program)
+          if value ~= nil then read[walked.key] = value end
+        end
+        program_stamps[sealing.program] = read
+        stamped = read
+      end
+      local stamps = test_key.sealed_stamps(db, program, stamped)
+      local _, _ = program:close()
+      if #stamps > 0 then
+        for _, pair in ipairs(stamps) do
+          local kept, stamp_trouble = db:run("INSERT INTO main.meta (key, value) VALUES (?1, ?2)",
+            { { text = pair.key }, { text = pair.value } })
+          if not kept then return false, stamp_trouble end
+        end
+        local content, content_trouble = Stamp.content(db)
+        if content == nil then return false, Failure.new(content_trouble) end
+        local bound, bind_trouble = db:run("INSERT INTO main.meta (key, value) VALUES (?1, ?2)",
+          { { text = Stamp.of }, { text = content } })
+        if not bound then return false, bind_trouble end
       end
       return true
     end)
@@ -2050,7 +2142,7 @@ end
 
 --- Asks the host, once, for every requirement the modules declare
 --- ([`host_requires`]), before any worker starts, and decides each module:
---- where all are present, it runs, and its key holds each answer
+--- where all are present, it runs, and its key holds each result
 --- (`rec.answered`); otherwise none of its tests is started (`rec.unmet`),
 --- as one whose name breaks the table's rules fails (`refused`), one a
 --- platform never has is not applicable (`na`), and one this host lacks is
@@ -2058,12 +2150,12 @@ end
 --- COSMIC_CI_REQUIRE_SANDBOX=1) holds the sandbox, and fails a module for
 --- an n/a or a skip of a requirement its leg promises (`promises`, the
 --- leg's name `leg`), naming the requirement and the leg; an absence of
---- one it does not promise fails nothing. `sandbox` answers whether a
+--- one it does not promise fails nothing. `sandbox` returns whether a
 --- worker can be sandboxed here, which a requirement of it asks.
 --- `sandboxed_workers` is whether this run's workers run sandboxed (the
 --- runner's `choose_sandbox` outcome, settled before this is called), which
---- `loopback` answers from where workers are sandboxed. `pinned_zig`
---- answers the requirement of that name ([`host_requires.Context`]'s
+--- settles `loopback` where workers are sandboxed. `pinned_zig`
+--- settles the requirement of that name ([`host_requires.Context`]'s
 --- `pinned_zig`). The host asked, or nil where no module requires anything.
 function test_key.ask_host(rec: Recording, modules: {Module},
                            sandbox: function(): host_requires.Sandbox, held: boolean,
@@ -2108,8 +2200,9 @@ function test_key.ask_host(rec: Recording, modules: {Module},
       if asked then
         found = answers
       else
-        -- A probe that cannot tell (a file it may not read) is no answer: the
-        -- modules that name it fail, saying why, and the run goes on.
+        -- A probe that cannot tell (a file it may not read) settles
+        -- nothing: the modules that name it fail, saying why, and the run
+        -- goes on.
         rec.unmet[m.path] = { kind = "refused", why = "the probe of what it requires of the host " ..
             "failed: " .. tostring(answers) }
       end
@@ -2411,9 +2504,9 @@ end
 --- the `checks` part of the key; a test that met a violation keeps none, so
 --- it runs again and reports it again ([`test_key.keep`]). None is assumed. The shared
 --- verdicts are asked only where the run `consult`s them and nothing here
---- answers.
+--- settles the test.
 ---
---- Where the run `accept_foreign`s, a test no verdict answers for under
+--- Where the run `accept_foreign`s, a test no verdict covers under
 --- this host's key is looked up under the key it would have had on each
 --- other host the cache names of this host's rest but for its kernel,
 --- the identity that host stamped its rows with: the same key in every
@@ -2422,7 +2515,7 @@ end
 --- of another kernel. The key found is then the lookup's, and the row
 --- stays under it: no row is made under this host's key, so a run that
 --- does not accept them finds none. The hosts are tried in sorted
---- order and the first row found answers: a pass on any like host
+--- order and the first row found settles it: a pass on any like host
 --- stands even if another like host failed the same key, as a failing
 --- row is deleted, not kept as a mark. That failure is its own run's,
 --- which fails CI there.

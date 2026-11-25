@@ -51,7 +51,7 @@ end
 --- counted from when the check is made, so make one an agent. A call it
 --- lets by is counted, so put it last in [`Check.all`], where the checks
 --- before it have let the call by too. It counts by name, whoever calls:
---- the sql tool and a snippet's history call are two names, so count both.
+--- a tool and a snippet's call of the agent (history, for one) are counted apart.
 ---
 ---     agent.before = Check.budget({ run = 20, write = 5 })
 function Check.budget(counts: {string: integer}): Agent.Before
@@ -72,14 +72,14 @@ end
 --- `policy` does not permit ([`Sandbox.permits`], from the call's
 --- directory): each path by its real name, a file made asking `c` of its
 --- directory. A tool that says no paths
---- passes, and bash, run and sql say none, though they reach what the
+--- passes, and bash and run say none, though they reach what the
 --- sandbox lets them: hold those with the sandbox, or [`Check.only`]. A
 --- snippet's call of the agent has none.
 ---
 ---     agent.before = Check.paths({ grants = { { path = cwd, letters = "rwc" }, { path = "/usr", letters = "r" } } })
 function Check.paths(policy: Sandbox.Policy): Agent.Before
   return function(call: Agent.Call): string?
-    -- As the tools ask: each action of a path at the real name the one before answered.
+    -- As the tools ask: each action of a path at the real name the one before gave.
     local real_of: mut {string: string} = {}
     for _, t in ipairs(call.paths) do
       local real, why = Sandbox.permits(policy, real_of[t.path] or t.path, t.action, call.cwd)

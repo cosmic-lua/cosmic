@@ -78,7 +78,7 @@ local LOOPBACK_ONLY <const> = "loopback takes loopback addresses 127.a.b.c only:
 
 --- Why `host` may not be declared in `loopback`, or "" when it may: it
 --- is the one spelling [`cosmic.internal.loopback`]'s `ipv4` takes. A
---- name a lookup might answer elsewhere, `localhost` or `::1`, `*` or
+--- name a lookup might resolve elsewhere, `localhost` or `::1`, `*` or
 --- `127.0.0.1:8080` (whose port a request's host leaves out) is none.
 local function loopback_trouble(host: string): string
   if Loopback.ipv4(host) then return "" end

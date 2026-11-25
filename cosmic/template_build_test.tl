@@ -78,7 +78,7 @@ local function project(tmp: string, case: string, files: {string: string}): {str
 end
 
 -- TODO: once a `load` environment can hold a module and a function together without `any` (or a test can hand
--- `require` the real [`cosmic.html`] another way), [`load_module`] answers it typed and loses its `any_use`.
+-- `require` the real [`cosmic.html`] another way), [`load_module`] returns it typed and loses its `any_use`.
 
 --- The module `path` of `lua`, run against the real [`cosmic.html`].
 --- Each module it loads is set in `loaded`, when given.
@@ -105,7 +105,7 @@ local record Loaded
   render: function(Page): any
 end
 
---- What an HTML template exports: it answers markup.
+--- What an HTML template exports: its `render` returns markup.
 local record Markup
   render: function(Page): Html.SafeHtml
 end
@@ -332,11 +332,9 @@ local function test_a_template_builds_and_is_held_to_its_slots_by_the_checker(tm
   assert(wrong_trouble:find("page.tmpl:3:", 1, true) ~= nil and wrong_trouble:find("SafeHtml", 1, true) ~= nil and
       wrong_trouble:find("(not_assignable)", 1, true) ~= nil, tostring(wrong_trouble))
   assert(wrong_trouble:find("pinned", 1, true) == nil and wrong_trouble:find("page.tl", 1, true) == nil, wrong_trouble)
-  -- a condition on a string says what is wrong, on the template's line
+  -- a condition on a string holds when it is not empty: a plain string, list or record is a condition too, and the
+  -- checker refuses none
   local text, text_trouble = project(tmp, "new-condition", { ["data.tl"] = DATA,
-    ["page.tmpl"] = HEAD .. "{{if .title}}t{{end}}\n" })
-  assert(text == nil and text_trouble:find("page.tmpl:2:", 1, true) ~= nil and
-      text_trouble:find("(condition_type)", 1, true) ~= nil and
-      text_trouble:find("`{{if}}` and `{{with}}` need a value that can be absent: make the field optional, or drop the `{{if}}`",
-        1, true) ~= nil and text_trouble:find("~=", 1, true) == nil, tostring(text_trouble))
+    ["page.tmpl"] = HEAD .. "{{if .title}}t{{end}}{{with .url}}{{.}}{{end}}\n" })
+  assert(text ~= nil, text_trouble)
 end

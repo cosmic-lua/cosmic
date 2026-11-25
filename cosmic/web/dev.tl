@@ -17,14 +17,14 @@
 --- In development mode the app shows a fault's stack ([`Web.AppSpec`]'s
 --- `debug`), serves `static/` from disk with `Cache-Control: no-store`
 --- ([`Dev.static`]), adds one `<script src="/_web/dev.js" defer>` to every
---- `text/html` page with a `</body>`, and answers two paths for that
+--- `text/html` page with a `</body>`, and handles two paths for that
 --- script under `/_web/dev`. The script reloads the page when the process it
 --- reached is not the one it first met, and swaps the stylesheets when the
 --- event stream says only `.css` moved. Since such an app shows source
 --- paths and values to whoever asks, [`Web.serve`] refuses it a listener
 --- beyond the loopback, a socket file (how a proxy reaches an app) or a
 --- `trusted_proxy`, and unless the app names
---- `trusted_hosts` it answers only `localhost`, `127.0.0.1` and `[::1]`
+--- `trusted_hosts` it responds only to `localhost`, `127.0.0.1` and `[::1]`
 --- (any port), so a page of another site cannot reach it by a name that
 --- resolves to the loopback (DNS rebinding); the script and the stream
 --- honour the same check.
@@ -44,6 +44,7 @@
 local Assets = require("cosmic.web.assets")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
+local DevTag = require("cosmic.web.dev_tag")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Headers = require("cosmic.web.headers")
@@ -208,8 +209,8 @@ local SCRIPT <const> = [==[
 
 --- The tag that loads the script, with `nonce` when the request drew one.
 local function tag(nonce: string?): string
-  if nonce == nil or nonce == "" then return '<script src="/_web/dev.js" defer></script>' end
-  return '<script src="/_web/dev.js" nonce="' .. Html.raw_attr(Html.escape_attr(nonce)) .. '" defer></script>'
+  -- The markup is the template dev_tag.tmpl (cosmic.template).
+  return Html.raw(DevTag.render({ nonce = if nonce ~= "" then nonce else nil end }))
 end
 
 --- Raises where `value` is present and under `least`.
@@ -455,7 +456,7 @@ local function injected(res: Types.Response, nonce: string?): Types.Response
   return copy
 end
 
---- Whether the request names a host the app answers to.
+--- Whether the request names a host the app responds to.
 local function host_ok(req: Types.Request): boolean
   local req_host = req.host
   local named = if req_host ~= nil then Request.parse_host(req_host) else nil end
@@ -467,8 +468,9 @@ local function host_ok(req: Types.Request): boolean
 end
 
 --- The middleware of development mode: the script, its event stream, and
---- the tag in the pages. The two paths answer only a host the app trusts;
---- a page already swapped in by htmx (`HX-Request`) gets no second tag.
+--- the tag in the pages. It handles the two paths only for a host the app
+--- trusts, and passes the rest on; a page already swapped in by htmx
+--- (`HX-Request`) gets no second tag.
 local function reload(boot: string, static: {string}, interval_ns: integer): Types.Middleware
   return function(inner: Types.Handler): Types.Handler
     return function(req: Types.Request): Types.Response
@@ -658,7 +660,7 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
     local _, _ = h:stop()
     -- Not `h:wait(grace_ns)`: it stops at the guard's pending signal, the
     -- one that is ending this supervisor, and skips the grace. `wait_any`
-    -- is not ended by the guard and answers the program reaped.
+    -- is not ended by the guard and returns the program reaped.
     local done, trouble = Child.wait_any({ h }, grace_ns)
     if done == nil and trouble.kind == "timeout" then
       local _, _ = h:stop(sys.SIGKILL)

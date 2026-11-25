@@ -1,6 +1,6 @@
 local Array = require("cosmic.array")
 --- Fuzz properties for [`cosmic.template`], which compiles text it is
---- handed: `compile` is total on any bytes and answers source or a reason
+--- handed: `compile` is total on any bytes and returns source or a reason
 --- that names a line and column; a template with no action compiles to a
 --- module that renders its text byte for byte; the two modes agree on what
 --- is syntax, and `text` takes whatever `html` does; and the module has
@@ -222,8 +222,8 @@ local function places(reason: string): boolean
   return reason:find("^t%.tmpl:%d+:%d+: ") ~= nil
 end
 
--- Whatever the bytes, `compile` answers module source with the template's
--- lines or a reason that names a place; it never raises, and answers one
+-- Whatever the bytes, `compile` returns module source with the template's
+-- lines or a reason that names a place; it never raises, and returns one
 -- thing each time.
 local function test_compile_is_total_and_keeps_the_lines_on_any_bytes(tmp: string)
   Fuzz.run({
@@ -628,12 +628,12 @@ local record PartRun
   mut skip: integer
 end
 
---- Which [`url_part`] calls of a render answer their value: the `calls` so
+--- Which [`url_part`] calls of a render return their value: the `calls` so
 --- far, and with `only` set, only that call; with `skip`, all but that one.
 local PART_RUN: PartRun = { calls = 0, only = 0, skip = 0 }
 
---- The made values the stand-in below answers: each helper takes `any`, as the core's do.
-local record StandIn
+--- The made values the fake's helpers below return: each helper takes `any`, as the core's do.
+local record Fake
   escape: function(s: any): {string: string}
   escape_attr: function(s: any): {string: string}
   href: function(s: any): {string: string}
@@ -643,15 +643,18 @@ local record StandIn
   raw: function(v: any): string
   raw_attr: function(v: any): string
   raw_url: function(v: any): string
+  filled: function(v: any): boolean
 end
 
 --- The core's escapers (cosmic.html), for what they do to bytes, each
 --- made value wrapped in marker bytes so a check can tell what came from
 --- which: \1 \2 around escaped text, \3 \4 around an attribute value,
---- and \5 ahead of what `href` answered. A payload `A|B` is `A` to a
+--- and \5 ahead of what `href` returned. A payload `A|B` is `A` to a
 --- whole-URL slot and `B` to a part, as a template given an origin in one
 --- slot and a hostile value in another.
-local STAND_IN <const>: StandIn = {
+local STAND_IN <const>: Fake = {
+  -- The data the tests render is strings, so `filled` is the core's for them.
+  filled = function(v: any): boolean return v ~= nil and v ~= false and v ~= "" end,
   escape = function(s: any): {string: string} return { s = "\1" .. esc(s) .. "\2" } end,
   escape_attr = function(s: any): {string: string} return { s = "\3" .. esc_attr(s) .. "\4" } end,
   href = function(s: any): {string: string}
@@ -705,9 +708,11 @@ local STAND_IN <const>: StandIn = {
 
 --- The generated source with Teal's types struck out, in the shapes the
 --- generator writes, to run as Lua. Those templates have no stage, so
---- `_one` and its `<T>` are never there to strike.
+--- `_one` is never there; `_sure`, which a block that reads its tested
+--- value uses, is the identity it is once the test has passed.
 local function lua_of(source: string): string
   local lua = source:gsub("local type [%w_]+ = require%b() ", "")
+  lua = lua:gsub("local function _sure<T>%(v: T%?%): T return %(assert%(v%)%) end", "local function _sure(v) return v end")
   lua = lua:gsub("%(([%a_][%w_]*): [^()]-%)", "(%1)")
   lua = lua:gsub("%): [%w%.]+ ", ") ")
   lua = lua:gsub("local v: [^=]+= ", "local v = ")

@@ -61,9 +61,9 @@ end
 --- A policy may hold tailnet targets, and a malformed one is refused
 --- naming its place.
 local function test_a_policy_holds_tailnet_targets()
-  assert(Sandbox.check({ connect = { "tag:db:5432", "user:will@example.com:*", "example.com:443" } }))
-  local ok, why = Sandbox.check({ connect = { "example.com:443", "tag:9db:5432" } })
-  assert(not ok and why:find("$.connect[1]", 1, true) ~= nil and why:find("not a tailnet target", 1, true) ~= nil, why)
+  assert(Sandbox.check({ grants = { { connect = "tag:db:5432" }, { connect = "user:will@example.com:*" }, { connect = "example.com:443" } } }))
+  local ok, why = Sandbox.check({ grants = { { connect = "example.com:443" }, { connect = "tag:9db:5432" } } })
+  assert(not ok and why:find("$.grants[1].connect", 1, true) ~= nil and why:find("not a tailnet target", 1, true) ~= nil, why)
 end
 
 --- A tag grants each address of its peers, a user each of their
@@ -79,14 +79,14 @@ end
 --- A policy with nothing of the tailnet is left as it was, unasked; one
 --- whose daemon is not there fails the start, naming the target.
 local function test_a_daemon_that_is_not_there_fails_the_start(tmp: string)
-  local plain = assert(Sandbox.union({ connect = { "example.com:443" } }))
+  local plain = assert(Sandbox.union({ grants = { { connect = "example.com:443" } } }))
   local same = assert(tailnet.policy(plain, { socket = tmp .. "/none.sock" }))
   assert(same == plain)
-  local merged = assert(Sandbox.union({ connect = { "tag:db:5432" } }))
+  local merged = assert(Sandbox.union({ grants = { { connect = "tag:db:5432" } } }))
   local none, why = tailnet.policy(merged, { socket = tmp .. "/none.sock" })
   assert(none == nil and why:find('^sandbox: connect "tag:db:5432" names nodes of the tailnet') ~= nil, why)
   local child, refused = Child.start({ "/bin/true" }, {
-    timeout_ns = Child.FOREVER, policy = { connect = { "tag:db:5432" } }, tailscale = { socket = tmp .. "/none.sock" },
+    timeout_ns = Child.FOREVER, policy = { grants = { { connect = "tag:db:5432" } } }, tailscale = { socket = tmp .. "/none.sock" },
   })
   assert(child == nil and refused.message:find('connect "tag:db:5432"', 1, true) ~= nil, refused)
 end
@@ -107,10 +107,10 @@ end
 local function test_a_host_named_tag_is_still_a_name()
   local read, why = Grant.tailnet("tag:443")
   assert(read == nil and why == "", why)
-  assert(Sandbox.check({ connect = { "tag:443", "user:22" } }))
+  assert(Sandbox.check({ grants = { { connect = "tag:443" }, { connect = "user:22" } } }))
 end
 
---- Stands in for tailscaled, answering `status` with `body`, while
+--- Stands in for tailscaled, sending `body` for `status`, while
 --- `run` asks it, at the socket path it is given.
 local function with_daemon(tmp: string, body: string, run: function(socket: string))
   local Array = require("cosmic.array")
@@ -145,11 +145,11 @@ local STATUS_JSON <const> = [[{
 local function test_a_policy_resolves_through_the_daemon_and_refuses_a_target_of_no_peer(tmp: string)
   local said: mut {string} = {}
   with_daemon(tmp, STATUS_JSON, function(socket: string)
-    local merged = assert(Sandbox.union({ connect = { "example.com:443", "tag:db:5432" } }))
+    local merged = assert(Sandbox.union({ grants = { { connect = "example.com:443" }, { connect = "tag:db:5432" } } }))
     local run = assert(tailnet.policy(merged, { socket = socket }))
-    local text = table.concat(assert(run.connect), " ")
+    local text = table.concat(Sandbox.connects(run), " ")
     said[#said + 1] = text
-    local typo = assert(Sandbox.union({ connect = { "tag:dbs:5432" } }))
+    local typo = assert(Sandbox.union({ grants = { { connect = "tag:dbs:5432" } } }))
     local _, why = tailnet.policy(typo, { socket = socket })
     said[#said + 1] = why
   end)
@@ -161,7 +161,7 @@ end
 local function test_a_node_that_is_not_running_fails_the_start(tmp: string)
   local why = ""
   with_daemon(tmp, '{"Version": "1.90.0", "BackendState": "Stopped", "MagicDNSSuffix": ""}', function(socket: string)
-    local merged = assert(Sandbox.union({ connect = { "tag:db:5432" } }))
+    local merged = assert(Sandbox.union({ grants = { { connect = "tag:db:5432" } } }))
     local _, trouble = tailnet.policy(merged, { socket = socket })
     why = trouble
   end)

@@ -112,6 +112,11 @@ local SLOTS <const>: {Expect} = {
   { source = "<br/>{{.x}}", want = "_text(" },
   { source = "<svg><a href=\"{{.x}}\"></a></svg>", want = "_url(" },
   { source = "<a title=\"a>b\">{{.x}}", want = "_text(" },
+  { source = "<script src=\"{{.x}}\" defer></script>", want = "_turl(" },
+  { source = "<SCRIPT SRC=' {{.x}} '></script>", want = "_turl(" },
+  { source = "<link rel=\"stylesheet\" href=\"{{.x}}\">", want = "_turl(" },
+  { source = "<script nonce=\"{{.x}}\"></script>", want = "_attr(" },
+  { source = "<script src=\"/a.js\" integrity=\"{{.x}}\"></script>", want = "_attr(" },
 }
 
 local function test_each_slot_is_escaped_for_the_place_it_stands_in()
@@ -261,8 +266,9 @@ local REFUSALS <const>: {Refusal} = {
   { source = "<a hx-vals=\"{{.x}}\">", line = "2", column = "13", reason = "{{use htmx}}" },
   { source = "<a data-hx-vals='{\"a\": \"{{.x}}\"}'>", line = "2", column = "25", reason = "{{use htmx}}" },
   { source = "<a hx-vals=\"x\" hx-get=\"/a\" hx-on:click=\"a{{if .a}}b{{end}}{{.x}}\">", line = "2", column = "59", reason = "would be script" },
-  { source = "<script src=\"{{.x}}\">", line = "2", column = "14", reason = "<script>" },
-  { source = "<link href=\"{{.x}}\">", line = "2", column = "13", reason = "<link>" },
+  { source = "<script src=\"/js/{{.x}}\">", line = "2", column = "18", reason = "must be the whole value, a SafeResourceUrl" },
+  { source = "<link href=\"/{{.x}}\">", line = "2", column = "14", reason = "must be the whole value, a SafeResourceUrl" },
+  { source = "<script crossorigin=\"{{.x}}\">", line = "2", column = "22", reason = "other than src, nonce and integrity" },
   { source = "<object data=\"{{.x}}\">", line = "2", column = "15", reason = "<object>" },
   { source = "<a title=\"x\">\n<a\n  b={{.y}}>", line = "4", column = "5", reason = "unquoted" },
   { source = "<textarea></textarea{{.x}}><script>{{.y}}</script>", line = "2", column = "21", reason = "complete its end tag" },
@@ -664,6 +670,25 @@ local function test_a_json_slot_is_the_whole_value()
   end
 end
 
+local function test_the_src_of_a_script_and_the_href_of_a_link_take_a_safeurl_as_the_whole_value()
+  -- A string could name any script, so the slot takes only a SafeResourceUrl, which only Html.trust_resource_url makes.
+  local out = compiled(HEAD .. "<script src=\"{{.x}}\" nonce=\"{{.n}}\" defer></script>")
+  assert(out:find("local v: html.SafeResourceUrl = d.x", 1, true) ~= nil, out)
+  assert(out:find("local v: string | number | html.SafeAttr = d.n", 1, true) ~= nil, out)
+  local cases: {Expect} = {
+    { source = "<script src=\"{{.x}}?v=1\"></script>", want = "the slot is the whole value, a SafeResourceUrl" },
+    { source = "<link href=\"{{.x}}x\" title='q'>", want = "the slot is the whole value, a SafeResourceUrl" },
+    { source = "<script src=\"{{.x}}{{.x}}\"></script>", want = "must be the whole value, a SafeResourceUrl" },
+    { source = "<script src=\"{{if .a}}/a.js{{end}}{{.x}}\"></script>", want = "must be the whole value, a SafeResourceUrl" },
+    { source = "<script type=\"{{.x}}\"></script>", want = "could name the code it runs" },
+    { source = "<embed src=\"{{.x}}\">", want = "would make the page load or run it" },
+  }
+  for _, case in ipairs(cases) do
+    local why = refused(HEAD .. case.source)
+    assert(why:find(case.want, 1, true), case.source .. ": " .. why)
+  end
+end
+
 local function test_a_refusal_after_a_json_slot_is_placed_at_the_byte_that_ends_it()
   local why = refused(HEAD .. "{{use htmx}}\n<a hx-vals='{{.v}}ab' title='q'>")
   assert(why:find("t.tmpl:3:21:", 1, true) and why:find("text after a JSON slot", 1, true), why)
@@ -891,24 +916,24 @@ local function test_each_loop_and_with_has_a_dot_of_its_own()
     local _, count = out:gsub(name, "")
     assert(count == 1, name .. " " .. tostring(count) .. " times in " .. out)
   end
-  assert(out:find("= d3.d parts[#parts + 1] = _text(v)", 1, true) and out:find("= d2.e parts[#parts + 1] = _text(v)", 1, true) and
+  assert(out:find("= d4.d parts[#parts + 1] = _text(v)", 1, true) and out:find("= d2.e parts[#parts + 1] = _text(v)", 1, true) and
       out:find("= d.f parts[#parts + 1] = _text(v)", 1, true), out)
 end
 
 local function test_a_dot_nothing_reads_is_not_named()
   local out = compiled(HEAD .. "{{range .a}}x{{end}}{{with .b}}y{{end}}")
   assert(out:find("for _, _ in ipairs(d.a) do", 1, true), out)
-  assert(out:find("local d2 = d.b if d2 then", 1, true), out)
+  assert(out:find("local d2 = d.b if html.filled(d2) then", 1, true) ~= nil and out:find("_sure", 1, true) == nil, out)
 end
 
 local function test_a_condition_chain_is_one_flat_block()
   local out = compiled(HEAD .. "{{if .a}}1{{else if .b | m.f}}2{{else}}3{{end}}")
-  assert(out:find("repeat do local d1 = d.a if d1 then", 1, true) and out:find("break end end if _one(m.f(d.b)) then", 1, true) and
+  assert(out:find("repeat do local d1 = d.a if html.filled(d1) then", 1, true) and out:find("break end end if html.filled(_one(m.f(d.b))) then", 1, true) and
       out:find("break end parts[#parts + 1] = ", 1, true) and out:find(" until true", 1, true), out)
   assert(out:find('require("m")', 1, true), out)
   -- A chain with no field path to bind stays an `if`.
   local plain = compiled(HEAD .. "{{if .b | m.f}}1{{else if .c | m.f}}2{{else}}3{{end}}")
-  assert(plain:find("if _one(m.f(d.b)) then", 1, true) ~= nil and plain:find("elseif _one(m.f(d.c)) then", 1, true) ~= nil and
+  assert(plain:find("if html.filled(_one(m.f(d.b))) then", 1, true) ~= nil and plain:find("elseif html.filled(_one(m.f(d.c))) then", 1, true) ~= nil and
       not plain:find("repeat", 1, true), plain)
 end
 
@@ -916,13 +941,13 @@ end
 --- one that has, including a test of a path an enclosing test bound.
 local function test_an_else_closes_a_chain_with_nothing_to_bind()
   local plain = compiled(HEAD .. "{{if .b | m.f}}1{{else}}2{{end}}")
-  assert(plain:find("if _one(m.f(d.b)) then", 1, true) ~= nil and plain:find(" else ", 1, true) ~= nil and
+  assert(plain:find("if html.filled(_one(m.f(d.b))) then", 1, true) ~= nil and plain:find(" else ", 1, true) ~= nil and
       not plain:find("repeat", 1, true), plain)
   local _, plain_ends = plain:gsub("%f[%w]end%f[%W]", "")
   local _, plain_opens = plain:gsub("%f[%w]if%f[%W]", "")
   assert(plain_ends >= plain_opens, plain)
   local nested = compiled(HEAD .. "{{if .a}}{{if .a}}x{{else}}y{{end}}{{end}}")
-  assert(nested:find("do local d1 = d.a if d1 then if d1 then", 1, true) and
+  assert(nested:find("do local d1 = d.a if html.filled(d1) then local d2 = _sure(d1) if html.filled(d2) then", 1, true) and
       nested:find(" else parts[#parts + 1] = \"y\" end end end", 1, true), nested)
 end
 
@@ -931,16 +956,17 @@ end
 --- the source writes it.
 local function test_a_nested_guard_reads_the_local_of_its_longest_bound_prefix()
   local out = compiled(HEAD .. "{{if .a}}{{if .a.b}}{{.a.b.c}}{{.a.d}}{{end}}{{end}}")
-  assert(out:find("do local d1 = d.a if d1 then do local d2 = d1.b if d2 then", 1, true), out)
-  assert(out:find("= d2.c parts", 1, true) and out:find("= d1.d parts", 1, true), out)
-  assert(not out:find("d1.b.c", 1, true) and not out:find("d.a.", 1, true), out)
+  assert(out:find("do local d1 = d.a if html.filled(d1) then local d2 = _sure(d1) do local d3 = d2.b if " ..
+      "html.filled(d3) then local d4 = _sure(d3)", 1, true), out)
+  assert(out:find("= d4.c parts", 1, true) and out:find("= d2.d parts", 1, true), out)
+  assert(not out:find("d2.b.c", 1, true) and not out:find("d.a.", 1, true), out)
   local same = compiled(HEAD .. "{{if .a}}{{if .a.s}}{{.a.s}}{{end}}{{end}}")
-  assert(same:find("do local d2 = d1.s if d2 then", 1, true) and same:find("= d2 parts", 1, true), same)
+  assert(same:find("do local d3 = d2.s if html.filled(d3) then local d4 = _sure(d3)", 1, true) and same:find("= d4 parts", 1, true), same)
 end
 
 local function test_a_with_that_is_empty_runs_its_else()
   local out = compiled(HEAD .. "{{with .a}}1{{else}}2{{end}}")
-  assert(out:find("do local d1 = d.a if d1 then", 1, true) and out:find("else", 1, true) and
+  assert(out:find("do local d1 = d.a if html.filled(d1) then", 1, true) and out:find("else", 1, true) and
       out:find("end end", 1, true), out)
 end
 
@@ -1470,7 +1496,7 @@ local function test_dollar_is_the_render_argument_anywhere()
       "{{if $.admin}}{{$}}{{end}}")
   assert(out:find("= d1.name parts", 1, true) and out:find("= d.title parts", 1, true), out)
   assert(out:find("= _one(m.f(d.who)) parts", 1, true), out)
-  assert(out:find("local d3 = d.admin if d3 then", 1, true) and out:find("= d parts", 1, true), out)
+  assert(out:find("local d4 = d.admin if html.filled(d4) then", 1, true) and out:find("= d parts", 1, true), out)
   -- Only `$` reads the argument here, so it must be named.
   local only = compiled(HEAD .. "{{$.x}}")
   assert(only:find("render(d: t.T)", 1, true) and only:find("= d.x parts", 1, true), only)
@@ -1509,8 +1535,8 @@ end
 
 local function test_a_with_keeps_the_root_and_the_enclosing_bindings()
   local out = compiled(HEAD .. "{{range $i, $x := .a}}{{with .w}}{{.}}{{$x}}{{$i}}{{$.t}}{{end}}{{end}}")
-  assert(out:find("do local d3 = d1.w if d3 then", 1, true), out)
-  assert(out:find("= d3 parts", 1, true) and out:find("= d1 parts", 1, true) and out:find("= d2 parts", 1, true) and
+  assert(out:find("do local d3 = d1.w if html.filled(d3) then local d4 = _sure(d3)", 1, true), out)
+  assert(out:find("= d4 parts", 1, true) and out:find("= d1 parts", 1, true) and out:find("= d2 parts", 1, true) and
       out:find("= d.t parts", 1, true), out)
 end
 
@@ -1609,7 +1635,7 @@ end
 -- The tracker keeps the alternative places of a block as space-separated
 -- keys, and an attribute name may hold a byte Lua's `%s` reads as space
 -- (\v, \f) and HTML does not. Such a name must not split a key: compile
--- answers a refusal or a template, and never raises.
+-- returns a refusal or a template, and never raises.
 local function test_an_attribute_name_with_a_vertical_tab_or_form_feed_never_makes_compile_raise()
   for _, space in ipairs({ "\v", "\f" }) do
     for _, tail in ipairs({ ">", "\">", "=x>", "" }) do
