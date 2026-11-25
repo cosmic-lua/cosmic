@@ -61,8 +61,7 @@ local record Tools
   --- sessions kept and the current one's id (nil where none is). The
   --- sandbox is not put on a tool from outside: a tool of your own that
   --- reads or writes a path asks `Sandbox.permits(context.policy, path,
-  --- action, context.cwd)` first and opens the real name it returns, as
-  --- read, write and edit do.
+  --- action, context.cwd)` first and opens the real name it returns.
   record Context
     --- The working directory, which a relative path is from.
     cwd: string
@@ -82,8 +81,8 @@ local record Tools
     --- When the turn's time runs out ([`Clock.monotonic_ns`]), where its
     --- budget limits it: a command that waits is ended then. Nil for no limit.
     deadline_ns?: integer
-    --- Whether a snippet of run may run programs ([`Worker.Options`] `commands`, by Host.bash). A worker keeps what it
-    --- was started with: one started with programs runs them still until it is closed.
+    --- Whether a snippet of run may run programs ([`Worker.Options`] `commands`, by Host.bash). Nil is false. A run
+    --- whose commands differ from those its worker was started with starts a new one.
     commands?: boolean
     --- The tools the agent offers; every tool ([`Tools.all`]) where nil.
     --- A tool's hints name only tools offered.
@@ -703,8 +702,8 @@ function Tools.run(name: string, input: Tools.Object, context: Tools.Context): T
 end
 
 --- The tools of `tools` the model may call ([`Tools.for_model`]), as the Messages API takes them. The last is a cache breakpoint: the tools come first in a request, and
---- are the same in every session of a model whatever its directory and prompt, so each session reads them from the
---- cache another wrote, where the project's instructions in the system prompt and the messages after them differ.
+--- are the same in every session of a model with the same `commands` whatever its directory and prompt, so each session
+--- reads them from the cache another wrote, where the project's instructions in the system prompt and the messages after them differ.
 --- `commands` says whether a snippet may run programs: without it, run's description names no Host.bash.
 function Tools.definitions(tools: {Tools.Tool}, commands?: boolean): Json.Value
   local out: mut {Json.Value} = {}

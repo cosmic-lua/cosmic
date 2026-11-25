@@ -160,7 +160,8 @@ local record Agent
     --- The layers the tools are held to (cosmic.agent.policy), each held stacked: only what every layer lets
     --- them do ([`Sandbox.intersect`]); nil or {} for nothing.
     sandbox?: {Sandbox.Policy}
-    --- Whether a snippet may run programs (Host.bash; [`Worker.Options`] `commands`); false by default, so none runs.
+    --- Whether a snippet may run programs (Host.bash; [`Worker.Options`] `commands`); false by default, so none runs
+    --- where the sandbox holds it: on Linux, under a policy. With no sandbox, or on macOS, a snippet may still run one.
     commands?: boolean
     --- The worker the run tool sends its snippets to (cosmic.agent.worker); nil for none.
     worker?: Worker.Set
@@ -365,7 +366,9 @@ local record Agent
     --- The layers the tools are held to (cosmic.agent.policy), stacked as [`Sandbox.intersect`] joins them at
     --- each call; nil or {} for nothing. A call is blocked when they do not join.
     mut sandbox?: {Sandbox.Policy}
-    --- Whether a snippet may run programs (Host.bash): a worker started without them is started again with them.
+    --- Whether a snippet may run programs (Host.bash): a worker started without them is started again with them. The
+    --- system prompt says whether programs run, so one changed here is told the model only by a new `system`
+    --- ([`Prompt.build`] with the same `commands`).
     mut commands: boolean
     --- The worker the run tool sends its snippets to (cosmic.agent.worker); nil for none.
     mut worker?: Worker.Set

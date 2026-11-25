@@ -14,8 +14,8 @@ What it gives you:
   type-checks it before it runs it. A refused program runs nothing,
   and the refusal says how to fix it.
 - **No shell by default.** A program reads, edits and writes files
-  through `Host` and cosmic's modules. On Linux, it runs no other
-  program. `Host.bash` runs one only with `--commands`.
+  through `Host` and cosmic's modules. On Linux, under the sandbox, it
+  runs no other program. `Host.bash` runs one only with `--commands`.
 - **A sandbox the kernel holds.** The tools change only the working
   directory and a home of their own. They get no network, and none of
   your environment but `LANG`, `LC_ALL` and `TERM`, so not your API

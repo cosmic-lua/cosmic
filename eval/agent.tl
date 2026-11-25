@@ -8,8 +8,8 @@
 ---         [--offer NAME=TOOL,...] [--effort [NAME=]LEVEL] [--tasks T,...|all] [--reps N] [--model M]
 ---         [--timeout S]
 ---
---- `--offer NAME=run,read` runs the agent of the tool NAME with `--tools run,read`: one binary under two names
---- compares, for example, the agent with bash and without it. `--effort NAME=low` runs the agent of the tool NAME
+--- `--offer NAME=run,read` runs the agent of the tool NAME with `--tools run,read`, for a binary from before run became
+--- the agent's one tool (a newer one refuses `--tools`). `--effort NAME=low` runs the agent of the tool NAME
 --- with `--effort low`, and `--effort low` every tool not named so: one binary under two names compares two efforts.
 --- Where none is given, the agent takes its own default.
 --- The fixture is a tree the tasks read, such as this repository at a commit

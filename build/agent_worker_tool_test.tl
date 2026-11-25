@@ -396,7 +396,7 @@ end
 local function test_a_snippet_runs_the_agents_own_bash()
   local w = set_of_worker()
   local dir = assert(Fs.mkdtemp("agent-worker-"))
-  local context: Tools.Context = { cwd = dir, worker = w }
+  local context: Tools.Context = { cwd = dir, worker = w, commands = true }
   local ran = tools_run("run", { code = [[
 local Host = require("cosmic.agent.host")
 local r = Host.bash("printf 'a\\nb'; exit 3")
@@ -468,6 +468,9 @@ print(tostring(long))
   -- A refusal on line 1 tells the snippet's own column, not one the prelude moved.
   local first = tools_run("run", { code = "local n: integer = Host.read(\"one.tl\")" }, context)
   assert(first.is_error and first.text:find("run.tl:1:20:", 1, true) ~= nil, first.text)
+  -- A timeout past the most a snippet may take is refused before it runs.
+  local huge = tools_run("run", { code = "print(1)", timeout = 10000000000 }, context)
+  assert(huge.is_error and huge.text:find("give at most", 1, true) ~= nil, huge.text)
   worker_close(w)
 end
 

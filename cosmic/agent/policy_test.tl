@@ -32,7 +32,7 @@ local slurp = agent_fixture.slurp
 local scratch = agent_fixture.scratch
 
 --- What a command printed under `policy` in `cwd` (stdout and stderr together, a last newline dropped), and whether
---- it failed: as a snippet's Host.bash runs one, in the snippet's sandbox.
+--- it failed: run under `policy` itself, as a sandbox holds a command.
 local record Ran
   text: string
   is_error: boolean

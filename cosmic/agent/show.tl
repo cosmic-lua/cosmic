@@ -4,8 +4,8 @@
 --- as the verb does, or wraps one to show more.
 ---
 --- [`Show.text`] is the verb's at a terminal: the turn's answer to one
---- writer, and each tool call, the first lines of what run and bash
---- printed, each call that failed, and what the model says on the way,
+--- writer, and each tool call, the first lines of what run (or an older
+--- session's bash) printed, each call that failed, and what the model says on the way,
 --- to another.
 --- [`Show.json`] is its `--json` and its rpc: a line of JSON an event.
 ---
@@ -206,7 +206,7 @@ end
 --- turn's answer to `out`, and to `err` the words the model says on the
 --- way (in a message that also calls a tool), each tool call as
 --- [`Show.call`] shows it (run's code laid out by `layout`), and below
---- it the call's result: the first lines of what run or bash said,
+--- it the call's result: the first lines of what run (or an older session's bash) said,
 --- in a code fence named output, and of what any call that failed said,
 --- in one named error. An output of no lines shows no fence. No control
 --- byte but tab and newline is shown. The other events show nothing.
