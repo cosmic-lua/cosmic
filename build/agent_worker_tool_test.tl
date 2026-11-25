@@ -13,11 +13,9 @@ local Tools = require("cosmic.agent.tools")
 local Worker = require("cosmic.agent.worker")
 local _ = require("build.standalone")
 --- What `cosmic agent worker` loads, which the store of this module's run must hold: the tests start that verb of
---- this program.
-local _ = require("build.agent")
-local _ = require("build.agent_worker")
-local _ = require("build.verb_list")
-local _ = require("cosmic.cli.agent")
+--- this program. build.verb_list names every verb's module, so an edit to any of them reruns these tests.
+local type _ = require("build.agent")
+local type _ = require("build.verb_list")
 --- What the MCP server script requires, as its standalone run loads it.
 local type _ = require("cosmic.mcp.server")
 local this_program = require("build.this_program")
@@ -26,7 +24,7 @@ Test.policy{ profiles = { "cosmic" }, grants = { { path = "/bin/sh", letters = "
 
 --- A set whose worker is `cosmic agent worker` of this program, as the agent starts it. Its first snippet answers in
 --- about 60 ms; a child of this module ([`build.test_child`]) took 1.3 s, checking its `-e` chunk and loading the
---- module, and past 30 s on a loaded macOS runner.
+--- module first.
 local function set_of_worker(): Worker.Set
   local started = this_program.program({ "agent", "worker" }, { env = this_program.environment(), timeout_ns = -1 })
   return Worker.new(started.argv, started.options)
