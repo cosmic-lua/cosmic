@@ -3006,6 +3006,19 @@ local function relaunch_of(user: MappedUser?, database?: string): Proc.Relaunch?
   return { argv = argv, env = launched.env, fds = fds, cwd = launched.cwd }, ""
 end
 
+--- The variables by which a portable relaunch names its descriptors.
+local HANDED <const>: {string} = { "COSMIC_PORTABLE_ARTIFACT_FD", "COSMIC_PORTABLE_CORE_FD" }
+
+--- `found`, a portable relaunch, started by path: no descriptor handed,
+--- and none named, so its startup opens the artifact `--artifact` names
+--- and the core it runs as itself.
+local function by_path(found: Proc.Relaunch): Proc.Relaunch
+  local env: mut {string:string} = {}
+  for name, value in pairs(found.env) do env[name] = value end
+  for _, name in ipairs(HANDED) do env[name] = nil end
+  return { argv = found.argv, env = env, fds = {}, cwd = found.cwd }
+end
+
 --- Whether the file at `path`, the database a policy's program runs on,
 --- is the one `database` names: true where it hashes to the policy's
 --- `sha256`, or where the policy holds none; otherwise false and why.
@@ -3239,15 +3252,23 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
   -- (no `w`, no `c`), and once the child makes a user namespace of its own
   -- the kernel locks those binds (MNT_LOCK_READONLY, MNT_LOCKED).
   -- A portable artifact hands its artifact and core as descriptors, which
-  -- [`nest_descriptors`] must refuse.
-  -- TODO: run a portable artifact under `nest` too, once its
-  -- relaunch runs on a database (a core and a file, no descriptor), or
-  -- nest_descriptors can hand its descriptors of read-only regular
-  -- files, which a child may reopen for writing through /proc/self/fd
-  -- where its user may.
+  -- [`nest_descriptors`] must refuse: a file open for reading alone may be
+  -- opened again for writing through /proc/self/fd where its owner may.
+  -- Under `nest` it is handed none, and its startup opens the artifact by
+  -- its path and the core by itself (core/startup.c's [`by_path`]), in the
+  -- root, which binds both read-only and locks the binds as a database's.
   if found ~= nil and nest and next(found.fds) ~= nil then
-    return nil, "sandbox: this program runs from descriptors of its artifact and core, " ..
-      "which the \"nest\" promise refuses a child"
+    found = by_path(found)
+    -- It opens its artifact itself, which the root then must hold. This
+    -- comes before the core's grant, which is told apart from the
+    -- policy's by its own table.
+    local artifact = found.argv[3]
+    if found.argv[2] ~= "--artifact" or artifact == nil then
+      return nil, "sandbox: this program's relaunch names no artifact to open by its path"
+    end
+    local widened, widen_trouble = Rules.union(merged, { grants = { { path = artifact, letters = "r" } } })
+    if widened == nil then return nil, "sandbox: " .. widen_trouble end
+    merged = widened
   end
   -- TODO: [`unmet`] counts the grants before these two are added, so a
   -- start at the most raises inside spawn rather than refusing with a
