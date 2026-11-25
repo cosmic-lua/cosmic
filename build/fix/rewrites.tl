@@ -4,17 +4,20 @@
 --- the refused build staged ([`Pipeline.build`]), so a module is checked with the tree's modules it requires.
 local Pipeline = require("build.pipeline")
 local Rewrite = require("lang.rewrite")
+local TreeProgram = require("build.tree_program")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local build_paths = require("build.paths")
 
 local record FixRewrites
   --- What a run made or would make: a line for each rewrite (`a.tl:3:18: concat_type: `n` -> `tostring(n)``), the files
-  --- written, and why one could not be read or written.
+  --- written, why one could not be read or written, and notes of why none was looked for: the build's own refusal,
+  --- which the run has told already, says the rest.
   record Made
     told: {string}
     written: {string}
     failures: {string}
+    notes: {string}
   end
 end
 
@@ -26,31 +29,35 @@ function FixRewrites.make(root: string, own: boolean, files: {string}, checking:
   local told: mut {string} = {}
   local written: mut {string} = {}
   local failures: mut {string} = {}
-  local made: FixRewrites.Made = { told = told, written = written, failures = failures }
+  local notes: mut {string} = {}
+  local made: FixRewrites.Made = { told = told, written = written, failures = failures, notes = notes }
   if #files == 0 then return made end
   local wanted: mut {string: boolean} = {}
   for _, file in ipairs(files) do wanted[file] = true end
   local options, options_trouble = Pipeline.options(root, own)
   if options == nil then
-    failures[#failures + 1] = "rewrites: " .. options_trouble
+    notes[#notes + 1] = "no rewrites: " .. options_trouble
     return made
   end
   local db, open_trouble = Sqlite.open(build_paths.resolve(root).working)
   if db == nil then
-    local why = "rewrites: " .. tostring(open_trouble)
-    failures[#failures + 1] = why
+    local why = "no rewrites: " .. tostring(open_trouble)
+    notes[#notes + 1] = why
     return made
   end
   local built, built_trouble = Pipeline.build(db, options)
   local _, _ = db:close()
   if built == nil then
-    failures[#failures + 1] = "rewrites: " .. built_trouble
+    notes[#notes + 1] = "no rewrites: " .. built_trouble
     return made
   end
   local build = built.build
   for _, source in ipairs(built.index.sources) do
     local file = source.filename
     if wanted[file] == true and source.dialect == "tl" then
+      -- As a module of the build is checked: its calls to splice resolved first ([`TreeProgram.splice`]).
+      local spliced, splice_trouble = TreeProgram.splice(build, source.module, file)
+      if spliced == nil then notes[#notes + 1] = "no rewrites: " .. splice_trouble end
       build:lower({ source.module })
       local result = build:result(source.module, true)
       local path = root .. "/" .. file
@@ -58,7 +65,9 @@ function FixRewrites.make(root: string, own: boolean, files: {string}, checking:
       if text == nil then
         local why = tostring(read_trouble)
         failures[#failures + 1] = why
-      elseif result ~= nil and text == source.text then
+      elseif result == nil or text ~= source.text then
+        notes[#notes + 1] = "no rewrites of " .. file .. ": the build read another text of it"
+      else
         local applied = Rewrite.apply(text, Pipeline.edits(result))
         for _, line in ipairs(Rewrite.told(file, applied.made)) do told[#told + 1] = line end
         if not checking and applied.text ~= text then

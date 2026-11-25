@@ -27,6 +27,7 @@
 -- which the lines of a warning and of a text that does not parse do not.
 local AnalysisSchema = require("build.analysis_schema")
 local Ceilings = require("build.ceilings")
+local Markers = require("build.markers")
 local CheckerDeclarations = require("build.checker_declarations")
 local CompileGrammar = require("build.compile_grammar")
 local Ast = require("lang.ast")
@@ -843,29 +844,23 @@ local function note_stages(stages: mut {string: string}, stage: string, list: {D
   end
 end
 
---- Whether line `y` of `text` holds a marker of `code` (`-- checked: code`, among others).
-local function marked(text: string, y: integer, code: string): boolean
-  local n = 0
-  for line in (text .. "\n"):gmatch("([^\n]*)\n") do
-    n = n + 1
-    if n == y then
-      local marker = line:match("%-%-%s*checked:%s*(.*)$")
-      if marker == nil then return false end
-      for word in marker:gmatch("[%w_]+") do
-        if word == code then return true end
+function Pipeline.edits(result: Driver.Outcome): {Rewrite.Edit}
+  -- The codes of the bodies' findings each line's markers hold ([`build.markers`]).
+  local held: mut {integer: mut {string: boolean}} = {}
+  for _, mark in ipairs(Markers.read(result.source.text, result.source.filename).marks) do
+    for _, segment in ipairs(mark.segments) do
+      if segment.stage == "checked" then
+        local codes = held[mark.line] or {}
+        held[mark.line] = codes
+        for _, code in ipairs(segment.codes) do codes[code] = true end
       end
-      return false
     end
   end
-  return false
-end
-
-function Pipeline.edits(result: Driver.Outcome): {Rewrite.Edit}
-  local text = result.source.text
   local out: mut {Rewrite.Edit} = {}
   for _, p in ipairs(result.bodies) do
     local r = p.rewrite
-    if r ~= nil and not marked(text, p.y, p.code) then
+    local codes = held[p.y]
+    if r ~= nil and not (codes ~= nil and codes[p.code] == true) then
       out[#out + 1] = { code = p.code, y = p.y, x = p.x, offset = p.offset, length = p.length, before = r.before,
         after = r.after }
     end
