@@ -36,7 +36,7 @@
 --- [`Host.store`] keeps a small value for a later snippet of the session, which [`Host.load`] reads, as a file would, but
 --- with the session: a resumed session reads it again.
 ---
---- The agent's own bash tool is there too, run in the snippet's sandbox, with a result a snippet reads as a value:
+--- With commands (--commands), a program runs too, in the snippet's sandbox, with a result a snippet reads as a value:
 --- [`Host.bash`] runs a command and returns its output and how it ended:
 ---
 ---     local ran = Host.bash("git status --short")
@@ -52,10 +52,12 @@
 ---
 --- The helpers named after commands ([`Host.find`], [`Host.grep`], [`Host.sed`], [`Host.wc`], [`Host.sort`],
 --- [`Host.sqlite`], ...) are [`cosmic.shell`]'s calls, run in the snippet's own process, raising where they fail.
---- A file is edited with [`Host.lines`] and [`Host.write`], or with [`Host.sed`].
+--- A file is read with [`Host.read`] and changed with [`Host.edit`] (exact text), [`Host.sed`] (a pattern on each line)
+--- or [`Host.write`] (the whole of it).
 ---
 --- Outside a worker no agent replies, and each call raises so.
 
+local AgentEdit = require("cosmic.agent.edit")
 local AgentFetch = require("cosmic.agent.fetch")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
@@ -155,6 +157,9 @@ local record Host
   end
 
   --- A line [`Host.grep`] found ([`Shell.Hit`]).
+  --- One replacement of [`Host.edit`]: `old`, which the file holds once, becomes `new`.
+  type Replacement = AgentEdit.Replacement
+
   type Hit = Shell.Hit
 
   --- A key and how often it was counted, as [`Host.top`] lists it ([`Shell.Count`]).
@@ -426,8 +431,7 @@ end
 --- The most seconds [`Host.bash`] may be given: a wait's most ([`Poll.MOST_NS`]), 24 days.
 local MOST_SECONDS <const> = 24 * 24 * 60 * 60
 
---- Runs `command` with bash, or sh where there is none, in the snippet's own sandbox and directory, as the bash tool
---- does: what it wrote to standard output and standard error, together, and how it ended. A command that exits other
+--- Runs `command` with bash, or sh where there is none, in the snippet's own sandbox and directory: what it wrote to standard output and standard error, together, and how it ended. A command that exits other
 --- than 0 still gives a result, `ok` false; a call fails for a command that could not start, or for a timeout
 --- outside 1 to 24 days. A command still running when the snippet ends ends with its worker.
 local function bash_of(command: string, options?: Host.BashOptions): (Host.Ran) | (nil, Failure)
@@ -514,11 +518,40 @@ function Host.find(dir: string, suffix?: string): mut {string}
   return found
 end
 
---- The text of the file `path`, as `cat` prints it. Raises where it cannot be read.
-function Host.cat(path: string): string
+--- The text of the file `path`, whole. Raises where it cannot be read.
+function Host.read(path: string): string
   local text, why = Fs.read(path)
-  if text == nil then error("host: cat: " .. tostring(why), 2) end
+  if text == nil then error("host: read: " .. tostring(why), 2) end
   return text
+end
+
+--- The file a link at `path` names, through each link in turn, or `path` where it is none: so an edit changes what a
+--- link names and leaves the link.
+local function linked(path: string): string
+  local at = path
+  for _ = 1, 40 do
+    local target, _ = Fs.readlink(at)
+    if target == nil then return at end
+    at = if target:sub(1, 1) == "/" then target else Fs.dirname(at) .. "/" .. target end
+  end
+  return at
+end
+
+--- Makes each of `edits` in the file `path`, as the agent's edit tool does ([`cosmic.agent.edit`]): each `old` is in
+--- the file once, as it was before any edit, no two overlap, and a file of CRLF line ends keeps them. A link's file is
+--- changed, and the link kept. Returns how many it made; raises, naming the edit by its index in `edits` and how to fix
+--- it, where one does not match once, or the file cannot be read or written, and then changes nothing.
+---
+---     Host.edit("notes.md", { { old = "teh", new = "the" }, { old = "## Todo", new = "## Done" } })
+function Host.edit(path: string, edits: {Host.Replacement}): integer
+  local file = linked(path)
+  local raw, why = Fs.read(file)
+  if raw == nil then error("host: edit: " .. tostring(why), 2) end
+  local edited, made = AgentEdit.apply(raw, edits, path, "old", 1)
+  if edited == nil then error("host: edit: " .. made, 2) end
+  local ok, write_why = Fs.write(file, edited)
+  if not ok then error("host: edit: " .. tostring(write_why), 2) end
+  return made
 end
 
 --- The lines of the file `path` ([`Shell.lines`]); raises where it cannot be read.
@@ -728,7 +761,7 @@ function Host.load(key: string): Host.Loaded
   return value
 end
 
---- Runs `command` with bash in the snippet's sandbox and directory, as the bash tool does: its output and how it
+--- Runs `command` with bash in the snippet's sandbox and directory, where the session has commands: its output and how it
 --- ended. A command that exits other than 0 still gives a result, `ok` false; one that cannot start raises. Raises where it fails, as "host: ...".
 function Host.bash(command: string, options?: Host.BashOptions): Host.Ran
   local value, why = bash_of(command, options)

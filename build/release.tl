@@ -652,19 +652,20 @@ function verb.run(argv: {string}, io?: verb.Io): integer
 
   local binary = assets_url .. release.tag .. "/cosmic"
   local function download_until(path: string, cancelled: function(): boolean): boolean, string
-    local result = Http.download_result(binary, path, options(nil, digest, cancelled))
-    if result.kind == "downloaded" then
+    local done, failed = Http.download(binary, path, options(nil, digest, cancelled))
+    if done then
       local changed, mode_why = Fs.chmod(path, 0x1ed)
       if not changed then return false, tostring(mode_why) end
       return true, ""
     end
-    if result.kind == "http_status" then
-      return false, binary .. ": HTTP " .. tostring(result.status)
+    local status = failed.code
+    if failed.kind == "library" and status ~= nil then
+      return false, binary .. ": HTTP " .. tostring(status)
     end
-    if result.kind == "digest_mismatch" then
-      return false, binary .. ": sha256 mismatch: want " .. digest .. ", got " .. tostring(result.actual)
+    if failed.kind == "mismatch" then
+      return false, binary .. ": " .. failed.message
     end
-    return false, binary .. ": " .. result.reason
+    return false, binary .. ": " .. tostring(failed)
   end
   --- Downloads the binary to `path`, renamed into place once verified.
   --- Held for the download and closed however it leaves, a guard ends it

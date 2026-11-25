@@ -4,6 +4,7 @@
 
 local Agent = require("cosmic.agent")
 local Auth = require("cosmic.agent.auth")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local Json = require("cosmic.json")
@@ -28,6 +29,10 @@ local record agent_fixture
     --- What notes them, to set as an agent's `on`.
     on: function(event: Agent.Event)
   end
+  --- A tool of the tests, for the model: it answers its `text`, the last 10000 bytes of it where it is longer with
+  --- the whole as `raw`, as a tool that cuts its output does; with `wait` true it first waits until the turn is stopped
+  --- or its time runs out, as a call that runs past them is ended.
+  SAY: Tools.Tool
   --- A session kept in a database of its own, and the API it sends to.
   record Kept
     session: Agent.Session
@@ -228,9 +233,34 @@ function agent_fixture.events(): Seen
   end }
 end
 
---- A tool call `id` of bash, running `command`.
-function agent_fixture.bash_call(id: string, command: string): Json.Value
-  return { type = "tool_use", id = id, name = "bash", input = { command = command } }
+-- The most bytes SAY answers.
+local SAID <const> = 10000
+
+agent_fixture.SAY = {
+  name = "say", snippet = "Say a text", guidelines = {}, description = "Answers its text.",
+  schema = { type = "object", properties = { text = { type = "string" }, wait = { type = "boolean" } } },
+  run = function(input: Tools.Object, context: Tools.Context): Tools.Result
+    if input["wait"] == true then
+      local stopped = context.stopped
+      while not (stopped ~= nil and stopped()) do
+        local deadline = context.deadline_ns
+        if deadline ~= nil and Clock.monotonic_ns() >= deadline then
+          return { text = "(no output)\n\nTimed out", is_error = true }
+        end
+        local _, _ = Clock.sleep(Clock.ms(10))
+      end
+      return { text = "Stopped", is_error = true }
+    end
+    local text = input["text"]
+    local said = if text is string then text else "" end
+    if #said <= SAID then return { text = said, is_error = false } end
+    return { text = said:sub(#said - SAID + 1), is_error = false, raw = said }
+  end,
+}
+
+--- A tool call `id` of [`agent_fixture.SAY`], answering `text`, or waiting first where `wait` is true.
+function agent_fixture.say_call(id: string, text: string, wait?: boolean): Json.Value
+  return { type = "tool_use", id = id, name = "say", input = { text = text, wait = wait == true } }
 end
 
 --- A session kept in a database of its own, sending `replies`.
@@ -238,7 +268,8 @@ function agent_fixture.kept(replies: {Json.Value}, messages?: {Json.Value}, mode
   local db = assert(Sessions.open(agent_fixture.scratch() .. "/sessions.db"))
   local a = agent_fixture.api(replies)
   local s = Agent.new({ model = model or "m", effort = "low", sign = agent_fixture.keyed("k"),
-    base_url = "https://api.test", system = "", cwd = "/", send = a.send, messages = messages, tools = Tools.all(),
+    base_url = "https://api.test", system = "", cwd = "/", send = a.send, messages = messages,
+    tools = { Tools.find(Tools.all(), "run")!, agent_fixture.SAY },
     db = db, id = assert(Sessions.start(db, "/", "m", 0)) })
   for _, m in ipairs(messages or {}) do assert(Sessions.add(db, assert(s.id), m, "m")) end
   return { session = s, api = a, db = db }

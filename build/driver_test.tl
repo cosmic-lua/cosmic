@@ -11,6 +11,7 @@ local Types = require("lang.types")
 local Programs = require("lang.check_programs")
 local TreeProgram = require("build.tree_program")
 local Scopes = require("lang.scopes")
+local StandardMeant = require("build.standard_meant")
 local Test = require("cosmic.test")
 local Truthy = require("lang.truthy")
 local support = require("build.test_support_fixture")
@@ -1005,6 +1006,52 @@ local function test_a_module_is_required_by_its_whole_name_and_a_bare_last_segme
   local whole = { "use.tl", "local m = require(\"b.m\")\nlocal n: integer = m.n\nreturn n\n" }
   local result = assert(build_of({ m, whole }):result("use", true))
   assert(#result.errors == 0, codes_of(result.errors))
+end
+
+--- Docs that hold [`cosmic.csv`] and the tools' own [`cosmic.store`], as a binary's would.
+local CSV_DOCS <const>: StandardMeant.Docs = {
+  index = { { module = "cosmic.csv", text = "CSV reading and writing.", closed = "" },
+    { module = "cosmic.store", text = "The tools' own store.", closed = "" } },
+  exact = function(_: string): {{string}} return {} end,
+  takes = function(_: string): {{string}} return {} end,
+}
+
+--- The fix of each `unknown_variable` that `text` (a file `use.tl`) is refused for, by its message, where the binary's docs
+--- are [`CSV_DOCS`].
+local function undeclared_fixes(text: string): {string: string}
+  local index = Driver.index({ { "use.tl", text } }, nothing)
+  local build = Driver.new({
+    globals = { Driver.declarations("std", "std.d.tl", Programs.library, {}) },
+    adjust = nil, external = { "cosmic.sys" }, types = true,
+    meant = StandardMeant.wrap(TreeProgram.meant(index, true), CSV_DOCS),
+  })
+  build:provide(Driver.files(index))
+  local result = assert(build:result("use", true))
+  local fixes: mut {string: string} = {}
+  for _, e in ipairs(result.errors) do
+    if e.code == "unknown_variable" then
+      fixes[e.msg] = e.fix
+    end
+  end
+  return fixes
+end
+
+local function test_a_name_not_declared_that_names_a_cosmic_module_is_told_the_require_to_write()
+  local fixes = undeclared_fixes("local a = Csv.parse(\"x\")\nlocal b = csv.parse(\"x\")\nlocal c = Nosuch.parse(\"x\")\n" ..
+      "local d = Store.open()\nCsv = 1\nreturn a + b + c + d\n")
+  local said = fixes["`Csv` is not declared"]
+  assert(said == "require its module above this use: `local Csv = require(\"cosmic.csv\")`", said)
+  -- A name in lower case is a variable more often, a name no module answers to and one of the tools' own module keep
+  -- the general fix, as does a name assigned with no declaration.
+  for _, name in ipairs({ "csv", "Nosuch", "Store" }) do
+    said = fixes["`" .. name .. "` is not declared"]
+    assert(said ~= nil and said:find("declare it with `local " .. name .. " = ...`", 1, true) == 1, name .. ": " .. tostring(said))
+  end
+  said = fixes["`Csv` is assigned but declared nowhere"]
+  assert(said ~= nil and said:find("declare it with `local Csv = ...`", 1, true) == 1, said)
+  -- Where a near name is declared, that one is what the fix names.
+  said = undeclared_fixes("local csv = 1\nlocal a = Csv.parse(\"x\")\nreturn csv + a\n")["`Csv` is not declared"]
+  assert(said ~= nil and said:find("if you meant `csv`", 1, true) == 1, said)
 end
 
 local function test_two_modules_ending_in_a_name_are_both_named_and_neither_is_chosen_by_order()

@@ -24,12 +24,12 @@
 --- `call_id`: `{"call_id":1,"reply":...}` or `{"call_id":1,"failed":"..."}`. A snippet sets no global, which the checker
 --- refuses; what it keeps for the next it keeps with [`Host.store`], or writes to a file. Its standard input is /dev/null.
 ---
---- Under a policy the worker is held as bash is, with these changes. Where it runs no commands
+--- Under a policy the worker is held as Host.bash's programs are, with these changes. Where it runs no commands
 --- ([`Worker.Options.commands`] false), on Linux no grant keeps `x`, and it has no fork promise, so no program runs; on
 --- macOS the grants keep `x` (Seatbelt's `x` maps libraries too). Beside that: it runs as this program, whose core its
 --- start runs with no grant of its file, and it is not given the nest promise, beside which this program cannot be
 --- started again, so Landlock holds its files too. Its environment is the policy's alone, so no key of the user's reaches it. With no
---- policy (`--sandbox off`) it has the agent's whole environment, the API key included, as bash does then.
+--- policy (`--sandbox off`) it has the agent's whole environment, the API key included, and so does what it runs.
 
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
@@ -68,8 +68,8 @@ local record Worker
     serve?: Worker.Serve
     --- Whether a snippet may run programs (Host.bash, cosmic.child): false holds the worker to no new process and
     --- no file run, by its policy, so that what it does is only what the agent serves it and its grants allow. That
-    --- holds on Linux under a policy: on macOS, or with no policy, a snippet may still run a program. Only the first
-    --- snippet's starts the worker; nil is true.
+    --- holds on Linux under a policy: on macOS, or with no policy, a snippet may still run a program. A run whose
+    --- commands differ from the running worker's starts a new one; nil is false.
     commands?: boolean
   end
 
@@ -139,7 +139,7 @@ end
 --- The worker of `set`, started under `opts` where none runs.
 local function started(set: Worker.Set, opts: Worker.Options): (Stream.Lines) | (nil, Failure)
   local lines = set.lines
-  local commands = opts.commands ~= false
+  local commands = opts.commands == true
   if lines ~= nil and set.held == opts.policy and set.held_commands == commands then
     return lines
   end
@@ -153,7 +153,7 @@ local function started(set: Worker.Set, opts: Worker.Options): (Stream.Lines) | 
     local merged, why = Sandbox.union(given)
     if merged == nil then return nil, Failure.new("worker: " .. why) end
     local promises: mut {Sandbox.Promise} = {}
-    local runs = opts.commands ~= false
+    local runs = commands
     for _, promise in ipairs(Sandbox.calls(merged)) do
       if promise ~= "nest" and (runs or promise ~= "fork") then
         promises[#promises + 1] = promise

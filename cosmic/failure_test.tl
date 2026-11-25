@@ -78,6 +78,12 @@ local function test_a_timeout_and_a_cancel_say_what_they_are()
   assert(tostring(Failure.cancelled("lookup")) == "lookup")
 end
 
+local function test_a_mismatch_says_what_it_is()
+  local wrong = Failure.mismatch("sha256 mismatch: want a, got b", "out.bin")
+  assert(wrong.kind == "mismatch" and wrong.errno == 0 and tostring(wrong) == "out.bin: sha256 mismatch: want a, got b",
+    tostring(wrong))
+end
+
 --- A caller's `match` over the kind covers every one, so a kind added
 --- later is a checker error at each place that must handle it.
 local function test_a_match_over_the_kind_is_exhaustive()
@@ -89,6 +95,7 @@ local function test_a_match_over_the_kind_is_exhaustive()
     | "system" then return false
     | "parse" then return false
     | "library" then return false
+    | "mismatch" then return false
     end
   end
   assert(retry(Failure.timeout()) and not retry(Failure.cancelled()))

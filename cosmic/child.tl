@@ -74,7 +74,6 @@
 --- memory, up to `capture_limit` unread bytes of each, after which the
 --- child is left to wait until the caller reads. Nothing streamed is
 --- dropped, and nothing is kept for the Result.
-local Env = require("cosmic.env")
 local Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
@@ -2790,9 +2789,7 @@ end
 local function reached_by(merged: Rules.Policy, base: string, file: boolean,
                           user: MappedUser): {integer: boolean}?, string
   if merged.tmp == true and not file then
-    local given = Env.read("TMPDIR")
-    local tmpdir = "/tmp"
-    if given ~= nil and #given > 0 then tmpdir = given end
+    local tmpdir = Fs.temp_dir()
     local real, _ = sys.realpath(tmpdir)
     local above = if real ~= nil then unsearchable_above(real .. "/.", user) else "" end
     if above ~= "" then

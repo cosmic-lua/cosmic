@@ -290,16 +290,25 @@ end
 --- decode only the parts wanted: here each row of a long array.
 function Example.reader()
   local r = Json.reader(Stream.from_string('{"rows": [{"id": 1}, {"id": 2}], "total": 2}'))
-  local first = assert(r:next())
-  assert(first.kind == "object")
-  local key = assert(r:next())
+  -- The next token; false at the end, nil and a Failure when the text is no JSON.
+  local function token(): Json.Token
+    local t, why = r:next()
+    if t == nil then error(tostring(why)) end
+    if t == false then error("the text ended early") end
+    return t
+  end
+  assert(token().kind == "object")
+  local key = token()
   assert(key.kind == "key" and key.value == "rows")
-  assert(assert(r:next()).kind == "array")
+  assert(token().kind == "array")
   local ids: mut {integer} = {}
   local ROW <const> = Shape.map(Shape.any)
-  while r:peek() == "object" do
+  while true do
+    local kind, trouble = r:peek()
+    if kind == nil then error(tostring(trouble)) end
+    if kind ~= "object" then break end
     local value, err = r:value()
-    assert(err == "", err)
+    if value == nil then error(tostring(err)) end
     local row, why = Shape.into(value, ROW)
     assert(row ~= nil, why)
     local id = row["id"]
