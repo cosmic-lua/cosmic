@@ -219,6 +219,9 @@ local function open_text(path: string): Archive.Reader?, string
     return refuse(path .. ": not a recognized archive format")
   end
   local raw, otrouble = Stream.open(path)
+  -- TODO: return a Failure from Archive.open and Archive.create, so the
+  -- kind, errno and path of Stream's Failure reach the caller; this
+  -- module's functions return words, as here.
   if raw == nil then return nil, tostring(otrouble) end
   return open_tar(kind, raw, path)
 end
