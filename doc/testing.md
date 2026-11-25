@@ -659,7 +659,10 @@ passes having checked nothing.
 - A `pcall` or a coroutine around it must raise what it caught again.
 - A test with more to check first defers the call to its end.
 - It is called from a test, not as the module loads.
-- A skip is counted apart (`N skipped`) and listed with its reason.
+- A skip is counted apart (`N skipped`) and listed with its reason:
+  `test: SKIP  <module> <test>: <reason>`. The skips of one module
+  that gave one reason are one line, `test: SKIP  <module>: N tests,
+  <reason>`.
   No verdict is kept, so the test runs again every run.
 - A skip waiting on what the policy path cannot give yet (a Unix
   socket by path, a mode with a setuid bit) carries a `TODO:` beside
