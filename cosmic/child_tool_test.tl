@@ -24,8 +24,7 @@ local this_program = require("build.this_program")
 --- sandboxed in a root of its own.
 Test.policy{
   profiles = { "cosmic", "proc" },
-  grants = { { path = "o/bin", letters = "rx" } },
-  promises = { "nest" },
+  grants = { { path = "o/bin", letters = "rx" }, { calls = "nest" } },
 }
 
 local function path_exists(path: string): boolean

@@ -18,7 +18,7 @@ local ChildPolicy = require("build.child_policy_fixture")
 --- own paths, whose profile one test reads; and `nests`, since a start of
 --- these policies is a root of its own where it gets as far as a child, which
 --- a worker held by a Landlock ruleset cannot make.
-Test.policy{ env = { "TMPDIR" }, promises = { "nest" }, profiles = { "system" } }
+Test.policy{ env = { "TMPDIR" }, grants = { { calls = "nest" } }, profiles = { "system" } }
 
 --- Ends the test where this host holds a child by Seatbelt, which refuses
 --- what it cannot hold in words of its own, in cosmic/child_seatbelt_test.tl:
@@ -162,7 +162,7 @@ local function test_a_policy_with_connect_may_not_name_a_proxy_variable(tmp: str
   for _, name in ipairs({ "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY",
       "all_proxy", "NO_PROXY", "no_proxy", "NODE_USE_ENV_PROXY" }) do
     for _, how in ipairs({ "set_env", "env" }) do
-      local base: Sandbox.Policy = { grants = itself(probe), connect = { "example.com:443" } }
+      local base: Sandbox.Policy = { grants = itself(probe, { { connect = "example.com:443" } }) }
       local policy = if how == "env" then { ...base, env = { name } } else
         { ...base, set_env = { [name] = "http://elsewhere:1" } } end
       local why = refused({ probe, "print hi" }, policy)
@@ -194,7 +194,7 @@ end
 local function test_a_program_without_the_relays_module_cannot_start_a_policy_with_connect(tmp: string)
   skip_where_seatbelt_holds("the relay's program")
   local probe = stand_in_of(tmp)
-  local why = refused({ probe, "print hi" }, { grants = itself(probe), connect = { "example.com:443" } })
+  local why = refused({ probe, "print hi" }, { grants = itself(probe, { { connect = "example.com:443" } }) })
   assert(why:find("^child: start: sandbox: relay: this program does not carry cosmic.internal.relay_main"), why)
   assert(why:find("needs a program that has it", 1, true), why)
   assert(#sandbox_directories() == 0, "a start that failed left a directory behind")

@@ -69,10 +69,10 @@ local function test_refuses_what_the_relay_cannot_use()
 end
 
 local function test_policy_refuses_at_the_connect_pointer()
-  local ok, why = Sandbox.check({ connect = { "example.com:443", "*.example.com:443" } })
+  local ok, why = Sandbox.check({ grants = { { connect = "example.com:443" }, { connect = "*.example.com:443" } } })
   assert(not ok)
-  assert(why:find("$.connect[1]", 1, true), why)
-  ok, why = Sandbox.check({ connect = { "example.com:443", "Example.COM.:*", "[::1]:80", "*:*" } })
+  assert(why:find("$.grants[1].connect", 1, true), why)
+  ok, why = Sandbox.check({ grants = { { connect = "example.com:443" }, { connect = "Example.COM.:*" }, { connect = "[::1]:80" }, { connect = "*:*" } } })
   assert(ok, why)
 end
 

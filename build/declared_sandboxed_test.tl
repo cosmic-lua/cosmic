@@ -13,8 +13,7 @@ local Test = require("cosmic.test")
 --- `nests`, which lets it start a sandboxed run.
 Test.policy{
   profiles = { "cosmic" },
-  grants = { { path = "o/bin", letters = "rx" } },
-  promises = { "nest" },
+  grants = { { path = "o/bin", letters = "rx" }, { calls = "nest" } },
   requires = { "nest" },
 }
 

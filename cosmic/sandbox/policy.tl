@@ -66,9 +66,21 @@ local record rules
     calls: rules.Promise
   end
 
-  --- One thing a program may do: reach a path (`{ path = "data", letters = "r" }`, [`rules.Path`]) or make system
-  --- calls beyond its basics (`{ calls = "fork" }`, [`rules.Calls`]). Each is told by the field it alone has.
-  type Grant = Path | Calls
+  --- A host a program may reach through the sandbox's relay, as a [`rules.Grant`]: `{ connect = "github.com:443" }`.
+  record Connect
+    --- The target, "host:port", where the host or the port is "*" for any. A host is a DNS name, an IPv4 address or
+    --- an IPv6 address in brackets, and a name is read lower-case without a final dot; a pattern, an underscore and
+    --- anything else the relay's readers refuse is refused here too ([`cosmic.relay.grant`]). A target may name nodes
+    --- of the machine's tailnet instead: `tag:db:5432` grants every address of each peer tagged `tag:db`, and
+    --- `user:will@example.com:*` of each untagged peer that user owns, as tailscaled lists them when the sandbox
+    --- starts ([`cosmic.sandbox.tailnet`]).
+    connect: string
+  end
+
+  --- One thing a program may do: reach a path (`{ path = "data", letters = "r" }`, [`rules.Path`]), make system
+  --- calls beyond its basics (`{ calls = "fork" }`, [`rules.Calls`]), or reach a host (`{ connect = "github.com:443" }`,
+  --- [`rules.Connect`]). Each is told by the field it alone has.
+  type Grant = Path | Calls | Connect
 
   --- Resource limits on every process the program starts. Nil is the
   --- start's default: 1024 open files, no core dump, and under `isolate`
@@ -94,22 +106,13 @@ local record rules
   record Policy
     --- Named policies to join in, by [`Sandbox.union`]: "system", "programs", "proc".
     profiles?: {string}
-    --- What the program may do: the paths it reaches, and the system calls it may make beyond its basics.
+    --- What the program may do: the paths it reaches, the system calls it may make beyond its basics, and the hosts it
+    --- reaches.
     grants?: {Grant}
     --- How far it is isolated from the host. With "file", a writable grant on a tree that user does not own (`/etc`
     --- as `rwc`, say) is mounted so that it is the tree's owner there: it
     --- writes the owner's files, root's included, through that mount.
     isolate?: {Isolate}
-    --- The hosts it may reach, "host:port", where the host or the port is
-    --- "*" for any. A host is a DNS name, an IPv4 address or an IPv6 address
-    --- in brackets, and a name is read lower-case without a final dot; a
-    --- pattern, an underscore and anything else the relay's readers refuse
-    --- is refused here too ([`cosmic.relay.grant`]). A target may name
-    --- nodes of the machine's tailnet instead: `tag:db:5432` grants every
-    --- address of each peer tagged `tag:db`, and `user:will@example.com:*`
-    --- of each untagged peer that user owns, as tailscaled lists them when
-    --- the sandbox starts ([`cosmic.sandbox.tailnet`]).
-    connect?: {string}
     --- The addresses of 127/8 it uses inside its own network.
     loopback?: {string}
     --- The variables passed through from the caller's environment.
@@ -292,7 +295,28 @@ local function invalid(p: rules.Policy, exact: boolean): string
           table.concat(PROFILES, ", ") .. ")")
     end
   end
+  local connects: mut {string} = {}
   for i, grant in ipairs(p.grants or {}) do
+    if grant is rules.Connect then
+      local target = grant.connect
+      local tailnet, wrong = Grant.tailnet(target)
+      if tailnet == nil and wrong ~= "" then
+        return at({ "grants", i, "connect" }, "\"" .. target .. "\" is not a tailnet target: " .. wrong ..
+            " (tag:<tag>:<port> or user:<login>:<port>, the port from 1 to 65535 or \"*\" for any)")
+      end
+      local why = ""
+      if tailnet == nil then
+        local _, wrong_target = Grant.parse(target)
+        why = wrong_target
+      end
+      if why ~= "" then
+        return at({ "grants", i, "connect" }, "\"" .. target .. "\" is not a target the relay can use: " ..
+            why .. " (host:port, the host a name, an IPv4 address, an IPv6 address in " ..
+            "brackets or \"*\" for any name, the port from 1 to 65535 or \"*\" for any)")
+      end
+      connects[#connects + 1] = target
+      continue
+    end
     if grant is rules.Calls then
       if not listed(grant.calls, PROMISES) then
         return at({ "grants", i, "calls" }, "unknown calls \"" .. tostring(grant.calls) .. "\" (known: " ..
@@ -321,29 +345,12 @@ local function invalid(p: rules.Policy, exact: boolean): string
       return at({ "grants", i, "from" }, "a host path is not empty and holds no NUL")
     end
   end
-  for i, target in ipairs(p.connect or {}) do
-    local tailnet, wrong = Grant.tailnet(target)
-    if tailnet == nil and wrong ~= "" then
-      return at({ "connect", i }, "\"" .. target .. "\" is not a tailnet target: " .. wrong ..
-          " (tag:<tag>:<port> or user:<login>:<port>, the port from 1 to 65535 or \"*\" for any)")
-    end
-    local why = ""
-    if tailnet == nil then
-      local _, wrong_target = Grant.parse(target)
-      why = wrong_target
-    end
-    if why ~= "" then
-      return at({ "connect", i }, "\"" .. target .. "\" is not a target the relay can use: " ..
-          why .. " (host:port, the host a name, an IPv4 address, an IPv6 address in " ..
-          "brackets or \"*\" for any name, the port from 1 to 65535 or \"*\" for any)")
-    end
-  end
   for i, address in ipairs(p.loopback or {}) do
     if not Loopback.ipv4(address) then
       return at({ "loopback", i }, "\"" .. address .. "\" is not an address of 127/8")
     end
   end
-  local conflict = loopback_conflict(p.loopback or {}, p.connect or {}, false)
+  local conflict = loopback_conflict(p.loopback or {}, connects, false)
   if conflict ~= "" then return conflict end
   for i, name in ipairs(p.env or {}) do
     if not env_name_ok(name) then
@@ -616,6 +623,15 @@ function rules.paths(p: rules.Policy): {rules.Path}
   return out
 end
 
+--- The hosts the grants of `p` reach, "host:port", in its order.
+function rules.connects(p: rules.Policy): {string}
+  local out: mut {string} = {}
+  for _, grant in ipairs(p.grants or {}) do
+    if grant is rules.Connect then out[#out + 1] = grant.connect end
+  end
+  return out
+end
+
 --- The system calls the grants of `p` give beyond a program's basics, in its order.
 function rules.calls(p: rules.Policy): {rules.Promise}
   local out: mut {rules.Promise} = {}
@@ -669,6 +685,10 @@ function rules.merge(...: rules.Policy): rules.Policy?, string
       database = { path = at, sha256 = digest or (database and database.sha256) }
     end
     for _, grant in ipairs(p.grants or {}) do
+      if grant is rules.Connect then
+        connect = sorted_set(connect, { grant.connect })
+        continue
+      end
       if grant is rules.Calls then
         promises = sorted_set(promises, { grant.calls })
         continue
@@ -684,7 +704,6 @@ function rules.merge(...: rules.Policy): rules.Policy?, string
       for i = 1, #grant.letters do held.letters[grant.letters:sub(i, i)] = true end
     end
     isolate = sorted_set(isolate, p.isolate or {})
-    connect = sorted_set(connect, p.connect or {})
     loopback = sorted_set(loopback, p.loopback or {})
     env = sorted_set(env, p.env or {})
     for name, value in pairs(p.set_env or {}) do
@@ -739,6 +758,7 @@ function rules.merge(...: rules.Policy): rules.Policy?, string
   local grants: mut {rules.Grant} = {}
   for _, grant in ipairs(paths) do grants[#grants + 1] = grant end
   for _, promise in ipairs(promises) do grants[#grants + 1] = { calls = promise } end
+  for _, target in ipairs(connect) do grants[#grants + 1] = { connect = target } end
   -- `file` implies `proc`: written out, so the two spellings are one policy.
   local implied: rules.Isolate = "proc"
   local has_file, has_proc = false, false
@@ -757,7 +777,7 @@ function rules.merge(...: rules.Policy): rules.Policy?, string
   if conflict ~= "" then return refuse(conflict) end
   local result: rules.Policy = {
     grants = grants, isolate = isolate,
-    connect = connect, loopback = loopback, env = env, set_env = set_env,
+    loopback = loopback, env = env, set_env = set_env,
     set_env_digests = digests, tmp = tmp, limits = limits,
     user = user, group = group, database = database,
   }
@@ -895,11 +915,10 @@ local function intersect_two(a: rules.Policy, b: rules.Policy): rules.Policy?, s
   for _, promise in ipairs(common(rules.calls(a), rules.calls(b))) do
     grants[#grants + 1] = { calls = promise }
   end
-  local connect: mut {string} = {}
-  for _, ta in ipairs(a.connect or {}) do
-    for _, tb in ipairs(b.connect or {}) do
+  for _, ta in ipairs(rules.connects(a)) do
+    for _, tb in ipairs(rules.connects(b)) do
       local met = meet_targets(ta, tb)
-      if met ~= nil then connect[#connect + 1] = met end
+      if met ~= nil then grants[#grants + 1] = { connect = met } end
     end
   end
   local function shown(value: integer?): string?
@@ -928,7 +947,6 @@ local function intersect_two(a: rules.Policy, b: rules.Policy): rules.Policy?, s
   -- one user, group and database, refused where the two disagree.
   local result: rules.Policy = {
     grants = grants, isolate = sorted_set(a.isolate or {}, b.isolate or {}),
-    connect = connect,
     loopback = common(a.loopback or {}, b.loopback or {}), env = common(a.env or {}, b.env or {}),
     set_env = a.set_env, set_env_digests = a.set_env_digests, limits = limits,
     tmp = a.tmp == true and b.tmp == true, user = a.user or b.user, group = a.group or b.group,
@@ -977,9 +995,14 @@ end
 --- merged policy as once its tailnet targets are resolved
 --- ([`cosmic.sandbox.tailnet`]).
 function rules.with_connect(p: rules.Policy, connect: {string}): rules.Policy
+  local grants: mut {rules.Grant} = {}
+  for _, grant in ipairs(p.grants or {}) do
+    if not grant is rules.Connect then grants[#grants + 1] = grant end
+  end
+  for _, target in ipairs(connect) do grants[#grants + 1] = { connect = target } end
   local result: rules.Policy = {
-    grants = p.grants, isolate = p.isolate,
-    connect = connect, loopback = p.loopback, env = p.env, set_env = p.set_env,
+    grants = grants, isolate = p.isolate,
+    loopback = p.loopback, env = p.env, set_env = p.set_env,
     set_env_digests = p.set_env_digests, tmp = p.tmp, limits = p.limits,
     user = p.user, group = p.group, database = p.database, profiles = p.profiles,
   }

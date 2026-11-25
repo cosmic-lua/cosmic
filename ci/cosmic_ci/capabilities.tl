@@ -5,10 +5,10 @@
 --- as COSMIC_TEST_LEG (cosmic_ci.orchestration's `promise`), and a held
 --- run fails a module whose promised requirement is absent. A name no leg
 --- promises, `program:make` as much as `nest`, may not be required
---- (build/tree_checks.tl's `promises`): that module would run nowhere. Add
+--- (build/tree_checks/build.tl's `promises`): that module would run nowhere. Add
 --- it to a leg whose image has it in the change that first requires it.
 ---
---- Data alone, in a file of its own: the tree's build/tree_checks.tl,
+--- Data alone, in a file of its own: the tree's build/tree_checks/build.tl,
 --- which cannot require a module of ci/, reads capabilities.json too.
 ---
 --- - Every leg's image or runner has the shell at /bin/sh. The Linux

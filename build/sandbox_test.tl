@@ -33,6 +33,8 @@ end
 local record Answer
   result?: Child.Result
   why?: string
+  --- What standard input holds, for `--database -`; a read that fails when nil.
+  stdin?: string
 end
 
 local function finished(code: integer?, signal?: integer, timed_out?: boolean): Child.Result
@@ -56,6 +58,10 @@ local function run(words: {string}, answer?: Answer): Ran
         return nil, (assert(given.why, "a run that gives no result says why"))
       end
       return result, ""
+    end,
+    stdin = function(): string?, string
+      if given.stdin == nil then return nil, "no standard input given" end
+      return given.stdin, ""
     end,
   })
   return ran
@@ -97,7 +103,7 @@ local function test_each_option_sets_its_field()
   same(policy.profiles, { "system", "programs" })
   same(policy.isolate, { "file", "proc" })
   same(Sandbox.calls(policy), { "fork", "nest" })
-  same(policy.connect, { "github.com:443" })
+  same(Sandbox.connects(policy), { "github.com:443" })
   same(policy.loopback, { "127.0.0.2" })
   same(policy.env, { "HOME", "TERM" })
   assert(assert(policy.set_env)["LANG"] == "C" and assert(policy.set_env)["EMPTY"] == "" and policy.tmp == true)
@@ -221,7 +227,7 @@ end
 local function test_the_other_values_are_the_decoders_too()
   assert(refused({ "--isolate", "net", "prog" }).err:find("$.isolate[0]", 1, true))
   assert(refused({ "--promise", "all", "prog" }).err:find("$.grants[0].calls", 1, true))
-  assert(refused({ "--connect", "nohost", "prog" }).err:find("$.connect[0]", 1, true))
+  assert(refused({ "--connect", "nohost", "prog" }).err:find("$.grants[0].connect", 1, true))
   assert(refused({ "--loopback", "10.0.0.1", "prog" }).err:find("$.loopback[0]", 1, true))
   assert(refused({ "--set-env", "NOVALUE", "prog" }).err:find("NAME=VALUE", 1, true))
   assert(refused({ "--set-env", "A=1", "--set-env", "A=2", "prog" }).err:find("two values", 1, true))
@@ -235,7 +241,7 @@ local function test_a_connect_is_the_starts_to_serve_and_its_failure_is_the_star
     { why = "child: start: sandbox: relay: the relay ended (status 1) before it served" })
   assert(ran.code == 125, tostring(ran.code) .. ran.err)
   assert(ran.err:find("relay: the relay ended", 1, true), ran.err)
-  same(assert(ran.opts.policy).connect, { "github.com:443" })
+  same(Sandbox.connects(assert(ran.opts.policy)), { "github.com:443" })
 end
 
 --- Runs the verb on `words` with the relay's client stood in for: the words
@@ -363,6 +369,21 @@ local function test_database_sets_the_policys_database(tmp: string)
   assert(missing.err:find("absent.db", 1, true), missing.err)
 end
 
+--- `--database -` keeps standard input in a file of the run's own, which the policy names and the run's
+--- end removes; a read that fails is refused.
+local function test_database_dash_reads_standard_input()
+  local ran = run({ "--database", "-", "--", "prog", "a" }, { result = finished(0), stdin = "sealed\n" })
+  assert(ran.code == 0 and ran.err == "", ran.err)
+  local path = assert(assert(assert(ran.opts.policy).database).path)
+  assert(path:find("/program.db$") ~= nil, path)
+  assert(not assert(Fs.status(path)).exists, path .. " is left after the run")
+  same(ran.argv, { "prog", "a" })
+  local failed = run({ "--database", "-", "--", "prog" })
+  assert(failed.code == 2 and failed.err:find("--database -: no standard input given", 1, true) ~= nil,
+    tostring(failed.code) .. failed.err)
+  assert(failed.argv == nil, "nothing starts")
+end
+
 --- Each of the three options names the database the program runs on, so
 --- no two go together, and `--closure` takes this program and a script.
 local function test_the_database_options_are_refused_where_they_conflict()
@@ -393,7 +414,6 @@ local POLICY <const> = Shape.record_of("cosmic.sandbox.Policy")
 --- until it has a flag and a line here.
 local samples <const>: {string:{string}} = {
   profiles = { "--system" }, grants = { "--read", "x" }, isolate = { "--isolate", "proc" },
-  connect = { "--connect", "h:1" },
   loopback = { "--loopback", "127.0.0.2" }, env = { "--env", "X" },
   set_env = { "--set-env", "X=1" }, tmp = { "--tmp" },
   open_files = { "--open-files", "5" }, file_bytes = { "--file-bytes", "5" },
@@ -415,7 +435,7 @@ local exempt <const>: {string:string} = {
 local others <const>: {string:boolean} = {
   ["--fd"] = true, ["--timeout"] = true, ["--cwd"] = true,
   ["--run"] = true, ["--write"] = true, ["--path"] = true,
-  ["--programs"] = true, ["--promise"] = true,
+  ["--programs"] = true, ["--promise"] = true, ["--connect"] = true,
   ["--database"] = true, ["--modules"] = true, ["--closure"] = true,
 }
 
@@ -462,12 +482,14 @@ local function test_every_policy_field_has_a_flag()
     local set = (policy_after(words)["limits"] as {string:any}) -- checked: cast_refused
     assert(set ~= nil and set[name] == 5, support.nth(words, 1) .. " does not set Policy.limits." .. name)
   end
-  -- A grant's path and letters are one option's, and its calls `--promise`'s. `from` has none: it needs
+  -- A grant's path and letters are one option's, its calls `--promise`'s and its connect
+  -- `--connect`'s. `from` has none: it needs
   -- isolate file and names a host path; it waits on policy files (the
   -- design's Roadmap).
   for _, arm in ipairs(assert(assert(assert(fields["grants"]).of).arms)) do
     for name in pairs(assert(arm.fields)) do
-      assert(name == "path" or name == "letters" or name == "from" or name == "calls", "Policy.grants[]." .. name ..
+      assert(name == "path" or name == "letters" or name == "from" or name == "calls" or name == "connect",
+        "Policy.grants[]." .. name ..
           " has no flag: add one, and say so here")
     end
   end

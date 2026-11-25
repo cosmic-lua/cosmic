@@ -1413,7 +1413,7 @@ function worker.invocation(given: worker.Invocation): worker.Command
     -- made whole, goes in the policy's `set_env`.
     local held = given_policy2
     local policy: Sandbox.Policy = { profiles = held.profiles, grants = held.grants,
-      isolate = held.isolate, connect = held.connect,
+      isolate = held.isolate,
       loopback = held.loopback, env = held.env, tmp = held.tmp, limits = held.limits,
       database = held.database }
     policy.set_env = env -- checked: field_fixed

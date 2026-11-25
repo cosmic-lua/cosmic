@@ -122,7 +122,7 @@ end
 --- (a typo, or a tag no node carries yet, which would start the program
 --- with less than it was meant to reach).
 function tailnet.policy(merged: rules.Policy, daemon?: Tailscale.Daemon): rules.Policy?, string
-  local connect = merged.connect or {}
+  local connect = rules.connects(merged)
   if not tailnet.named(connect) then return merged, "" end
   local status, why = status_of(daemon)
   for _, target in ipairs(connect) do
@@ -143,8 +143,9 @@ end
 --- `policy` with the `connect` of `merged`, the policy [`tailnet.policy`]
 --- returned: what macOS's start compiles its profile from.
 function tailnet.applied(policy: rules.Policy, merged: rules.Policy): rules.Policy
-  if policy.connect == merged.connect then return policy end
-  return rules.with_connect(policy, merged.connect or {})
+  local given, held = rules.connects(policy), rules.connects(merged)
+  if table.concat(given, "\0") == table.concat(held, "\0") then return policy end
+  return rules.with_connect(policy, held)
 end
 
 return tailnet

@@ -8,7 +8,7 @@ local Test = require("cosmic.test")
 local type raw_process = require("cosmic.internal.process")
 local type _ = require("cosmic.child")
 
-Test.policy{ promises = { "nest" } }
+Test.policy{ grants = { { calls = "nest" } } }
 
 --- A missing executable proves that namespace preparation finished. A
 --- known kernel refusal is explicit and earns no passing verdict.

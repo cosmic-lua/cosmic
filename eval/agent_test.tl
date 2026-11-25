@@ -1,6 +1,7 @@
 --- [`eval/agent.tl`] with a fake System: the command line, the runs it makes, how each is graded, what a session
 --- spent, and the report. No agent is started.
 local Agent = require("eval.agent")
+local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 
@@ -149,14 +150,16 @@ end
 local function test_a_task_of_a_server_gives_each_run_the_server()
   local o = options({ "--tool", "t=/c", "--fixture", "/f", "--out", "/o", "--tasks", "mcp-low", "--reps", "2" })
   local task = assert(o.tasks[1])
-  local server = assert(task.server)
+  local servers = assert(task.servers)
+  local server = assert(servers[1])
+  assert(#servers == 1)
   assert(server.name == "inventory" and server.source:find("serve_stdio", 1, true) ~= nil)
   local _, items = server.data:gsub("\n", "")
   local listed: Agent.Task? = nil
   for _, t in ipairs(Agent.tasks) do
     if t.name == "mcp-low" then listed = t end
   end
-  assert(items == 240 and server.data == assert(assert(listed).server).data)
+  assert(items == 240 and server.data == assert(assert(assert(listed).servers)[1]).data)
   local made = 0
   local put: mut {string: string} = {}
   local truths, configs, opened = 0, 0, 0
@@ -178,9 +181,8 @@ local function test_a_task_of_a_server_gives_each_run_the_server()
         assert(argv[6] == "--mcp" and argv[8] == task.prompt, table.concat(argv, " "))
         local path = assert(argv[7])
         local config = assert(put[path], path)
-        local program = path:gsub("mcp%.json$", "server.tl")
-        assert(config:find('"command":["/c","--standalone","' .. program, 1, true) ~= nil, config)
-        local dir = path:gsub("/mcp%.json$", "")
+        local dir = path:gsub("/mcp%.json$", "") .. "/inventory"
+        assert(config:find('"command":["/c","--standalone","' .. dir .. "/server.tl", 1, true) ~= nil, config)
         assert(config:find('"grants":[{"letters":"r","path":"' .. dir .. '"}]', 1, true) ~= nil, config)
         assert(put[dir .. "/data.tsv"] == server.data)
         configs = configs + 1
@@ -203,6 +205,66 @@ local function test_a_task_of_a_server_gives_each_run_the_server()
     end
   end
   assert(laid == 2)
+end
+
+--- A task of many servers gives each run one config of them all, each in a directory of its own and said what it
+--- is for, and its truth reads the first one's data.
+local function test_a_task_of_many_servers_gives_each_run_them_all()
+  local o = options({ "--tool", "t=/c", "--fixture", "/f", "--out", "/o", "--tasks", "mcp-many-low" })
+  local task = assert(o.tasks[1])
+  local servers = assert(task.servers)
+  assert(#servers == 8 and assert(servers[1]).name == "warehouse" and task.prompt:find("warehouse", 1, true) ~= nil)
+  local put: mut {string: string} = {}
+  local truth_data: string? = nil
+  local config: string? = nil
+  local made = 0
+  local system: Agent.System = {
+    fresh = function(prefix: string): string
+      made = made + 1
+      return "/tmp/" .. prefix .. tostring(made)
+    end,
+    run = function(argv: {string}, _: string, _: {string: string}?, _: integer): Agent.Output
+      if argv[1] == "bash" and truth_data == nil then
+        local path = assert((argv[3] or ""):match("^data='([^']+)'"))
+        truth_data = put[path]
+      end
+      if argv[1] == "/c" then config = put[assert(argv[7])] end
+      return { code = 0, stdout = "x\n", stderr = "" }
+    end,
+    spent = function(_: string, _: string): Agent.Spent? return nil end,
+    put = function(path: string, text: string) put[path] = text end,
+    serve = function(_: {string}, _: string, _: string, _: integer): (string, function()) | (nil, string)
+      error("no task here has a site")
+    end,
+  }
+  local _ = Agent.execute(o, system, "k", {}, function(_: string, _: string) end)
+  assert(truth_data == assert(servers[1]).data)
+  local decoded = assert(Json.decode_object(assert(config)))
+  local listed = assert(Json.object_of(decoded["servers"]))
+  local names: mut {string} = {}
+  for name in pairs(listed) do names[#names + 1] = name end
+  table.sort(names)
+  assert(table.concat(names, ",") == "billing,calendar,catalog,crm,docs,metrics,tickets,warehouse",
+    table.concat(names, ","))
+  for _, server in ipairs(servers) do
+    local entry = assert(Json.object_of(listed[server.name]))
+    assert(entry["description"] == server.about and server.about ~= nil, server.name)
+    local found = 0
+    for path, text in pairs(put) do
+      if path:find("/" .. server.name .. "/data%.tsv$") ~= nil and text == server.data then
+        found = found + 1
+      end
+    end
+    assert(found == o.reps, server.name .. ": laid out " .. tostring(found) .. " times")
+  end
+end
+
+--- web-csv's sales hold customers whose names a split on commas would cut, and its site quotes them.
+local function test_web_csvs_sales_need_a_csv_reader()
+  local o = options({ "--tool", "t=/c", "--fixture", "/f", "--out", "/o", "--tasks", "web-csv" })
+  local site = assert(assert(o.tasks[1]).site)
+  assert(site.data:find("Acme, Inc.", 1, true) ~= nil and site.source:find("sales.csv", 1, true) ~= nil)
+  assert(site.source:find("gsub('\"', '\"\"')", 1, true) ~= nil)
 end
 
 --- A task of a web API starts its program for each run, gives the run --connect to the port it said, puts its URL

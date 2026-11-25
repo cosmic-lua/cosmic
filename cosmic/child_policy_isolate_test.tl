@@ -27,7 +27,7 @@ local ChildPolicy = require("build.child_policy_fixture")
 --- listener the child must not reach. `nests`: a policy's isolation makes
 --- a root of its own, which a worker held by a Landlock ruleset cannot.
 Test.policy{
-  promises = { "nest" },
+  grants = { { calls = "nest" } },
   loopback = { "127.0.0.1" },
   env = { "TMPDIR" },
   requires = { "nest" },
