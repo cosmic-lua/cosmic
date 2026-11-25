@@ -26,7 +26,7 @@ local process = require("cosmic.internal.process")
 
 --- A fake program built under `tmp` ([`cosmic.fake`]).
 local function probe_in(tmp: string): string
-  return (assert(Fake.build(tmp .. "/fake")))
+  return (assert(Fake.build(tmp .. "/fake", Fake.REPLY)))
 end
 
 --- Whether `sandbox` is refused as an argument, which raises before any

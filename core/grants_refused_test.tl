@@ -29,7 +29,7 @@ local function raised(probe: string, name: string, value: any): boolean, string
 end
 
 local function test_a_degenerate_grant_raises(tmp: string)
-  local probe = assert(Fake.build(tmp .. "/fake"))
+  local probe = assert(Fake.build(tmp .. "/fake", Fake.REPLY))
   local function raises(grants: any): boolean
     return (raised(probe, "grants", grants))
   end
@@ -48,7 +48,7 @@ end
 --- A sandbox naming an option spawn no longer has is refused, so a
 --- caller that asked for that hold never gets an unconfined child.
 local function test_a_sandbox_naming_a_gone_option_raises(tmp: string)
-  local probe = assert(Fake.build(tmp .. "/fake"))
+  local probe = assert(Fake.build(tmp .. "/fake", Fake.REPLY))
   local none: {string} = {}
   local ruleset_raised, ruleset_why = raised(probe, "ruleset", 0)
   local pledge_raised, pledge_why = raised(probe, "pledge", none)

@@ -3,10 +3,12 @@
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local Fake = require("cosmic.fake")
+-- Required, so the fake's main is of this test's closure.
+local _fake = require("build.syscalls_sigpipe_proc_fake")
 local process = require("cosmic.internal.process")
 
 local function probe_in(tmp: string): string
-  return (assert(Fake.build(tmp .. "/probe")))
+  return (assert(Fake.build(tmp .. "/probe", "build.syscalls_sigpipe_proc_fake")))
 end
 
 Test.policy{ profiles = { "proc" }, requires = { "proc" } }
@@ -29,7 +31,7 @@ local function test_a_child_keeps_the_inherited_sigpipe_mask(tmp: string)
   assert(ignored((assert(sys.read(current, 65536)))) & bit ~= 0)
   assert(sys.close(current))
   local output = assert(sys.open(tmp .. "/status", sys.O_RDWR | sys.O_CREAT | sys.O_TRUNC, 384))
-  local pid = assert(process.spawn(probe, { probe, "cat /proc/self/status" },
+  local pid = assert(process.spawn(probe, { probe, "cat", "/proc/self/status" },
     nil, nil, nil, output, nil, false))
   assert(assert(process.waitpid(pid, false)).code == 0)
   local child = assert(sys.pread(output, 65536, 0))

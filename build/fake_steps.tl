@@ -20,10 +20,26 @@ local sys = require("cosmic.sys")
 local record Steps
 end
 
---- Says `fake: <what>: <why>` on stderr; returns 1.
+--- How many [`Steps.attempt`]s are running, in which a failure is not said.
+local quiet = 0
+
+--- Says `fake: <what>: <why>` on stderr, unless in [`Steps.attempt`];
+--- returns 1.
 function Steps.fail(what: string, why: string): integer
-  local _, _ = Fs.put(2, "fake: " .. what .. ": " .. why .. "\n")
+  if quiet == 0 then
+    local _, _ = Fs.put(2, "fake: " .. what .. ": " .. why .. "\n")
+  end
   return 1
+end
+
+--- Whether `step` went on (returned nil), saying nothing of its failure:
+--- the `a || b` of a case, where `b` takes the failure up.
+function Steps.attempt(step: function(): integer?): boolean
+  quiet = quiet + 1
+  local ok, stopped = pcall(step)
+  quiet = quiet - 1
+  if not ok then error(stopped, 0) end
+  return stopped == nil
 end
 
 --- Writes `data` to descriptor `fd`, as it is.
@@ -517,6 +533,12 @@ function Steps.start_isolated(program: string): integer?
   if handle == nil then return Steps.print(tostring(trouble)) end
   local _, _ = handle:close()
   return Steps.print("started")
+end
+
+--- `text` and a newline, to descriptor `fd`.
+function Steps.write_fd(fd: integer, text: string): integer?
+  if fd < 0 then return Steps.fail("write-fd", "no descriptor " .. tostring(fd)) end
+  return Steps.put(fd, text .. "\n")
 end
 
 --- A case of a fake main: handed the words past its name, it returns
