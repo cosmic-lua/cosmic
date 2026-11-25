@@ -210,6 +210,17 @@ local function test_a_resource_url_is_made_by_trust_resource_url_alone()
   assert(metatable_of(untyped(resource)) == false)
 end
 
+--- `filled` is what a template's `{{if}}` holds of.
+local function test_filled_is_false_of_nil_false_an_empty_string_and_an_empty_table()
+  local empty: {string} = {}
+  assert(not Html.filled(nil) and not Html.filled(false) and not Html.filled("") and not Html.filled(empty))
+  local map: {string: integer} = { a = 1 }
+  assert(Html.filled(true) and Html.filled(0) and Html.filled("x") and Html.filled({ "a" }) and Html.filled(map))
+  assert(not Html.filled(Html.trust("")) and not Html.filled(Html.escape_attr("")))
+  assert(Html.filled(Html.trust("<b>")) and Html.filled(Html.href("/a")))
+  assert(not Html.filled(Html.trust_resource_url("")) and Html.filled(Html.trust_resource_url("/a.js")))
+end
+
 --- What `href` makes of `input`, as a table of (input, allowed)
 --- pairs: `allowed` is whether the text
 --- must come back as it went in, and false that it must be `about:invalid`.

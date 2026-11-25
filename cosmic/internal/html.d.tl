@@ -50,6 +50,9 @@ local record html
   href: function(s: string): SafeUrl
   -- The string as a URL, unchecked.
   trust_url: function(s: string): SafeUrl
+  -- Whether a template's {{if}} holds of the value: not nil, false, "", a
+  -- safe value holding "" or a table with no key.
+  filled: function(v: any): boolean
   -- The string a SafeUrl holds. Raises on anything else.
   raw_url: function(x: SafeUrl): string
   -- The string as a URL of a resource the page loads, unchecked.
