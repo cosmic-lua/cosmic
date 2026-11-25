@@ -75,7 +75,7 @@ cosmic agent ask 'what does this repository do? keep it short'
 >   if not p:match("^%./%.git/") then print(p) end
 > end
 > for _, p in ipairs(Host.find(".")) do
->   if p:lower():match("readme") then print(Host.cat(p):sub(1, 1500)) end
+>   if p:lower():match("readme") then print(Host.read(p):sub(1, 1500)) end
 > end
 > ```
 > ```output
@@ -131,7 +131,7 @@ cosmic agent ask 'fix the broken links. for the #undo link, add a short Undo sec
 > ```teal
 > for _, p in ipairs(Host.find("docs")) do
 >   print("=== " .. p)
->   print(Host.cat(p))
+>   print(Host.read(p))
 > end
 > ```
 > ```output
@@ -232,7 +232,7 @@ as the commands they are named for, but give values in place of text,
 and raise where they fail:
 
 - `Host.find(dir, suffix?)`: every file under `dir`, sorted.
-- [`Host.cat`], [`Host.lines`], [`Host.wc`], [`Host.exists`], [`Host.write`].
+- [`Host.read`], [`Host.edit`] (exact replacements, `{ { old = "...", new = "..." } }`, each old text in the file once), [`Host.lines`], [`Host.wc`], [`Host.exists`], [`Host.write`].
 - `Host.grep(pattern, paths, plain?)`: the lines that hold a pattern,
   each as `{path, line, text}`.
 - `Host.sed(path, pattern, replacement)`: replaces every match.
@@ -409,7 +409,7 @@ cosmic agent ask --new --budget turns=2 'document the [ignore] table in docs/con
 ```
 
 > ```teal
-> print(Host.cat("docs/configuration.md"))
+> print(Host.read("docs/configuration.md"))
 > for _, g in ipairs(Host.grep("ignore", Host.find(".", ""), true)) do
 >   print(g.path .. ":" .. tostring(g.line) .. ": " .. g.text)
 > end
@@ -508,10 +508,11 @@ $ cosmic agent sessions
 [`cosmic.agent.show`]: ../../cosmic/agent/show.tl
 [`cosmic.agent`]: ../../cosmic/agent/init.tl
 [`cosmic.compress`]: ../../cosmic/compress.tl
-[`Host.cat`]: ../../cosmic/agent/host.tl
+[`Host.edit`]: ../../cosmic/agent/host.tl
 [`Host.exists`]: ../../cosmic/agent/host.tl
 [`Host.lines`]: ../../cosmic/agent/host.tl
 [`Host.modules()`]: ../../cosmic/agent/host.tl
+[`Host.read`]: ../../cosmic/agent/host.tl
 [`Host.sort`]: ../../cosmic/agent/host.tl
 [`Host.top`]: ../../cosmic/agent/host.tl
 [`Host.uniq`]: ../../cosmic/agent/host.tl
