@@ -26,8 +26,9 @@ What it gives you:
 
 The examples use `tidy`, a folder of five Markdown files that
 document a file-sorting tool. Three of its links are broken, and one
-section is a TODO. Each transcript is the output of a real run with
-the default model, Opus. A line `...` marks text cut from this guide.
+table is not documented yet. Each transcript is the output of a real
+run with the default model, Opus. A line `...` marks text cut from
+this guide.
 
 ## an API key
 
@@ -403,9 +404,7 @@ cosmic agent ask --new --budget turns=2 'document the [ignore] table in docs/con
 > ```teal
 > print(Host.cat("docs/configuration.md"))
 > for _, g in ipairs(Host.grep("ignore", Host.find(".", ""), true)) do
->   if not g.path:match("^%./%.git/") then
->     print(g.path .. ":" .. tostring(g.line) .. ": " .. g.text)
->   end
+>   print(g.path .. ":" .. tostring(g.line) .. ": " .. g.text)
 > end
 > ```
 > ```output
@@ -417,7 +416,7 @@ cosmic agent ask --new --budget turns=2 'document the [ignore] table in docs/con
 >     folder = "pictures"
 > ... 9 more lines
 > ```
-> cosmic: agent: ask: the turn's budget is spent: 2 requests, of 2; go on with `cosmic agent ask --session 3 'go on'` and a larger --budget
+> cosmic: agent: ask: the turn's budget is spent: 2 requests, of 2; go on with `cosmic agent ask --session 1 'go on'` and a larger --budget
 
 It exits 1. To go on, send a prompt with a larger budget:
 
@@ -425,21 +424,26 @@ It exits 1. To go on, send a prompt with a larger budget:
 cosmic agent ask --budget turns=6 'go on'
 ```
 
-> cosmic: agent: going on with session 3 (5 messages, claude-opus-5-5); --new starts a fresh one
+> cosmic: agent: going on with session 1 (5 messages, claude-opus-5-5); --new starts a fresh one
 > edit docs/configuration.md
 > ```diff
 > @@
-> -TODO: document the [ignore] table.
-> +The `[ignore]` table lists file names tidy never moves:
+> -The [ignore] table is not documented yet.
+> +## [ignore]
+> +
+> +The `[ignore]` table lists file names that tidy never moves.
 > +
 > +    [ignore]
-> +    files = ["desktop.ini", "notes.txt"]
+> +    names = ["README.md", "todo.txt"]
 > ```
-> I replaced the TODO in `docs/configuration.md` with a short section on `[ignore]`.
+> I added a short `## [ignore]` section to `docs/configuration.md`, in place of the "not documented yet" line. It says the table lists file names tidy never moves, and gives an example:
 >
-> ...
+> ```toml
+> [ignore]
+> names = ["README.md", "todo.txt"]
+> ```
 >
-> I made up the key name `files` and the example file names. Nothing in the repo shows how `[ignore]` is actually written: the only mention of "ignore" outside `.git` was the TODO itself. If tidy uses a different key, change that line to match.
+> The key name `names` is my guess. I searched the repo and found no code that reads `[ignore]`, so I couldn't check what tidy actually expects. Please change `names` to the real key, or tell me what it is and I'll update the doc.
 
 `--model sonnet` costs less than the default, `opus`. A session keeps
 the model it used last, until `--model` names another. `--effort low`
