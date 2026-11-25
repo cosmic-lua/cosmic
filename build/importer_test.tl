@@ -1633,6 +1633,31 @@ local function test_a_module_that_requires_a_refused_one_is_checked_and_its_find
   assert(#result.modules == 1 and assert(result.modules[1]).path == "e" and kept == 1, tostring(kept))
 end
 
+--- In cosmic's own tree an error a marker holds is one the module builds with: a module whose `return` holds a marked error
+--- stands for the modules that require it, as it would with no error there, so one run still tells the findings of a module
+--- two steps from the refused one. It guards against reading a held error as a doubt about the module's interface.
+local function test_a_marked_error_in_a_return_leaves_a_module_standing_for_its_dependents()
+  local root = assert(write_fixture("marked-standing", {
+    ["build/importer.tl"] = "local record Stub end\nreturn Stub\n",
+    -- A core/ beside build/importer.tl makes the tree cosmic's own ([`build.tree.standing`]), whose markers hold.
+    ["core/syscalls.h"] = "/**\n * --- Reads bytes.\n * ---@param fd integer descriptor\n * ---@return string|nil data bytes\n" ..
+      " * ---@return string error failure\n * ---@return integer errno number\n */\nCOSMIC_SYSCALL(read, 1);\n",
+    ["build/a.tl"] = defaulting("A", "", "x"),
+    ["build/m.tl"] = "local A = require(\"build.a\")\nlocal record M\nend\nfunction M.f(n: integer): integer\n" ..
+      "  return A.f(n or 4) -- checked: condition_type\nend\nreturn M\n",
+    ["build/c.tl"] = defaulting("C", "local M = require(\"build.m\")\n", "M.f(x)"),
+  }))
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, { own = true }))
+  local result, trouble = importer.compile(handle, "marked-standing-test")
+  work.close(handle)
+  local refused = table.concat(assert(result, trouble).refused, "\n")
+  assert(refused:find("build/m.tl: not compiled: it requires build.a, which did not build; checked all the same, it has no " ..
+      "finding of its own", 1, true) ~= nil, refused)
+  assert(refused:find("build/c.tl: 1 error of condition_type in its bodies", 1, true) ~= nil and
+      refused:find("\nbuild/c.tl: checked against the declarations of build.m as they are written", 1, true) ~= nil, refused)
+end
+
 --- A module that does not parse, or whose declarations are in error or in doubt (a `return` that does not fit them is
 --- as often mended by declaring another result), says nothing sound of itself to a module that requires it: a check of
 --- that module would refuse it for what the other got wrong. It is left out unchecked, with the line that says its

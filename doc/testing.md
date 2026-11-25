@@ -883,11 +883,13 @@ read the checker narrowed wrongly is a failing test and a row of
 `type_violations` of a real run ([`build/fact_hook_tool_test.tl`] plants
 one).
 
-CI runs the whole suite so in the `checked-narrowing` jobs of a full run.
-Those jobs are two shares of it (`cosmic-driver cosmic_ci/driver.tl
-platform checked-narrowing`, `--check-types --shard I/2`). They stand on
-the checked verdicts of earlier runs, as the legs' suites stand on theirs
-(ci/README.md's `checked-narrowing`). `bin/cosmic test --check-types` runs
+CI runs the whole suite so in the `checked-narrowing` job
+(`cosmic-driver cosmic_ci/driver.tl platform checked-narrowing`): whole
+on main's push and the scheduled run, and in three shares at once
+(`--check-types --shard I/3`, jobs `linux-x86_64-checked-narrowing-1` to
+`-3`) in the merge queue and a manual run of a branch. It stands on the
+checked verdicts of earlier runs, as the legs' suites stand on theirs
+(ci/README.md's "what runs where"). `bin/cosmic test --check-types` runs
 it anywhere.
 
 The wraps slow some code more than other code, so a speed test that
@@ -1300,7 +1302,9 @@ Other rules:
   are functions of the tool's own rows ([`build.stamps`]).
   `COSMIC_STAMPS=0` has a run work them out instead, and reach the same
   keys ([`build.sandboxed_verdicts_test`] holds it to that). It is never
-  needed to run a suite.
+  needed to run a suite. A sealed worker reads the runner's stamps of the
+  code it carries whatever it says ([`test_key.sealed_stamps`]), as a
+  worker does not see the runner's environment.
 - Harness modules reach the host through raw bindings and the
   standard-library modules `library` in [`build.harness_epoch`] names,
   each with its reason. [`build.harness_epoch_test`] holds them to it.
@@ -1399,3 +1403,4 @@ Other rules:
 [`Test.passed_unchecked`]: ../cosmic/test.tl
 [`Test.policy`]: ../cosmic/test.tl
 [`Test.skip`]: ../cosmic/test.tl
+[`test_key.sealed_stamps`]: ../build/test_key.tl

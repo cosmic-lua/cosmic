@@ -99,14 +99,17 @@ end
 local function hash(path: string): string return Hash.hex_sha256(read(path)) end
 local function write(path: string, data: string) assert(Fs.write(path, data)) end
 --- The events whose run a suite may stand on verdicts in (`stands`): a
---- push, main's or a branch's, and the merge queue's run, which restores main's
+--- push, main's or a branch's, a pull request's run, and the merge queue's run, which restores main's
 --- verdicts (ci.yml's "restore test verdicts") and so runs only what its
 --- merge moved from what main's last run reached; main's push of each
 --- leg takes that leg's queue verdicts of its commit too
 --- (cosmic_ci/queue_verdicts.tl). ci.yml gives main's daily scheduled
 --- run and a manual run `push` as well; the weekly run and a manual run
 --- with `every_test` are the backstop, running every test.
-local standing_events: {string:boolean} = { push = true, merge_group = true }
+--- A pull request's suites stand on main's verdicts as the queue's do, so
+--- they run only the tests its change reaches, and a failure the queue
+--- would meet shows on the pull request first.
+local standing_events: {string:boolean} = { push = true, pull_request = true, merge_group = true }
 
 --- Whether a suite in `env` stands on verdicts other runs reached, keyed
 --- by what its tests declare (build/declared_key.tl) and shared through
@@ -123,7 +126,7 @@ local standing_events: {string:boolean} = { push = true, merge_group = true }
 --- reads something only on macOS is the gap (build/test_key.tl's `prepare`).
 ---
 --- The run's event (COSMIC_CI_EVENT) is in `standing_events`: a push,
---- main's as much as another branch's, or the merge queue's. Each
+--- main's as much as another branch's, a pull request's, or the merge queue's. Each
 --- restores the newest cache main saved of its leg, host and host
 --- features (ci.yml's "name the leg's host").
 ---
@@ -693,10 +696,12 @@ local checked_suite_test_timeout_s <const> = "120"
 
 --- The whole suite on a checked run ([`phase_checked_narrowing`]), in ci.yml's
 --- `narrowing` job; a test 120 s at most, as on the checked core. The whole run
---- takes 510 s on four processors locally and 726 to 861 s on CI's runner where
---- no verdict stands (the merge queue's runs of 23 October 2026). The bound is
---- 1500 s, 1.7 times the slowest.
--- TODO: lower this bound once CI's own runs of it standing on verdicts show its elapsed time.
+--- took 726 to 861 s on CI's runner where no verdict stood (the merge queue's
+--- runs of 23 October 2026), and by November 1276 and 1289 s, past its deadline
+--- (the bound less `checked_margin_ns`, 1260 s; #4241, #4245). The bound is
+--- 1500 s; the merge queue and a manual run of a branch run the suite in three
+--- shares (COSMIC_CI_NARROWING_SHARD), each well within it, and main's push and
+--- the scheduled run whole, standing on the verdicts the last push saved.
 local checked_narrowing_timeout_ns <const> = Clock.seconds(1500)
 local checked_narrowing_test_timeout_s <const> = "120"
 
@@ -1647,7 +1652,9 @@ local function phase_checked_narrowing(p: PlatformContext): integer
   mkdir(p.local_diagnostics)
   local out = p.local_diagnostics .. "/checked-narrowing-test.out"
   local values = release_promises(run.env)
-  local status = logged(c, "checked narrowing", argv, out,
+  -- The merge queue and a manual run of a branch run it in shares, each a job of its own
+  -- (COSMIC_CI_NARROWING_SHARD, `I/N`; ci.yml's `narrowing`), as the checked suite's.
+  local status = logged(c, "checked narrowing", Orchestration.with_share(argv, named("COSMIC_CI_NARROWING_SHARD")), out,
     p.local_diagnostics .. "/checked-narrowing-test.err", checked_narrowing_timeout_ns, c.root,
     Orchestration.deadlined(values, checked_narrowing_timeout_ns, checked_margin_ns))
   -- A run that prints no "run-time types" line (the summary of a checked
