@@ -310,8 +310,11 @@ local record Options
   ---   writable one noexec unless granted `x`; a grant's `from` is the
   ---   host's path, bound at the grant's `path`, which only this has (a
   ---   `from` without it fails). The program's own file, its loader and
-  ---   its directory (`cwd`, or this process's) must be granted, and it is
-  ---   run by its real path. Beside them the root has a /proc of its own
+  ---   its directory (`cwd`, or this process's) must be granted. A
+  ---   program named through a link (a virtual environment's interpreter)
+  ---   is run by that name where the root shows the same file there (the
+  ---   link is in a granted directory, or is a grant's name), else by its
+  ---   real path. Beside them the root has a /proc of its own
   ---   (see `proc`), the links /dev/fd and /dev/stdin, /dev/stdout and
   ---   /dev/stderr into it, and, with `tmp`, a /tmp that is a tmpfs of 256
   ---   MiB, noexec unless a grant of "/tmp" with no `from` has the letters
@@ -2607,6 +2610,96 @@ local function root_of(merged: Rules.Policy, base: string, idmap: {integer: bool
   return { reads = reads, writes = {}, binds = binds, tmp = tmp, tmp_exec = tmp_exec or nil }, "" -- checked: or_mix
 end
 
+--- A path a root places, and whether it shows the host's file there.
+local record Placed
+  at: string
+  host: boolean
+end
+
+--- The most links a path is followed through, as the kernel's MAXSYMLINKS.
+local MAX_LINKS <const> = 40
+
+--- Whether the root `root` describes shows at `name` the file the host
+--- has at `real`, so a program reached by a link (a virtual environment's
+--- interpreter) is run by its name: each link on the way is the host's,
+--- in a bind at its real path, or one the root makes at a grant's name to
+--- that grant's real path. A bind at another name, the sandbox's own
+--- /proc or /tmp, or a path the root has not, shows another file.
+local function root_shows(root: raw_process.Unveil, name: string, real: string): boolean
+  local placed: mut {Placed} = { { at = "/proc", host = false } }
+  if root.tmp ~= nil then placed[#placed + 1] = { at = "/tmp", host = false } end
+  local links: mut {string:string} = {}
+  for _, bind in ipairs(root.binds or {}) do
+    if bind.at ~= nil then
+      placed[#placed + 1] = { at = bind.at, host = false }
+    else
+      local bound, _ = sys.realpath(bind.path)
+      if bound == nil then return false end
+      placed[#placed + 1] = { at = bound, host = true }
+      if bound ~= bind.path then links[bind.path] = bound end
+    end
+  end
+  local function shown(at: string): boolean?
+    local longest = -1
+    local host: boolean?
+    for _, place in ipairs(placed) do
+      if beneath(at, place.at) and #place.at > longest then
+        longest, host = #place.at, place.host
+      end
+    end
+    return host
+  end
+  local function above(at: string): boolean
+    for _, place in ipairs(placed) do
+      if beneath(place.at, at) then return true end
+    end
+    for link, _ in pairs(links) do
+      if beneath(link, at) then return true end
+    end
+    return false
+  end
+  local rest: mut {string} = {}
+  for part in name:gmatch("[^/]+") do rest[#rest + 1] = part end
+  local at = ""
+  local followed = 0
+  while #rest > 0 do
+    local part = assert(table.remove(rest, 1), "a part is left")
+    if part == ".." then
+      at = at:match("^(.*)/[^/]*$") or ""
+    elseif part ~= "." then
+      local here = at .. "/" .. part
+      local host = shown(here)
+      if host == false then return false end
+      local points: string?
+      if host == true then
+        local st, _ = sys.lstat(here)
+        if st == nil then return false end
+        if st.kind == "link" then
+          local read, _ = sys.readlink(here)
+          if read == nil then return false end
+          points = read
+        end
+      elseif links[here] ~= nil then
+        points = links[here]
+      elseif not above(here) then
+        return false
+      end
+      if points ~= nil then
+        followed = followed + 1
+        if followed > MAX_LINKS then return false end
+        local spliced: mut {string} = {}
+        for piece in points:gmatch("[^/]+") do spliced[#spliced + 1] = piece end
+        for _, left in ipairs(rest) do spliced[#spliced + 1] = left end
+        rest = spliced
+        if points:sub(1, 1) == "/" then at = "" end
+      else
+        at = here
+      end
+    end
+  end
+  return (if at == "" then "/" else at end) == real
+end
+
 --- Why a `u` grant cannot be held under `isolate` file, or "". Below
 --- Landlock ABI 9 nothing tells one unix socket of the root from another
 --- (the filter allows AF_UNIX to the program whole, and a read-only bind
@@ -3273,11 +3366,11 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
   -- A bare name is found on this process's PATH and run by its real path,
   -- so what is granted is what runs; a name with a slash is run as written
   -- (a virtual environment's interpreter link keeps its prefix), and its
-  -- grants are the real path's, which is what the kernel opens.
-  -- TODO: run a link as the link under `isolate` file too, binding it at
-  -- its name (a virtual environment's interpreter), once a bind can place
-  -- a link: a root holds the real path alone, so the program is run by it.
+  -- grants are the real path's, which is what the kernel opens. Under
+  -- `isolate` file it is run as written where the root shows the same
+  -- file there ([`root_shows`]), else by its real path.
   local path = argv[1]
+  local link_name, link_real: string?, string = nil, ""
   if relaunch ~= nil then
     path = relaunch.argv[1]
   elseif not path:find("/", 1, true) then -- checked: nil_not_allowed
@@ -3289,6 +3382,8 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
   elseif file then
     local real, real_trouble = sys.realpath(named(path, base)) -- checked: nil_not_allowed
     if real == nil then return nil, path .. ": " .. real_trouble end -- checked: nil_not_allowed
+    local written = named(assert(path, "a start names a program"), base)
+    if real ~= written then link_name, link_real = written, real end
     path = real
   end
   local files, loader_trouble = Rules.loaders(path, base) -- checked: nil_not_allowed
@@ -3374,6 +3469,9 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
   end
   local missing = ungranted(files, checked, base)
   if missing ~= "" then return nil, "sandbox: " .. missing end
+  if root ~= nil and link_name ~= nil and root_shows(root, link_name, link_real) then
+    path = link_name
+  end
   if file and not holds_place(Rules.paths(merged), base) then
     return nil, "sandbox: under isolate file the root holds only what is granted, so the " ..
       "directory the program starts in, " .. string.format("%q", base) .. ", must be at, " ..
