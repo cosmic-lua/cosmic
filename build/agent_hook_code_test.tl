@@ -1,9 +1,11 @@
 --- A snippet's calls of the agent (history, store, mcp) go through the agent's guard and amend, as `before` and `after`
 --- see the model's calls: a blocked one raises in the snippet, and an amended answer is what it reads.
 local Agent = require("cosmic.agent")
+local Clock = require("cosmic.clock")
 local agent_fixture = require("build.agent_fixture")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
+local Poll = require("cosmic.poll")
 local Policy = require("cosmic.agent.policy")
 local Sessions = require("cosmic.agent.sessions")
 local Test = require("cosmic.test")
@@ -173,5 +175,60 @@ local function test_a_tool_for_code_is_called_from_a_snippet_alone()
   assert(answer:find("is one code may call; these are: stamp", 1, true) ~= nil, answer)
   assert(table.concat(calls, " ") == "run:model stamp:code:write stamp:code:write stamp:code:write",
     table.concat(calls, " "))
+  s:close()
+end
+
+--- Calls of a tool for code from a snippet's tasks of their own each pass before and after, and each task reads its
+--- own answer.
+local function test_a_snippets_tasks_each_use_a_tool_for_code()
+  local dir = assert(Fs.mkdtemp("agent-hook-"))
+  local none: {string: Json.Value} = {}
+  local stamp: Tools.Tool = { name = "stamp", snippet = "Stamp a word", guidelines = {}, description = "Stamps a word.",
+    schema = { type = "object", properties = none }, callers = "code",
+    run = function(input: Tools.Object, _: Tools.Context): Tools.Result
+      -- The first call is the last answered, so each reply must find its own task, not the next one waiting.
+      if input["word"] == "w1" then
+        local _, _ = Poll.delay(Clock.ms(300))
+      end
+      return { text = "stamped " .. tostring(input["word"]), is_error = false }
+    end }
+  local code = "local Host = require(\"cosmic.agent.host\")\nlocal Poll = require(\"cosmic.poll\")\n" ..
+    "local got: mut {integer: string} = {}\n" ..
+    "Poll.run(function()\n  for i = 1, 4 do\n    local _ = Poll.spawn(function()\n" ..
+    "      local ok, answer = pcall(Host.use, \"stamp\", { word = \"w\" .. tostring(i) })\n" ..
+    "      got[i] = if ok then tostring(answer) else \"raised \" .. tostring(answer) end\n" ..
+    "    end)\n  end\nend)\n" ..
+    "return table.concat({ got[1] or \"-\", got[2] or \"-\", got[3] or \"-\", got[4] or \"-\" }, \",\")\n"
+  local a = agent_fixture.api({
+    { content = { { type = "tool_use", id = "t1", name = "run", input = { code = code } } }, stop_reason = "tool_use" },
+    { content = { { type = "text", text = "done" } }, stop_reason = "end_turn" } })
+  local w = Worker.new()
+  local s = Agent.new({ sign = agent_fixture.keyed("k"), cwd = dir, base_url = "https://api.test", send = a.send,
+    system = "", worker = w, tools = { (assert(Tools.find(Tools.all(), "run"))), stamp } })
+  local before: mut {string} = {}
+  local after: mut {string} = {}
+  s.before = function(call: Agent.Call): string?
+    if call.name == "stamp" then
+      local word = tostring(call.input["word"])
+      before[#before + 1] = word
+      if call.input["word"] == "w3" then return "not w3" end
+    end
+    return nil
+  end
+  s.after = function(call: Agent.Call, result: Tools.Result): Tools.Result?
+    if call.name ~= "stamp" then return nil end
+    local word = tostring(call.input["word"])
+    after[#after + 1] = word
+    return { text = result.text:upper(), is_error = false }
+  end
+  assert(s:prompt("go"))
+  local answer = agent_fixture.said(a, 2)
+  assert(answer:find("STAMPED W1,STAMPED W2,raised host: use: Blocked: not w3,STAMPED W4", 1, true) ~= nil, answer)
+  -- w1 was answered after w2 and w4, so its answer reached its own task out of order.
+  assert(after[#after] == "w1", table.concat(after, " "))
+  table.sort(before)
+  table.sort(after)
+  assert(table.concat(before, " ") == "w1 w2 w3 w4", table.concat(before, " "))
+  assert(table.concat(after, " ") == "w1 w2 w4", table.concat(after, " "))
   s:close()
 end
