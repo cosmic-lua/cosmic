@@ -29,10 +29,11 @@ local function test_a_main_the_test_does_not_hold_is_refused(tmp: string)
 end
 
 local function test_one_dir_holds_a_fake_of_each_main(tmp: string)
-  local probe = assert(Fake.build(tmp .. "/fake"))
+  local reply = assert(Fake.build(tmp .. "/fake", Fake.REPLY))
   local main = assert(Fake.build(tmp .. "/fake", "build.fake_main_fixture"))
-  assert(probe ~= main, main)
-  assert(run({ probe, "print probe" }).stdout == "probe\n")
+  assert(reply ~= main, main)
+  assert(Fake.reply(reply, tmp .. "/git", { [""] = { stdout = "reply\n" } }))
+  assert(run({ tmp .. "/git" }).stdout == "reply\n")
   assert(run({ main }).stdout == "none\n\n")
 end
 
