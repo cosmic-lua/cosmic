@@ -237,6 +237,13 @@ local AHEAD <const> = "1111111111111111111111111111111111111111"
 local function tried_sha(id: integer): string return string.format("%040x", id) end
 
 --- A comparison of commits that changes `blob` into a.tl, and b.tl.
+--- A commit's tree, its files a.tl (of `mode`, else a plain file's),
+--- b.tl and evil.tl.
+local function tree(mode?: string): string
+  return '{"truncated":false,"tree":[{"path":"a.tl","mode":"' .. (mode or "100644") .. '","type":"blob"},' ..
+    '{"path":"b.tl","mode":"100644","type":"blob"},{"path":"evil.tl","mode":"100644","type":"blob"}]}'
+end
+
 local function change(blob: string): string
   return '{"status":"ahead","files":[{"filename":"b.tl","status":"added","sha":"bb"},' ..
     '{"filename":"a.tl","status":"modified","sha":"' .. blob .. '"}]}'
@@ -279,6 +286,7 @@ local function test_the_newest_failed_try_of_the_pull_request_is_named()
   local mine = "gh-readonly-queue/main/pr-41-" .. OTHER
   local ahead = "gh-readonly-queue/main/pr-41-" .. AHEAD
   local fake = GithubFake.new(function(path: string, _nth: integer): string?
+    if path:match("^repos/o/r/git/trees/") then return tree() end
     if path == FAILED then
       return '{"workflow_runs":[' .. table.concat({ run(5, tried_sha(5), mine), run(8, tried_sha(8), mine),
         run(9, tried_sha(9), mine), run(10, tried_sha(10), mine), run(11, tried_sha(11), mine),
@@ -341,11 +349,13 @@ local function test_a_change_that_cannot_be_matched_is_not_taken()
   local ref_job = '{"name":"' .. QueueVerdicts.REF_JOB .. '","conclusion":"success"}'
   local recheck = '{"name":"' .. QueueVerdicts.RECHECK_STEP .. '","conclusion":"success"}'
   local artifact = '{"id":500,"name":"' .. TRIED_ARTIFACT .. '","expired":false}'
-  --- Each case: what differs from a run that is taken. The tried run's
-  --- comparison, this run's, the tried run's commit, whether its base is
+  --- Each case: what differs from a run that is taken. The tried run's tree,
+  --- this run's tree, the tried run's comparison, this run's, the tried run's commit, whether its base is
   --- on main, the count of its ref's caches, its jobs and its artifacts;
   --- "" where GitHub does not answer.
   local record Case
+    tree?: string
+    mine_tree?: string
     tried?: string
     mine?: string
     sha?: string
@@ -382,6 +392,14 @@ local function test_a_change_that_cannot_be_matched_is_not_taken()
     ["two rechecks"] = { jobs = '{"total_count":2,"jobs":[' .. ref_job .. ',{"name":"' .. QueueVerdicts.GATE_JOB ..
         '","steps":[' .. recheck .. ',' .. recheck .. ']}]}' },
     ["no jobs"] = { jobs = "" },
+    ["mode changed"] = { tree = tree("100755") },
+    ["tree cut"] = { tree = (tree():gsub('"truncated":false', '"truncated":true')) },
+    ["tree uncut unsaid"] = { tree = (tree():gsub('"truncated":false,', '')) },
+    ["tree unanswered"] = { tree = "" },
+    ["no mode"] = { tree = '{"truncated":false,"tree":[{"path":"a.tl"},{"path":"b.tl","mode":"100644"}]}' },
+    ["file not in tree"] = { tree = '{"truncated":false,"tree":[{"path":"b.tl","mode":"100644"}]}',
+      mine_tree = '{"truncated":false,"tree":[{"path":"b.tl","mode":"100644"}]}' },
+    ["file twice in tree"] = { tree = (tree():gsub('%]}$', ',{"path":"a.tl","mode":"100644"}]}')) },
     ["more jobs than listed"] = { jobs = (jobs("success", "success"):gsub('"total_count":3', '"total_count":4')) },
     ["jobs uncounted"] = { jobs = (jobs("success", "success"):gsub('"total_count":3,', '')) },
     ["another artifact"] = { artifacts = '{"artifacts":[{"id":500,"name":"queue-tried-verdicts-macos","expired":false}]}' },
@@ -397,6 +415,13 @@ local function test_a_change_that_cannot_be_matched_is_not_taken()
       end
       local sha = if control then tried_sha(5) else case.sha or tried_sha(5) end
       local fake = GithubFake.new(function(path: string, _nth: integer): string?
+        if path == "repos/o/r/git/trees/" .. sha .. "?recursive=1" then
+          return pick(case.tree, tree())
+        end
+        if path == "repos/o/r/git/trees/" .. NOW .. "?recursive=1" then
+          return pick(case.mine_tree, tree())
+        end
+        if path:match("^repos/o/r/git/trees/") then return tree() end
         if path == FAILED then return '{"workflow_runs":[' .. run(5, sha, mine) .. ']}' end
         if path == "repos/o/r/actions/caches?ref=refs/heads/" .. mine .. "&per_page=1" then
           return pick(case.caches, '{"total_count":0}')
@@ -430,6 +455,7 @@ end
 local function test_a_first_try_takes_nothing()
   for _, case in ipairs({ "none", "failing", "unchanged" }) do
     local fake = GithubFake.new(function(path: string, _nth: integer): string?
+      if path:match("^repos/o/r/git/trees/") then return tree() end
       if case == "none" and path == FAILED then return '{"workflow_runs":[]}' end
       if case == "none" and path == "repos/o/r/compare/" .. SHA .. "..." .. NOW then
         return change("aa")
@@ -483,6 +509,7 @@ local function test_a_job_that_passed_in_a_failed_try_is_taken()
   local passed = "queue-verdicts-linux-x86_64"
   for _, case in ipairs({ "passed", "none named", "neither", "two passed", "both" }) do
     local fake = GithubFake.new(function(path: string, _nth: integer): string?
+      if path:match("^repos/o/r/git/trees/") then return tree() end
       if path == FAILED then return '{"workflow_runs":[' .. run(5, tried_sha(5), mine) .. ']}' end
       if path == "repos/o/r/actions/caches?ref=refs/heads/" .. mine .. "&per_page=1" then
         return '{"total_count":0}'

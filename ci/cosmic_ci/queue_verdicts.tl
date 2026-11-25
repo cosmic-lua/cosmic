@@ -216,8 +216,8 @@ end
 --- The code a run ran can write any row, so a try is taken only where
 --- GitHub's own record shows it ran merged code and this try's change:
 --- the commit its entry was put on is on main, and its commit changes the
---- same files, by name, name before and content, as this try's does over
---- its own base ([`change_of`]). Its ref must hold no cache now, and
+--- same files, by name, name before, content and mode, as this try's
+--- does over its own base ([`change_of`]). Its ref must hold no cache now, and
 --- its jobs must have found none there before and after they ran
 --- ([`refused_caches`]): a cache there may have been written by code
 --- that never merges ([`QueueVerdicts.ref_caches`]). Only a run's
@@ -278,24 +278,62 @@ local CHANGE_ROW <const> = Shape.record_of("ChangeRow")
 --- The most files a comparison lists; one that lists as many may hold more.
 local LISTED_FILES <const> = 300
 
+--- What a commit's tree, and an entry of it, is read for.
+local record TreeEntry
+  path?: any
+  mode?: any
+end
+local TREE_ENTRY <const> = Shape.record_of("TreeEntry")
+local record TreeRow
+  truncated?: any
+  tree?: {any}
+end
+local TREE_ROW <const> = Shape.record_of("TreeRow")
+
+--- The mode of each of `paths` in commit `sha`'s tree in `repository`,
+--- by path; nil where GitHub does not say, cuts the tree short, or names
+--- none for one of them.
+local function modes_of(host: Github.Host, repository: string, sha: string, paths: {string}): {string:string}?
+  local pages = Github.ask(host, "repos/" .. repository .. "/git/trees/" .. sha .. "?recursive=1", false, LOOKUP_SECONDS)
+  local listed, _ = TREE_ROW:decode_into((pages or {})[1] or "")
+  if listed == nil or listed.truncated ~= false or listed.tree == nil then return nil end
+  local wanted: mut {string:boolean} = {}
+  for _, path in ipairs(paths) do wanted[path] = true end
+  local modes: mut {string:string} = {}
+  for _, item in ipairs(listed.tree) do
+    local entry, _ = TREE_ENTRY:into(item)
+    if entry == nil then return nil end
+    local path, mode = entry.path, entry.mode
+    if path is string and wanted[path] == true then
+      if not (mode is string) or modes[path] ~= nil then return nil end
+      modes[path] = mode
+    end
+  end
+  for _, path in ipairs(paths) do
+    if modes[path] == nil then return nil end
+  end
+  return modes
+end
+
 --- What commit `head` changes over `base` in `repository`, as GitHub
---- says: each changed file's name, the name it had before, its status and
---- its content's blob, sorted, one a line. Nil where GitHub does not say,
---- `head` is not ahead of `base`, the list may be cut, or a file that
---- stays has no blob named. GitHub names no file's mode, so a change of
---- mode alone is not told apart.
----
---- TODO: tell a change of mode alone apart, from each commit's tree
---- (`git/trees/<sha>`, which names modes), once a listing of the tree's
---- changed paths alone is found that is not cut short as the whole
---- tree's is.
+--- says: each changed file's name, the name it had before, its status,
+--- its content's blob and its mode in `head`'s tree, sorted, one a line.
+--- Nil where GitHub does not say, `head` is not ahead of `base`, the list
+--- may be cut, a file that stays has no blob named, or `head`'s tree
+--- names no mode for it.
 local function change_of(host: Github.Host, repository: string, base: string, head: string): string?
   local pages = Github.ask(host, "repos/" .. repository .. "/compare/" .. base .. "..." .. head, false, LOOKUP_SECONDS)
   local compared, _ = CHANGE_ROW:decode_into((pages or {})[1] or "")
   if compared == nil or compared.status ~= "ahead" then return nil end
   local files = compared.files
   if files == nil or #files >= LISTED_FILES then return nil end
-  local lines: mut {string} = {}
+  local record Line
+    name: string
+    rest: string
+    stays: boolean
+  end
+  local rows: mut {Line} = {}
+  local staying: mut {string} = {}
   for _, item in ipairs(files) do
     local file, _ = FILE_ROW:into(item)
     if file == nil then return nil end
@@ -308,7 +346,15 @@ local function change_of(host: Github.Host, repository: string, base: string, he
       return nil
     end
     if before is string then was = before end
-    lines[#lines + 1] = name .. "\0" .. was .. "\0" .. status .. "\0" .. content
+    local stays = status ~= "removed"
+    if stays then staying[#staying + 1] = name end
+    rows[#rows + 1] = { name = name, rest = "\0" .. was .. "\0" .. status .. "\0" .. content, stays = stays }
+  end
+  local modes = modes_of(host, repository, head, staying)
+  if modes == nil then return nil end
+  local lines: mut {string} = {}
+  for _, row in ipairs(rows) do
+    lines[#lines + 1] = row.name .. row.rest .. "\0" .. (if row.stays then modes[row.name] or "" else "" end)
   end
   table.sort(lines)
   return table.concat(lines, "\n")

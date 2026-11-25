@@ -575,8 +575,8 @@ that try. The code a run ran can write any row, so it takes a
 run only where GitHub's record shows that run ran merged code and this
 try's change: the commit its entry was put on is on main (a queue commit
 holds the entries ahead of it too, and one dropped from the queue never
-merges), and its commit changes the same files, by name, name before and
-content, as this try's does (an earlier head of the pull request never
+merges), and its commit changes the same files, by name, name before,
+content and mode, as this try's does (an earlier head of the pull request never
 merges either). The run's `queue-ref` job and the gate's second listing
 must both have passed, and its ref must hold no cache now. Only a run's
 first attempt counts (an attempt again keeps the earlier one's artifacts
