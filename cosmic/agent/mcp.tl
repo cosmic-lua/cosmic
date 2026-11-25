@@ -14,7 +14,7 @@
 ---
 --- A program is named by its absolute path, and one in the session's working directory, which the tools write, is
 --- not run. A server with a `command` runs under a sandbox by default: the "system" profile, a /tmp of its own and its own
---- program, merged with the `policy` given ([`PolicyJson.decode`]'s fields: grants, connect, env, promises, ...).
+--- program, merged with the `policy` given ([`PolicyJson.decode`]'s fields: grants, connect, env, ...).
 --- So it reaches no file of the user's, no host and no key of the environment but those its policy names. `"sandbox":
 --- "off"` runs it with the agent's rights and its whole environment, the API key too: only for a server the user
 --- trusts as the agent itself. A server with a `url` is reached over Streamable HTTP from the agent. A name is

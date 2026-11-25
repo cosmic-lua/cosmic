@@ -389,6 +389,12 @@ SyntaxCodes.catalog = {
     fix = "call it by name, `require(\"<module>\")`, or write `pcall(require, \"<module>\")`; to choose between modules, " ..
       "require each by its literal name and pick from a table",
   },
+  {
+    code = "schema_not_constant", stage = "parser", rule = LEFT_OUT,
+    why = "the checker reads a schema's DDL where it is written, to read the SQL its handles are sent, so the DDL is " ..
+      "text the parser knows: string literals, and `<const>` locals of the same block given them, joined with `..`",
+    fix = "write string literals, and `<const>` locals of the same block given them, joined with `..`",
+  },
   -- the scope builder
   {
     code = "unknown_variable", stage = "scopes", rule = "globals are what a declaration file declares",

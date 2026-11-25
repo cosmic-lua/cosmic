@@ -44,7 +44,7 @@ end
 
 local function test_nest_holds_files_by_the_root_alone(tmp: string)
   local at = ChildPolicy.nest_placed(tmp)
-  local policy: Sandbox.Policy = { isolate = { "file" }, promises = { "nest" }, grants = at.grants }
+  local policy: Sandbox.Policy = { isolate = { "file" }, grants = ChildPolicy.with(at.grants, { calls = "nest" }) }
   local read = ChildPolicy.under(at.probe, policy, at.work, "cat ro/a")
   assert(read.code == 0 and read.said == "alpha\n", tostring(read.code) .. ": " .. read.said)
   -- Not granted, so not there; read-only where not granted `w`.
@@ -72,7 +72,7 @@ end
 
 local function test_nest_hands_no_directory_nor_half_open_file(tmp: string)
   local at = ChildPolicy.nest_placed(tmp)
-  local policy: Sandbox.Policy = { isolate = { "file" }, promises = { "nest" }, grants = at.grants }
+  local policy: Sandbox.Policy = { isolate = { "file" }, grants = ChildPolicy.with(at.grants, { calls = "nest" }) }
   local dir = assert(sys.open(at.extra, sys.O_RDONLY))
   local reading = assert(sys.open(at.extra .. "/e", sys.O_RDONLY))
   local writing = assert(sys.open(at.extra .. "/e", sys.O_WRONLY))
@@ -110,7 +110,7 @@ local function test_nest_refuses_the_runtimes_own_descriptors_rather_than_raisin
     return
   end
   local at = ChildPolicy.nest_placed(tmp)
-  local policy: Sandbox.Policy = { isolate = { "file" }, promises = { "nest" }, grants = at.grants }
+  local policy: Sandbox.Policy = { isolate = { "file" }, grants = ChildPolicy.with(at.grants, { calls = "nest" }) }
   local handle, why = Child.start({ at.probe, "print hi" },
     { timeout_ns = Child.FOREVER, policy = policy, cwd = at.work, fds = launched.fds })
   if handle ~= nil then

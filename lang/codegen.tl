@@ -1842,7 +1842,12 @@ local function class_statement(s: Ast.Class): Output
     -- `local schema Name [[DDL]]` is the value of [`Sqlite.schema`] of its DDL.
     local at = s.name.last + 1
     put(out, " require(\"cosmic.sqlite\").schema(")
-    add_child(out, text(line_of(at), Lexer.text(G.tokens, at)))
+    local value = s.schema_value
+    if value ~= nil then
+      add_child(out, exp(value))
+    else
+      add_child(out, text(line_of(at), Lexer.text(G.tokens, at)))
+    end
     put(out, ")")
     return out
   end
