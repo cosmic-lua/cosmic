@@ -522,7 +522,7 @@ local record Ctx
   mut written: Ast.Name?
   --- The name of the function of the string library each local that is given one and never assigned holds, by id.
   library: mut {integer: string}
-  --- Each `s:sub(...)` whose `s` is a string, by the call's id: its bounds bound what it answers ([`short_range`]).
+  --- Each `s:sub(...)` whose `s` is a string, by the call's id: its bounds bound what it answers ([`Operators.short_range`]).
   string_subs: mut {integer: boolean}
   --- The reads of `table.move` not yet taken as the callee of a call, by the id of the node ([`Writes.move_stray`]).
   moves: mut {integer: Ast.Node}
@@ -1236,22 +1236,22 @@ local function names_invalid(t: Type): boolean
   return false
 end
 
---- The tags of a type that `T?` writes plainly: no union, function or type variable, whose `?` would read otherwise.
-local PLAIN_TAGS <const>: {string: boolean} = {
-  integer = true, number = true, string = true, boolean = true, ["true"] = true, ["false"] = true, named = true,
-  array = true, map = true,
-}
-
 --- For `e` that names a local made by a `local` statement with a type that has no nil (a cursor made of a value, which
 --- runs out to nil later: `local p = 1`): the fix that declares it optional where it is made, so it may be nil. Nil for
 --- a parameter, a loop variable, a global, or a local whose type has nil or reads otherwise with `?`.
-local function optional_local(ctx: Ctx, e: Ast.Node): string?
+function Naming.optional_local(ctx: Ctx, e: Ast.Node): string?
   local at = peel(e)
   if not (at.kind == "Name") then return nil end
   local id = at.binding
   if id == nil then return nil end
   local v, t = ctx.scoped.vars[id], ctx.vars[id]
-  if v == nil or t == nil or v.kind ~= "local" or PLAIN_TAGS[t.tag] ~= true then return nil end
+  if v == nil or t == nil or v.kind ~= "local" then return nil end
+  -- A type that `T?` writes plainly: no union, function or type variable, whose `?` would read otherwise.
+  local tag = t.tag
+  if not (tag == "integer" or tag == "number" or tag == "string" or tag == "boolean" or tag == "true" or
+      tag == "false" or tag == "named" or tag == "array" or tag == "map") then
+    return nil
+  end
   local shown = Types.display(t, ctx.binders, ctx.fn_names)
   return "declare `" .. at.text .. "` `" .. shown .. "?` where it is declared (`local " .. at.text .. ": " .. shown ..
     "? = ...`), so it may be nil"
@@ -1305,7 +1305,7 @@ local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relat
     if got.tag == "nil" then
       -- A local made of a value and set to nil later (a cursor that runs out) is declared optional where it is made.
       local target = ctx.written
-      local cursor = if target ~= nil then optional_local(ctx, target) else nil end
+      local cursor = if target ~= nil then Naming.optional_local(ctx, target) else nil end
       report(ctx, "nil_not_allowed", node, "nil is given" .. where .. ", where " .. quoted(w) .. " is wanted",
         if cursor ~= nil then cursor .. ", or give a value" else
           "give a value, or declare what takes it `" .. w .. "?` (a parameter or field `name?: T`)" end, shown)
@@ -4967,16 +4967,16 @@ end
 
 --- For a test of a local against nil (`p ~= nil`) where the local's declared type has no nil: it is to be declared
 --- optional where it is made, as a cursor that runs out is (`local p: integer? = 1`). Nil for any other test.
-local function optional_fix(ctx: Ctx, node: Ast.Binary): string?
+function Operators.optional_fix(ctx: Ctx, node: Ast.Binary): string?
   local name, other = peel(node.left), peel(node.right)
   if (name.kind ~= "Name") then name, other = other, name end
   if not (other.kind == "Nil") then return nil end
-  local fix = optional_local(ctx, name)
+  local fix = Naming.optional_local(ctx, name)
   return if fix ~= nil then fix .. ", or remove the test" else nil end
 end
 
 --- The integer an integer literal or its negation (`-1`) writes, else nil.
-local function literal_integer(e: Ast.Node): integer?
+function Operators.literal_integer(e: Ast.Node): integer?
   local at = peel(e)
   if (at.kind == "Integer") then return at.value end
   if (at.kind == "Unary") and at.op == "-" then
@@ -4988,26 +4988,26 @@ end
 
 --- The bounds of `s:sub(i, j)` when both are literals of one sign (`sub(1, 19)`, `sub(-3)`), else 0, 0 (never a bound
 --- of one sign).
-local function literal_range(e: Ast.Node): integer, integer
+function Operators.literal_range(e: Ast.Node): integer, integer
   local at = peel(e)
   if not ((at.kind == "MethodCall") and at.name == "sub") or #at.args < 1 or #at.args > 2 then
     return 0, 0
   end
-  local i = literal_integer(assert(at.args[1]))
-  local j = if #at.args == 2 then literal_integer(assert(at.args[2])) else -1 end
+  local i = Operators.literal_integer(assert(at.args[1]))
+  local j = if #at.args == 2 then Operators.literal_integer(assert(at.args[2])) else -1 end
   if i == nil or j == nil or (i > 0) ~= (j > 0) or i == 0 or j == 0 then return 0, 0 end
   return i, j
 end
 
 --- `s:sub(1, 19) == "local function test_"`: a literal longer than the range is never what the range answers, which
 --- finds a miscounted prefix.
-local function short_range(ctx: Ctx, node: Ast.Binary)
+function Operators.short_range(ctx: Ctx, node: Ast.Binary)
   local range, literal = peel(node.left), peel(node.right)
   if not (literal.kind == "String") then range, literal = literal, range end
   if not (literal.kind == "String") or not (range.kind == "MethodCall") or ctx.string_subs[range.id] ~= true then
     return
   end
-  local i, j = literal_range(range)
+  local i, j = Operators.literal_range(range)
   if i == 0 then return end
   local most, n = math.max(0, j - i + 1), #literal.value
   if n <= most then return end
@@ -5028,10 +5028,10 @@ function Operators.equality(ctx: Ctx, node: Ast.Binary, left: Type, right: Type)
     report(ctx, "compare_disjoint", node, subject(ctx, node.left) .. " is " .. tq(ctx, left) .. " and " ..
         subject(ctx, node.right) .. " is " .. tq(ctx, right) .. ", which share no value: the test is never " ..
         (if node.op == "==" then "true" else "false" end),
-      optional_fix(ctx, node) or "compare values of one type, or remove the test",
+      Operators.optional_fix(ctx, node) or "compare values of one type, or remove the test",
       { show(ctx, left), show(ctx, right) })
   else
-    short_range(ctx, node)
+    Operators.short_range(ctx, node)
   end
 end
 
