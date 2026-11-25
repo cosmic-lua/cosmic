@@ -1746,7 +1746,9 @@ local function test_only_main_saves_and_only_the_queue_relays_to_main()
     local gated: mut {string: boolean} = {}
     for _, step in ipairs(job.steps) do
       local condition = step["if"] or ""
-      if condition:find(SAVES, 1, true) ~= nil and step.id ~= nil then
+      -- A step that runs off main too (`||`, as the verdicts' trim does in
+      -- the queue) holds no save that follows it.
+      if condition:find(SAVES, 1, true) ~= nil and condition:find("||", 1, true) == nil and step.id ~= nil then
         gated[assert(step.id)] = true
       end
       if (step.uses or ""):find("actions/cache/save@", 1, true) ~= nil then
@@ -1761,9 +1763,12 @@ local function test_only_main_saves_and_only_the_queue_relays_to_main()
         name .. "'s " .. tostring(step.name) .. " takes another run's artifact")
     end
   end
-  -- The verdicts' save holds the saves' condition itself: the queue trims them too, for the relay.
-  local save = step_named(job_of(ci.jobs, "platform").steps, "save test verdicts")
-  assert((save["if"] or ""):find(SAVES, 1, true) ~= nil, "the queue saves its verdicts: " .. tostring(save["if"]))
+  -- Each verdicts' save holds the saves' condition itself: the queue trims them too, for the
+  -- relay and the next try, and a save on a queue ref fails the run (`queue-ref`).
+  for _, name in ipairs({ "platform", "checked", "narrowing" }) do
+    local save = step_named(job_of(ci.jobs, name).steps, "save test verdicts")
+    assert((save["if"] or ""):find(SAVES, 1, true) ~= nil, name .. " saves its verdicts in the queue: " .. tostring(save["if"]))
+  end
 end
 
 --- A merge-queue run takes in what the last failed try of its pull
@@ -1788,7 +1793,8 @@ local function test_a_queue_try_stands_on_its_pull_requests_last_failed_try()
     assert(restore_at < find_at and find_at < download_at and download_at < taken_at and taken_at < suite_at and
         trim_at < upload_at, "the tried verdicts are taken in out of order")
     local env = map_of(find.env)
-    assert(find["if"] == "github.event_name == 'merge_group'" and find["continue-on-error"] == true and
+    -- On the runner's own shell: a leg's container takes in only some of the step's env.
+    assert(find["if"] == "github.event_name == 'merge_group'" and find["continue-on-error"] == true and find.shell == "sh" and
         env["ARTIFACT"] == name and env["HEAD_REF"] == "${{ github.event.merge_group.head_ref }}" and
         env["RUN_ID"] == "${{ github.run_id }}" and env["BASE_SHA"] == "${{ github.event.merge_group.base_sha }}" and
         env["SHA"] == "${{ github.sha }}" and env["GH_TOKEN"] == "${{ github.token }}" and
@@ -1802,6 +1808,8 @@ local function test_a_queue_try_stands_on_its_pull_requests_last_failed_try()
         with_of(download)["merge-multiple"] == true and param(download, "run-id") == "${{ steps.tried-run.outputs.run }}",
       "the tried verdicts' download")
     -- A failed try in the queue keeps only the rows it used, as a passing one does.
+    assert(trim["if"] == "always() && steps.driver.outcome == 'success' && " ..
+        "(env.COSMIC_CI_SAVES == 'true' || github.event_name == 'merge_group')", job_name .. "'s trim: " .. tostring(trim["if"]))
     assert((trim.run or ""):find("(job.status == 'success' || github.event_name == 'merge_group') && " ..
         "steps.names.outputs.since || 'whole'", 1, true) ~= nil, "a failed try uploads the rows it restored")
     assert(taken["if"] == "steps.tried-download.outcome == 'success'" and taken["continue-on-error"] == true and
@@ -1809,7 +1817,8 @@ local function test_a_queue_try_stands_on_its_pull_requests_last_failed_try()
       "the tried verdicts are taken in otherwise")
     assert(upload["if"] == "always() && github.event_name == 'merge_group' && job.status == 'failure' && " ..
         "steps.verdicts-trim.outputs.digest != ''" and upload["continue-on-error"] == true and
-        param(upload, "name") == name and param(upload, "path") == "${{ runner.temp }}/verdicts/*.db",
+        param(upload, "name") == name and param(upload, "path") == "${{ runner.temp }}/verdicts/*.db" and
+        with_of(upload)["retention-days"] == 1,
       "the tried verdicts' upload: " .. tostring(upload["if"]))
     assert(map_of(job_of(ci_workflow().jobs, job_name).permissions)["actions"] == "read", job_name .. " cannot read the runs")
   end
