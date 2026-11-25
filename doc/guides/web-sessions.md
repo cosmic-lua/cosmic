@@ -165,8 +165,8 @@ local function store(): (Session.Store?, string)
     if db == nil then return nil, why.message end
     return SessionSqlite.store(db)
   end
-  local keys, why = Secret.keys_from_env("VISITS_KEYS")
-  if keys == nil then return nil, why end
+  local keys, trouble = Secret.keys_from_env("VISITS_KEYS")
+  if keys == nil then return nil, tostring(trouble) end
   return SessionCookie.store{ keys = keys }, ""
 end
 
@@ -223,7 +223,7 @@ end
 
 local function test_a_weak_key_is_refused()
   local ok, why = Secret.check("changeme")
-  assert(not ok and why:find("at least 32 bytes", 1, true) ~= nil)
+  assert(not ok and tostring(why):find("at least 32 bytes", 1, true) ~= nil)
   assert(#assert(Secret.parse_keys(Secret.generate() .. "," .. Secret.generate())) == 2)
 end
 

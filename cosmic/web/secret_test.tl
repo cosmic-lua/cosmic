@@ -1,44 +1,50 @@
 local Secret = require("cosmic.web.secret")
 
+--- Whether `key` passes [`Secret.check`].
+local function passes(key: string): boolean
+  local ok, _ = Secret.check(key)
+  return ok
+end
+
 local GOOD <const> = "k3Jf9Lq0Zx7Rw2Ub8Tn5Vc1Hd6Ym4Ga0Pe7Sx2Wq9Ac"
 
 local function test_check_refuses_short_keys_naming_the_length_not_the_key()
   local ok, why = Secret.check("hunter2-hunter2")
-  assert(not ok and why:find("15 bytes", 1, true) ~= nil, why)
-  assert(not why:find("hunter2", 1, true), "the key is not in the message")
-  assert(Secret.check(("x"):rep(31)) == false)
+  assert(not ok and tostring(why):find("15 bytes", 1, true) ~= nil, tostring(why))
+  assert(not tostring(why):find("hunter2", 1, true), "the key is not in the message")
+  assert(passes(("x"):rep(31)) == false)
 end
 
 local function test_check_refuses_low_variety_keys()
   local ok, why = Secret.check(("a"):rep(64))
-  assert(not ok and why:find("1 distinct", 1, true) ~= nil, why)
-  assert(Secret.check(("changeme"):rep(8)) == false, "7 distinct values")
-  assert(Secret.check(("0123456789"):rep(6) .. "0123") == true, "10 distinct values is the floor")
+  assert(not ok and tostring(why):find("1 distinct", 1, true) ~= nil, tostring(why))
+  assert(passes(("changeme"):rep(8)) == false, "7 distinct values")
+  assert(passes(("0123456789"):rep(6) .. "0123") == true, "10 distinct values is the floor")
 end
 
 --- A key is random text: a passphrase, which a signed cookie lets anyone
 --- guess offline, is refused, and the reason holds none of it.
 local function test_check_refuses_a_passphrase()
   local ok, why = Secret.check("correct horse battery staple and more")
-  assert(not ok and why:find("passphrase", 1, true) ~= nil, why)
-  assert(not why:find("horse", 1, true), "the key is not in the message")
-  assert(Secret.check("Tr0ub4dor&3-Tr0ub4dor&3-Tr0ub4dor&3") == false)
+  assert(not ok and tostring(why):find("passphrase", 1, true) ~= nil, tostring(why))
+  assert(not tostring(why):find("horse", 1, true), "the key is not in the message")
+  assert(passes("Tr0ub4dor&3-Tr0ub4dor&3-Tr0ub4dor&3") == false)
   for _, words in ipairs({ "correct-horse-battery-staple-and-more", "correct_horse_battery_staple_and_more",
       "correcthorsebatterystapleandmorewords" }) do
     ok, why = Secret.check(words)
-    assert(not ok and why:find("32 random bytes", 1, true) ~= nil, words .. ": " .. why)
+    assert(not ok and tostring(why):find("32 random bytes", 1, true) ~= nil, words .. ": " .. tostring(why))
   end
-  assert(Secret.check("BwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyAhIiMkJSY=") == true, "base64 of 32 bytes, padded")
-  assert(Secret.check("yMnKy8zNzs_Q0dLT1NXW19jZ2tvc3d7f4OHi4-Tl5uc") == true, "base64url of 32 bytes")
-  assert(Secret.check("BwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyAhIiMkJQ==") == false, "base64 of 31 bytes")
+  assert(passes("BwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyAhIiMkJSY=") == true, "base64 of 32 bytes, padded")
+  assert(passes("yMnKy8zNzs_Q0dLT1NXW19jZ2tvc3d7f4OHi4-Tl5uc") == true, "base64url of 32 bytes")
+  assert(passes("BwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyAhIiMkJQ==") == false, "base64 of 31 bytes")
 end
 
 local function test_check_accepts_a_generated_key_and_generate_differs()
   local first, second = Secret.generate(), Secret.generate()
   assert(#first == 64 and first:match("^%x+$") ~= nil)
   assert(first ~= second)
-  assert(Secret.check(first))
-  assert(Secret.check(GOOD))
+  assert(passes(first))
+  assert(passes(GOOD))
 end
 
 local function test_parse_keys_splits_trims_and_orders_newest_first()
@@ -49,16 +55,16 @@ end
 
 local function test_parse_keys_refuses_an_empty_weak_or_surplus_entry()
   local keys, why = Secret.parse_keys(GOOD .. ",,", "KEYS")
-  assert(keys == nil and why:find("entry 2 of KEYS", 1, true) ~= nil, why)
+  assert(keys == nil and tostring(why):find("entry 2 of KEYS", 1, true) ~= nil, tostring(why))
   keys, why = Secret.parse_keys(GOOD .. ",short", "KEYS")
-  assert(keys == nil and why:find("entry 2", 1, true) ~= nil and not why:find("short,", 1, true), why)
+  assert(keys == nil and tostring(why):find("entry 2", 1, true) ~= nil and not tostring(why):find("short,", 1, true), tostring(why))
   local six: mut {string} = {}
   for i = 1, 6 do six[i] = Secret.generate() end
   keys, why = Secret.parse_keys(table.concat(six, ","))
-  assert(keys == nil and why:find("at most 5", 1, true) ~= nil, why)
+  assert(keys == nil and tostring(why):find("at most 5", 1, true) ~= nil, tostring(why))
 end
 
 local function test_keys_from_env_names_an_unset_variable_and_has_no_default()
   local keys, why = Secret.keys_from_env("COSMIC_WEB_SECRET_TEST_UNSET")
-  assert(keys == nil and why:find("COSMIC_WEB_SECRET_TEST_UNSET is not set", 1, true) ~= nil, why)
+  assert(keys == nil and tostring(why):find("COSMIC_WEB_SECRET_TEST_UNSET is not set", 1, true) ~= nil, tostring(why))
 end
