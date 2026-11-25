@@ -603,11 +603,11 @@ end
 --- or nil and why it holds none.
 local function database_of(zip: string): string?, string
   local reader, why = Zip.open_string(zip)
-  if reader == nil then return nil, why end
+  if reader == nil then return nil, tostring(why) end
   local listed, list_why = reader:entries()
   if listed == nil then
     local _, _ = reader:close()
-    return nil, list_why
+    return nil, tostring(list_why)
   end
   local found: string? = nil
   local trouble = "no operations.db"
@@ -615,7 +615,7 @@ local function database_of(zip: string): string?, string
     if entry.path == "operations.db" and entry.kind == "file" then
       local stream, opened = entry:open()
       if stream == nil then
-        trouble = opened
+        trouble = tostring(opened)
       else
         local bytes, read_trouble = Stream.read_all(stream)
         if bytes == nil then trouble = tostring(read_trouble) else found = bytes end

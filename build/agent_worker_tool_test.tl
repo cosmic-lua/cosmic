@@ -6,7 +6,6 @@ local Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 local Host = require("cosmic.agent.host")
 local Json = require("cosmic.json")
-local Poll = require("cosmic.poll")
 local Sessions = require("cosmic.agent.sessions")
 local Test = require("cosmic.test")
 local Tools = require("cosmic.agent.tools")
@@ -260,13 +259,13 @@ local function test_calls_from_a_snippets_tasks_are_served_at_once()
       -- Calls served one at a time would leave this one alone here until its deadline.
       local deadline = Clock.monotonic_ns() + Clock.seconds(20)
       while most_held < 4 and Clock.monotonic_ns() < deadline do
-        -- A cancelled task's delay returns at once: stop, rather than spin to the deadline.
-        local slept, _ = Poll.delay(Clock.ms(10))
+        -- A cancelled task's sleep returns at once: stop, rather than spin to the deadline.
+        local slept, _ = Clock.sleep(Clock.ms(10))
         if not slept then break end
       end
       held = held - 1
     else
-      local _, _ = Poll.delay(Clock.ms(500))
+      local _, _ = Clock.sleep(Clock.ms(500))
     end
     if name == "fail" then return nil, Failure.new("refused " .. tostring(args)) end
     return "napped " .. tostring(args)
