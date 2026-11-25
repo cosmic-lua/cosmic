@@ -552,7 +552,17 @@ relay the next queue entry stood on main's last save, a commit or more
 behind, and ran its whole native suite where that commit moved a key. A
 row stands only for a test whose key is the same, so the relay decides how
 many tests stand, never whether one is right, and no step of it fails a
-job. The queue's format job, where its check passed, seals the memo of the
+job. No queue run saves a cache, but a queue ref's name comes again
+where a pull request is queued again on the same commit of main, and a
+run restores its own ref's caches before main's; a cache there was saved
+by code the queue ran, perhaps an earlier head that never merged, whose
+archive a restore extracts over the checkout. So every job that restores
+a cache waits on the `queue-ref` job, which restores none and fails a
+queue run whose ref holds one (`driver.tl queue-ref-caches`), and the
+`ci` gate lists them again once every job has run, for a cache written
+while the run ran. A cache GitHub evicted before the second listing goes
+unseen.
+The queue's format job, where its check passed, seals the memo of the
 tree checks (the shared rows of `build/check_memo.tl`, in the cache
 directory: `driver.tl checks-seal` keeps the rows the run used, in one
 file with no write-ahead log) and uploads it (`queue-checks-linux-x86_64`);

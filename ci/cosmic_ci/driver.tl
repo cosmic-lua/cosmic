@@ -119,6 +119,8 @@ local commands: {string:Command} = {
     usage = "PATH [SINCE]", handler = ChecksSeal.command },
   ["queue-run"] = { about = "name the merge-queue run that tested SHA and uploaded ARTIFACT, the verdicts main's push takes",
     usage = "", handler = QueueVerdicts.find_command },
+  ["queue-ref-caches"] = { about = "fail a merge-queue run whose own ref, GITHUB_REF, holds a cache, which only code it ran could have saved",
+    usage = "", handler = QueueVerdicts.ref_caches_command },
   ["verdicts-merge"] = { about = "merge the verdicts in FROM, the merge queue's, into those restored",
     usage = "FROM", handler = QueueVerdicts.merge_command },
   ["verdicts-name"] = { about = "write VERDICTS, the verdict cache the queue's verdicts in DIR belong in, beside them",

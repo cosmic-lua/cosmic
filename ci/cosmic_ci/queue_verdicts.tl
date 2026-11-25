@@ -33,6 +33,11 @@ local record QueueVerdicts
     out: string
     err: string
   end
+  --- A merge-queue entry, named by its ref ([`QueueVerdicts.entry_of`]).
+  record Entry
+    pr: string
+    on: string
+  end
 end
 
 --- How long one lookup may take, in seconds.
@@ -158,6 +163,35 @@ end
 function QueueVerdicts.find_command(_argv: {string}): integer
   local env = Env.all()
   return QueueVerdicts.find(env, Github.live(env))
+end
+
+--- The entry a merge-queue ref, `refs/heads/gh-readonly-queue/<base>/pr-<n>-<sha>`
+--- or its branch alone, is of: `pr`, the pull request's number as text,
+--- and `on`, `<sha>`, the commit the entry was put on (main's, or the
+--- entry's ahead of it); nil for any other ref.
+function QueueVerdicts.entry_of(ref: string): QueueVerdicts.Entry?
+  local branch = ref:match("^refs/heads/(.*)$") or ref
+  local pr, on = branch:match("^gh%-readonly%-queue/[%w._/-]-/pr%-(%d+)%-(%x+)$")
+  if pr == nil or on == nil or not Github.is_commit(on) then return nil end
+  return { pr = pr, on = on }
+end
+
+--- What a listing of caches is read for.
+local record CacheList
+  total_count?: any
+end
+local CACHE_LIST <const> = Shape.record_of("CacheList")
+
+--- How many caches `ref` holds in `repository`; nil where GitHub does
+--- not say.
+local function caches_of(host: Github.Host, repository: string, ref: string): integer?
+  local pages = Github.ask(host, "repos/" .. repository .. "/actions/caches?ref=" .. ref .. "&per_page=1", false,
+    LOOKUP_SECONDS)
+  local listed, _ = CACHE_LIST:decode_into((pages or {})[1] or "")
+  if listed == nil then return nil end
+  local total = listed.total_count
+  if total is integer then return total end
+  return nil
 end
 
 --- `name` quoted as an SQL identifier.
@@ -379,6 +413,47 @@ end
 function QueueVerdicts.key_command(argv: {string}): integer
   local env = Env.all()
   return QueueVerdicts.key(argv[1] or ".", argv[2] or "", Github.live(env))
+end
+
+--- `driver.tl queue-ref-caches`: fails a merge-queue run whose own ref,
+--- GITHUB_REF in GITHUB_REPOSITORY, holds a cache. No queue run saves one
+--- (only main's push and scheduled runs do), but a queue ref's name comes
+--- again where the same pull request is queued again on the same commit
+--- of main, and a run restores its own ref's caches before main's. So a
+--- cache there was saved by code the queue ran, perhaps an earlier head
+--- that never merged, which chose what its archive holds, and a restore
+--- extracts that over the job's checkout. ci.yml's `queue-ref` job runs
+--- this and restores nothing, and every job that restores a cache waits
+--- on it, and the `ci` gate runs it again once every job has run. 1
+--- where the ref holds one or GitHub does not say, 2 where the step names
+--- no queue ref or repository, else 0.
+function QueueVerdicts.ref_caches(env: {string:string}, host: Github.Host): integer
+  local ref, repository = env["GITHUB_REF"] or "", env["GITHUB_REPOSITORY"] or ""
+  if QueueVerdicts.entry_of(ref) == nil or not ref:match("^refs/heads/") or
+      not repository:match("^[%w._-]+/[%w._-]+$") then
+    local _, _ = Fs.put(Fs.stderr, "queue-ref-caches: GITHUB_REF and GITHUB_REPOSITORY must name a merge-queue ref " ..
+        "and a repository\n")
+    return 2
+  end
+  local count = caches_of(host, repository, ref)
+  if count == nil then
+    local _, _ = Fs.put(Fs.stderr, "queue-ref-caches: GitHub did not say which caches " .. ref ..
+        " holds; this run stands on none it cannot vouch for\n")
+    return 1
+  end
+  if count > 0 then
+    local _, _ = Fs.put(Fs.stderr, "queue-ref-caches: " .. ref .. " holds " .. Plural.count(count, "cache") ..
+        ", which no merge-queue run saves: a run of this ref saved it, so this run takes none of its caches; " ..
+        "delete them (gh cache delete --ref " .. ref .. " --all) and queue the pull request again\n")
+    return 1
+  end
+  host.print("queue-ref-caches: " .. ref .. " holds no cache of its own")
+  return 0
+end
+
+function QueueVerdicts.ref_caches_command(_argv: {string}): integer
+  local env = Env.all()
+  return QueueVerdicts.ref_caches(env, Github.live(env))
 end
 
 --- What main's branch is read for.

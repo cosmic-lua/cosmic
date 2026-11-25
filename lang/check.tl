@@ -2621,13 +2621,39 @@ function TableLiterals.literal_member(ctx: Ctx, e: Ast.Table, u: Union, written:
       end
     end
   end
+  -- A record told by being there: the one candidate that declares every field the literal names, where each
+  -- candidate is a record.
+  local every_record = true
+  for _, m in ipairs(candidates) do
+    every_record = every_record and (m.tag == "named") and not m.value and m.decl.kind == "record"
+  end
+  if every_record then
+    local declaring: mut {Type} = {}
+    for _, m in ipairs(candidates) do
+      if (m.tag == "named") then
+        local held = Declarations.names_held(ctx.store, ctx.judge, m.decl)
+        local all = true
+        for _, item in ipairs(e.items) do
+          local name = TableLiterals.item_name(item)
+          all = all and (name == nil or held[name] == true)
+        end
+        if all then
+          declaring[#declaring + 1] = m
+        end
+      end
+    end
+    if #declaring == 1 then
+      return declaring[1]
+    end
+  end
   local records = false
   for _, m in ipairs(candidates) do
     records = records or (m.tag == "named")
   end
   if records then
     report(ctx, "literal_ambiguous", e, "this literal could be any of " .. listed(type_names(ctx, candidates)),
-      "give the tag field of the member it is (`kind = \"...\"`), or type the literal first: `local v: Member = {...}`")
+      "give the tag field of the member it is (`kind = \"...\"`) or a field only that member declares, or type " ..
+        "the literal first: `local v: Member = {...}`")
   elseif shape == "empty" then
     local fix = "write an item, or type the literal as the one it is: `local v: " .. show(ctx, candidates[1]) .. " = {}`" -- checked: index_may_be_nil
     if (written.tag == "named") then
@@ -3948,8 +3974,9 @@ function Tests.table_members(ctx: Ctx, t: Type): {Type}?
 end
 
 --- How a run-time test tells that a value of type `value` is the record `r`: `{ "" }` where `r` is the one table `value`
---- may be, the tag field and its strings in `r` where a tag tells the tables apart, or nil where no test can tell (a
---- table of another kind, `any`, a type variable, a record with type arguments, which no tag tells).
+--- may be, the tag field and its strings in `r` where a tag tells the tables apart, the one field `r` alone has where
+--- that tells them ([`Tests.presence_field`]), or nil where no test can tell (a table of another kind, `any`, a type
+--- variable, a record with type arguments, which no tag tells).
 function Tests.record_tag(ctx: Ctx, value: Type, r: Type): {string}?
   if not ((r.tag == "named")) or r.value or #r.args > 0 then
     return nil
@@ -3968,8 +3995,12 @@ function Tests.record_tag(ctx: Ctx, value: Type, r: Type): {string}?
     return { "" }
   end
   local field = Tests.tag_field(ctx, tables)
-  local values = if field ~= nil then Tests.tag_values(ctx, r, field) else nil end
-  if field == nil or values == nil then
+  if field == nil then
+    local alone = Tests.presence_field(ctx, tables, r)
+    return if alone ~= nil then { alone } else nil end
+  end
+  local values = Tests.tag_values(ctx, r, field)
+  if values == nil then
     return nil
   end
   local out: mut {string} = { field }
@@ -3977,6 +4008,19 @@ function Tests.record_tag(ctx: Ctx, value: Type, r: Type): {string}?
     out[#out + 1] = v
   end
   return out
+end
+
+--- The field that tells the record `r` apart from the other records of `tables` by being there
+--- ([`Declarations.presence_field`]). Nil where a member of `tables` is not a record, or `r` has no such field.
+function Tests.presence_field(ctx: Ctx, tables: {Type}, r: Named): string?
+  local records: mut {Named} = {}
+  for _, m in ipairs(tables) do
+    if not ((m.tag == "named")) or m.value or m.decl.kind ~= "record" or m.decl.body == nil then
+      return nil
+    end
+    records[#records + 1] = m
+  end
+  return Declarations.presence_field(ctx.store, ctx.judge, records, r)
 end
 
 --- The field that tells the types of `list` apart: one every one declares with an enum, no value of which is in two of
