@@ -254,7 +254,7 @@ local hex_sha256 = hashing.hex_sha256
 
 --- Every verdict ever reached, by key.
 function test_key.known_verdicts(handle: Sqlite.Handle): {string:Verdict}?, string
-  local rows, trouble = handle:text_rows(
+  local rows, trouble = handle:rows(
     "SELECT key, passed, run_at_ns, elapsed_ns FROM verdicts")
   if rows == nil then
     return nil, tostring(trouble)
@@ -262,9 +262,9 @@ function test_key.known_verdicts(handle: Sqlite.Handle): {string:Verdict}?, stri
   local out: mut {string:Verdict} = {}
   for _, row in ipairs(rows) do
     out[row:text(1)] = {
-      passed = row:text(2) == "1",
-      run_at_ns = math.tointeger(tonumber(row:text(3)) or 0) or 0,
-      elapsed_ns = math.tointeger(tonumber(row:text(4)) or 0) or 0,
+      passed = row:integer(2) == 1,
+      run_at_ns = row:integer(3),
+      elapsed_ns = row:integer(4),
     }
   end
   return out, ""
@@ -304,13 +304,13 @@ local function binary_tables(): string?, string
     local databases = Store.databases()
     local binary = databases[#databases]
     if binary ~= nil then
-      local has_web, web_trouble = binary:text_rows(
+      local has_web, web_trouble = binary:rows(
         "SELECT 1 FROM sqlite_master WHERE name = 'web_assets'")
       if has_web == nil then
         looked.trouble = tostring(web_trouble)
       else
         -- A binary from before the table has no assets to key on.
-        local value, value_trouble = binary:text_rows(schema.tables_digest("", #has_web > 0))
+        local value, value_trouble = binary:rows(schema.tables_digest("", #has_web > 0))
         looked.value, looked.trouble = value, if value ~= nil then "" else tostring(value_trouble) end
       end
     end
@@ -499,7 +499,7 @@ end
 --- [`test_key.type_only_imports`] the erased ones, so the two cannot
 --- drift apart.
 local function import_edges(db: Sqlite.Handle, code: {string:string}): {Edge}?, string
-  local rows, rows_trouble = db:text_rows("SELECT path, requires FROM imports")
+  local rows, rows_trouble = db:rows("SELECT path, requires FROM imports")
   if rows == nil then return nil, tostring(rows_trouble) end
   local edges: mut {Edge} = {}
   for index, row in ipairs(rows) do
@@ -629,7 +629,7 @@ end
 --- `db` carries, or whose bytecode does not load, which the digests or
 --- the salt would otherwise leave out unnoticed.
 function test_key.harness(db: Sqlite.Handle): Harness?, string
-  local modules, trouble = db:text_rows(
+  local modules, trouble = db:rows(
     "SELECT path, source_hash FROM modules WHERE kind IN ('module', 'main')")
   if modules == nil then return nil, tostring(trouble) end
   -- The bytecode of a module, read when first asked for: the digests
@@ -652,12 +652,12 @@ function test_key.harness(db: Sqlite.Handle): Harness?, string
     end
     return code[name]
   end
-  local imported, imports_trouble = db:text_rows("SELECT path, requires FROM imports")
+  local imported, imports_trouble = db:rows("SELECT path, requires FROM imports")
   if imported == nil then return nil, tostring(imports_trouble) end
   local sources: mut {string:string} = {}
   local carried: mut {string:boolean} = {}
   for _, row in ipairs(modules) do
-    sources[row:text(1)] = row:text(2)
+    sources[row:text(1)] = row:bytes(2)
     carried[row:text(1)] = true
   end
   local imports: mut {string:mut {string}} = {}
@@ -734,7 +734,7 @@ local function stamped_harness(binary: Sqlite.Handle, spelled: string): Harness?
     names[#names + 1] = name
     each[name] = module_digest
   end
-  local modules, trouble = binary:text_rows(
+  local modules, trouble = binary:rows(
     "SELECT path FROM modules WHERE kind IN ('module', 'main')")
   if modules == nil then return nil, tostring(trouble) end
   local carried: mut {string:boolean} = {}
@@ -1026,11 +1026,11 @@ function test_key.extras_rows(db: Sqlite.Handle): {{string}}?, string
     "WHERE d.path = modules.path), '')"
   -- With its stub ([`sealed_fill`] carries it), where the program has
   -- them: a program from before `stubs` has no such table to read.
-  local rows, _ = db:text_rows(query ..
+  local rows, _ = db:rows(query ..
       ", coalesce((SELECT lower(hex(sha256(source))) FROM stubs s WHERE s.path = modules.path), '') " ..
       "FROM modules ORDER BY path")
   if rows == nil then
-    local plain, trouble = db:text_rows(query .. " FROM modules ORDER BY path")
+    local plain, trouble = db:rows(query .. " FROM modules ORDER BY path")
     if plain == nil then return nil, tostring(trouble) end
     rows = plain
   end
@@ -1703,7 +1703,7 @@ function test_key.sealed_stamps(sealed: Sqlite.Handle, program: Sqlite.Handle,
                                 stamped?: {string:string}): {{key: string, value: string}}
   local function walk(db: Sqlite.Handle, which: string): {string}?
     local names, _ = CodeWalk.reach(which, function(name: string): {string}?, string
-      local rows, trouble = db:text_rows("SELECT requires FROM imports WHERE path = ?1 ORDER BY requires",
+      local rows, trouble = db:rows("SELECT requires FROM imports WHERE path = ?1 ORDER BY requires",
         { { text = name } })
       if rows == nil then return nil, tostring(trouble) end
       local out: mut {string} = {}
@@ -1713,7 +1713,7 @@ function test_key.sealed_stamps(sealed: Sqlite.Handle, program: Sqlite.Handle,
     return names
   end
   local function source_hash(db: Sqlite.Handle, name: string): string?
-    local rows, _ = db:text_rows("SELECT lower(hex(source_hash)) FROM modules WHERE path = ?1 AND length(source) > 0",
+    local rows, _ = db:rows("SELECT lower(hex(source_hash)) FROM modules WHERE path = ?1 AND length(source) > 0",
       { { text = name } })
     local row = if rows ~= nil then rows[1] else nil end
     return if row ~= nil then row:text(1) else nil end
@@ -1791,13 +1791,13 @@ local function write_sealed(sealing: Sealing, store: string, whole: string, out:
       end
       -- A program from before `web_assets`, `stubs` or `places` has no such table to
       -- carry.
-      local held, held_trouble = db:text_rows(
+      local held, held_trouble = db:rows(
         "SELECT name FROM program.sqlite_master WHERE name IN ('web_assets', 'stubs', 'places')")
       if held == nil then return false, held_trouble end
       local absent: mut {string:boolean} = { web_assets = true, stubs = true, places = true }
       for _, row in ipairs(held) do absent[row:text(1)] = nil end
       -- A pure closure store leaves out the tables of text-derived rows ([`build.closure_store`]'s `write`).
-      local carried, carried_trouble = db:text_rows(
+      local carried, carried_trouble = db:rows(
         "SELECT name FROM closure.sqlite_master WHERE name = 'places'")
       if carried == nil then return false, carried_trouble end
       local left_out = #carried == 0
@@ -2246,7 +2246,7 @@ function test_key.gather(rec: Recording, from: Gather): string?
   local identity = from.identity
   local by_path: mut {string:Module} = {}
   for _, m in ipairs(from.modules) do by_path[m.path] = m end
-  local declaration_rows, declaration_trouble = records:text_rows(
+  local declaration_rows, declaration_trouble = records:rows(
     "SELECT path, file FROM inputs WHERE " .. analysis_schema.declaration("kind"))
   if declaration_rows == nil then return records_path .. ": " .. tostring(declaration_trouble) end
   local declarations: mut {string:string} = {}
@@ -2281,7 +2281,7 @@ function test_key.gather(rec: Recording, from: Gather): string?
   end
   -- What an earlier run hashed, so a key reads none of it again
   -- ([`build.declared_key`]).
-  local remembered, remembered_trouble = records:text_rows(
+  local remembered, remembered_trouble = records:rows(
     "SELECT path, signature, sha256 FROM digests")
   if remembered == nil then return records_path .. ": " .. tostring(remembered_trouble) end
   local earlier: mut {{string}} = {}

@@ -177,11 +177,12 @@ local function test_a_download_retries_a_429_then_writes_the_body(tmp: string)
   } })
   assert(ok, why)
   assert(assert(Fs.read(path)) == "the file")
-  local result = Http.download_result(url, tmp .. "/again", { timeout_ns = Clock.seconds(60), retry = { attempts = 2 }, script = {
-    reply(1, "503 Service Unavailable", "Retry-After: 0\r\n", "no"),
-    reply(2, "200 OK", "", "again"),
-  } })
-  assert(result.kind == "downloaded", result.reason)
+  local again, again_why = Http.download(url, tmp .. "/again", { timeout_ns = Clock.seconds(60), retry = { attempts = 2 },
+    script = {
+      reply(1, "503 Service Unavailable", "Retry-After: 0\r\n", "no"),
+      reply(2, "200 OK", "", "again"),
+    } })
+  assert(again, again_why)
   assert(assert(Fs.read(tmp .. "/again")) == "again")
 end
 
@@ -198,7 +199,7 @@ end
 --- (the 200 would write a file).
 local function test_a_cancelled_download_does_not_wait_or_retry(tmp: string)
   local began = Clock.monotonic_ns()
-  local result = Http.download_result(url, tmp .. "/got", { timeout_ns = Clock.seconds(60),
+  local ok, why = Http.download(url, tmp .. "/got", { timeout_ns = Clock.seconds(60),
     retry = { attempts = 2 },
     cancelled = function(): boolean return true end,
     script = {
@@ -207,7 +208,7 @@ local function test_a_cancelled_download_does_not_wait_or_retry(tmp: string)
     },
   })
   assert(Clock.monotonic_ns() - began < Clock.seconds(5), "the download waited")
-  assert(result.kind == "failed" and result.reason == "interrupted", result.reason)
+  assert(not ok and why.kind == "cancelled" and why.message == "interrupted", why)
   assert(not assert(Fs.status(tmp .. "/got")).exists, "the 200 was read")
 end
 
@@ -277,7 +278,6 @@ local function test_a_policy_of_the_wrong_shape_raises_naming_the_option(tmp: st
       get = function() local _, _ = Http.get(url, opts()) end,
       request = function() local _, _ = Http.request("PUT", url, opts()) end,
       download = function() local _, _ = Http.download(url, tmp .. "/never", opts()) end,
-      download_result = function() local _ = Http.download_result(url, tmp .. "/never", opts()) end,
     }
     for name, entry in pairs(entries) do
       local err = Test.raises(entry)
@@ -342,9 +342,6 @@ local function test_a_policy_of_the_wrong_lua_type_raises_naming_the_option(tmp:
       download = function(policy: Http.Retry)
         local _, _ = Http.download(url, tmp .. "/never", { timeout_ns = Clock.seconds(60), retry = policy, script = { reply(1, "200 OK", "") } })
       end,
-      download_result = function(policy: Http.Retry)
-        local _ = Http.download_result(url, tmp .. "/never", { timeout_ns = Clock.seconds(60), retry = policy, script = { reply(1, "200 OK", "") } })
-      end,
     }
     for name, entry in pairs(entries) do
       local err = raised_with(case.literal, entry)
@@ -371,9 +368,6 @@ local function test_a_retry_that_is_no_table_raises_naming_the_option(tmp: strin
       end,
       download = function(policy: Http.Retry)
         local _, _ = Http.download(url, tmp .. "/never", { timeout_ns = Clock.seconds(60), retry = policy, script = { reply(1, "200 OK", "") } })
-      end,
-      download_result = function(policy: Http.Retry)
-        local _ = Http.download_result(url, tmp .. "/never", { timeout_ns = Clock.seconds(60), retry = policy, script = { reply(1, "200 OK", "") } })
       end,
     }
     for name, entry in pairs(entries) do

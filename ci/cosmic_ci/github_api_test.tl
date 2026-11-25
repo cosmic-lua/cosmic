@@ -1,3 +1,4 @@
+local Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 local GithubApi = require("cosmic_ci.github_api")
 local Http = require("cosmic.http")
@@ -15,13 +16,6 @@ local record Tally
 end
 local record Flag
   mut value: boolean
-end
-
---- What a download returns, with the fields it leaves out said so.
-local function download_result(kind: Http.DownloadKind, reason: string,
-                               status: integer?): Http.DownloadResult
-  return { kind = kind, reason = reason, status = status, algorithm = nil,
-    expected = nil, actual = nil }
 end
 
 --- A release the API is asked to make.
@@ -47,7 +41,7 @@ local reply <const> = TestSupport.reply
 --- handshake), `script` replying to its calls in order; `sent` collects
 --- what each `send` wrote.
 local function live(script: {{string}}, env?: {string:string},
-                    download?: function(url: string, path: string, opts?: Http.Options): Http.DownloadResult): GithubApi.Client, {string}
+                    download?: function(url: string, path: string, opts?: Http.Options): (true) | (false, Failure)): GithubApi.Client, {string}
   local sent: mut {string} = {}
   local given: mut {string:string} = {}
   for name, value in pairs(env or {}) do given[name] = value end
@@ -141,17 +135,17 @@ local function test_a_body_is_sent_whole_with_its_content_type()
 end
 
 --- A download asks the API with the token, takes its redirect by hand and
---- fetches the redirect's URL, which [`Http.download_result`] is handed without
+--- fetches the redirect's URL, which [`Http.download`] is handed without
 --- one.
 local function test_a_download_fetches_the_redirect_without_the_token(tmp: string)
   local urls: mut {string} = {}
   local captured: Captured = {}
   local client, sent = live({ { reply("302 Found", "Location: https://blob.test/signed?sig=abc\r\n") }, {} }, nil,
-    function(url: string, path: string, opts?: Http.Options): Http.DownloadResult
+    function(url: string, path: string, opts?: Http.Options): (true) | (false, Failure)
       urls[#urls + 1] = url
       captured.options = opts
       assert(Fs.write(path, "zip bytes"))
-      return download_result("downloaded", "", nil)
+      return true
     end)
   local ok, why = GithubApi.download(client, "repos/o/r/actions/artifacts/7/zip", tmp .. "/a.zip")
   assert(ok, why)
@@ -175,9 +169,9 @@ local function test_a_download_refuses_a_location_that_is_not_https(tmp: string)
     { reply("302 Found", "Location: /relative\r\n") },
     { reply("302 Found", "") },
     { reply("200 OK", "", "inline") },
-  }, nil, function(_url: string, _path: string, _opts?: Http.Options): Http.DownloadResult
+  }, nil, function(_url: string, _path: string, _opts?: Http.Options): (true) | (false, Failure)
     fetched.value = true
-    return download_result("failed", "no network in this test", nil)
+    return false, Failure.new("no network in this test")
   end)
   for i = 1, 4 do
     local ok, why = GithubApi.download(client, "repos/o/r/z" .. tostring(i), tmp .. "/z")
@@ -197,8 +191,8 @@ local function test_a_download_reports_the_apis_refusal_and_the_fetchs_failure(t
   local failing = assert(GithubApi.live({ GH_TOKEN = token, GITHUB_API_URL = "http://api.test" },
     { script = { { reply("302 Found", "Location: https://blob.test/signed?sig=abc\r\n") },
       { reply("403 Forbidden", "", "expired") } },
-      download = function(_url: string, _path: string, _opts?: Http.Options): Http.DownloadResult
-        return download_result("http_status", "", 403)
+      download = function(_url: string, _path: string, _opts?: Http.Options): (true) | (false, Failure)
+        return false, Failure.coded("https://blob.test/signed?sig=abc: HTTP 403", 403)
       end }))
   ok, why = GithubApi.download(failing, "repos/o/r/artifacts/3/zip", tmp .. "/z")
   -- The signed URL stays out of the message.
@@ -276,9 +270,9 @@ end
 
 local function test_a_download_asks_for_the_bytes_where_told_to(tmp: string)
   local client, sent = live({ { reply("302 Found", "Location: https://blob.test/signed\r\n") }, {} }, nil,
-    function(_url: string, path: string, _opts?: Http.Options): Http.DownloadResult
+    function(_url: string, path: string, _opts?: Http.Options): (true) | (false, Failure)
       assert(Fs.write(path, "asset bytes"))
-      return download_result("downloaded", "", nil)
+      return true
     end)
   local ok, why = GithubApi.download(client, "repos/o/r/releases/assets/5", tmp .. "/a", "application/octet-stream")
   assert(ok, why)
