@@ -370,7 +370,7 @@ local function test_database_sets_the_policys_database(tmp: string)
 end
 
 --- `--database -` keeps standard input in a file of the run's own, which the policy names and the run's
---- end removes; a read that fails is a start that failed.
+--- end removes; a read that fails is refused.
 local function test_database_dash_reads_standard_input()
   local ran = run({ "--database", "-", "--", "prog", "a" }, { result = finished(0), stdin = "sealed\n" })
   assert(ran.code == 0 and ran.err == "", ran.err)
@@ -379,7 +379,7 @@ local function test_database_dash_reads_standard_input()
   assert(not assert(Fs.status(path)).exists, path .. " is left after the run")
   same(ran.argv, { "prog", "a" })
   local failed = run({ "--database", "-", "--", "prog" })
-  assert(failed.code == 125 and failed.err:find("--database -: no standard input given", 1, true) ~= nil,
+  assert(failed.code == 2 and failed.err:find("--database -: no standard input given", 1, true) ~= nil,
     tostring(failed.code) .. failed.err)
   assert(failed.argv == nil, "nothing starts")
 end

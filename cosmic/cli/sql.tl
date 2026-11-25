@@ -50,6 +50,8 @@
 --- its row count and its columns' declared types. `--db -` reads a
 --- database from standard input, kept in a file while the statement runs:
 --- `ssh host cat app.db | cosmic sql --db - 'SELECT count(*) FROM users'`.
+--- Only the file comes through the pipe: commits still in its `-wal` are
+--- not read.
 ---
 --- A CSV or TSV file (RFC 4180, with quotes) has a header line that names
 --- the columns, in order, and one row per record. A record with more or

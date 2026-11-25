@@ -31,7 +31,8 @@
 --- or the closure of the literal requires of a script, compiled here, in this unsealed process,
 --- by [`standalone.code`] (what a file run as `--standalone` is) and
 --- sealed as the main. A command line that names two of the three, a module no store holds (a script's
---- require of one included) or a `--database` that is not there is refused (2); a script that cannot be read or does
+--- require of one included), a `--database` that is not there, or a `--database -` with nothing piped
+--- in, is refused (2); a script that cannot be read or does
 --- not compile, or a seal that cannot be written, is a start that failed
 --- (125).
 ---
@@ -76,6 +77,7 @@ local Sandbox = require("cosmic.sandbox")
 local PolicyJson = require("cosmic.policy")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
+local Defer = require("cosmic.defer")
 local Compiled = require("cosmic.internal.compiled")
 local Globals = require("cosmic.internal.globals")
 local bare = require("build.bare")
@@ -476,13 +478,16 @@ end
 --- run's own ([`scratch`]) that the program's user can read.
 local function spooled(read: function(): string?, string, held: mut {string}): Sealing
   local bytes, why = read()
-  if bytes == nil then return { why = "--database -: " .. why, refused = false } end
+  -- A terminal, or nothing piped in, is the command line's to fix.
+  if bytes == nil then return { why = "--database -: " .. why, refused = true } end
   local dir, dir_why = scratch(held)
   if dir == nil then return { why = dir_why, refused = false } end
   local path = dir .. "/program.db"
-  -- 0644, in decimal: the program's user reads it.
-  local wrote, write_why = Fs.write(path, bytes, 4 * 64 + 4 * 8 + 4)
+  local wrote, write_why = Fs.write(path, bytes)
   if not wrote then return { why = tostring(write_why), refused = false } end
+  -- 0644, in decimal, whatever the umask: the program's user reads it.
+  local readable, readable_why = sys.chmod(path, 4 * 64 + 4 * 8 + 4)
+  if not readable then return { why = path .. ": " .. tostring(readable_why), refused = false } end
   return { path = path, why = "", refused = false }
 end
 
@@ -766,12 +771,11 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   -- The directory a sealed database was written in, removed whatever the
   -- run's end.
   local held: mut {string} = {}
-  local status = execute(argv, io, held)
-  local dir = held[1]
-  if dir ~= nil then
-    local _, _ = Fs.remove_tree(dir)
-  end
-  return status
+  local _ <close> = Defer.new(function()
+    local dir = held[1]
+    if dir ~= nil then local _, _ = Fs.remove_tree(dir) end
+  end)
+  return execute(argv, io, held)
 end
 
 verb.spec = {
