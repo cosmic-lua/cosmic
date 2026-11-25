@@ -1392,7 +1392,12 @@ show = function(t: Type, names: Names, parenthesized: boolean): string
 end
 
 function Types.display(t: Type, binders?: {{string}}, fns?: {integer: {string}}, params?: {string}): string
-  local names: Names = { binders = {}, budget = DISPLAY_BUDGET, root = t, fns = fns, params = params } -- checked: literal_missing
+  -- The names belong to the function an optional type holds.
+  local root = t
+  if t.tag == "union" and t.nilable and #t.members == 1 then
+    root = t.members[1]
+  end
+  local names: Names = { binders = {}, budget = DISPLAY_BUDGET, root = root, fns = fns, params = params } -- checked: literal_missing
   for _, b in ipairs(binders or {}) do
     names.binders[#names.binders + 1] = b
   end

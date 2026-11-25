@@ -2436,8 +2436,11 @@ end
 --- Makes a policy's start: merges it, refuses what is not yet available
 --- and a program its grants do not let start, then builds the
 --- environment, the limits, what isolates it and, for `tmp`, the
---- directory. Nil and why when it cannot. It acquires nothing: `tmp`'s
---- directory is [`make_tmp`]'s.
+--- directory. Nil and why when it cannot. It holds nothing open past its
+--- return and makes no directory of the child's: `tmp`'s is [`make_tmp`]'s.
+--- For a cosmic child of a root caller it copies this program's core into
+--- the shared directory it is run from, where none is there yet
+--- ([`shared_core`]).
 local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, online: boolean): Held?, string
   local joined, why = Rules.union(policy)
   if joined == nil then return nil, why end
@@ -3466,6 +3469,112 @@ function Child.start(argv: {string}, opts: Options): (Handle) | (nil, Failure)
   local started, why = start(argv, opts)
   if started == nil then return nil, failure_of(why) end
   return started
+end
+
+--- Each promise and socket family by its name, as spawn takes them.
+local PROMISE_OF <const>: {string:Rules.Promise} = { fork = "fork", jit = "jit", fattr = "fattr", nest = "nest" }
+local SOCKET_OF <const>: {string:Rules.Socket} = { unix = "unix", inet = "inet" }
+
+--- How [`Child.layers`] names the directory `tmp` makes at the start, which
+--- it has not made.
+local TMP_MADE <const> = "(the directory tmp makes at the start, named by TMPDIR)"
+
+--- Spawn's grants as a policy's paths.
+local function paths_of(grants?: {raw_process.Grant}): mut {Rules.Path}
+  local out: mut {Rules.Path} = {}
+  for _, grant in ipairs(grants or {}) do
+    out[#out + 1] = { path = grant.path, letters = grant.access }
+  end
+  return out
+end
+
+--- The kernel layers [`Child.start`] of `argv` under `opts.policy` would
+--- hold the child to, read from the very plan the start hands its spawn,
+--- with nothing started ([`Sandbox.Layers`]): the Landlock ruleset with
+--- the start's own `rx` grants, the second one a cosmic child's core
+--- applies at boot, the seccomp groups, whether execve is refused, the
+--- socket families, the namespaces and root of its own, the relay's hosts,
+--- the declared loopback addresses and the rlimits. The directory `tmp`
+--- makes is named by what it will be, since none is made here.
+---
+--- It checks what a start checks of the policy and the program, and does
+--- what a start does to plan: it asks tailscaled for a tailnet target's
+--- nodes, and for a cosmic child of a root caller it copies this program's
+--- core into the shared directory a start runs it from, as a start would.
+--- It does not check what a start checks at the spawn itself: the
+--- descriptors handed over (`fds`, a terminal, `nest`'s rules for them),
+--- the relay's own start, and whether the kernel has Landlock and
+--- namespaces at all. So a start may still fail where this answers. Nil
+--- and why for a start refused by the plan, for no policy, and on macOS,
+--- where a Seatbelt profile holds the child instead.
+function Child.layers(argv: {string}, opts: Options): Rules.Layers?, string
+  validate(argv, opts)
+  local policy = opts.policy
+  if policy == nil then return nil, "child: layers: a start with no policy is held by no layer" end
+  if holds_by_seatbelt() then
+    return nil, "child: layers: on macOS a Seatbelt profile holds the child, not Landlock and seccomp"
+  end
+  local held, why = held_to(argv, opts, policy, false)
+  if held == nil then return nil, "child: layers: " .. why end
+  local merged, merge_why = Rules.union(policy)
+  if merged == nil then return nil, "child: layers: " .. merge_why end
+  local sandbox = held.sandbox
+  local landlock = paths_of(sandbox.grants)
+  local boot = paths_of(held.layer)
+  -- The directory `tmp` makes outside `isolate` file, granted to both
+  -- rulesets at the start ([`make_tmp`]).
+  if held.wants_tmp then
+    local made: Rules.Path = { path = TMP_MADE, letters = "rwc" }
+    landlock[#landlock + 1] = made
+    if held.layer ~= nil then boot[#boot + 1] = made end
+  end
+  local unveiled = sandbox.unveil ~= nil or sandbox.proc == true
+  -- What a strict unveiled child's ruleset is given of its own in the
+  -- child (core/sandbox_root.c's `own_rules`): its procfs to read, and
+  -- the tmpfs `tmp` mounts at /tmp.
+  if sandbox.strict == true and unveiled then
+    local unveil = sandbox.unveil
+    local own_proc = sandbox.proc == true
+    if unveil ~= nil then
+      for _, read in ipairs(unveil.reads) do
+        if read == "/proc" then own_proc = true end
+      end
+    end
+    if own_proc then landlock[#landlock + 1] = { path = "/proc", letters = "r" } end
+    if unveil ~= nil and unveil.tmp ~= nil then
+      landlock[#landlock + 1] = { path = "/tmp", letters = if unveil.tmp_exec == true then "rwxc" else "rwc" end }
+    end
+  end
+  local last = if held.layer ~= nil then boot else landlock end
+  local runs = held.layer == nil
+  if not runs then
+    for _, grant in ipairs(last) do
+      if grant.letters:find("x", 1, true) ~= nil then runs = true end
+    end
+  end
+  local calls: mut {Rules.Promise} = {}
+  for _, name in ipairs(sandbox.promises or {}) do
+    local promise = PROMISE_OF[name]
+    if promise ~= nil then calls[#calls + 1] = promise end
+  end
+  local sockets: mut {Rules.Socket} = {}
+  for _, name in ipairs(sandbox.sockets or {}) do
+    local family = SOCKET_OF[name]
+    if family ~= nil then sockets[#sockets + 1] = family end
+  end
+  local namespaces: mut {Rules.Namespace} = {}
+  if unveiled then namespaces = { "user", "pid", "mount", "ipc" } end
+  if sandbox.offline == true then
+    if not unveiled then namespaces[#namespaces + 1] = "user" end
+    namespaces[#namespaces + 1] = "net"
+  end
+  local rlimits: mut {string:integer} = {}
+  for name, value in pairs(sandbox.rlimits or {}) do rlimits[name] = value end
+  return {
+    landlock = landlock, boot = boot, calls = calls, exec_refused = not runs,
+    sockets = sockets, namespaces = namespaces, root = sandbox.unveil ~= nil, relay = held.relay or {},
+    loopback = merged.loopback or {}, rlimits = rlimits,
+  }, ""
 end
 
 --- The two ends of a pty [`Child.start_on_pty`] has opened, closed when

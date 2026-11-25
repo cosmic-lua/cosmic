@@ -95,12 +95,12 @@ local function test_the_json_readers_and_paths_answer_what_they_declare()
       local reader = Json.reader(Stream.from_string(text))
       for _ = 1, 40 do
         local token, _ = reader:next()
-        if token == nil then break end
+        if token == nil or token == false then break end
       end
       local json5 = Json.reader(Stream.from_string(text), { json5 = true })
       for _ = 1, 40 do
         local token, _ = json5:next()
-        if token == nil then break end
+        if token == nil or token == false then break end
       end
     end
     local value = { a = { 1, 2, { b = true } } } -- checked: arms_differ

@@ -1,193 +1,123 @@
 # Iterating on cosmic
 
-The operating guide every agent session loads. Detail lives in
-[`doc/testing.md`] (tests), [`doc/writing.md`] (prose, comments, TODOs),
-[`doc/c.md`] (the core's C), [`doc/contributing.md`] (the pull request) and
-[`doc/decisions/`] (decisions, including how friction reports are triaged:
+The operating guide every agent session loads, cosmic agent's too, on every
+request: keep it short. Detail lives in [`doc/contributing.md`] (the pull
+request, the checks a change needs, the pin), [`doc/testing.md`] (tests),
+[`doc/writing.md`] (prose, comments, TODOs), [`doc/c.md`] (the core's C),
+[`doc/design.md`] (the build) and [`doc/decisions/`] (decisions, including
 [`doc/decisions/0001-friction-triage.md`]).
 
 ## ground rules
 
-- Use [`bin/zig`], the repository's pinned compiler, never a system Zig.
-- Use a separate worktree for each independent fix. Check
-  `git status --short` before building or switching branches: untracked
-  test files can enter a build.
-- Keep `vendor/` unedited. Express a vendor change as a record under
-  `patch/`. [`bin/vendor`] refetches a tree from its PIN and keeps only
-  what the build reads.
-- Workflows and the local actions under `.github/actions/` are YAML in
-  flow style, in the subset [`build/workflows_test.tl`] holds them to,
-  laid out as `bin/cosmic fix` writes them ([`build/flow.tl`]). After a
-  change under `.github/`, run `bin/cosmic fix` and
-  `bin/cosmic test build/workflows_test.tl`. A step's script longer than
-  a line or two lives under `.github/scripts/`. A job gets the pinned CI
-  driver on its PATH with `uses: ./.github/actions/cosmic-driver`.
+- Use [`bin/zig`], the pinned compiler, never a system Zig.
+- Use a worktree for each independent fix. Check `git status --short`
+  before building or switching branches: untracked test files can enter a
+  build.
+- Keep `vendor/` unedited: a vendor change is a record under `patch/`.
+  [`bin/vendor`] refetches a tree from its PIN.
+- Workflows and `.github/actions/` are flow-style YAML ([`build/flow.tl`]).
+  After a change under `.github/`, run `bin/cosmic fix` and
+  `bin/cosmic test build/workflows_test.tl`. A script longer than a line or
+  two lives under `.github/scripts/`; a job gets the pinned CI driver with
+  `uses: ./.github/actions/cosmic-driver`.
 - `ci/` is a tree of its own: after editing it, run `../bin/cosmic fix
-  --check` from `ci/`. Its code also runs on the pinned release
-  (ci/cosmic-driver.pin), whose checker is older: run
-  `../bin/cosmic-bootstrap fix --check .` from `ci/` too, with
-  COSMIC_BOOTSTRAP unset, which fetches and caches the pin.
-  [`doc/contributing.md`] says when to run [`ci/run-local`].
-- Run the tool only as [`bin/cosmic`], from any directory and with the
-  checkout at any path; never by its path in the build directory. It
-  passes its arguments and exit status through, and runs
-  `bin/zig build boot` first where there is no tool yet (with
-  `COSMIC_AUTO_BOOT=0` it refuses and exits 3). A tool is built from one
-  checkout's path and refuses another's ("this tool was built from
-  <path>; run bin/zig build boot"): a moved or copied checkout is booted
-  again.
+  --check` and `../bin/cosmic-bootstrap fix --check .` (the pinned
+  release's older checker, COSMIC_BOOTSTRAP unset) from `ci/`.
+- Run the tool only as [`bin/cosmic`], from any directory; never by its
+  path in the build directory. Where there is no tool, it boots first
+  (`COSMIC_AUTO_BOOT=0`, which CI sets, refuses, exit 3). A moved or copied checkout is
+  booted again.
 
 ## the build directory
 
-Every build of a project (databases, rebuild lock, cores, executables)
-goes in its build directory, outside the checkout, one per worktree.
-[`build/paths.tl`] names it and holds the rules and what it refuses;
-`COSMIC_BUILD_HOME=/absolute/path` moves it. Nothing falls back to `o/`: a
-checkout's `o/` is stale, never read, and may be deleted. Delete a
-worktree's build directory when you delete the worktree.
+Each worktree builds into its own directory outside the checkout
+([`build/paths.tl`]; `COSMIC_BUILD_HOME=/absolute/path` moves it). A
+checkout's `o/` is stale and never read. Delete a worktree's build
+directory with the worktree.
 
 ## the loop
 
-1. Run `bin/zig build boot` in a fresh worktree (2 to 6 minutes cold).
-   It builds the host's core and stages the tree into the build
-   directory's `build.db`, the working database every later build reads. Where the tree's C is
-   that of the pinned release or of the repository's newest one, it takes
-   that release's core and fetches no zig ([`build/seeded_boot.tl`], which
-   says so; `COSMIC_BOOT_SEED=0` builds the core, `pin` takes the pinned
-   release alone and asks the network nothing). Copying an existing cosmic
-   executable is not a substitute. The tool it writes carries the host's
-   core alone, a placeholder script standing where each other core goes,
-   which is all `cosmic test`, `fix`, `docs` and the other verbs need; it
-   rebuilds and boots itself as the same kind. `bin/zig build boot
-   -Dboot-cores=all` builds every release core and writes the tool CI
-   verifies; run it before a change to the portable artifact, the
-   launcher or `cosmic build` ([`doc/contributing.md`]). CI names
-   `-Dboot-cores=all` itself ([`ci/cosmic_ci/orchestration.tl`]). What
-   needs another target's core on a host-only tool: `cosmic build` of a
-   portable program (`--host` needs none) runs that boot itself, once,
-   and goes on, the tool carrying every core from then on (with
-   `COSMIC_AUTO_BOOT=0` it refuses and names the boot); the tests of
-   one are reported skipped with `all_cores` named.
-2. Edit source and tests, then run `bin/cosmic fix <changed-paths>`. It
-   checks syntax and builds the tree as `cosmic test` does, so a type
-   error or a broken contract fails it, saying why. It writes a C file
-   back in Lua's own layout ([`doc/c.md`]) and a Teal file in the layout of
-   [`build.fix.format`]. It rewrites the layout of every Teal file it is
-   given, so run it on the files you changed and commit what it wrote. A
-   file it refuses (a syntax error, or a layout that is not the same file) is
-   left as it is, with the reason. `fix --check` fails on a Teal file that is
-   not laid out and on one it refuses. A run over some paths of cosmic's
-   own tree also makes the cheap checks of the tree (doc references, the public docs,
-   rendered docs and plurals of the Teal files named, their markers' ceilings), and in `ci/` the plurals.
-   The rest of the checks, which only the whole tree can make ([`build/tree_checks/`]), run in `bin/cosmic fix --check .`,
-   as CI runs it, which also refuses a tree that does not build: run it
-   before pushing a change to what they read.
-3. A tool older than the tree rebuilds itself and re-enters the command
-   the moment it notices, so `bin/cosmic test` after an edit is enough (it
-   says why and how long: `cosmic: rebuilt the tool in 20.3 s`). A
-   change to the core's C, `build.zig`, the launcher or artifact format,
-   or a vendored library's pin or patches runs `bin/zig build boot` first.
-   With `COSMIC_AUTO_BOOT=0` the tool refuses instead and exits 3 (CI sets
-   it). A boot that fails stops the command: check its exit status, do
-   not pipe it away.
-4. Run the tests of what you changed: `bin/cosmic test <their *_test.tl
-   files>`. Before pushing, run the full suite,
-   `timeout 2700 bin/cosmic test`: it takes about 8 minutes in a fresh
-   worktree, so a short `timeout` fails it ([`doc/testing.md`] has the
-   timings). It says `test: running n/m tests` as it goes.
-5. Commit, push and open the pull request as [`doc/contributing.md`]
-   says.
+1. `bin/zig build boot` in a fresh worktree (2 to 6 minutes cold). Before a
+   change to the artifact format, the launcher or `cosmic build`, boot
+   with `-Dboot-cores=all` ([`doc/contributing.md`]).
+2. Edit, then `bin/cosmic fix <changed-paths>`: it checks and builds as
+   `cosmic test` does and rewrites the layout of the files it is given, so
+   commit what it wrote. Before pushing a change to what the tree checks
+   read, run `bin/cosmic fix --check .`, as CI does: only the whole tree
+   runs [`build/tree_checks/`].
+3. A tool older than the tree rebuilds itself when a verb runs (`fix`,
+   `test`, `docs` and the rest; not `--version`). A change to the core's C, `build.zig`, the launcher, the
+   artifact format or a vendored pin or patch boots first. A failed boot
+   stops the command: check its exit status, do not pipe it away.
+4. Test what you changed: `bin/cosmic test <their *_test.tl files>`.
+   Before pushing, the full suite: `timeout 2700 bin/cosmic test` (about 8
+   minutes fresh; [`doc/testing.md`] has timings).
+5. Commit, push and open the pull request as [`doc/contributing.md`] says.
 
-One `cosmic test` runs per checkout at a time, holding the build
-directory's `rebuild.lock` ([`build/rebuild_lock.tl`]), as do a rebuild
-and a boot. A run that finds it held says who holds it and waits, and a
-`timeout` counts the wait. The verbs that only read (`docs`, `uses`,
-`db`, `sql`, `todos`, `bom`, `help`, `lsp`) never wait for it: where one
-would have waited, it says so once and reads what is there, so
-`docs` after an edit shows the last build's text until that run ends.
+One `cosmic test`, rebuild or boot runs per checkout at a time; another
+waits, and a `timeout` counts the wait. Read-only verbs (`docs`, `uses`,
+`db`, `sql`, `todos`, `bom`, `help`, `lsp`) never wait: where the lock is
+held, they read the last build.
 
 Look things up with the tool, not grep: `bin/cosmic docs <symbol or
 words>`, `uses <symbol>`, `db`, `sql '<statement>'`, `todos <paths>`.
 
 ## held findings
 
-The checker still finds things in the tree that no rewrite has removed
-yet, and each is held where it occurs by a marker, a trailing comment
-such as `-- checked: map_field`, in place of a count in a shared file
-([`doc/contributing.md`], "markers only fall"). A finding with no marker
-fails; a new marker is refused against the merge base; a marker whose
-finding is gone is stale, and `bin/cosmic fix .` removes it. A change
-that removes findings runs `fix .` and commits what it wrote.
-The examples a reader copies hold theirs the same way: the marker is part
-of the text shown, and a guide's code block holds none, so a finding there
-fails, as does any finding in a file under `ci/testdata`, which holds none.
+Each checker finding not yet removed is held where it occurs by a trailing
+marker such as `-- checked: map_field` ([`doc/contributing.md`], "markers
+only fall"). A finding with no marker fails, and a new marker is refused.
+`bin/cosmic fix .` removes a stale marker: commit what it wrote. A guide's
+code block and `ci/testdata` hold no markers, so a finding there fails.
 
 ## tests
 
 [`doc/testing.md`] holds the rules. The ones an agent needs most:
 
-- A test is a top-level `local function test_*` in a `*_test.tl` file,
-  with no top-level `return`. Prefer small regression cases that fail for
-  the reported bug over assertions that pin incidental implementation.
-- A test declares what it reads in a top-level `Test.policy { ... }`
-  ([`Test.policy`]); an undeclared read fails sandboxed.
-- A test that cannot check its subject on this host declares `requires`
-  or calls `Test.skip(reason)`, never returns early.
-- A test calls `assert`, or its pass is listed as `NO ASSERT`.
-- A timeout is a failure to investigate; do not silently raise the limit.
-- A change to a harness module ([`build/harness_epoch.tl`] lists them)
-  moves every verdict key by itself; [`doc/testing.md`] says when `epoch`
-  still wants a bump.
+- A test is a top-level `local function test_*` in a `*_test.tl` file.
+  Prefer a small case that fails for the bug over pinning incidental
+  behavior.
+- A test declares what it reads in `Test.policy { ... }` ([`Test.policy`]).
+- A test that cannot check its subject here declares `requires` or calls
+  `Test.skip(reason)`; it never returns early.
+- A test asserts, or is listed as `NO ASSERT`.
+- A timeout is a failure to investigate, not a limit to raise.
 
 ## comments and TODOs
 
-Leave a `TODO:` the moment one is due, not at the end of the work: when a
-change settles for less than the right fix, or a gap is met and left
-alone. Name what it waits on. One that waits on the bootstrap pin says
-"once ci/cosmic-driver.pin names ...", word for word. List every `TODO:`
-the work adds in the summary and the PR description, from `bin/cosmic
-todos <changed-paths>`, never from memory. A comment says what the code
-cannot (a reason, an invariant, a contract, a hazard). [`doc/writing.md`]
-holds the standard for both, the TODO rules in
-[its own section](doc/writing.md#todo-comments).
+Write a `TODO:` the moment one is due (a lesser fix, or a gap left alone),
+naming what it waits on. One that waits on the pin says "once
+ci/cosmic-driver.pin names ...", word for word. List the TODOs the work
+adds in the summary and the PR description from `bin/cosmic todos <changed-paths>`. A
+comment says what the code cannot: a reason, an invariant, a hazard
+([`doc/writing.md`]).
 
 ## C
 
-The core's own C builds with warnings as errors, and `cosmic fix` holds it
-to the items marked (checked) in [`doc/c.md`]. Read that before writing C.
+The core's C builds with warnings as errors, held to the (checked) items
+of [`doc/c.md`]. Read it before writing C.
 
 ## bootstrap
 
-[`bin/zig`], [`bin/vendor`] and [`bin/verify-codesign`] run through
-[`bin/cosmic-bootstrap`] on the cosmic release [`ci/cosmic-driver.pin`]
-names, not on the tree, so what a change adds reaches them only once the
-pin moves. `COSMIC_BOOTSTRAP=<path>` makes them run another cosmic
-instead, such as the tree's own tool by its path in the build directory,
-which `bin/cosmic build` prints ([`bin/cosmic`] itself is refused). A
-change that moves the pin also takes up every `TODO:` the new release
-unblocks: `bin/cosmic todos '"cosmic-driver.pin"'` lists them, and
-[`doc/contributing.md`] has the procedure.
+[`bin/zig`], [`bin/vendor`] and [`bin/verify-codesign`] run on the release
+[`ci/cosmic-driver.pin`] names, not on the tree, so a change reaches them
+only once the pin moves (`COSMIC_BOOTSTRAP=<path>` runs another cosmic). A
+change that moves the pin takes up the TODOs it unblocks: `bin/cosmic todos
+'"cosmic-driver.pin"'` ([`doc/contributing.md`]).
 
-[`bin/cosmic-bootstrap`]: bin/cosmic-bootstrap
 [`bin/cosmic`]: bin/cosmic
 [`bin/vendor`]: bin/vendor
 [`bin/verify-codesign`]: bin/verify-codesign
 [`bin/zig`]: bin/zig
-[`build.fix.format`]: build/fix/format.tl
 [`build/flow.tl`]: build/flow.tl
-[`build/harness_epoch.tl`]: build/harness_epoch.tl
 [`build/paths.tl`]: build/paths.tl
-[`build/rebuild_lock.tl`]: build/rebuild_lock.tl
-[`build/seeded_boot.tl`]: build/seeded_boot.tl
 [`build/tree_checks/`]: build/tree_checks/init.tl
-[`build/workflows_test.tl`]: build/workflows_test.tl
 [`ci/cosmic-driver.pin`]: ci/cosmic-driver.pin
-[`ci/cosmic_ci/orchestration.tl`]: ci/cosmic_ci/orchestration.tl
-[`ci/run-local`]: ci/run-local
 [`doc/c.md`]: doc/c.md
 [`doc/contributing.md`]: doc/contributing.md
 [`doc/decisions/0001-friction-triage.md`]: doc/decisions/0001-friction-triage.md
 [`doc/decisions/`]: doc/decisions/README.md
+[`doc/design.md`]: doc/design.md
 [`doc/testing.md`]: doc/testing.md
 [`doc/writing.md`]: doc/writing.md
 [`Test.policy`]: cosmic/test.tl

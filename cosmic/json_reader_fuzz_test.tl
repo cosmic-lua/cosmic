@@ -12,6 +12,29 @@ local Fuzz = require("build.fuzz")
 local Json = require("cosmic.json")
 local ChunkedReader = require("build.chunked_reader_fixture")
 
+--- `r`'s next token, and ""; nil and "" at the end; nil and the text of the failure.
+local function next_text(r: Json.Reader): Json.Token?, string
+  local t, why = r:next()
+  if t == nil then return nil, tostring(why) end
+  if t == false then return nil, "" end
+  return t, ""
+end
+
+--- The kind of `r`'s next token, as [`next_text`] answers.
+local function peek_text(r: Json.Reader): Json.TokenKind?, string
+  local k, why = r:peek()
+  if k == nil then return nil, tostring(why) end
+  if k == false then return nil, "" end
+  return k, ""
+end
+
+--- `r`'s next value, and ""; nil and the text of the failure.
+local function value_text(r: Json.Reader): Json.Value?, string
+  local v, why = r:value()
+  if v == nil then return nil, tostring(why) end
+  return v, ""
+end
+
 --- Texts to mutate: every token and nesting the reader walks.
 local SAMPLES <const> = {
   '{"a": [1, 2.5, "x", true, false, null], "b": {"c": {}, "d": []}}',
@@ -114,8 +137,8 @@ local function token_lines(text: string, size: integer, opts: Json.ReaderOptions
     local out: mut {string} = {}
     while true do
       -- A caller that peeks before it reads gets the same tokens.
-      for _ = 1, peeks or 0 do r:peek() end
-      local t, why = r:next()
+      for _ = 1, peeks or 0 do peek_text(r) end
+      local t, why = next_text(r)
       if t == nil then
         lines, failure = table.concat(out, "\n"), why
         return
@@ -145,7 +168,7 @@ local function token_values(text: string, size: integer, opts: Json.ReaderOption
     end
   end
   while true do
-    local t, why = r:next()
+    local t, why = next_text(r)
     if t == nil then
       if why ~= "" then return nil, why end
       return values, ""
@@ -220,14 +243,14 @@ local function placed_after(text: string, size: integer, opts: Json.ReaderOption
   local r = Json.reader(ChunkedReader.chunked(stray, size), opts)
   local why: string
   repeat
-    local t, err = r:next()
+    local t, err = next_text(r)
     why = err
   until t == nil
   if why ~= want then return false, "by tokens: " .. why .. ", not " .. want end
   local v = Json.reader(ChunkedReader.chunked(stray, size), opts)
-  local _, verr = v:value()
+  local _, verr = value_text(v)
   if verr ~= "" then return false, "value: " .. verr end
-  local _, after = v:next()
+  local _, after = next_text(v)
   if after ~= want then return false, "after value: " .. after .. ", not " .. want end
   return true, ""
 end
@@ -267,10 +290,10 @@ local function holds(input: string): boolean, string
       return false, "the tokens built another value"
     end
     local r = Json.reader(ChunkedReader.chunked(text, size), opts)
-    local value, verr = r:value()
+    local value, verr = value_text(r)
     if verr ~= "" then return false, "value refused what decode read: " .. verr end
     if not same(value, decoded) then return false, "value read another value" end
-    local after, aerr = r:next()
+    local after, aerr = next_text(r)
     if after ~= nil or aerr ~= "" then return false, "a token after the one value: " .. aerr end
     local ok, why_not = placed_after(text, size, opts)
     if not ok then return false, why_not end

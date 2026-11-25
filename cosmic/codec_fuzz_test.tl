@@ -6,12 +6,13 @@
 --- (build/fuzz/init.tl).
 
 local Codec = require("cosmic.codec")
+local type Failure = require("cosmic.failure")
 local Fuzz = require("build.fuzz")
 
 local record Pair
   name: string
   encode: function(string): string
-  decode: function(string): string?, string
+  decode: function(string): (string) | (nil, Failure)
 end
 
 local PAIRS <const>: {Pair} = {
@@ -48,7 +49,7 @@ local function test_every_decoder_takes_back_what_its_encoder_writes(tmp: string
         local text = p.encode(input)
         local back, why = p.decode(text)
         if back ~= input then
-          return false, ("%q decoded to %q: %s"):format(text, tostring(back), why)
+          return false, ("%q decoded to %q: %s"):format(text, tostring(back), tostring(why))
         end
         return true, ""
       end,
@@ -71,10 +72,9 @@ local function test_every_decoder_is_total_and_exact(tmp: string)
       check = function(input: string): boolean, string
         local bytes, why = p.decode(input)
         if bytes == nil then
-          if why == "" then return false, "refused without a reason" end
+          if tostring(why) == "" then return false, "refused without a reason" end
           return true, ""
         end
-        if why ~= "" then return false, "accepted with a reason: " .. why end
         local again = p.encode(bytes)
         if p.name == "hex" then
           again = again:lower()

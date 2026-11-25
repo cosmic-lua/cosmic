@@ -32,9 +32,15 @@ conflict with the parent's squash.
    the PR's branch name so `git push -u origin <branch>` pushes this
    worktree's commits.
 4. `bin/zig build boot` there: the host's core, taken from a release
-   where the tree's C is that release's ([`AGENTS.md`]), and the tree, which is
-   all the loop below runs ([`AGENTS.md`] says what that host-only tool
-   leaves to `bin/zig build boot -Dboot-cores=all`). zig's caches and the Teal compile cache
+   where the tree's C is the pinned release's or the newest one's
+   ([`build/seeded_boot.tl`]; `COSMIC_BOOT_SEED=0` builds the core, `pin`
+   takes the pinned release alone and asks the network nothing), and the
+   tree, which is all the loop below runs. Copying an existing cosmic
+   executable is not a substitute. That tool carries the host's core
+   alone; `cosmic build` of a portable program (`--host` needs none) runs
+   `bin/zig build boot -Dboot-cores=all` itself, once, and goes on (with
+   `COSMIC_AUTO_BOOT=0`, as CI sets, it refuses and names the boot), and
+   the tests that need every core are reported skipped with `all_cores`. zig's caches and the Teal compile cache
    (`COSMIC_BUILD_CACHE` names another file, `0` none) are shared by
    every checkout, so a fresh worktree compiles little. only
    the tree's own tool rebuilds or boots: another cosmic (a release) run
@@ -348,6 +354,7 @@ the tool named can be older than the tree's generator.
 [`build/paths.tl`]: ../build/paths.tl
 [`build/seed.tl`]: ../build/seed.tl
 [`build/seed.txt`]: ../build/seed.txt
+[`build/seeded_boot.tl`]: ../build/seeded_boot.tl
 [`build/zig.tl`]: ../build/zig.tl
 [`ci/cosmic-driver.pin`]: ../ci/cosmic-driver.pin
 [`ci/cosmic_ci/requeue.tl`]: ../ci/cosmic_ci/requeue.tl

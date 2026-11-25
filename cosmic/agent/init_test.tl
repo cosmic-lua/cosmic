@@ -6,18 +6,17 @@ local Agent = require("cosmic.agent")
 local agent_fixture = require("build.agent_fixture")
 local Auth = require("cosmic.agent.auth")
 local Clock = require("cosmic.clock")
-local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local Json = require("cosmic.json")
 local Sandbox = require("cosmic.sandbox")
 local Sessions = require("cosmic.agent.sessions")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
+local Tools = require("cosmic.agent.tools")
 
 Test.policy{ env = { "TMPDIR" }, grants = { { path = "/bin/sh", letters = "r" } } }
 
 local keyed = agent_fixture.keyed
-local slurp = agent_fixture.slurp
 local scratch = agent_fixture.scratch
 -- How often a turn is started again.
 local RESTARTS <const> = 5
@@ -31,7 +30,7 @@ local sent = agent_fixture.sent
 local said = agent_fixture.said
 local header = agent_fixture.header
 local text_reply = agent_fixture.text_reply
-local bash_call = agent_fixture.bash_call
+local say_call = agent_fixture.say_call
 local function kept(replies: {Json.Value}, messages?: {Json.Value}, model?: string): Agent.Session, Api,
                     Sqlite.Handle
   local k = agent_fixture.kept(replies, messages, model)
@@ -45,18 +44,22 @@ local function test_the_loop_runs_tools_until_the_turn_ends()
     { content = {
       { type = "thinking", thinking = "", signature = "sig" },
       { type = "text", text = "writing" },
-      { type = "tool_use", id = "t1", name = "write", input = { path = "out.txt", content = "made" } },
+      say_call("t1", "made"),
     }, stop_reason = "tool_use" },
     text_reply("done"),
   })
   local s = Agent.new({ model = Agent.MODELS.opus, effort = "high", sign = keyed("k"), base_url = "https://api.test",
     system = "sys", cwd = dir, send = send })
+  -- The default tools, and one of the test's own that answers with no worker.
+  local tools: mut {Tools.Tool} = {}
+  for _, t in ipairs(s.tools) do tools[#tools + 1] = t end
+  tools[#tools + 1] = agent_fixture.SAY
+  s.tools = tools
   local seen = agent_fixture.events()
   s.on = seen.on
   local ok, why = s:prompt("make out.txt")
   assert(ok, why)
-  assert(slurp(dir .. "/out.txt") == "made")
-  assert(#a.sent == 2 and seen.texts[1] == "writing" and seen.texts[2] == "done" and seen.tools[1] == "write")
+  assert(#a.sent == 2 and seen.texts[1] == "writing" and seen.texts[2] == "done" and seen.tools[1] == "say")
   local first = sent(a, 1)
   assert(first["model"] == "claude-opus-5-5" and first["fallbacks"] == "default")
   -- The system prompt is a block with a cache mark of its own, and the working directory a block after it.
@@ -64,9 +67,10 @@ local function test_the_loop_runs_tools_until_the_turn_ends()
   assert(whole:find('"system":[{"cache_control":{"type":"ephemeral"},"text":"sys","type":"text"},{"text":"<cwd>\\n' ..
       dir .. '\\n</cwd>","type":"text"}]', 1, true) ~= nil, whole)
   assert(whole:find('"content":"make out.txt"', 1, true) ~= nil, whole)
-  -- The tools offered by default run no program: no bash and no jobs.
-  local tools, _ = Json.to_array(first["tools"])
-  assert(tools ~= nil and #tools == 4 and not assert(Json.encode(tools)):find('"name":"bash"', 1, true))
+  -- The one tool offered by default is run, whose snippets run no program: no Host.bash.
+  local offered, _ = Json.to_array(first["tools"])
+  assert(offered ~= nil and #offered == 2 and not assert(Json.encode(offered)):find('Host.bash', 1, true))
+  assert(assert(Json.encode(offered)):find('"name":"run"', 1, true) ~= nil)
   local h = header(a, 1)
   assert(h["x-api-key"] == "k" and h["anthropic-version"] == "2026-10-21", h["x-api-key"])
   assert(h["anthropic-beta"] == "server-side-fallback-2026-07-01,cache-diagnosis-2026-04-07,compact-2026-01-12", h["anthropic-beta"])
@@ -77,7 +81,8 @@ local function test_the_loop_runs_tools_until_the_turn_ends()
   -- The second request carries the reply as it came, and the result.
   local text = said(a, 2)
   assert(text:find('"signature":"sig"', 1, true) ~= nil, text)
-  assert(text:find('"tool_result"', 1, true) ~= nil and text:find('"tool_use_id":"t1"', 1, true) ~= nil, text)
+  assert(text:find('"tool_result"', 1, true) ~= nil and text:find('"tool_use_id":"t1"', 1, true) ~= nil and
+      text:find('"content":"made"', 1, true) ~= nil, text)
   assert(#s.messages == 4)
   -- A chat goes on from where it was.
   local b, send2 = api({ text_reply("again") })
@@ -87,49 +92,48 @@ local function test_the_loop_runs_tools_until_the_turn_ends()
   assert(again ~= nil and #again == 5)
 end
 
---- The sandbox is a list of layers, held stacked: a write one layer lets and another does not is refused, and
---- layers that do not join block the call, naming why.
+--- The sandbox is a list of layers, held stacked: a tool is handed the policy of them all, where a write one layer
+--- lets and another does not is refused, and layers that do not join block the call, naming why.
 local function test_the_sandbox_layers_are_held_stacked()
   local dir = scratch()
-  local write = function(id: string): Json.Value
-    return { content = { { type = "tool_use", id = id, name = "write", input = { path = "out.txt", content = "made" } } },
-      stop_reason = "tool_use" }
+  -- A tool that answers whether the policy it is handed lets out.txt be written.
+  local probe: Tools.Tool = { name = "probe", snippet = "Probe", guidelines = {}, description = "Probes.",
+    schema = agent_fixture.SAY.schema,
+    run = function(_: Tools.Object, c: Tools.Context): Tools.Result
+      local policy = assert(c.policy)
+      local real, _ = Sandbox.permits(policy, dir .. "/out.txt", "write", dir)
+      return { text = if real ~= nil then "writes" else "refused" end, is_error = false }
+    end }
+  local call = function(id: string): Json.Value
+    return { content = { { type = "tool_use", id = id, name = "probe", input = { text = "" } } }, stop_reason = "tool_use" }
   end
-  local _, send = api({ write("t1"), text_reply("done") })
+  local _, send = api({ call("t1"), text_reply("done") })
   local writes: Sandbox.Policy = { grants = { { path = dir, letters = "rwc" } } }
   local reads: Sandbox.Policy = { grants = { { path = dir, letters = "r" } } }
   local s = Agent.new({ sign = keyed("k"), base_url = "https://api.test", system = "sys", cwd = dir, send = send,
-    sandbox = { writes, reads } })
-  local seen = agent_fixture.events()
-  s.on = seen.on
-  assert(s:prompt("make out.txt"))
-  local none, _ = Fs.read(dir .. "/out.txt")
-  assert(none == nil)
+    tools = { probe }, sandbox = { writes, reads } })
+  assert(s:prompt("probe"))
   local refused = assert(Json.encode(Json.array(s.messages)))
-  assert(refused:find("does not let the agent write", 1, true) ~= nil, refused)
+  assert(refused:find('"content":"refused"', 1, true) ~= nil, refused)
   -- One layer alone lets it.
-  local _, send2 = api({ write("t2"), text_reply("done") })
+  local _, send2 = api({ call("t2"), text_reply("done") })
   s.send, s.sandbox = send2, { writes }
   assert(s:prompt("again"))
-  assert(slurp(dir .. "/out.txt") == "made")
+  local lets = assert(Json.encode(Json.array(s.messages)))
+  assert(lets:find('"content":"writes"', 1, true) ~= nil, lets)
   -- Layers that do not join hold nothing: the call is blocked.
-  assert(Fs.remove(dir .. "/out.txt"))
-  local _, send3 = api({ write("t3"), text_reply("done") })
+  local _, send3 = api({ call("t3"), text_reply("done") })
   local mapped: Sandbox.Policy = { grants = { { path = dir, from = "/elsewhere", letters = "r" } } }
   s.send, s.sandbox = send3, { writes, mapped }
   assert(s:prompt("once more"))
   local blocked = assert(Json.encode(Json.array(s.messages)))
   assert(blocked:find("Blocked: the sandbox's layers do not join", 1, true) ~= nil, blocked)
-  local still, _ = Fs.read(dir .. "/out.txt")
-  assert(still == nil)
   -- No layer is no sandbox only as nil: an empty list blocks the call.
-  local _, send4 = api({ write("t4"), text_reply("done") })
+  local _, send4 = api({ call("t4"), text_reply("done") })
   s.send, s.sandbox = send4, {}
   assert(s:prompt("and again"))
   local empty = assert(Json.encode(Json.array(s.messages)))
   assert(empty:find("Blocked: the sandbox has no layer", 1, true) ~= nil, empty)
-  local left, _ = Fs.read(dir .. "/out.txt")
-  assert(left == nil)
 end
 
 local function test_the_loop_says_why_it_stops()
@@ -319,7 +323,7 @@ end
 --- a budget of its own.
 local function test_a_turn_ends_where_its_budget_is_spent()
   local function calling(id: string, n: integer): Json.Value
-    return { content = { bash_call(id, "true") }, stop_reason = "tool_use",
+    return { content = { say_call(id, "") }, stop_reason = "tool_use",
       usage = { input_tokens = n, output_tokens = n, cache_read_input_tokens = n, cache_creation_input_tokens = n } }
   end
   -- turns: the reply of the last request asks for a tool, which gets a result, not run.
@@ -340,7 +344,7 @@ local function test_a_turn_ends_where_its_budget_is_spent()
   ok, why = s:prompt("go")
   assert(not ok and why == Agent.BUDGET_SPENT .. ": 60 tokens, of 50" and #a.sent == 2, why)
   -- cost: at sonnet's prices, 1000000 output tokens are $10.
-  s, a = kept({ { content = { bash_call("t1", "true") }, stop_reason = "tool_use",
+  s, a = kept({ { content = { say_call("t1", "") }, stop_reason = "tool_use",
     usage = { input_tokens = 0, output_tokens = 1000000 } }, text_reply("never") }, nil, "claude-sonnet-5-5")
   s.budget = { cost = 5 }
   ok, why = s:prompt("go")
@@ -352,7 +356,7 @@ local function test_a_turn_ends_where_its_budget_is_spent()
   assert(not ok and why:find(Agent.BUDGET_SPENT .. ": ", 1, true) == 1 and why:find("of 0 s", 1, true) ~= nil, why)
   assert(#a.sent == 0)
   -- time: a command that runs past it is ended, and the turn ends with why.
-  s, a = kept({ { content = { bash_call("t1", "while :; do :; done") }, stop_reason = "tool_use" }, text_reply("never") })
+  s, a = kept({ { content = { say_call("t1", "", true) }, stop_reason = "tool_use" }, text_reply("never") })
   s.budget = { seconds = 1 }
   local began = Clock.monotonic_ns()
   ok, why = s:prompt("go")
@@ -366,7 +370,7 @@ end
 
 --- Words in a reply that also calls a tool are told as on the way (`calls`); the turn's last words are not.
 local function test_words_on_the_way_are_told_apart()
-  local s, _ = kept({ { content = { { type = "text", text = "looking" }, bash_call("t1", "true") },
+  local s, _ = kept({ { content = { { type = "text", text = "looking" }, say_call("t1", "") },
     stop_reason = "tool_use" }, text_reply("done") })
   local told: mut {string} = {}
   s.on = function(e: Agent.Event)
@@ -383,7 +387,7 @@ end
 --- once a limit is mostly spent; a prompt with no budget is its words alone.
 local function test_the_model_reads_its_budget()
   local function calling(id: string): Json.Value
-    return { content = { bash_call(id, "true") }, stop_reason = "tool_use" }
+    return { content = { say_call(id, "") }, stop_reason = "tool_use" }
   end
   local s, a = kept({ calling("t1"), calling("t2"), text_reply("done") }, nil, "claude-sonnet-5-5")
   s.budget = { turns = 3, cost = 0.5 }
@@ -405,10 +409,10 @@ local function test_the_model_reads_its_budget()
 end
 
 local function test_a_turn_left_unfinished_is_resumed()
-  local asked: Json.Value = { role = "assistant", content = { bash_call("t1", "echo one"), bash_call("t2", "echo two") } }
+  local asked: Json.Value = { role = "assistant", content = { say_call("t1", "one"), say_call("t2", "two") } }
   local s, a, db = kept({ text_reply("finished") }, { { role = "user", content = "go" }, asked })
   -- The first call ended and was kept; the second never did.
-  assert(Sessions.output(db, assert(s.id), { tool = "bash", input = "{}", text = "one\n", is_error = false, call = "t1" }))
+  assert(Sessions.output(db, assert(s.id), { tool = "say", input = "{}", text = "one\n", is_error = false, call = "t1" }))
   assert(s:settle())
   local third = s.messages[3]
   assert(third ~= nil)
