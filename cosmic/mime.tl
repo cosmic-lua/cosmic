@@ -135,9 +135,9 @@ function Mime.zstd(path: string, data: string): string?, string
   local encoder, trouble = Compress.encoder("zstd", { level = ZSTD_LEVEL })
   if encoder == nil then return nil, tostring(trouble) end
   local head, head_trouble = encoder:update(data)
-  if head == nil then return nil, head_trouble end
+  if head == nil then return nil, tostring(head_trouble) end
   local tail, tail_trouble = encoder:finish()
-  if tail == nil then return nil, tail_trouble end
+  if tail == nil then return nil, tostring(tail_trouble) end
   return worth(head .. tail, data), ""
 end
 

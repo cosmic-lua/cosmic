@@ -118,12 +118,12 @@ local function decode_cut(name: codec.Name, text: string, lenient: boolean, cuts
     k = k + 1
     local size = (if k <= #cuts then cuts:byte(k) else nil end) or 1
     local part, why = coder:update(text:sub(at, at + size - 1))
-    if part == nil then return nil, why end
+    if part == nil then return nil, tostring(why) end
     out[#out + 1] = part
     at = at + size
   end
   local last, why = coder:finish()
-  if last == nil then return nil, why end
+  if last == nil then return nil, tostring(why) end
   out[#out + 1] = last
   return table.concat(out), ""
 end

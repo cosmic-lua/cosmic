@@ -37,8 +37,8 @@ end
 --- A plain-table stand-in for a [`cosmic.compress`] codec.
 local record Fake is Stream.Transform
   pending: function(Fake): boolean
-  update: function(Fake, string): string?, string
-  finish: function(Fake): string?, string
+  update: function(Fake, chunk: string, max_bytes?: integer): (string) | (nil, Failure)
+  finish: function(Fake): (string) | (nil, Failure)
   done?: function(Fake): boolean
   rest?: function(Fake): string
 end
@@ -198,8 +198,8 @@ local function test_a_closed_writer_and_a_closed_reader_say_which_they_are(tmp: 
   local collected = Stream.collect()
   local codec: Fake = {
     pending = function(_self: Fake): boolean return false end,
-    update = function(_self: Fake, chunk: string): string?, string return chunk, "" end,
-    finish = function(_self: Fake): string?, string return "", "" end,
+    update = function(_self: Fake, chunk: string, _max_bytes?: integer): (string) | (nil, Failure) return chunk end,
+    finish = function(_self: Fake): (string) | (nil, Failure) return "" end,
   }
   local transformed = Stream.transform_writer(Stream.collect(), codec)
   local hashing = assert(Stream.hashing("sha256"))
@@ -261,14 +261,14 @@ local function test_transform_applies_a_fake_codec_across_chunk_boundaries()
   local pending: string = ""
   local codec: Fake = {
     pending = function(_self: Fake): boolean return false end,
-    update = function(_self: Fake, chunk: string): string?, string
+    update = function(_self: Fake, chunk: string, _max_bytes?: integer): (string) | (nil, Failure)
       pending = pending .. chunk:upper()
       local out = pending:sub(1, 1)
       pending = pending:sub(2)
-      return out, ""
+      return out
     end,
-    finish = function(_self: Fake): string?, string
-      return pending, ""
+    finish = function(_self: Fake): (string) | (nil, Failure)
+      return pending
     end,
     done = function(_self: Fake): boolean
       return pending == ""
@@ -286,12 +286,12 @@ local function test_transform_writer_flushes_the_codec_on_close()
   local held: string = ""
   local codec: Fake = {
     pending = function(_self: Fake): boolean return false end,
-    update = function(_self: Fake, chunk: string): string?, string
+    update = function(_self: Fake, chunk: string, _max_bytes?: integer): (string) | (nil, Failure)
       held = held .. chunk
-      return "", ""
+      return ""
     end,
-    finish = function(_self: Fake): string?, string
-      return held, ""
+    finish = function(_self: Fake): (string) | (nil, Failure)
+      return held
     end,
     done = function(_self: Fake): boolean
       return true
@@ -341,13 +341,13 @@ local function test_transform_serves_small_reads_from_one_large_batch()
   local given: boolean = false
   local codec: Fake = {
     pending = function(_self: Fake): boolean return false end,
-    update = function(_self: Fake, chunk: string): string?, string
-      if given then return "", "" end
+    update = function(_self: Fake, chunk: string, _max_bytes?: integer): (string) | (nil, Failure)
+      if given then return "" end
       given = true
-      return chunk, ""
+      return chunk
     end,
-    finish = function(_self: Fake): string?, string
-      return "", ""
+    finish = function(_self: Fake): (string) | (nil, Failure)
+      return ""
     end,
     done = function(_self: Fake): boolean
       return given
@@ -553,11 +553,11 @@ end
 local function test_transform_writer_aborts_its_writer_when_the_codec_fails_to_finish(tmp: string)
   local codec: Fake = {
     pending = function(_self: Fake): boolean return false end,
-    update = function(_self: Fake, chunk: string): string?, string
-      return chunk, ""
+    update = function(_self: Fake, chunk: string, _max_bytes?: integer): (string) | (nil, Failure)
+      return chunk
     end,
-    finish = function(_self: Fake): string?, string
-      return nil, "injected finish failure"
+    finish = function(_self: Fake): (string) | (nil, Failure)
+      return nil, Failure.new("injected finish failure")
     end,
   }
   local path = tmp .. "/out"
@@ -576,38 +576,39 @@ local function test_transform_drains_a_pending_codec_before_feeding_it_more()
   -- the rest with update("") before it is given new input.
   local held: string = ""
   local codec: Fake = {
-    update = function(_self: Fake, chunk: string): string?, string
+    update = function(_self: Fake, chunk: string, _max_bytes?: integer): (string) | (nil, Failure)
       assert(chunk == "" or held == "", "fed new input while output was pending")
       for i = 1, #chunk do held = held .. string.rep(chunk:sub(i, i), 10) end
       local out = held:sub(1, 4)
       held = held:sub(5)
-      return out, ""
+      return out
     end,
     pending = function(_self: Fake): boolean return held ~= "" end,
-    finish = function(_self: Fake): string?, string
+    finish = function(_self: Fake): (string) | (nil, Failure)
       assert(held == "", "finished while output was pending")
-      return "", ""
+      return ""
     end,
   }
   local transformed = Stream.transform(Stream.from_string("abc"), codec)
   assert(drain(transformed) == string.rep("a", 10) .. string.rep("b", 10) .. string.rep("c", 10))
 end
 
---- A Transform with nothing but the two required calls, which holds
---- nothing back: it upper-cases, and ends with "!".
+--- A Transform that holds nothing back: it upper-cases, and ends with
+--- "!".
 local function shouting(): Stream.Transform
   local t: Stream.Transform = { -- checked: literal_shape
-    update = function(_self: Stream.Transform, chunk: string): string?, string
-      return chunk:upper(), ""
+    update = function(_self: Stream.Transform, chunk: string, _max_bytes?: integer): (string) | (nil, Failure)
+      return chunk:upper()
     end,
-    finish = function(_self: Stream.Transform): string?, string
-      return "!", ""
+    finish = function(_self: Stream.Transform): (string) | (nil, Failure)
+      return "!"
     end,
+    pending = function(_self: Stream.Transform): boolean return false end,
   }
   return t
 end
 
-local function test_a_transform_without_pending_runs_through_every_driver()
+local function test_a_transform_that_holds_nothing_back_runs_through_every_driver()
   assert(assert(Stream.run(shouting(), "hi")) == "HI!")
   assert(drain(Stream.transform(Stream.from_string("hi"), shouting())) == "HI!")
   local c = Stream.collect()
@@ -653,14 +654,15 @@ end
 --- refuses.
 local function strict(cut?: boolean): Stream.Transform
   local t: Stream.Transform = { -- checked: literal_shape
-    update = function(_self: Stream.Transform, chunk: string): string?, string
-      if chunk:find("!", 1, true) then return nil, "bang" end
-      return chunk:upper(), ""
+    update = function(_self: Stream.Transform, chunk: string, _max_bytes?: integer): (string) | (nil, Failure)
+      if chunk:find("!", 1, true) then return nil, Failure.new("bang") end
+      return chunk:upper()
     end,
-    finish = function(_self: Stream.Transform): string?, string
-      if cut == true then return nil, "cut short" end
-      return ".", ""
+    finish = function(_self: Stream.Transform): (string) | (nil, Failure)
+      if cut == true then return nil, Failure.new("cut short") end
+      return "."
     end,
+    pending = function(_self: Stream.Transform): boolean return false end,
   }
   return t
 end
@@ -804,13 +806,13 @@ local function test_transform_writer_hold_reports_a_drain_that_fails_mid_write()
   -- The second call of one write, the drain, refuses.
   local calls: integer = 0
   local t: Stream.Transform = { -- checked: literal_shape
-    update = function(_self: Stream.Transform, _chunk: string): string?, string
+    update = function(_self: Stream.Transform, _chunk: string, _max_bytes?: integer): (string) | (nil, Failure)
       calls = calls + 1
-      if calls == 2 then return nil, "drain failed" end
-      return "x", ""
+      if calls == 2 then return nil, Failure.new("drain failed") end
+      return "x"
     end,
     pending = function(_self: Stream.Transform): boolean return true end,
-    finish = function(_self: Stream.Transform): string?, string return "", "" end,
+    finish = function(_self: Stream.Transform): (string) | (nil, Failure) return "" end,
   }
   local out = recording()
   local w = Stream.transform_writer(out, t, { hold = 1 })
