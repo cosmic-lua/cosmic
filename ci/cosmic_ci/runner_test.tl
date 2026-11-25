@@ -3,6 +3,10 @@ local Fs = require("cosmic.fs")
 local Runner = require("cosmic_ci.runner")
 local Seams = require("cosmic_ci.seams")
 local Sqlite = require("cosmic.sqlite")
+local Test = require("cosmic.test")
+
+--- The tests start /bin/sh and the programs it runs.
+Test.policy{ profiles = { "system" } }
 
 --- The bound for a child that should finish at once (`exit 0`, a `cat`):
 --- only a hang reaches it, so it leaves a slow or loaded runner room. It
