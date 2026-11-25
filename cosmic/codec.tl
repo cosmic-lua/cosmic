@@ -3,7 +3,8 @@
 --- that no encoder here would write -- a character outside the
 --- alphabet, a bad length, misplaced padding, or nonzero trailing bits
 --- -- they return `nil` and a reason rather than a guess, so every string
---- a decoder accepts encodes back to exactly itself.
+--- a decoder accepts encodes back to exactly itself, but for the case of
+--- hex digits.
 ---
 --- - [`Codec.hex`] and [`Codec.unhex`]: lower-case hex, the way to show a
 ---   digest or a key. The decoder reads either case.

@@ -130,11 +130,18 @@ local record Vector
     storage: Storage
     --- The core's buffer behind the corpus; not for callers.
     handle: raw_vector.Corpus
-    --- `corpus:add(id, v)`: see [`Vector.corpus`].
+    --- `corpus:add(id, v)`: adds the f32 vector `v` under `id`, converted
+    --- to the corpus's storage. Raises on a vector of another length than
+    --- `dims`, a number that is not finite, or, in an `"f16"` corpus, one
+    --- of 65520 or more in magnitude. Ids are not unique: a second add of
+    --- one makes a second row.
     add: function(Corpus, id: integer, v: string)
     --- `corpus:count()`: how many vectors the corpus holds.
     count: function(Corpus): integer
-    --- `corpus:add_block(block)`: see [`Vector.load_blocks`].
+    --- `corpus:add_block(block)`: adds every vector of a packed block, as
+    --- the SQL aggregate `vector_block` makes it, converted to the corpus's
+    --- storage. Raises on a string that is not a block, or one of other
+    --- dimensions, and leaves the corpus as it was.
     add_block: function(Corpus, block: string)
     --- `corpus:search(query, k, opts)`: the `k` nearest, as [`Vector.Hits`].
     --- Returns `nil, "interrupted"` on a caught signal, and raises "not
@@ -299,8 +306,9 @@ end
 --- A corpus from the rows a query yields, each an integer id and a
 --- vector blob, in that order: `Vector.load(db, "SELECT id, embedding
 --- FROM chunks")`. `opts` is as [`Vector.corpus`]'s. Returns `nil` and
---- why when the query fails or a row holds something else than a vector
---- of the first row's length (or, for `"f16"`, one it cannot hold).
+--- why when the query fails, yields no rows, or a row holds something
+--- else than an integer id and a vector of the first row's length (or,
+--- for `"f16"`, one it cannot hold).
 function Vector.load(db: Sqlite.Handle, sql: string, values?: {Sqlite.Value},
                      opts?: Vector.CorpusOptions): Vector.Corpus?, string
   -- A storage the core refuses raises here, before a query is open to leak.

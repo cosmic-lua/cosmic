@@ -129,7 +129,7 @@
 --- escaped for either quote, with nothing before or after the slot: JSON
 --- text cannot begin with the `js:` that makes htmx run it. A selector
 --- attribute (`hx-target`, `hx-select`, `hx-select-oob`, `hx-include`,
---- `hx-indicator`, `hx-disabled-elt`, `hx-sync`, `hx-swap`, `hx-swap-oob`
+--- `hx-indicator`, `hx-disabled-elt`, `hx-sync`, `hx-swap-oob`
 --- and `hx-target-*` of the response-targets extension) takes a slot only
 --- inside an identifier after `#` or `.` (`hx-target="#row-{{.id}}"`), a
 --- string or a number escaped by [`html.escape_css_attr`] as CSS identifier

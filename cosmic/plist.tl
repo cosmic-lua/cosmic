@@ -39,8 +39,8 @@
 --- fraction for XML, this drops the fraction as it is, so a date within half a microsecond of the next second
 --- is written a second apart.
 ---
---- [`Plist.decode`] takes bytes from anywhere. It never raises, reads no byte outside what it is given, and
---- its work and memory stay near the size of the input. What it refuses, with nil and why:
+--- [`Plist.decode`] takes bytes from anywhere. No bytes make it raise, it reads no byte outside what it is
+--- given, and its work and memory stay near the size of the input. What it refuses, with nil and why:
 ---
 --- - Binary: a trailer, an offset or a reference that leads outside the bytes or the objects; a length or a
 ---   count that its bytes could not hold; an array or dict that holds itself; an integer outside the range
