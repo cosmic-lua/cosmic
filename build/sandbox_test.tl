@@ -106,12 +106,12 @@ local function test_each_option_sets_its_field()
     "--promise", "nest", "--connect", "github.com:443", "--loopback", "127.0.0.2", "--env", "HOME",
     "--env", "TERM", "--set-env", "LANG=C", "--set-env", "EMPTY=", "--tmp", "prog" })
   policy = assert(ran.opts.policy)
-  same(policy.profiles, { "system", "programs" })
+  same(Sandbox.profiles(policy), { "system", "programs" })
   same(policy.isolate, { "file", "proc" })
   same(Sandbox.calls(policy), { "fork", "nest" })
   same(Sandbox.connects(policy), { "github.com:443" })
-  same(policy.loopback, { "127.0.0.2" })
-  same(policy.env, { "HOME", "TERM" })
+  same(Sandbox.loopback(policy), { "127.0.0.2" })
+  same(Sandbox.env(policy), { "HOME", "TERM" })
   assert(assert(assert(policy.setup).set_env)["LANG"] == "C" and assert(assert(policy.setup).set_env)["EMPTY"] == "" and assert(policy.setup).tmp == true)
 
   ran = run({ "--open-files", "64", "--file-bytes", "0", "--cpu-seconds", "9", "--processes", "5",
@@ -137,7 +137,7 @@ local function test_a_policy_with_no_option_is_the_empty_one()
   local ran = run({ "prog" })
   assert(ran.code == 0)
   local policy = assert(ran.opts.policy)
-  assert(#(policy.grants or {}) == 0 and #(policy.profiles or {}) == 0 and (policy.setup or {}).tmp ~= true)
+  assert(#(policy.grants or {}) == 0 and #Sandbox.profiles(policy) == 0 and (policy.setup or {}).tmp ~= true)
   assert(ran.opts.timeout_ns == Child.FOREVER and next(assert(ran.opts.fds)) == nil)
 end
 
@@ -167,7 +167,7 @@ end
 local function test_words_after_the_program_are_the_programs()
   local ran = run({ "--system", "ls", "--read", "x", "-l", "--", "--tmp" })
   same(ran.argv, { "ls", "--read", "x", "-l", "--", "--tmp" })
-  assert(#(assert(ran.opts.policy).grants or {}) == 0 and (assert(ran.opts.policy).setup or {}).tmp ~= true)
+  assert(#Sandbox.paths(assert(ran.opts.policy)) == 0 and (assert(ran.opts.policy).setup or {}).tmp ~= true)
   ran = run({ "--", "--read", "x" })
   same(ran.argv, { "--read", "x" })
   ran = run({ "--read", "a", "--", "prog", "--", "b" })
@@ -234,10 +234,10 @@ local function test_the_other_values_are_the_decoders_too()
   assert(refused({ "--isolate", "net", "prog" }).err:find("$.isolate[0]", 1, true))
   assert(refused({ "--promise", "all", "prog" }).err:find("$.grants[0].calls", 1, true))
   assert(refused({ "--connect", "nohost", "prog" }).err:find("$.grants[0].connect", 1, true))
-  assert(refused({ "--loopback", "10.0.0.1", "prog" }).err:find("$.loopback[0]", 1, true))
+  assert(refused({ "--loopback", "10.0.0.1", "prog" }).err:find("$.grants[0].loopback", 1, true))
   assert(refused({ "--set-env", "NOVALUE", "prog" }).err:find("NAME=VALUE", 1, true))
   assert(refused({ "--set-env", "A=1", "--set-env", "A=2", "prog" }).err:find("two values", 1, true))
-  assert(refused({ "--env", "A=B", "prog" }).err:find("$.env[0]", 1, true))
+  assert(refused({ "--env", "A=B", "prog" }).err:find("$.grants[0].env", 1, true))
 end
 
 local function test_a_connect_is_the_starts_to_serve_and_its_failure_is_the_starts(tmp: string)
@@ -419,7 +419,7 @@ local POLICY <const> = Shape.record_of("cosmic.sandbox.Policy")
 --- the test reads back. A field added to the record fails the test below
 --- until it has a flag and a line here.
 local samples <const>: {string:{string}} = {
-  profiles = { "--system" }, grants = { "--read", "x" }, isolate = { "--isolate", "proc" },
+  profile = { "--system" }, grants = { "--read", "x" }, isolate = { "--isolate", "proc" },
   loopback = { "--loopback", "127.0.0.2" }, env = { "--env", "X" },
   set_env = { "--set-env", "X=1" }, tmp = { "--tmp" },
   open_files = { "--open-files", "5" }, file_bytes = { "--file-bytes", "5" },
@@ -463,6 +463,19 @@ end
 
 --- Whether the policy the verb builds from `words` and a program sets
 --- the field `name` of its `setup`.
+--- Whether the policy the verb builds from `words` holds a `name` grant: profile, env or loopback.
+local function grant_holds(words: {string}, name: string): boolean
+  local line: mut {string} = {}
+  for _, word in ipairs(words) do line[#line + 1] = word end
+  line[#line + 1] = "prog"
+  local ran = run(line)
+  assert(ran.code == 0, support.nth(words, 1) .. ": " .. ran.err)
+  local policy = assert(ran.opts.policy)
+  if name == "profile" then return #Sandbox.profiles(policy) > 0 end
+  if name == "env" then return #Sandbox.env(policy) > 0 end
+  return #Sandbox.loopback(policy) > 0
+end
+
 local function setup_holds(words: {string}, name: string): boolean
   local line: mut {string} = {}
   for _, word in ipairs(words) do line[#line + 1] = word end
@@ -537,14 +550,20 @@ local function test_every_policy_field_has_a_flag()
     end
   end
   -- A grant's path and letters are one option's, its calls `--promise`'s and its connect
-  -- `--connect`'s. `from` has none: it needs
+  -- `--connect`'s; a profile, env or loopback grant has a sample. `from` has none: it needs
   -- isolate file and names a host path; it waits on policy files (the
   -- design's Roadmap).
   for _, arm in ipairs(assert(assert(assert(fields["grants"]).of).arms)) do
     for name in pairs(assert(arm.fields)) do
-      assert(name == "path" or name == "letters" or name == "from" or name == "calls" or name == "connect",
-        "Policy.grants[]." .. name ..
-          " has no flag: add one, and say so here")
+      local words = samples[name]
+      if words ~= nil then
+        seen[support.nth(words, 1)] = true
+        assert(grant_holds(words, name), support.nth(words, 1) .. " gives no " .. name .. " grant")
+      else
+        assert(name == "path" or name == "letters" or name == "from" or name == "calls" or name == "connect",
+          "Policy.grants[]." .. name ..
+            " has no flag: add one, and say so here")
+      end
     end
   end
   for flag in pairs(Verb.spec or {}) do

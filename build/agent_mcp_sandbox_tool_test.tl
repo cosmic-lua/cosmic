@@ -85,8 +85,7 @@ end
 ]=]))
   local self = assert(Proc.executable())
   local config = assert(Json.encode({ servers = { crash = { command = Json.array({ self, "--standalone", script }),
-    policy = { env = Json.array({ "PATH" }),
-      grants = Json.array({ { path = dir, letters = "r" } }) } } } }))
+    policy = { grants = Json.array({ { path = dir, letters = "r" }, { env = "PATH" } }) } } } }))
   assert(Fs.write(dir .. "/mcp.json", config))
   local set = AgentMcp.new(assert(AgentMcp.load(dir .. "/mcp.json")), dir)
   local _, why = AgentMcp.call(set, "crash", "crash", {})

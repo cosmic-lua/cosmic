@@ -68,6 +68,12 @@ conflict with the parent's squash.
   is the same bytecode on the same core share it
   ([`build/check_memo.tl`]). it says which of its checks it is on.
 - a change under `.github/`: `bin/cosmic test build/workflows_test.tl`.
+- a change to a module that a file of [`ci/bootstrap-files.txt`] requires
+  (the bootstrap's scripts, [`build/perf.tl`] and the others it lists), or
+  to one of those files: `../bin/cosmic-bootstrap cosmic_ci/driver.tl
+  check-islands` from `ci/`, with COSMIC_BOOTSTRAP unset. it type-checks
+  those files on the pinned release, which neither the full suite nor
+  `fix --check .` does, and pull request CI fails on it.
 - a change to the artifact format, the launcher or `cosmic build`:
   `bin/zig build boot -Dboot-cores=all` first, so that the tool carries
   every core and the tests that need one (`all_cores`) run rather than
@@ -352,10 +358,12 @@ the tool named can be older than the tree's generator.
 [`build/check_memo.tl`]: ../build/check_memo.tl
 [`build/markers.tl`]: ../build/markers.tl
 [`build/paths.tl`]: ../build/paths.tl
+[`build/perf.tl`]: ../build/perf.tl
 [`build/seed.tl`]: ../build/seed.tl
 [`build/seed.txt`]: ../build/seed.txt
 [`build/seeded_boot.tl`]: ../build/seeded_boot.tl
 [`build/zig.tl`]: ../build/zig.tl
+[`ci/bootstrap-files.txt`]: ../ci/bootstrap-files.txt
 [`ci/cosmic-driver.pin`]: ../ci/cosmic-driver.pin
 [`ci/cosmic_ci/requeue.tl`]: ../ci/cosmic_ci/requeue.tl
 [`ci/README.md`]: ../ci/README.md

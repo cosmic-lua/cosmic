@@ -92,7 +92,7 @@ local function test_layers_that_grant_this_program_start_a_worker_of_no_commands
   for _, grant in ipairs(Sandbox.paths(p)) do
     if grant.path == own and grant.letters:find("x", 1, true) ~= nil then granted = true end
   end
-  assert(granted and p.profiles == nil, "the layers grant this program")
+  assert(granted and #Sandbox.profiles(p) == 0, "the layers grant this program")
   local w = Worker.new()
   local code = "local Proc = require(\"cosmic.proc\")\nlocal sys = require(\"cosmic.sys\")\n" ..
     "local done, _, errno = sys.execve(assert(Proc.executable()), { \"cosmic\", \"--version\" }, {})\n" ..

@@ -193,8 +193,11 @@ local function started(set: Worker.Set, opts: Worker.Options): (Stream.Lines) | 
     for _, target in ipairs(Sandbox.connects(merged)) do
       grants[#grants + 1] = { connect = target }
     end
-    policy = { grants = grants, isolate = merged.isolate,
-      loopback = merged.loopback, env = merged.env, setup = merged.setup, limits = merged.limits }
+    for _, address in ipairs(Sandbox.loopback(merged)) do
+      grants[#grants + 1] = { loopback = address }
+    end
+    for _, name in ipairs(Sandbox.env(merged)) do grants[#grants + 1] = { env = name } end
+    policy = { grants = grants, isolate = merged.isolate, setup = merged.setup, limits = merged.limits }
   end
   local base = set.base
   local argv: mut {string} = {}

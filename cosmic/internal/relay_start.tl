@@ -93,7 +93,8 @@ function relay.policy(database: string, digest: string, seatbelt?: boolean): rul
   end
   local held: rules.Database = { path = database, sha256 = digest }
   if seatbelt == true then
-    return { setup = { database = held }, profiles = { "system" }, grants = grants }
+    grants[#grants + 1] = { profile = "system" }
+    return { setup = { database = held }, grants = grants }
   end
   return { setup = { database = held }, isolate = { "proc" }, grants = grants }
 end

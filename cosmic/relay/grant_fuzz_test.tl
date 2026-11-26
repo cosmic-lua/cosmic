@@ -91,7 +91,7 @@ local function test_every_accepted_host_is_carried_by_both_request_readers(tmp: 
         return false, ("CONNECT reader: %s for %s (%s)"):format(head.status, text, tostring(head.reason))
       end
       local request, why = Wire.socks_client_request(read.host, port)
-      if request == nil then return false, "SOCKS request for " .. text .. ": " .. why end
+      if request == nil then return false, "SOCKS request for " .. text .. ": " .. tostring(why) end
       local socks = Wire.socks_request_reader():feed(request)
       if socks.status ~= "done" or socks.host ~= read.host or socks.port ~= port then
         return false, ("SOCKS reader: %s for %s (%s)"):format(socks.status, text, tostring(socks.reason))

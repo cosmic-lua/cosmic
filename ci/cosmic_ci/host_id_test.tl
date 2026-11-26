@@ -121,7 +121,8 @@ local function test_what_the_features_of_a_host_are()
     return table.concat(HostId.cpu_flags(facts_of({ name = "", sysname = "Linux", machine = "x86_64",
       cpuinfo = cpuinfo, osrelease = "r\n", version = "v\n", kernel = "", kept = "" })), " ")
   end
-  assert(flags("flags : sse4_1 aes ssse3 pclmulqdq avx512bw aes\n") == "aes pclmulqdq sse4_1 ssse3")
+  assert(flags("flags : sse4_1 aes ssse3 pclmulqdq avx512dq aes\n") == "aes pclmulqdq sse4_1 ssse3")
+  assert(flags("flags : bmi2 avx512bw avx2 avx512ifma\n") == "avx2 avx512bw bmi2")
   assert(flags("") == "")
 end
 

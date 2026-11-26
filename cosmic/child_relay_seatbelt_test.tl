@@ -275,8 +275,8 @@ local function flows(tmp: string): Flows
     local tasks = { echoing(first, granted_count), echoing(second, ungranted_count) }
     local granted, ungranted = assert(first.address.port), assert(second.address.port)
     local result, why = Child.run({ assert(Proc.executable()), "flows", tostring(granted), tostring(ungranted) },
-      { policy = { setup = { database = { path = database } }, profiles = { "system" },
-        grants = { { connect = "127.0.0.1:" .. tostring(granted) }, { connect = "localhost:" .. tostring(granted) } } },
+      { policy = { setup = { database = { path = database } },
+        grants = { { profile = "system" }, { connect = "127.0.0.1:" .. tostring(granted) }, { connect = "localhost:" .. tostring(granted) } } },
         stdout = "capture", stderr = "capture", relay_log = log, timeout_ns = Clock.seconds(90) })
     for _, task in ipairs(tasks) do task:cancel() end
     assert(first:close())
@@ -359,7 +359,7 @@ end
 --- A handle to a program that waits under a policy with `connect`.
 local function waiting(tmp: string): Child.Handle
   local handle, why = Child.start({ assert(Proc.executable()), "wait" }, { timeout_ns = Child.FOREVER, policy = {
-    setup = { database = { path = sealed_client(tmp) } }, profiles = { "system" }, grants = { { connect = "127.0.0.1:9" } } },
+    setup = { database = { path = sealed_client(tmp) } }, grants = { { profile = "system" }, { connect = "127.0.0.1:9" } } },
     stdout = "null", stderr = "null" })
   assert(handle, explained(handle == nil, tostring(why)))
   return handle
@@ -467,7 +467,7 @@ end
 local function test_the_program_holds_no_listener_of_the_relays(tmp: string)
   SeatbeltFixture.macos_only()
   local result, why = Child.run({ assert(Proc.executable()), "listeners" }, { policy = {
-    setup = { database = { path = sealed_client(tmp) } }, profiles = { "system" }, grants = { { connect = "127.0.0.1:9" } } },
+    setup = { database = { path = sealed_client(tmp) } }, grants = { { profile = "system" }, { connect = "127.0.0.1:9" } } },
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(90) })
   assert(result, explained(result == nil, tostring(why)))
   local report = redacted(tostring(result.stdout) .. "\nstderr: " .. tostring(result.stderr))
@@ -547,7 +547,7 @@ local function test_a_public_name_is_resolved_and_reached_through_the_relay(tmp:
   local log_path = tmp .. "/relay.log"
   local log = assert(sys.open(log_path, sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC, 384))
   local result, why = Child.run({ assert(Proc.executable()), "public", name .. ":443" }, { policy = {
-    setup = { database = { path = sealed_client(tmp) } }, profiles = { "system" }, grants = { { connect = name .. ":443" } } },
+    setup = { database = { path = sealed_client(tmp) } }, grants = { { profile = "system" }, { connect = name .. ":443" } } },
     stdout = "capture", stderr = "capture", relay_log = log, timeout_ns = Clock.seconds(90) })
   assert(sys.close(log))
   local got, _ = Fs.read(log_path)
@@ -564,7 +564,7 @@ local function connect_through(tmp: string, target: string): string, string
   local log_path = tmp .. "/relay.log"
   local log = assert(sys.open(log_path, sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC, 384))
   local result, why = Child.run({ assert(Proc.executable()), "public", target }, { policy = {
-    setup = { database = { path = sealed_client(tmp) } }, profiles = { "system" }, grants = { { connect = target } } },
+    setup = { database = { path = sealed_client(tmp) } }, grants = { { profile = "system" }, { connect = target } } },
     stdout = "capture", stderr = "capture", relay_log = log, timeout_ns = Clock.seconds(90) })
   assert(sys.close(log))
   local got, _ = Fs.read(log_path)
@@ -631,7 +631,7 @@ end
 local function test_a_policy_with_connect_may_not_set_a_proxy_variable(tmp: string)
   SeatbeltFixture.macos_only()
   local handle, why = Child.start({ assert(Proc.executable()), "wait" }, { timeout_ns = Child.FOREVER, policy = {
-    setup = { database = { path = sealed_client(tmp) }, set_env = { HTTPS_PROXY = "http://elsewhere:1" } }, profiles = { "system" }, grants = { { connect = "127.0.0.1:9" } } } })
+    setup = { database = { path = sealed_client(tmp) }, set_env = { HTTPS_PROXY = "http://elsewhere:1" } }, grants = { { profile = "system" }, { connect = "127.0.0.1:9" } } } })
   assert(handle == nil and why.message:find("HTTPS_PROXY is set by the relay", 1, true) ~= nil, tostring(why))
 end
 
@@ -641,7 +641,7 @@ end
 local function test_the_relays_policy_grants_reads_alone(_tmp: string)
   SeatbeltFixture.macos_only()
   local policy = RelayStart.policy("/tmp/relay.db", string.rep("0", 64), true)
-  assert(assert(assert(policy.setup).database).path == "/tmp/relay.db" and assert(policy.profiles)[1] == "system")
+  assert(assert(assert(policy.setup).database).path == "/tmp/relay.db" and Sandbox.profiles(policy)[1] == "system")
   for _, grant in ipairs(Sandbox.paths(policy)) do
     assert(grant.letters == "r", grant.path .. " is granted " .. grant.letters)
   end
