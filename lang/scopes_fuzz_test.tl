@@ -7,11 +7,11 @@
 --- the grammar's vocabulary, build scopes that [`lang.scopes_cover`] holds
 --- consistent with the tree whatever errors they make, and never raise or run
 --- past the instruction budget. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
---- (build/fuzz/init.tl).
+--- (cosmic/fuzz.tl).
 local Array = require("cosmic.array")
 local Ast = require("lang.ast")
 local Cover = require("lang.scopes_cover")
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
 local Programs = require("lang.scopes_programs")

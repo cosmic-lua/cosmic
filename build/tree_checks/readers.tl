@@ -306,7 +306,7 @@ end
 local loaders: {string: string} = {
   ["build/child_policy_database_fixture.tl"] = "the main of a fixture program, a constant chunk of the test support",
   ["build/database_start_fixture.tl"] = "the modules of a fixture database, compiled by the build and loaded to test a start",
-  ["build/fuzz/init.tl"] = "the constant chunk `return __cosmic_tc`, the hook a checked run defines",
+  ["cosmic/fuzz.tl"] = "the constant chunk `return __cosmic_tc`, the hook a checked run defines",
   ["build/load_module.tl"] = "the named loader: the constant chunk `return require((...))`",
   ["build/lua_tail.tl"] = "the Lua the compiler wrote, loaded in an environment of its own to dump its bytecode or to probe its locals",
   ["build/sandbox.tl"] = "the script the checker compiled ([`build.standalone`]'s `code`), as the main of a sealed program",

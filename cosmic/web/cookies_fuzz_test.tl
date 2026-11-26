@@ -4,7 +4,7 @@
 --- read back by both.
 
 local Cookies = require("cosmic.web.cookies")
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 
 --- Characters that make a header interesting.
 local PIECES <const>: {string} = { "a", "b", "sid", "=", ";", ",", " ", "\t", '"', "1", "x y", "%41", "é", "\0",

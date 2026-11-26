@@ -13,7 +13,7 @@ local Array = require("cosmic.array")
 local Clock = require("cosmic.clock")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local alias_members = require("cosmic.internal.alias_members")
 local Analyzer = require("build.syntax_analyzer")
 local fetch = require("build.fetch")
@@ -84,7 +84,7 @@ end
 
 --- A property with no directory keeps no input and names no case.
 local function test_a_fuzz_property_with_no_directory_is_as_declared()
-  honest("build.fuzz", function()
+  honest("cosmic.fuzz", function()
     local ran = Fuzz.run({
       name = "holds",
       iters = 3,

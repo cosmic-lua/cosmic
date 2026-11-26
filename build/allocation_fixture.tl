@@ -1,7 +1,8 @@
 --- What the tests of the core's refused allocations and of its descriptors share (core/allocation_*_test.tl,
 --- core/fault_test.tl and core/socket_test.tl): a walk that refuses each allocation of some work in turn, and the
---- descriptor the next open is handed. Test support.
+--- descriptor the next open is handed, and what a walk left on the C heap. Test support.
 
+local plural = require("build.plural")
 local sys = require("cosmic.sys")
 local testing = require("cosmic.internal.testing")
 
@@ -45,6 +46,17 @@ function allocation_fixture.next_descriptor(tmp: string): integer
   local fd = assert(sys.open(tmp .. "/probe", sys.O_CREAT | sys.O_RDWR, 420))
   local _, _ = sys.close(fd)
   return fd
+end
+
+--- Asserts the core's own C heap holds what it held when `c_heap`
+--- returned `before_bytes` and `before_blocks`: a block a refusal path
+--- forgot to free shows here.
+function allocation_fixture.assert_c_heap(before_bytes: integer, before_blocks: integer, what: string)
+  collectgarbage("collect")
+  local bytes, blocks = testing.c_heap()
+  assert(bytes == before_bytes and blocks == before_blocks,
+    what .. " left " .. plural.count(blocks - before_blocks, "block") .. " (" ..
+      plural.count(bytes - before_bytes, "byte") .. ") on the C heap")
 end
 
 return allocation_fixture

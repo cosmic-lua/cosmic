@@ -45,7 +45,7 @@ end
 --- nothing where the branch goes the other way.
 local restricted: {string: Restriction} = {
   ["cosmic.test passed_unchecked"] = {
-    files = { "build/fuzz/init.tl" },
+    files = { "cosmic/fuzz.tl" },
     why = "only the fuzz runner may say a pass did not check on purpose: a test that " ..
       "cannot check what it is about skips or declares `requires`, and one that checks " ..
       "asserts",
@@ -110,7 +110,7 @@ local requirers: {string: Restriction} = {
       "answers a metatable whatever `__metatable` says: any other module loads text with `load`, which refuses them",
   },
   ["cosmic.internal.globals"] = {
-    files = { "build.fuzz", "build.load_module",
+    files = { "cosmic.fuzz", "build.load_module",
       "build.sandbox", "build.sealed_worker_test", "build.standalone",
       "build.test_closure_diagnostic_test", "build.test_closure_test", "build.test_worker_test", "build.type_watch", "core.load_env_test", "core.surface_test",
       "cosmic.coverage_test", "cosmic.flags_test", "test.coverage_cache_test" },

@@ -1,4 +1,4 @@
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Xml = require("cosmic.xml")
 
 --- Pieces of XML, well-formed and not, that a document is strung from:

@@ -2,9 +2,9 @@
 --- raises and returns a record or a reason and never both, a record it returns is written, and what was written
 --- reads back and is written again as the same bytes. They hold for a record that drops what it does not
 --- understand and for one that keeps it, and for a decode that is lenient. `FUZZ_SEED` and `FUZZ_ITERS` pick
---- the inputs (build/fuzz/init.tl).
+--- the inputs (cosmic/fuzz.tl).
 
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Protobuf = require("cosmic.protobuf")
 local Schema = require("cosmic.protobuf.schema")
 

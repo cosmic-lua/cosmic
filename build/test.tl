@@ -228,7 +228,7 @@ local deadline_variable <const>: Env.Name = "COSMIC_TEST_DEADLINE"
 --- while still ending a hung test well inside any whole-run budget.
 local default_timeout_s = 30
 --- The variable a fuzz property's seconds of drawing are read from
---- (build/fuzz/init.tl).
+--- (cosmic/fuzz.tl).
 local fuzz_seconds_variable <const>: Env.Name = "FUZZ_SECONDS"
 --- How many times FUZZ_SECONDS a test's deadline is where FUZZ_SECONDS is
 --- set and no deadline is named: room to draw, shrink what failed (up to
@@ -2351,7 +2351,7 @@ local function limits_of(values: {string:string}): State.Limits?, string
     limits.jobs = jobs
   end
   -- A fuzz property may draw for FUZZ_SECONDS, then shrink what failed
-  -- and report it (build/fuzz/init.tl): a deadline under that ends the
+  -- and report it (cosmic/fuzz.tl): a deadline under that ends the
   -- test before it says what it found.
   local read_seconds = math.tointeger(tonumber(Env.read(fuzz_seconds_variable) or ""))
   if read_seconds ~= nil and read_seconds > 0 then

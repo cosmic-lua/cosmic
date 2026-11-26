@@ -1,8 +1,8 @@
 --- Fuzz properties for [`cosmic.plist`], whose decoders take the bytes anyone sends: neither raises, each
 --- returns a value or a reason and never both, and what one reads is written in both forms and read again as
---- the same bytes. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
+--- the same bytes. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (cosmic/fuzz.tl).
 
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Plist = require("cosmic.plist")
 
 --- Text a string or a key may hold: ASCII, what takes UTF-16, what XML escapes, and what XML cannot carry.

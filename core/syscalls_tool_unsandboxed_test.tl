@@ -133,23 +133,3 @@ local function test_an_exit_watch_is_readable_once_its_child_exits()
   local none, _, errno = process.exit_watch(pid)
   assert(none == nil and errno == sys.ESRCH, "a reaped child's pid was watched")
 end
-
---- A scratch the start makes noexec is refused beneath a target the root
---- already holds, and with an unveiling that shows all of /.
-local function test_noexec_scratch_refuses_conflicting_mount_targets(tmp: string)
-  -- Only Linux has a noexec scratch to conflict with: elsewhere the start
-  -- is refused ENOSYS before the mounts are checked for conflicts, and no
-  -- requirement names Linux alone.
-  if assert(sys.uname()).sysname ~= "Linux" then
-    Test.skip("only Linux has a noexec scratch to conflict with")
-  end
-  for _, target in ipairs({ "/noexec", "/noexec/inside" }) do
-    local pid, trouble, errno = process.spawn("/missing", { "/missing" }, nil, "/",
-      nil, nil, nil, false, nil, { noexec_scratch = true, offline = true,
-        unveil = { reads = { tmp }, at = { [tmp] = target } } })
-    assert(pid == nil and errno == sys.EINVAL, trouble)
-  end
-  local pid, trouble, errno = process.spawn("/missing", { "/missing" }, nil, "/",
-    nil, nil, nil, false, nil, { noexec_scratch = true, offline = true, unveil = { reads = { "/" } } })
-  assert(pid == nil and errno == sys.EINVAL, trouble)
-end

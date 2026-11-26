@@ -5,10 +5,10 @@
 --- read to parts that are bounded by the input and carry no filename that
 --- names a path or holds a control byte; and the outcome does not depend on
 --- how the source chunks the bytes.
---- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
+--- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (cosmic/fuzz.tl).
 
 local ChunkedReaderFixture = require("build.chunked_reader_fixture")
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Multipart = require("cosmic.http.multipart")
 
 local BOUNDARIES <const>: {string} = { "x", "----WebKitFormBoundaryAbC123xYz", "a b c", "--", "'()+_,-./:=?",

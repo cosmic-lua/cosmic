@@ -108,7 +108,11 @@ local Hold = require("cosmic.child.hold")
 local type Held = Hold.Held
 local type MappedUser = Hold.MappedUser
 local RELAY_MAIN = Hold.RELAY_MAIN
+--- The most grants spawn takes, as hold.tl counts them (`GRANT_MAX` in
+--- core/sandbox.h, which is `UNVEIL_MAX`).
+local MAX_GRANTS <const> = raw.UNVEIL_MAX
 local beneath = Hold.beneath
+local by_path = Hold.by_path
 local database_holds = Hold.database_holds
 local effective_group = Hold.effective_group
 local grants_replaced = Hold.grants_replaced
@@ -344,8 +348,11 @@ local record Options
   ---   writable one noexec unless granted `x`; a grant's `from` is the
   ---   host's path, bound at the grant's `path`, which only this has (a
   ---   `from` without it fails). The program's own file, its loader and
-  ---   its directory (`cwd`, or this process's) must be granted, and it is
-  ---   run by its real path. Beside them the root has a /proc of its own
+  ---   its directory (`cwd`, or this process's) must be granted. A
+  ---   program named through a link (a virtual environment's interpreter)
+  ---   is run by that name where the root shows the same file there (the
+  ---   link is in a granted directory, or is a grant's name), else by its
+  ---   real path. Beside them the root has a /proc of its own
   ---   (see `proc`), the links /dev/fd and /dev/stdin, /dev/stdout and
   ---   /dev/stderr into it, and, with `tmp`, a /tmp that is a tmpfs of 256
   ---   MiB, noexec unless a grant of "/tmp" with no `from` has the letters
@@ -2406,6 +2413,103 @@ local function holds_place(grants: {Rules.Path}, base: string): boolean
   return false
 end
 
+--- A path a root places, and whether it shows the host's file there.
+local record Placed
+  at: string
+  host: boolean
+end
+
+--- The most links a path is followed through, as the kernel's MAXSYMLINKS.
+local MAX_LINKS <const> = 40
+
+--- Whether the root `root` describes shows at `name` the file the host
+--- has at `real`, so a program reached by a link (a virtual environment's
+--- interpreter) is run by its name: each link on the way is the host's,
+--- in a bind at its real path, or one the root makes at a grant's name to
+--- that grant's real path. A bind at another name, the sandbox's own
+--- /proc or /tmp, or a path the root has not, shows another file.
+local function root_shows(root: raw_process.Unveil, name: string, real: string): boolean
+  local placed: mut {Placed} = { { at = "/proc", host = false } }
+  if root.tmp ~= nil then placed[#placed + 1] = { at = "/tmp", host = false } end
+  local links: mut {string:string} = {}
+  for _, bind in ipairs(root.binds or {}) do
+    if bind.at ~= nil then
+      placed[#placed + 1] = { at = bind.at, host = false }
+    else
+      local bound, _ = sys.realpath(bind.path)
+      if bound == nil then return false end
+      placed[#placed + 1] = { at = bound, host = true }
+      if bound ~= bind.path then links[bind.path] = bound end
+    end
+  end
+  -- The place a path is in is the longest holding it; of two at one
+  -- name, the later, which the root mounts over the other.
+  local function shown(at: string): boolean?
+    local longest = -1
+    local host: boolean?
+    for _, place in ipairs(placed) do
+      if beneath(at, place.at) and #place.at >= longest then
+        longest, host = #place.at, place.host
+      end
+    end
+    return host
+  end
+  -- Whether a placed path or a link is strictly beneath `at`, which the
+  -- root then makes a directory.
+  local function above(at: string): boolean
+    for _, place in ipairs(placed) do
+      if place.at ~= at and beneath(place.at, at) then return true end
+    end
+    for link, _ in pairs(links) do
+      if link ~= at and beneath(link, at) then return true end
+    end
+    return false
+  end
+  local rest: mut {string} = {}
+  for part in name:gmatch("[^/]+") do rest[#rest + 1] = part end
+  local at = ""
+  local followed = 0
+  while #rest > 0 do
+    local part = assert(table.remove(rest, 1), "a part is left")
+    if part == ".." then
+      at = at:match("^(.*)/[^/]*$") or ""
+    elseif part ~= "." then
+      local here = at .. "/" .. part
+      local host = shown(here)
+      if host == false then return false end
+      local points: string?
+      if host == true then
+        local st, _ = sys.lstat(here)
+        if st == nil then return false end
+        if st.kind == "link" then
+          local read, _ = sys.readlink(here)
+          if read == nil then return false end
+          points = read
+        end
+      elseif links[here] ~= nil and not above(here) then
+        -- A name another placed path is beneath is a directory the root
+        -- makes for it, where no link is made (core/sandbox_root.c's
+        -- make_link).
+        points = links[here]
+      elseif not above(here) then
+        return false
+      end
+      if points ~= nil then
+        followed = followed + 1
+        if followed > MAX_LINKS then return false end
+        local spliced: mut {string} = {}
+        for piece in points:gmatch("[^/]+") do spliced[#spliced + 1] = piece end
+        for _, left in ipairs(rest) do spliced[#spliced + 1] = left end
+        rest = spliced
+        if points:sub(1, 1) == "/" then at = "" end
+      else
+        at = here
+      end
+    end
+  end
+  return (if at == "" then "/" else at end) == real
+end
+
 --- The core a policy's program runs as, where it is this program or runs on
 --- a `database`: [`relaunch_of`]'s start, and for a `database`, with this
 --- program's own file out of the child's reach (it holds modules the
@@ -2528,23 +2632,35 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
   -- (no `w`, no `c`), and once the child makes a user namespace of its own
   -- the kernel locks those binds (MNT_LOCK_READONLY, MNT_LOCKED).
   -- A portable artifact hands its artifact and core as descriptors, which
-  -- [`nest_descriptors`] must refuse.
-  -- TODO: run a portable artifact under `nest` too, once its
-  -- relaunch runs on a database (a core and a file, no descriptor), or
-  -- nest_descriptors can hand its descriptors of read-only regular
-  -- files, which a child may reopen for writing through /proc/self/fd
-  -- where its user may.
+  -- [`nest_descriptors`] must refuse: a file open for reading alone may be
+  -- opened again for writing through /proc/self/fd where its owner may.
+  -- Under `nest` it is handed none, and its startup opens the artifact by
+  -- its path and the core by itself (core/startup.c's [`by_path`]), in the
+  -- root, which binds both read-only and locks the binds as a database's.
   if found ~= nil and nest and next(found.fds) ~= nil then
-    return nil, "sandbox: this program runs from descriptors of its artifact and core, " ..
-      "which the \"nest\" promise refuses a child"
+    found = by_path(found)
+    -- It opens its artifact itself, which the root then must hold. This
+    -- comes before the core's grant, which is told apart from the
+    -- policy's by its own table.
+    local named_artifact = found.argv[3]
+    if found.argv[2] ~= "--artifact" or named_artifact == nil then
+      return nil, "sandbox: this program's relaunch names no artifact to open by its path"
+    end
+    -- The launcher names it as it was run (`$PWD/$0`, which may hold `..`
+    -- or a link); the root binds the real path, which is what it opens.
+    local artifact, artifact_trouble = sys.realpath(named_artifact)
+    if artifact == nil then
+      return nil, "sandbox: " .. named_artifact .. ": " .. artifact_trouble
+    end
+    local words: mut {string} = {}
+    for i, word in ipairs(found.argv) do
+      words[#words + 1] = if i == 3 then artifact else word end
+    end
+    found = { argv = words, env = found.env, fds = found.fds, cwd = found.cwd }
+    local widened, widen_trouble = Rules.union(merged, { grants = { { path = artifact, letters = "r" } } })
+    if widened == nil then return nil, "sandbox: " .. widen_trouble end
+    merged = widened
   end
-  -- TODO: [`unmet`] counts the grants before these two are added, so a
-  -- start at the most raises inside spawn rather than refusing with a
-  -- message: "too many grants" where the grants are handed to it
-  -- (core/sandbox_rules.c's `read_grants`), and under `nest`, which hands
-  -- none, "too many unveiled paths" for the root they are bound into.
-  -- The fix: count the grants after adding these two, and refuse with
-  -- the count and the most.
   local core_grant: Rules.Path?
   if found ~= nil then
     relaunch = found
@@ -2562,11 +2678,11 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
   -- A bare name is found on this process's PATH and run by its real path,
   -- so what is granted is what runs; a name with a slash is run as written
   -- (a virtual environment's interpreter link keeps its prefix), and its
-  -- grants are the real path's, which is what the kernel opens.
-  -- TODO: run a link as the link under `isolate` file too, binding it at
-  -- its name (a virtual environment's interpreter), once a bind can place
-  -- a link: a root holds the real path alone, so the program is run by it.
+  -- grants are the real path's, which is what the kernel opens. Under
+  -- `isolate` file it is run as written where the root shows the same
+  -- file there ([`root_shows`]), else by its real path.
   local path = argv[1]
+  local link_name, link_real: string?, string = nil, ""
   if relaunch ~= nil then
     path = relaunch.argv[1]
   elseif not path:find("/", 1, true) then -- checked: nil_not_allowed
@@ -2578,6 +2694,8 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
   elseif file then
     local real, real_trouble = sys.realpath(named(path, base)) -- checked: nil_not_allowed
     if real == nil then return nil, path .. ": " .. real_trouble end -- checked: nil_not_allowed
+    local written = named(assert(path, "a start names a program"), base)
+    if real ~= written then link_name, link_real = written, real end
     path = real
   end
   local files, loader_trouble = Rules.loaders(path, base) -- checked: nil_not_allowed
@@ -2663,6 +2781,9 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
   end
   local missing = ungranted(files, checked, base)
   if missing ~= "" then return nil, "sandbox: " .. missing end
+  if root ~= nil and link_name ~= nil and root_shows(root, link_name, link_real) then
+    path = link_name
+  end
   if file and not holds_place(Rules.paths(merged), base) then
     return nil, "sandbox: under isolate file the root holds only what is granted, so the " ..
       "directory the program starts in, " .. string.format("%q", base) .. ", must be at, " ..
@@ -2799,6 +2920,25 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
     -- opens SQLite on the descriptor it checked (the TODO in open_database).
     local holds, held_why = database_holds(assert(merged.database), relaunch.argv[3]) -- checked: index_may_be_nil
     if not holds then return nil, "sandbox: " .. held_why end
+  end
+  -- What spawn is handed, counted once every path the start adds is in:
+  -- its core's, a database's, the program's start files, the directory
+  -- `tmp` makes, and under `isolate` file the root's own /proc. A start
+  -- past the most is refused here, with the count, and not raised inside
+  -- spawn ("too many grants", "too many unveiled paths").
+  local made_tmp = if merged.tmp == true and not file then 1 else 0 end
+  local handed = (if nest then 0 else #grants end) + made_tmp
+  -- The boot ruleset counts only where it is sent: a cosmic child, not under `nest`.
+  local laid = if relaunch ~= nil and not nest then #layer + made_tmp else 0 end
+  -- A root's reads, writes and binds are one list of spawn's (core/spawn.c `read_unveil`).
+  local unveiled = 0
+  if root ~= nil then unveiled = #root.reads + #(root.writes or {}) + #(root.binds or {}) end
+  local most_held = math.max(handed, laid, unveiled)
+  if most_held > MAX_GRANTS then
+    return nil, "sandbox: grants: with the paths the start adds (the program's start files, its core, a " ..
+      "database and " .. (if file then "the sandbox's /proc" else "tmp's directory" end) .. ", where it has " ..
+      "them), the start holds " .. tostring(most_held) .. ", past the most a start takes, " .. tostring(MAX_GRANTS) ..
+      "; grant a directory above them instead"
   end
   return { path = path, env = env, tmp = "", wants_tmp = merged.tmp == true and not file, -- checked: nil_not_allowed
     layer = if relaunch ~= nil and not nest then layer else nil end,
@@ -3465,6 +3605,20 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
         string.format("%q", argv[1]) .. ") answers where a shell would find it"
     elseif errno == sys.EINVAL or errno == sys.EMFILE then
       trouble = trouble .. descriptor_limit_hint(slots)
+    elseif (errno == sys.EACCES or errno == sys.EPERM) and not string.find(tostring(trouble), ":", 1, true) and
+        opts.credentials == nil then
+      -- A bare refusal, with no step of the start named: the run of the
+      -- program, or entering its directory. Name the file the start ran,
+      -- which is not always argv[1]: a cosmic program runs by its core,
+      -- and a root caller's child by a copy of it (cosmic/child/hold.tl's `shared_core`).
+      trouble = trouble .. ": running " .. string.format("%q", path) ..
+        " (the program, or the interpreter it starts through)" ..
+        (if held ~= nil then
+          ": a program to run needs an `rx` grant on it in this start's policy, and in any sandbox holding this process"
+          else
+          ": a sandbox holding this process gives no `rx` there, or the file's mode refuses it"
+          end) ..
+        (if opts.cwd ~= nil then "; or its directory, " .. string.format("%q", opts.cwd) .. ", cannot be entered" else "" end)
     end
     return refuse("start: " .. trouble)
   end

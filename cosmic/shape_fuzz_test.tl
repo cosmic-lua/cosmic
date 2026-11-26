@@ -3,10 +3,10 @@
 --- A spec and a value are both built from one recipe of draws; the value
 --- mostly follows the spec and sometimes strays from it, so both the
 --- walk that succeeds and every way it can fail are reached.
---- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
+--- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (cosmic/fuzz.tl).
 
 local Array = require("cosmic.array")
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Json = require("cosmic.json")
 local Shape = require("cosmic.shape")
 

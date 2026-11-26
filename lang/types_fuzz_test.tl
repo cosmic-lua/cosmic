@@ -5,8 +5,8 @@
 --- to a type with the same text, display and digest in another store that has made other
 --- types first; the display of a type parses and lowers to the same type; and the flags
 --- `open` and `has_mut` are what a plain recursion says. `FUZZ_SEED` and `FUZZ_ITERS` pick
---- the inputs (build/fuzz/init.tl).
-local Fuzz = require("build.fuzz")
+--- the inputs (cosmic/fuzz.tl).
+local Fuzz = require("cosmic.fuzz")
 local Programs = require("lang.types_programs")
 local Test = require("cosmic.test")
 local Types = require("lang.types")

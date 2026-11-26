@@ -126,9 +126,6 @@ local function asked(build_db: Database, options: Pipeline.Options, rows: {Pipel
     end
     local result = build:result(module, tl)
     for _, row in ipairs(group) do
-      if result ~= nil and row.file:match("%.md$") ~= nil then
-        Pipeline.discounted(result)
-      end
       local counted = false
       local code = ""
       local held: integer? = nil

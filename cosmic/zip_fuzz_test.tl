@@ -1,11 +1,11 @@
 --- Fuzz properties for [`cosmic.zip`]: the reader is total -- whatever
 --- bytes it is handed, it returns entries or a failure and never raises
 --- or runs away -- and what the writer writes, the reader reads back.
---- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
+--- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (cosmic/fuzz.tl).
 
 local Array = require("cosmic.array")
 local Compress = require("cosmic.compress")
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Stream = require("cosmic.stream")
 local String = require("cosmic.string")
 local Zip = require("cosmic.zip")

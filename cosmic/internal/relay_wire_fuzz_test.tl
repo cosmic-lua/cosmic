@@ -4,10 +4,10 @@
 --- (every prefix of an input) agrees with the read of the whole, and a
 --- request built from what a read found reads back as the same
 --- result. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
---- (build/fuzz/init.tl).
+--- (cosmic/fuzz.tl).
 
 local Fixture = require("build.relay_wire_fixture")
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Wire = require("cosmic.internal.relay_wire")
 
 --- A reader's result, reduced to what the properties compare.

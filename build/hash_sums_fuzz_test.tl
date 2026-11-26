@@ -3,10 +3,10 @@
 --- digest and the name for any name (bytes that are not UTF-8, backslashes,
 --- newlines, spaces, `*`), and `parse_sums` is total on any bytes, listing
 --- what it cannot read rather than raising. `FUZZ_SEED` and `FUZZ_ITERS`
---- pick the inputs (build/fuzz/init.tl).
+--- pick the inputs (cosmic/fuzz.tl).
 
 local Codec = require("cosmic.codec")
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local hash = require("build.hash")
 
 --- Names that need care, drawn more often than chance would.

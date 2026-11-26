@@ -10,9 +10,9 @@
 --- input (but for a whole `.` or `..`) and agrees with [`Url.escape`];
 --- `escape_css_attr` leaves only identifier text and hex escapes, which
 --- need no attribute escaping.
---- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
+--- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (cosmic/fuzz.tl).
 
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Html = require("cosmic.html")
 local Url = require("cosmic.url")
 

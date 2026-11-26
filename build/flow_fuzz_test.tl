@@ -3,9 +3,9 @@
 --- unchanged -- on flow-style texts with comments and blank lines drawn
 --- between their tokens and on those texts mutated; and what `write`
 --- makes of a Teal value is such a text, of that value.
---- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
+--- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (cosmic/fuzz.tl).
 
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Json = require("cosmic.json")
 local flow = require("build.flow")
 

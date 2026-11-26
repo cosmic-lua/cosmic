@@ -5,9 +5,9 @@
 --- from its parts is read back as those parts, under HTTP's name and
 --- under RTSP's. A reader of either kind, and of both protocols, is held
 --- to the same, and reads each message as the reader of its kind does.
---- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
+--- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (cosmic/fuzz.tl).
 
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Message = require("cosmic.http.message")
 
 local LIMITS <const>: Message.Options = { head_bytes = 512, line_bytes = 128, max_headers = 6, body_bytes = 256 }

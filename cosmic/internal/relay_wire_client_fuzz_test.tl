@@ -3,10 +3,10 @@
 --- none reports more bytes taken than it was given, a read in pieces agrees
 --- with the read of the whole, and a request the client writes is read back
 --- by the relay's own reader as the host and port it was written for.
---- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
+--- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (cosmic/fuzz.tl).
 
 local Fixture = require("build.relay_wire_fixture")
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Wire = require("cosmic.internal.relay_wire")
 
 --- A reader of one format, made afresh, as a function that feeds the next
