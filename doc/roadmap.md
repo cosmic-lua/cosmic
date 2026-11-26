@@ -561,7 +561,7 @@ four-producer provenance join.
 [`build/workflows_test.tl`]: ../build/workflows_test.tl
 [`check.last`]: ../build/lsp/check.tl
 [`check.read`]: ../build/lsp/check.tl
-[`Child.end_strays`]: ../cosmic/child.tl
+[`Child.end_strays`]: ../cosmic/child/init.tl
 [`ci/cosmic-driver.pin`]: ../ci/cosmic-driver.pin
 [`ci/cosmic_ci/prerelease.tl`]: ../ci/cosmic_ci/prerelease.tl
 [`Clock.span`]: ../cosmic/clock.tl
