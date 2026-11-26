@@ -92,7 +92,7 @@ local function test_a_daemon_that_is_not_there_fails_the_start(tmp: string)
   assert(same == plain)
   local merged = assert(Sandbox.union({ grants = { { connect = "tag:db:5432" } } }))
   local none, why = tailnet.policy(merged, { socket = tmp .. "/none.sock" })
-  assert(none == nil and why:find('^sandbox: connect "tag:db:5432" names nodes of the tailnet') ~= nil, why)
+  assert(none == nil and tostring(why):find('^sandbox: connect "tag:db:5432" names nodes of the tailnet') ~= nil, why)
   local child, refused = Child.start({ "/bin/true" }, {
     timeout_ns = Child.FOREVER, policy = { grants = { { connect = "tag:db:5432" } } }, tailscale = { socket = tmp .. "/none.sock" },
   })
@@ -159,7 +159,8 @@ local function test_a_policy_resolves_through_the_daemon_and_refuses_a_target_of
     said[#said + 1] = text
     local typo = assert(Sandbox.union({ grants = { { connect = "tag:dbs:5432" } } }))
     local _, why = tailnet.policy(typo, { socket = socket })
-    said[#said + 1] = why
+    local said_why = tostring(why)
+    said[#said + 1] = said_why
   end)
   assert(said[1] == "example.com:443 100.64.0.3:5432", said[1])
   assert(said[2] == 'sandbox: connect "tag:dbs:5432" names no peer of the tailnet that tailscaled lists', said[2])
@@ -171,7 +172,7 @@ local function test_a_node_that_is_not_running_fails_the_start(tmp: string)
   with_daemon(tmp, '{"Version": "1.90.0", "BackendState": "Stopped", "MagicDNSSuffix": ""}', function(socket: string)
     local merged = assert(Sandbox.union({ grants = { { connect = "tag:db:5432" } } }))
     local _, trouble = tailnet.policy(merged, { socket = socket })
-    why = trouble
+    why = tostring(trouble)
   end)
   assert(why:find("the node is Stopped, so it knows no peers", 1, true) ~= nil, why)
 end

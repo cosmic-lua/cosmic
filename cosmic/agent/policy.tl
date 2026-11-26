@@ -434,7 +434,7 @@ function Policy.of(cwd: string, config: Policy.Config): Sandbox.Policy?, string
     limits = if counts then { processes = PROCESSES } else nil end,
   }
   local merged, why = Sandbox.union(own)
-  if merged == nil then return nil, why end
+  if merged == nil then return nil, tostring(why) end
   return merged, ""
 end
 
@@ -473,8 +473,10 @@ function Policy.session(tools: Sandbox.Policy, session: Policy.Session): Sandbox
   grants[#grants + 1] = { calls = "fork" }
   grants[#grants + 1] = { calls = "nest" }
   for _, name in ipairs(session.env) do grants[#grants + 1] = { env = name } end
-  return Sandbox.union({ grants = grants, isolate = { "file" },
+  local session_policy, why = Sandbox.union({ grants = grants, isolate = { "file" },
     setup = { tmp = true, set_env = { COSMIC_AGENT_HELD = "1" } } })
+  if session_policy == nil then return nil, tostring(why) end
+  return session_policy, ""
 end
 
 --- The bytes the files under `dir` hold, links not followed.

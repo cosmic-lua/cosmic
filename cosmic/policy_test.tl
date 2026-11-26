@@ -106,7 +106,7 @@ local function test_merge_checks_a_digest_against_the_value()
   local out = PolicyMerge.merged({ setup = { set_env = { A = "1" } } }, digest)
   assert(assert(assert(out.setup).set_env).A == "1" and next(assert(assert(out.setup).set_env_digests)) == nil) -- checked: map_field
   local none, why = Sandbox.union({ setup = { set_env = { A = "2" } } }, digest)
-  assert(none == nil and why:find("$.setup.set_env_digests.A", 1, true) ~= nil, why)
+  assert(none == nil and tostring(why):find("$.setup.set_env_digests.A", 1, true) ~= nil, why)
   local kept = PolicyMerge.merged(digest)
   assert(assert(assert(kept.setup).set_env).A == nil and assert(assert(kept.setup).set_env_digests).A ~= nil) -- checked: map_field*2
 end
@@ -265,9 +265,9 @@ local function test_merge_joins_database_digests_with_their_paths(tmp: string)
   local other = string.rep("0", 64)
   local none, why = Sandbox.union({ setup = { database = { path = path, sha256 = digest } } },
     { setup = { database = { path = path, sha256 = other } } })
-  assert(none == nil and why:find("two digests", 1, true) ~= nil, tostring(why))
+  assert(none == nil and tostring(why):find("two digests", 1, true) ~= nil, tostring(why))
   local ok, bad = Sandbox.check({ setup = { database = { path = path, sha256 = "XYZ" } } })
   assert(not ok and bad:find("$.setup.database.sha256", 1, true) ~= nil, bad)
   local absent, absent_why = Sandbox.database(tmp .. "/absent.db")
-  assert(absent == nil and absent_why:find("database", 1, true) ~= nil, tostring(absent_why))
+  assert(absent == nil and tostring(absent_why):find("database", 1, true) ~= nil, tostring(absent_why))
 end

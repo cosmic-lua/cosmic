@@ -67,7 +67,7 @@ local function test_every_refusal_holds_nothing(tmp: string)
   local probe = assert(Fake.build(tmp .. "/fake", "build.sandbox_restrict_fake"))
   local lines: mut {string} = {}
   for i, case in ipairs(REFUSED) do
-    lines[#lines + 1] = string.format("say(%q, Sandbox.restrict(%s))", "case" .. tostring(i), case.policy)
+    lines[#lines + 1] = string.format("do local ok, trouble = Sandbox.restrict(%s); say(%q, ok, if trouble == nil then '' else tostring(trouble) end) end", case.policy, "case" .. tostring(i))
   end
   local said = Restrict.in_child(table.concat(lines, "\n") .. "\n" .. string.format([[
 -- What the kernel's side refuses: an open descriptor, one fds names that is
@@ -76,18 +76,18 @@ local function test_every_refusal_holds_nothing(tmp: string)
 local nofile_before = limit(sys.RLIMIT_NOFILE)
 local fd = assert(sys.open(%q, sys.O_RDONLY))
 say("fd", fd)
-say("unnamed", Sandbox.restrict({}))
-say("absent_fd", Sandbox.restrict({}, { fds = { fd, 40 } }))
+do local ok, trouble = Sandbox.restrict({}); say("unnamed", ok, if trouble == nil then "" else tostring(trouble) end) end
+do local ok, trouble = Sandbox.restrict({}, { fds = { fd, 40 } }); say("absent_fd", ok, if trouble == nil then "" else tostring(trouble) end) end
 assert(sys.close(fd))
-say("missing", Sandbox.restrict({ grants = { { path = %q, letters = "r" } },
-  limits = { cpu_seconds = 7 } }))
+do local ok, trouble = Sandbox.restrict({ grants = { { path = %q, letters = "r" } },
+  limits = { cpu_seconds = 7 } }); say("missing", ok, if trouble == nil then "" else tostring(trouble) end) end
 local running = assert(Child.start({ %q, "sleep-forever" }, { timeout_ns = Child.FOREVER, process_group = false }))
-say("child", Sandbox.restrict({}))
+do local ok, trouble = Sandbox.restrict({}); say("child", ok, if trouble == nil then "" else tostring(trouble) end) end
 assert(running:close())
 say("cpu", limit(sys.RLIMIT_CPU):sub(1, 2) ~= "7 ")
 say("nofile", limit(sys.RLIMIT_NOFILE) == nofile_before)
-say("with_limits", Sandbox.restrict({ isolate = { "file" }, grants = { { path = "/", letters = "r" } },
-  limits = { cpu_seconds = 9, open_files = 12 } }))
+do local ok, trouble = Sandbox.restrict({ isolate = { "file" }, grants = { { path = "/", letters = "r" } },
+  limits = { cpu_seconds = 9, open_files = 12 } }); say("with_limits", ok, if trouble == nil then "" else tostring(trouble) end) end
 say("cpu_after", limit(sys.RLIMIT_CPU):sub(1, 2) ~= "9 ")
 say("nofile_after", limit(sys.RLIMIT_NOFILE) == nofile_before)
 say("free", reads(%q))
@@ -141,8 +141,8 @@ sys.close(source) sys.close(target)
 assert(Store.attach(copy, { unchecked_bytecode = true }))
 local mine = assert(sys.open(copy, sys.O_RDWR))
 say("mine", mine)
-say("refused", Sandbox.restrict({}))
-say("named", Sandbox.restrict({}, { fds = { mine } }))
+do local ok, trouble = Sandbox.restrict({}); say("refused", ok, if trouble == nil then "" else tostring(trouble) end) end
+do local ok, trouble = Sandbox.restrict({}, { fds = { mine } }); say("named", ok, if trouble == nil then "" else tostring(trouble) end) end
 ]], build_paths.resolve(".").projection, tmp))
   assert(said.lines["refused"] == "false sandbox: restrict: descriptor " .. assert(said.lines["mine"]) ..
       " is open and not named in fds: close it, or name it to keep it", said.raw)
@@ -150,7 +150,7 @@ end
 
 local function test_fds_names_a_descriptor_above_2()
   local said = Restrict.in_child([[
-say("low", Sandbox.restrict({}, { fds = { 1 } }))
+do local ok, trouble = Sandbox.restrict({}, { fds = { 1 } }); say("low", ok, if trouble == nil then "" else tostring(trouble) end) end
 ]])
   assert(assert(said.lines["low"]):find("^false sandbox: restrict: fds names 1, which is not a descriptor above 2"),
     said.raw)

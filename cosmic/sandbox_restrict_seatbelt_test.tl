@@ -96,7 +96,7 @@ local function test_a_granted_file_is_read_and_another_is_refused(tmp: string)
   assert(Fs.write(tmp .. "/granted/a", "alpha"))
   assert(Fs.write(tmp .. "/other/b", "beta"))
   local said = in_child(string.format([[
-say("restrict", Sandbox.restrict({ grants = { { path = %q, letters = "r" } } }))
+do local ok, trouble = Sandbox.restrict({ grants = { { path = %q, letters = "r" } } }); say("restrict", ok, if trouble == nil then "" else tostring(trouble) end) end
 say("granted", reads(%q))
 say("other", reads(%q))
 ]], tmp .. "/granted", tmp .. "/granted/a", tmp .. "/other/b"))
@@ -111,7 +111,7 @@ end
 test_child.register("store after restriction", function(_args: {string}): integer
   print("before=" .. tostring(package.loaded["cosmic.csv"] == nil))
   local restricted, why = Sandbox.restrict({})
-  print("restrict=" .. tostring(restricted) .. " " .. why)
+  print("restrict=" .. tostring(restricted) .. " " .. tostring(why))
   local Csv = require("cosmic.csv")
   local rows = assert(Csv.parse("a,b"))
   print("loaded=true " .. assert(assert(rows[1])[2]))
@@ -132,8 +132,8 @@ end
 local function test_a_second_restriction_is_refused()
   SeatbeltFixture.macos_only("a process")
   local said = in_child([[
-say("first", Sandbox.restrict({}))
-say("second", Sandbox.restrict({}))
+do local ok, trouble = Sandbox.restrict({}); say("first", ok, if trouble == nil then "" else tostring(trouble) end) end
+do local ok, trouble = Sandbox.restrict({}); say("second", ok, if trouble == nil then "" else tostring(trouble) end) end
 ]])
   assert(said.lines["first"] == "true ", said.raw)
   assert(said.lines["second"] == HELD, said.raw)
@@ -142,7 +142,7 @@ end
 local function test_a_child_under_a_policy_is_refused_after_the_restriction()
   SeatbeltFixture.macos_only("a process")
   local said = in_child([[
-say("restrict", Sandbox.restrict({ grants = { { profile = "system" } } }))
+do local ok, trouble = Sandbox.restrict({ grants = { { profile = "system" } } }); say("restrict", ok, if trouble == nil then "" else tostring(trouble) end) end
 local started, why = Child.start({ "/bin/cat" }, { timeout_ns = Child.FOREVER, policy = { grants = { { profile = "system" } } },
   stdin = "null" })
 say("policy", started ~= nil, why)
@@ -160,14 +160,14 @@ local function test_what_cannot_be_held_is_refused_before_anything_is_applied(tm
   assert(Fs.write(tmp .. "/free", "free"))
   assert(Fs.write(tmp .. "/held", "held"))
   local said = in_child(string.format([[
-say("nest", Sandbox.restrict({ grants = { { calls = "nest" } } }))
+do local ok, trouble = Sandbox.restrict({ grants = { { calls = "nest" } } }); say("nest", ok, if trouble == nil then "" else tostring(trouble) end) end
 say("free", reads(%q))
 local fd = assert(sys.open(%q, sys.O_RDONLY))
 say("fd", fd)
-say("unnamed", Sandbox.restrict({}))
+do local ok, trouble = Sandbox.restrict({}); say("unnamed", ok, if trouble == nil then "" else tostring(trouble) end) end
 assert(sys.close(fd))
 local running = assert(Child.start({ "/bin/sleep", "30" }, { timeout_ns = Child.FOREVER, process_group = false }))
-say("child", Sandbox.restrict({}))
+do local ok, trouble = Sandbox.restrict({}); say("child", ok, if trouble == nil then "" else tostring(trouble) end) end
 assert(running:close())
 say("still", reads(%q))
 ]], tmp .. "/free", tmp .. "/held", tmp .. "/free"))
@@ -184,7 +184,7 @@ local function test_a_named_descriptor_is_kept_and_its_path_is_not(tmp: string)
   assert(Fs.write(tmp .. "/f", "held"))
   local said = in_child(string.format([[
 local fd = assert(sys.open(%q, sys.O_RDONLY))
-say("named", Sandbox.restrict({}, { fds = { fd } }))
+do local ok, trouble = Sandbox.restrict({}, { fds = { fd } }); say("named", ok, if trouble == nil then "" else tostring(trouble) end) end
 say("through", sys.read(fd, 10))
 say("after", reads(%q))
 ]], tmp .. "/f", tmp .. "/f"))
@@ -214,7 +214,7 @@ local rows = assert(db:rows("PRAGMA journal_mode=WAL"))
 say("mode", assert(rows[1]):text(1))
 assert(db:close())
 assert(Store.attach(copy, { unchecked_bytecode = true }))
-say("restrict", Sandbox.restrict({}))
+do local ok, trouble = Sandbox.restrict({}); say("restrict", ok, if trouble == nil then "" else tostring(trouble) end) end
 local Csv = require("cosmic.csv")
 say("loaded", true, assert(assert(Csv.parse("a,b"))[1])[2])
 ]], tmp, build_paths.resolve(".").projection))
@@ -256,8 +256,8 @@ local function test_a_child_started_without_a_policy_is_held_by_the_profile(tmp:
   assert(Fs.write(tmp .. "/granted", "granted-bytes"))
   assert(Fs.write(tmp .. "/other", "other-bytes"))
   local said = in_child(string.format([[
-say("restrict", Sandbox.restrict({
-  grants = { { profile = "system" }, { profile = "programs" }, { path = %q, letters = "r" }, { calls = "fork" } } }))
+do local ok, trouble = Sandbox.restrict({
+  grants = { { profile = "system" }, { profile = "programs" }, { path = %q, letters = "r" }, { calls = "fork" } } }); say("restrict", ok, if trouble == nil then "" else tostring(trouble) end) end
 local granted, _ = Child.run({ "/bin/cat", %q }, { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })
 if granted ~= nil then say("granted", granted.ok, granted.stdout) else say("granted", nil, nil) end
 local other, _ = Child.run({ "/bin/cat", %q }, { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })
@@ -276,7 +276,7 @@ local function test_a_child_s_default_limits_hold_the_process()
   local said = in_child([[
 local nofile = assert(sys.getrlimit(sys.RLIMIT_NOFILE))
 say("before", nofile.soft >= 1024 and nofile.hard >= 1024)
-say("restrict", Sandbox.restrict({}))
+do local ok, trouble = Sandbox.restrict({}); say("restrict", ok, if trouble == nil then "" else tostring(trouble) end) end
 say("nofile", limit(sys.RLIMIT_NOFILE))
 say("core", limit(sys.RLIMIT_CORE))
 ]])
