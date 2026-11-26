@@ -28,7 +28,7 @@ local bytes = Rand.new(2026):bytes(MIB)
 local parts: mut {string} = {}
 for i = 1, 40 do parts[#parts + 1] = ('"k%d":{"a":%d,"b":"x"}'):format(i, i) end
 local tweet_text = "{" .. table.concat(parts, ",") ..
-    ',"user":{"id":1,"name":"n","x":2,"y":3,"z":4,"w":5,"tags":["a","b","c"]}}'
+  ',"user":{"id":1,"name":"n","x":2,"y":3,"z":4,"w":5,"tags":["a","b","c"]}}'
 local tweet = decoded(tweet_text)
 local tweet_again = decoded(tweet_text)
 local members_of = assert(Json.to_object(tweet))
