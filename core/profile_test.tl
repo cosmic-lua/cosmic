@@ -157,3 +157,12 @@ local function test_each_module_loaded_is_a_span()
   assert(text:match("\nspan [^\n]*%[require:cosmic%.mcp%] 1 %d+ %d+ %d+\n") ~= nil, text)
   assert(text:match("\nspan [^\n]*%[require:cosmic%.mcp%];%[require:cosmic%.json%] 1 %d+ %d+ %d+\n") ~= nil, text)
 end
+
+--- A lookup that reads a module and runs none of it opens no span of it, and nor does a load that finds nothing:
+--- the module loaded after both stands at the top, not under them.
+local function test_a_lookup_and_a_failed_load_leave_no_span_open()
+  local chunk = "local Store = require('cosmic.store') local _ = Store.closure({ 'cosmic.qr' }) " ..
+    "local ok, _ = pcall(require, 'cosmic.no_such_module') assert(not ok) local _q = require('cosmic.qr')"
+  local text = only(run("run", chunk))
+  assert(text:match("\nspan %[require:cosmic%.qr%] 1 %d+ %d+ %d+\n") ~= nil, text)
+end

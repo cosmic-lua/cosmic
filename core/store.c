@@ -364,21 +364,38 @@ static sqlite3 *binary_database (lua_State *L, int list) {
   return count > 0 ? database_at(L, list, count) : NULL;
 }
 
+/* Closes the span of a module's load (its token, the userdata's value),
+ * as the loader returns or raises: a to-be-closed slot of
+ * [`profiled_loader`]'s, so an error unwinds through it after its
+ * handler ran, and its traceback is the one an unprofiled run gets. */
+static int close_load_span (lua_State *L) {
+  int64_t *token = (int64_t *)luaL_checkudata(L, 1, "cosmic.store.load_span");
+  (void)cosmic_profile_span_close(*token);
+  *token = 0;
+  return 0;
+}
+
 /* The loader of a module a profiled process loads: its chunk (upvalue
  * 1) called with the arguments `require` gives it, inside the profile's
- * span `[require:<name>]` the searcher opened before it read the chunk
- * (upvalue 2, its token), so the span holds the read and the run, and the
- * spans of the modules it requires stand in it. A load that raises leaves
- * its span open, to close with the span it stands in: the profile stays
- * out of the error's way, so its traceback is the one an unprofiled run
- * gets. */
+ * span `[require:<name>]` (upvalue 2), so the spans of the modules it
+ * requires stand in it. The span opens here, as the chunk runs, not as
+ * the searcher reads it: a caller that asks the searcher and drops its
+ * loader (Store.closure's lookups, a test worker's gate) opens none. */
 static int profiled_loader (lua_State *L) {
   int given = lua_gettop(L);
+  int64_t *token = (int64_t *)lua_newuserdatauv(L, sizeof *token, 0);
+  *token = 0;
+  if (luaL_newmetatable(L, "cosmic.store.load_span")) {
+    lua_pushcfunction(L, close_load_span);
+    lua_setfield(L, -2, "__close");
+  }
+  lua_setmetatable(L, -2);
+  lua_toclose(L, given + 1);
+  *token = cosmic_profile_span_open("require:", lua_tostring(L, lua_upvalueindex(2)));
   lua_pushvalue(L, lua_upvalueindex(1));
-  lua_insert(L, 1);
+  for (int i = 1; i <= given; i++) lua_pushvalue(L, i);
   lua_call(L, given, LUA_MULTRET);
-  (void)cosmic_profile_span_close((int64_t)lua_tointeger(L, lua_upvalueindex(2)));
-  return lua_gettop(L);
+  return lua_gettop(L) - (given + 1);
 }
 
 /* The one searcher. Its upvalue is the list of databases, in the order
@@ -402,8 +419,6 @@ static int store_searcher (lua_State *L) {
   int list = lua_upvalueindex(1);
   lua_Integer count = (lua_Integer)lua_rawlen(L, list);
   int reserved = names_reserved(name);
-  /* A profiled process's load is a span of its profile, from the read on. */
-  int64_t span = 0;
 
   if (names_plain_raw(name) && raw_value(L, name)) {
     /* The value itself, as a module's: `require` caches it under its name. */
@@ -418,11 +433,11 @@ static int store_searcher (lua_State *L) {
       continue;
     }
     int trusted = 0;
-    if (span == 0 && cosmic_profile_taking()) span = cosmic_profile_span_open("require:", name);
     int found = load_from(L, db, name, i == count, &trusted);
     if (found == 1) {
-      if (span != 0) {
-        lua_pushinteger(L, (lua_Integer)span);
+      /* A profiled process's load is a span of its profile. */
+      if (cosmic_profile_taking()) {
+        lua_pushstring(L, name);
         lua_pushcclosure(L, profiled_loader, 2);
       }
       if (trusted && wrapper_raw(L, name)) {
@@ -432,11 +447,9 @@ static int store_searcher (lua_State *L) {
       return 2;
     }
     if (found < 0) {
-      (void)cosmic_profile_span_close(span);
       return lua_error(L);
     }
   }
-  (void)cosmic_profile_span_close(span);
 
   lua_pushfstring(L, "\n\tno module '%s' in the store", name);
   if (cosmic_surface_push_removed_library(L, name)) {

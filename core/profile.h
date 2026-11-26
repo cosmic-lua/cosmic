@@ -34,8 +34,8 @@
  * the most the Lua heap held as one of them closed (no collection runs
  * first, so it counts garbage too; 0 for one that closed only as the
  * process exited). A module the process loads from the store is a span
- * `[require:<module>]`, from the read of its chunk to the end of its
- * run, so the modules it requires stand in it. `peak_rss_kb` is the
+ * `[require:<module>]` while its chunk runs (a load that raises closes
+ * its span too), so the modules it requires stand in it. `peak_rss_kb` is the
  * resident set's peak over the whole process.
  *
  * A sample's frames run from the outermost, joined by `;`, the spans open
