@@ -10,6 +10,19 @@ local record json
     userdata
   end
 
+  -- What JSON can say as a Lua value, as [`decode_lines`] builds it:
+  -- cosmic/json.tl's [`Json.Value`], which is this type.
+  type Value = string | number | boolean | Null | {Value} | {string: Value}
+
+  -- What `decode` builds of a value, for `only`: all of it when
+  -- `whole`, else, in an object, the members `names` holds and, in an
+  -- array, the elements at `positions` (from 1), each selected in turn.
+  record Selection
+    mut whole: boolean
+    names: mut {string: Selection}
+    positions: mut {integer: Selection}
+  end
+
   -- The value `text` holds. JSON `null` is `null` when given, and nil
   -- when not. nil and a message, naming the line and column, when the
   -- text is not one RFC 8259 JSON value (JSON5 when `json5`; either
@@ -30,13 +43,32 @@ local record json
   -- the pointer a failure names is put under it; with `opened`, that many
   -- arrays and objects are open
   -- around it there, and count toward `max_depth`, which they must be
-  -- fewer than.
+  -- fewer than. With `only`, the text is checked whole as `check`
+  -- checks it, then only the values it selects are built (see
+  -- [`Selection`]); what a step does not reach is left out, and an array
+  -- keeps its elements' positions, marked as one with holes. A text that
+  -- is no array or object is the value whole.
   decode: function(text: string, null?: any, max_depth?: integer,
                    json5?: boolean, big_as_string?: boolean,
                    lone_surrogates?: boolean, record?: integer,
                    hash_comments?: boolean,
                    duplicate_keys?: boolean, line?: integer, column?: integer,
-                   prefix?: string, opened?: integer): any?, string
+                   prefix?: string, opened?: integer, only?: Selection): any?, string
+  -- The values of the JSON Lines text `text` from byte `at` (1 when
+  -- absent), which begins line `line` (1 when absent): one to each line
+  -- that holds more than the bytes `%s` matches, `most` of them at most
+  -- (all when absent), in an array marked as `array` marks one; then
+  -- "", and the byte and line to read on from, or nil and nil where the
+  -- text is done. Each line is read as `decode` reads it with `record`
+  -- set to its line's number, under the options of the same names; a
+  -- `null` line with no `null` leaves a hole. nil and the first refused
+  -- line's message when one does not decode. Raises when `at` is past
+  -- the byte after the text, `line` is below 1 or `most` below 1.
+  decode_lines: function(text: string, null?: any, max_depth?: integer,
+                         json5?: boolean, big_as_string?: boolean,
+                         lone_surrogates?: boolean, hash_comments?: boolean,
+                         duplicate_keys?: boolean, only?: Selection, at?: integer,
+                         line?: integer, most?: integer): any?, string, integer?, integer?
   -- true and "" when `decode` would read `text` under the same
   -- options; else false and the message it would fail with. It builds
   -- no value.

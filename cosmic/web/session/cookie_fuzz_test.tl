@@ -27,7 +27,9 @@ local function test_an_arbitrary_token_never_loads_and_never_raises(tmp: string)
     check = function(input: string): boolean, string
       local got, why = store:load(input, 50, "session")
       if got == nil then
-        if why ~= "" then return false, "a bad token is a failure of the store: " .. why end
+        return false, "a bad token is a failure of the store: " .. tostring(why)
+      end
+      if got == false then
         Fuzz.label("mac_bad")
         return true, ""
       end
@@ -50,14 +52,14 @@ local function test_what_the_store_signs_it_loads_back(tmp: string)
       local fields = Fuzz.unpack(input)
       local text, n = fields[1], math.tointeger(tonumber(fields[2])) or 1
       local data: Session.Data = { values = { text = assert(text), n = n }, created = 1, expires = 100 }
-      local token = store:save("", data, { set = {}, removed = {} }, 1, "session")
+      local token, _ = store:save("", data, { set = {}, removed = {} }, 1, "session")
       if token == nil then
         -- Bytes that are not UTF-8 are not JSON: refused, never signed.
         return true, ""
       end
       Fuzz.label("saved")
-      local got = store:load(token, 50, "session")
-      if got == nil or got.values["text"] ~= text or got.values["n"] ~= n then
+      local got, _ = store:load(token, 50, "session")
+      if got == nil or got == false or got.values["text"] ~= text or got.values["n"] ~= n then
         return false, "the session did not come back"
       end
       return true, ""

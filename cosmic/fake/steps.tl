@@ -4,10 +4,20 @@
 --- the status to end with. A step that fails says why on stderr, as
 --- `fake: <what>: <why>`, and returns 1.
 ---
----     local Steps = require("build.fake_steps")
+--- A probe -- a step that asks whether something can be done: connect,
+--- bind, start a child under a policy -- reports what it met on stdout
+--- instead, `connected` or the reason it was refused, and goes on:
+--- being refused is what the test checks, not a failure of the fake.
+--- A step that starts a child keeps its handle until the main ends;
+--- [`Steps.finish`] ends a main that started any by [`sys.exit`], so
+--- they run on.
+---
+---     local Steps = require("cosmic.fake.steps")
 ---     local function main(argv: {string}): integer
 ---       return Steps.cat(argv[2]) or Steps.print("read") or 0
 ---     end
+---
+--- @public
 
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
@@ -19,6 +29,9 @@ local String = require("cosmic.string")
 local sys = require("cosmic.sys")
 
 local record Steps
+  --- A case of a fake main: handed the words past its name, it returns
+  --- the status to end with.
+  type Case = function({string}): integer
 end
 
 --- How many [`Steps.attempt`]s are running, in which a failure is not said.
@@ -92,7 +105,7 @@ end
 --- Sets the mode bits of `path`, given in octal, as `chmod` does.
 function Steps.chmod(path: string, octal: string): integer?
   local bits = math.tointeger(tonumber(octal, 8))
-  if bits == nil then return Steps.fail("chmod", "no mode " .. octal) end
+  if bits == nil or bits < 0 then return Steps.fail("chmod", "no mode " .. octal) end
   local ok, trouble = Fs.chmod(path, bits)
   if not ok then return Steps.fail(path, tostring(trouble)) end
   return nil
@@ -129,7 +142,7 @@ function Steps.fd_closed(fd: integer): integer?
 end
 
 --- The names in directory `path`, sorted, a line each, to stdout.
-function Steps.ls(path: string): integer?
+function Steps.list(path: string): integer?
   local names, trouble = Fs.list(path)
   if names == nil then return Steps.fail(path, tostring(trouble)) end
   local sorted: mut {string} = {}
@@ -188,7 +201,7 @@ function Steps.rename(from: string, to: string): integer?
 end
 
 --- Removes the file `path`.
-function Steps.rm(path: string): integer?
+function Steps.remove(path: string): integer?
   local ok, trouble = sys.unlink(path)
   if not ok then return Steps.fail(path, trouble) end
   return nil
@@ -383,6 +396,7 @@ end
 --- Starts `argv` up to `count` times, leaving each running, and says
 --- `started <n>`, and ` then <why>` where a start failed, to stdout.
 function Steps.start_count(count: integer, argv: {string}): integer?
+  if count < 0 then return Steps.fail("start-count", "no count " .. tostring(count)) end
   local made = 0
   local refusal = ""
   for _ = 1, count do
@@ -427,8 +441,6 @@ function Steps.getpgid(pid: integer): integer?
   return Steps.print("pgid " .. tostring(group))
 end
 
---- Listens on `address`, connects to it and takes the connection:
---- says `connected`, or why not, to stdout.
 local function round_trip(address: Net.Address): integer?
   local server, trouble = Net.listen(address, { timeout_ns = Clock.seconds(5) })
   if server == nil then return Steps.print(tostring(trouble)) end
@@ -446,12 +458,14 @@ local function round_trip(address: Net.Address): integer?
   return Steps.print("connected")
 end
 
---- [`round_trip`] over TCP on `host`, at a port the kernel picks.
+--- Listens over TCP on `host`, at a port the kernel picks, connects to
+--- it and takes the connection: says `connected`, or why not, to stdout.
 function Steps.loopback_tcp(host: string): integer?
   return round_trip(Net.tcp(host, 0))
 end
 
---- [`round_trip`] on the unix socket `path`.
+--- Listens on the unix socket `path`, connects to it and takes the
+--- connection: says `connected`, or why not, to stdout.
 function Steps.loopback_unix(path: string): integer?
   return round_trip(Net.unix(path))
 end
@@ -522,6 +536,7 @@ end
 --- `exit <status>` and what it printed, or why it did not start, to
 --- stdout.
 function Steps.run_isolated(argv: {string}, loopback?: {string}): integer?
+  if #argv == 0 then return Steps.fail("run-isolated", "no program") end
   local grants: mut {Sandbox.Grant} = { { path = argv[1]!, letters = "rx" }, { path = ".", letters = "r" } }
   for _, address in ipairs(loopback or {}) do grants[#grants + 1] = { loopback = address } end
   local result, trouble = Child.run(argv, { timeout_ns = Child.FOREVER, policy = {
@@ -547,13 +562,9 @@ function Steps.write_fd(fd: integer, text: string): integer?
   return Steps.put(fd, text .. "\n")
 end
 
---- A case of a fake main: handed the words past its name, it returns
---- the status to end with.
-local type Case = function({string}): integer
-
 --- Runs the case of `cases` that `argv[1]` names, handed the words past
 --- it; a name of none fails, saying `fake` has no such case.
-function Steps.dispatch(fake: string, cases: {string:Case}, argv: {string}): integer
+function Steps.dispatch(fake: string, cases: {string:Steps.Case}, argv: {string}): integer
   local name = argv[1] or ""
   local words: mut {string} = {}
   for i = 2, #argv do words[#words + 1] = argv[i] end

@@ -17,7 +17,6 @@ local Test = require("cosmic.test")
 local type _Tailscale = require("cosmic.tailscale")
 local type _Web = require("cosmic.web")
 local _ = require("build.standalone")
-local this_program = require("build.this_program")
 local type Failure = require("cosmic.failure")
 
 Test.policy{ profiles = { "cosmic" }, loopback = { "127.0.0.1" }, requires = { "unix_socket" } }
@@ -50,7 +49,7 @@ return function(argv: {string}): integer
     },
   }
   local ok, why = Web.serve(app, { tailnet = { via = "funnel", client = ts, caps = { "example.com/cap/admin" } } })
-  print("served " .. tostring(ok) .. " " .. why)
+  print("served " .. tostring(ok) .. " " .. (if ok then "" else tostring(why) end))
   return 0
 end
 ]]
@@ -166,7 +165,7 @@ local function test_an_app_through_funnel_is_served_from_a_private_socket(tmp: s
     handle = function(req: Server.Request): Server.Reply return answer(d, req) end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       local port = tostring(assert(addresses[1]).port)
-      local started = this_program.program({ "--standalone", script, port },
+      local started = Test.cosmic({ "--standalone", script, port },
         { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
       local child <close> = assert(Child.start(started.argv, started.options))
       local deadline = Clock.monotonic_ns() + Clock.seconds(20)
@@ -223,7 +222,7 @@ local function test_a_refused_configuration_fails_the_serve_and_leaves_nothing(t
     handle = function(req: Server.Request): Server.Reply return answer(d, req) end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       local port = tostring(assert(addresses[1]).port)
-      local started = this_program.program({ "--standalone", script, port },
+      local started = Test.cosmic({ "--standalone", script, port },
         { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
       local child <close> = assert(Child.start(started.argv, started.options))
       local result = assert(child:wait(Clock.seconds(30)))

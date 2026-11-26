@@ -18,8 +18,9 @@
 ---     "ok": false, "output", "error"   it raised `error`, after writing `output`
 ---     "error": "..."                   the request could not be read
 ---
---- Where the checker refuses a snippet and its rewrites of the errors make one it passes ([`lang.rewrite`]), that one
---- runs, and the response holds "fixed": `["run.tl:2:12: concat_type: `n` -> `tostring(n)`"]`.
+--- Where the checker refuses a snippet and its errors have rewrites ([`lang.rewrite`]), the response holds "fixed":
+--- `["run.tl:2:12: concat_type: `n` -> `tostring(n)`"]`. The rewritten snippet runs where the checker passes it; where it
+--- does not, "refused" holds the errors it has left.
 ---
 --- A response of a snippet that ran may hold "changes", where it changed a file through Host.edit or Host.write:
 --- `[{"path":"a.md","edits":[{"old":"...","new":"..."}]}, {"path":"b.md","lines":2}, {"more":3}]`, each text the
@@ -75,6 +76,9 @@ local MAX_OUTPUT <const> = Worker.OUTPUT_BYTES
 
 --- The name each snippet is checked and run as.
 local SNIPPET <const> = "run.tl"
+
+--- The most rounds of the checker's rewrites a refused snippet is given ([`lang.rewrite`]).
+local ROUNDS <const> = 4
 
 local function failed(id: Json.Value, why: string): Answer
   return { id = id, error = why }
@@ -465,15 +469,23 @@ local function snippet_check(kept: Pipeline.Kept, code: string, cosmic: boolean)
 end
 
 --- What `kept` made of `code` ([`snippet_check`]), and, where it refused the snippet and the checker's rewrites of
---- its errors ([`lang.rewrite`]) make one it passes, what that one made and the lines that tell what they changed. The
---- model is told them, so that it writes the next snippet so; a snippet the rewrites leave refused is told as it was.
+--- its errors ([`lang.rewrite`]) change it, what it made of the rewritten one and the lines that tell what they
+--- changed. The model is told them either way: a rewritten snippet the checker passes runs, and one it still refuses is
+--- told with the errors the rewrites leave, so that the next snippet need not put right what they did. A rewrite adds no
+--- line, so a line of what is left is the line of the snippet as written.
 local function checked_fixed(kept: Pipeline.Kept, code: string, cosmic: boolean): Pipeline.Alone, {string}
-  local made = snippet_check(kept, code, cosmic)
-  if made.code ~= nil or made.edits == nil or #made.edits == 0 then return made, {} end
-  local rewritten = Rewrite.apply(code, made.edits)
-  local again = snippet_check(kept, rewritten.text, cosmic)
-  if again.code == nil then return made, {} end
-  return again, Rewrite.told(SNIPPET, rewritten.made)
+  local first = snippet_check(kept, code, cosmic)
+  local edits = first.edits
+  if first.code ~= nil or edits == nil or #edits == 0 then return first, {} end
+  local made = first
+  -- The text `made` is of.
+  local checked = code
+  local rewritten = Rewrite.rounds(code, function(text: string): {Rewrite.Edit}
+    if text ~= checked then made, checked = snippet_check(kept, text, cosmic), text end
+    return if made.code ~= nil then {} else made.edits or {} end
+  end, ROUNDS)
+  if rewritten.text ~= checked then made = snippet_check(kept, rewritten.text, cosmic) end
+  return made, Rewrite.told(SNIPPET, rewritten.made)
 end
 
 --- Whether `line` is a reply to a call, not a request: an object with a `call_id` and no `code` at its top. A reply
@@ -587,7 +599,11 @@ local function answer_to(loading: Loading, modules: Modules, capture: Capture, c
   refresh(loading, code)
   local made, fixed = checked_fixed(loading.kept, code, loading.cosmic)
   local lua = made.code
-  if lua == nil then return { id = id, refused = Json.array(made.lines) } end
+  if lua == nil then
+    local refusal: mut {string: Json.Value} = { id = id, refused = Json.array(made.lines) }
+    if #fixed > 0 then refusal["fixed"] = Json.array(fixed) end
+    return refusal
+  end
   -- Each snippet gets tables of its own, so one that sets a function changes it for none after.
   local values: mut {string: {string: Call}} = {}
   for module, functions in pairs(modules.values) do

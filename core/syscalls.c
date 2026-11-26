@@ -967,11 +967,16 @@ struct cpu_feature {
  * a kernel that saves none lists fewer in /proc/cpuinfo than cpuid does,
  * and the kernels return the same, so a key that holds the cpuid bits is
  * enough). patch/mbedtls's SHA-256 takes `sha_ni` with `sse4_1` and
- * `ssse3`. */
+ * `ssse3`. simdutf's base64 takes Haswell's kernel by `avx2`, `bmi1` and
+ * `bmi2`, and Ice Lake's by those with `avx512bw`, `avx512cd`,
+ * `avx512vl`, `avx512_vbmi2` and `avx512_vpopcntdq`. */
 static const struct cpu_feature cpu_features[] = {
-  { "aes", 1, 0, 2, 25 }, { "avx512_vnni", 7, 0, 2, 11 }, { "avx512f", 7, 0, 1, 16 },
-  { "avx512vl", 7, 0, 1, 31 }, { "avx_vnni", 7, 1, 0, 4 }, { "pclmulqdq", 1, 0, 2, 1 },
-  { "sha_ni", 7, 0, 1, 29 }, { "sse4_1", 1, 0, 2, 19 }, { "ssse3", 1, 0, 2, 9 },
+  { "aes", 1, 0, 2, 25 }, { "avx2", 7, 0, 1, 5 }, { "avx512_vbmi2", 7, 0, 2, 6 },
+  { "avx512_vnni", 7, 0, 2, 11 }, { "avx512_vpopcntdq", 7, 0, 2, 14 }, { "avx512bw", 7, 0, 1, 30 },
+  { "avx512cd", 7, 0, 1, 28 }, { "avx512f", 7, 0, 1, 16 }, { "avx512vl", 7, 0, 1, 31 },
+  { "avx_vnni", 7, 1, 0, 4 }, { "bmi1", 7, 0, 1, 3 }, { "bmi2", 7, 0, 1, 8 },
+  { "pclmulqdq", 1, 0, 2, 1 }, { "sha_ni", 7, 0, 1, 29 }, { "sse4_1", 1, 0, 2, 19 },
+  { "ssse3", 1, 0, 2, 9 },
 };
 #elif defined(__aarch64__) && defined(__linux__)
 struct cpu_feature {

@@ -245,10 +245,10 @@ local function test_a_development_app_serves_the_loopback_only()
   local app = Dev.app({ routes = routes(), sink = quiet() }, { enabled = true })
   for _, host in ipairs({ "0.0.0.0", "10.0.0.5", "127.evil.example", "::", "::2", "127.0.0" }) do
     local ok, why = Web.serve(app, { listeners = { Net.tcp(host, 0) } })
-    assert(ok == false and why:find("loopback", 1, true) ~= nil, host .. ": " .. tostring(why))
+    assert(ok == false and tostring(why):find("loopback", 1, true) ~= nil, host .. ": " .. tostring(why))
   end
   local ok, why = Web.serve(app, { listeners = { Net.tcp("127.0.0.1", 0), Net.tcp("10.1.2.3", 0) } })
-  assert(ok == false and why:find("loopback", 1, true) ~= nil, "one address beyond the loopback is enough")
+  assert(ok == false and tostring(why):find("loopback", 1, true) ~= nil, "one address beyond the loopback is enough")
 end
 
 --- A socket file is how a proxy reaches an app, so a development app
@@ -256,7 +256,7 @@ end
 local function test_a_development_app_refuses_a_socket_file(tmp: string)
   local app = Dev.app({ routes = routes(), sink = quiet() }, { enabled = true })
   local ok, why = Web.serve(app, { listeners = { Net.unix(tmp .. "/app.sock") } })
-  assert(ok == false and why:find("socket file", 1, true) ~= nil, tostring(why))
+  assert(ok == false and tostring(why):find("socket file", 1, true) ~= nil, tostring(why))
 end
 
 local function test_the_plain_app_and_a_debug_app_are_left_to_the_caller()
@@ -334,7 +334,7 @@ end
 local function test_a_development_app_with_a_trusted_proxy_is_refused()
   local app = Dev.app({ routes = routes(), sink = quiet(), trusted_proxy = { "loopback" } }, { enabled = true })
   local ok, why = Web.serve(app, { listeners = { Net.tcp("127.0.0.1", 0) } })
-  assert(ok == false and why:find("trusted_proxy", 1, true) ~= nil, tostring(why))
+  assert(ok == false and tostring(why):find("trusted_proxy", 1, true) ~= nil, tostring(why))
 end
 
 local function test_a_missing_static_directory_is_watched_without_a_spurious_reload(tmp: string)

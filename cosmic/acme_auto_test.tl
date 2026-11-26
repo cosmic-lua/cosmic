@@ -96,7 +96,7 @@ local function serve(auto: Acme.Auto, clear_port: integer): Served, boolean, str
       server:stop()
     end,
   }
-  return served, ok, why
+  return served, ok, if ok then "" else tostring(why) end
 end
 
 local function test_a_first_start_issues_while_the_clear_listener_answers_the_check(tmp: string)
@@ -241,7 +241,9 @@ local function test_web_serve_takes_an_auto_as_its_acme(tmp: string)
     end,
   }))
   assert(seen == "from the app 308", seen)
-  local ok, why = pcall(Web.serve, app, { acme = auto, tls = auto.certs })
+  local ok, why = pcall(function()
+    local _, _ = Web.serve(app, { acme = auto, tls = auto.certs })
+  end)
   assert(not ok and tostring(why):find("one of acme, tls and tailnet", 1, true) ~= nil, tostring(why))
 end
 

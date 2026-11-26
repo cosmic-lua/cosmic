@@ -1047,7 +1047,7 @@ local function serve_conn(s: Serving, conn: Net.Conn)
       timed.deadline = since + s.idle_ns
       local ok, _ = wire.fill(input)
       s.idle[conn] = nil
-      if not ok then return end
+      if ok ~= true then return end
     end
     timed.deadline = Clock.monotonic_ns() + s.head_ns
     local read = wire.read_head(input, s.limits)
@@ -1071,8 +1071,8 @@ end
 --- Serves HTTP/1.1 at each of `spec.listeners`, calling `spec.handle`
 --- for each request, until the server stops: [`Net.serve`], whose
 --- connections, signals and stopping it shares, speaking HTTP. It
---- returns when [`Net.serve`] does: true and "", or false and the
---- failure's message. It raises for a spec of the wrong shape, naming
+--- returns when [`Net.serve`] does: true, or false and its
+--- [`Failure`]. It raises for a spec of the wrong shape, naming
 --- the field, and when called in a task of a [`Poll.run`]. What
 --- `spec.on_ready` or `spec.on_error` raises, it raises, as [`Net.serve`]
 --- does.
@@ -1150,7 +1150,7 @@ end
 --- [`Clock.sleep`]. A handler that blocks the thread -- a
 --- [`cosmic.sqlite`] query, a long computation -- stalls every
 --- connection until it returns.
-function Server.serve(spec: Server.ServeSpec): boolean, string
+function Server.serve(spec: Server.ServeSpec): (true) | (false, Failure)
   checked_spec(spec)
   if Poll.in_task() then
     error("http: serve runs a Poll.run of its own, and cannot be called in a task of another: to send it requests " ..
@@ -1215,8 +1215,8 @@ function Server.serve(spec: Server.ServeSpec): boolean, string
     end,
     on_error = spec.on_error,
   }
-  if not served then return false, tostring(why) end
-  return true, ""
+  if not served then return false, why end
+  return true
 end
 
 -- What a handler reads of a request's Range and If-None-Match, as RFC

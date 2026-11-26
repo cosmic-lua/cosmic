@@ -1411,9 +1411,9 @@ local function test_a_key_holds_the_processors_features_only_where_declared(tmp:
     end
     return key_of(tmp, s)
   end
-  local here = host({ "aes", "sse4_1", "ssse3", "avx512bw" }, "r1")
+  local here = host({ "aes", "sse4_1", "ssse3", "avx512dq" }, "r1")
   -- Another processor: one dispatched feature fewer.
-  local elsewhere = host({ "aes", "ssse3", "avx512bw" }, "r1")
+  local elsewhere = host({ "aes", "ssse3", "avx512dq" }, "r1")
   assert(key(here, false) == key(elsewhere, false), "an undeclared test's key holds the processor")
   assert(key(here, true) ~= key(elsewhere, true), "a declared test's key lacks the processor")
   assert(key(here, true) ~= key(here, false))
@@ -1421,7 +1421,7 @@ local function test_a_key_holds_the_processors_features_only_where_declared(tmp:
   local lesser = host({ "aes", "sse4_1", "ssse3" }, "r1")
   assert(key(here, true) == key(lesser, true), "a feature no core reads split the verdicts")
   -- The kernel moves both.
-  local newer = host({ "aes", "sse4_1", "ssse3", "avx512bw" }, "r2")
+  local newer = host({ "aes", "sse4_1", "ssse3", "avx512dq" }, "r2")
   assert(key(here, false) ~= key(newer, false), "a kernel moved no undeclared key")
   assert(key(here, true) ~= key(newer, true), "a kernel moved no declared key")
   assert(declared_key.host_cpu(here) == declared_key.host_cpu(lesser))

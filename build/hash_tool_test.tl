@@ -75,11 +75,10 @@ end
 local function test_a_hash_loads_no_tree_root_and_no_json(tmp: string)
   local Child = require("cosmic.child")
   local Clock = require("cosmic.clock")
-  local this_program = require("build.this_program")
   assert(Fs.write(tmp .. "/a", "abc"))
-  local env = this_program.environment()
+  local env = Test.environment()
   env["COSMIC_TRACE_REQUIRE"] = "1"
-  local started = this_program.program({ "hash", "a" }, { env = env, cwd = tmp, stdout = "capture",
+  local started = Test.cosmic({ "hash", "a" }, { env = env, cwd = tmp, stdout = "capture",
     stderr = "capture", timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   local traced = r.stderr or ""

@@ -217,6 +217,17 @@ local record Json
     --- Read an object that holds a key twice, the last of its members
     --- standing, rather than refusing it (default false).
     mut duplicate_keys?: boolean
+    --- Build only the values these paths reach, each a [`Json.Steps`]
+    --- whose positions count from 1 (none from the end), and leave the
+    --- rest of the document out: `{{"user", "name"}, {"id"}}` decodes a
+    --- tweet as `{user = {name = ...}, id = ...}`. The text is still
+    --- checked whole, so a text `decode` refuses is refused, but the
+    --- values nothing selects cost no table and no string: much faster
+    --- for a few fields of a large document. A path that reaches nothing
+    --- is left out, and an array keeps each element it holds at its
+    --- position (marked as one that may have holes). An empty path keeps
+    --- the whole value; a text that is no array or object is the value whole.
+    only?: {Json.Steps}
   end
 
   --- How a Lua table encodes: see [`Json.layout`].
@@ -293,6 +304,20 @@ local record Json
     --- it reads whole: nil (the default) or [`Json.null`]. A `null` that
     --- `value` reads alone is [`Json.null`] whatever this says.
     null_value?: Json.Null
+  end
+
+  --- A JSON Lines text read some lines at a time, from
+  --- [`Json.line_reader`], so a large text is not held as values all at
+  --- once.
+  interface LineReader
+    --- The values of the next lines, `most` of them at most, as
+    --- [`Json.decode_lines`] reads them: a marked array, which holds
+    --- fewer than `most` only at the end of the text. false once every
+    --- line has been read. nil and a [`Failure`] naming the line when
+    --- one is not JSON, and the same again on every later read. A
+    --- `null` line leaves a hole unless `null_value` is given, so give
+    --- it to count the values with `#`.
+    read: function(LineReader, most: integer): ({Json.Value} | false) | (nil, Failure)
   end
 
   --- A reader of JSON text a token at a time, from [`Json.reader`]. A
@@ -456,14 +481,65 @@ local function value_of(v: any): Json.Value?
   return object
 end
 
+--- Why step `i` of a path is none, or nil when it is one: a name that
+--- is UTF-8, or an integer.
+local function bad_step(i: integer, step: string | integer): string?
+  if step is string then
+    if utf8.len(step) == nil then return ("step %d is a name that is not UTF-8"):format(i) end
+    return nil
+  end
+  if step == 0 then
+    return ("step %d is 0: positions count from 1, or from -1 at the end"):format(i)
+  end
+  return nil
+end
+
+local type Selection = raw.Selection
+
+--- `paths` as the selection [`raw.decode`] takes for `only`, or nil when
+--- a path is empty, which keeps the whole value. A path that ends where a
+--- longer one passes keeps the whole value there.
+local function selection(paths: {Json.Steps}): Selection?, string
+  local root: Selection = { whole = false, names = {}, positions = {} }
+  for i, steps in ipairs(paths) do
+    if #steps == 0 then root.whole = true end
+    local node = root
+    for j, step in ipairs(steps) do
+      local bad = bad_step(j, step)
+      if bad == nil and step is integer and step < 0 then
+        bad = ("step %d is %d, from the end, which only counts from 1"):format(j, step)
+      end
+      if bad ~= nil then return nil, ("only: path %d: %s"):format(i, bad) end
+      local child: Selection?
+      if step is string then child = node.names[step] else child = node.positions[step] end
+      if child == nil then
+        child = { whole = false, names = {}, positions = {} }
+        if step is string then node.names[step] = child else node.positions[step] = child end
+      end
+      if j == #steps then child.whole = true end
+      node = child
+    end
+  end
+  if root.whole then return nil, "" end
+  return root, ""
+end
+
 --- [`raw.decode`] of `text` under `opts`; `record`, when given, is the
 --- JSON Lines line `text` is, which a failure names.
+--- `chosen` is `opts.only` as [`selection`] built it, when the caller
+--- built it once for many texts.
 local function decode_with(text: string, opts: Json.DecodeOptions, record?: integer,
-                           null_value?: Json.Null): Json.Value?, string
+                           null_value?: Json.Null, chosen?: Selection): Json.Value?, string
   if null_value == nil then null_value = opts.null_value end
+  local only = chosen
+  if only == nil and opts.only ~= nil then
+    local why: string
+    only, why = selection(opts.only)
+    if why ~= "" then return refuse(why) end
+  end
   local value, err = raw.decode(text, null_value, opts.max_depth, opts.json5,
     opts.big_numbers_as_strings, opts.lone_surrogates, record, opts.hash_comments,
-    opts.duplicate_keys)
+    opts.duplicate_keys, nil, nil, nil, nil, only)
   if err ~= "" then return refuse(err) end
   return value_of(value), ""
 end
@@ -603,6 +679,10 @@ end
 --- costs a fraction of a decode. `null_value` changes nothing here.
 function Json.check(text: string, opts?: Json.DecodeOptions): (true) | (false, Failure)
   local o: Json.DecodeOptions = opts or {}
+  if o.only ~= nil then
+    local _, why = selection(o.only)
+    if why ~= "" then return false, Failure.new("json: " .. why) end
+  end
   local ok, err = raw.check(text, o.max_depth, o.json5, o.lone_surrogates, o.hash_comments,
     o.duplicate_keys, o.big_numbers_as_strings)
   if not ok then return false, Failure.new("json: " .. err) end
@@ -662,27 +742,46 @@ function Json.canonical(text: string, opts?: Json.CanonicalOptions): (string) | 
   return got
 end
 
+-- The selection `opts.only` makes, or nil when it is none, and why it
+-- is refused, or "".
+local function lines_selection(opts: Json.DecodeOptions): Selection?, string
+  if opts.only == nil then return nil, "" end
+  return selection(opts.only)
+end
+
+-- Some lines' values, and the byte and line the next read starts at
+-- (nil where the text is done).
+local record Batch
+  values: {Json.Value}
+  at: integer?
+  line: integer?
+end
+
+-- The values of `text` from byte `at`, which begins line `line`, `most`
+-- of them at most; nil and why one line does not decode.
+local function lines_from(text: string, opts: Json.DecodeOptions, chosen: Selection?, at: integer,
+                          line: integer, most?: integer): Batch?, string
+  -- One C call cuts the lines and decodes each, with no Lua call a line.
+  -- The record's own number names a failure's line: the decoder would
+  -- otherwise count a lone \r (or, in JSON5, U+2028 or U+2029) inside
+  -- it as a line end, which no record boundary is.
+  local values, err, next_at, next_line = raw.decode_lines(text, opts.null_value, opts.max_depth,
+    opts.json5, opts.big_numbers_as_strings, opts.lone_surrogates, opts.hash_comments,
+    opts.duplicate_keys, chosen, at, line, most)
+  -- What [`decode_lines`] built is an array of what `decode` builds.
+  local items = items_of(values)
+  if items == nil then return refuse(err) end
+  return { values = items, at = next_at, line = next_line }, ""
+end
+
 -- Json.decode_lines, its failure in words.
 local function decode_lines_text(text: string, opts?: Json.DecodeOptions): {Json.Value}?, string
-  local values: mut {integer: Json.Value} = {}
-  local number = 0
-  local count = 0
   local line_opts: Json.DecodeOptions = opts or {}
-  for line in String.lines(text) do
-    number = number + 1
-    if line:find("%S") then
-      count = count + 1
-      -- The record's own number names a failure's line: the decoder
-      -- would otherwise count a lone \r (or, in JSON5, U+2028 or
-      -- U+2029) inside it as a line end, which no record boundary is.
-      local value, err = decode_with(line, line_opts, number)
-      if err ~= "" then
-        return nil, err
-      end
-      if value ~= nil then values[count] = value end
-    end
-  end
-  return raw.array(values), ""
+  local chosen, why = lines_selection(line_opts)
+  if why ~= "" then return refuse(why) end
+  local batch, err = lines_from(text, line_opts, chosen, 1, 1)
+  if batch == nil then return nil, err end
+  return batch.values, ""
 end
 
 --- The values of JSON Lines text (NDJSON): one JSON value to a line,
@@ -694,6 +793,53 @@ function Json.decode_lines(text: string, opts?: Json.DecodeOptions): ({Json.Valu
   local got, why = decode_lines_text(text, opts)
   if got == nil then return nil, Failure.new(why) end
   return got
+end
+
+local class LinesOfText is Json.LineReader
+  text: string
+  opts: Json.DecodeOptions
+  chosen: Selection?
+  -- The byte the next read starts at, and its line; nil once the text is read.
+  mut at?: integer
+  mut line: integer
+  -- Why a read failed, which every later one returns too.
+  mut failed?: Failure
+
+  function read(self, most: integer): ({Json.Value} | false) | (nil, Failure)
+    if most < 1 then error(("json: read(%d): read at least one value"):format(most), 2) end
+    local failed = self.failed
+    if failed ~= nil then return nil, failed end
+    local at = self.at
+    if at == nil then return false end
+    local batch, why = lines_from(self.text, self.opts, self.chosen, at, self.line, most)
+    if batch == nil then
+      local failure = Failure.new(why)
+      self.failed = failure
+      return nil, failure
+    end
+    self.at = batch.at
+    local next_line = batch.line
+    if next_line ~= nil then self.line = next_line end
+    return batch.values
+  end
+end
+
+--- A reader of the JSON Lines text `text`, which decodes as
+--- [`Json.decode_lines`] does, some lines at each read: a filter over a
+--- large text holds only the values of the lines it reads, and stops
+--- at the first line it wants without reading the rest. nil and a
+--- [`Failure`] when `opts` is refused.
+---
+---     local lines = assert(Json.line_reader('{"n": 1}\n{"n": 2}\n'))
+---     local values = assert(lines:read(100))
+---     assert(values ~= false and #values == 2 and lines:read(100) == false)
+function Json.line_reader(text: string, opts?: Json.DecodeOptions): (Json.LineReader) | (nil, Failure)
+  local line_opts: Json.DecodeOptions = opts or {}
+  local chosen, why = lines_selection(line_opts)
+  if why ~= "" then return nil, Failure.new("json: " .. why) end
+  local reader: LinesOfText = { text = text, opts = line_opts, chosen = chosen, at = 1, line = 1,
+    failed = nil }
+  return reader
 end
 
 -- TODO: give [`Json.array`] a type parameter (`{T}` in, `{T}` out), so that an array of records or of decoded values is marked
@@ -899,19 +1045,6 @@ local function at_pointer(pointer: string): string
     kept = segment .. kept
   end
   return "pointer ending " .. Json.quote(kept)
-end
-
---- Why step `i` of a path is none, or nil when it is one: a name that
---- is UTF-8, or an integer.
-local function bad_step(i: integer, step: string | integer): string?
-  if step is string then
-    if utf8.len(step) == nil then return ("step %d is a name that is not UTF-8"):format(i) end
-    return nil
-  end
-  if step == 0 then
-    return ("step %d is 0: positions count from 1, or from -1 at the end"):format(i)
-  end
-  return nil
 end
 
 --- `v` as a table, or nil when it is none.

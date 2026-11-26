@@ -1,6 +1,9 @@
 local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local ZigPrune = require("cosmic_ci.zig_prune")
+local Test = require("cosmic.test")
+
+Test.policy{ grants = { { path = "/parent/bin/zig.pin", letters = "r" } } }
 
 --- [`ZigPrune.command`], what it returns as three values.
 local function prune_command(env: {string:string}): integer, string, string
@@ -61,9 +64,7 @@ end
 --- `finalDigest` and `Manifest.File`), takes new answers from a cache
 --- it wrote, and moves [`ZigPrune.zig_version`].
 local function test_the_answers_are_the_pinned_zigs()
-  local cwd = assert(Fs.absolute("."))
-  local root = assert(cwd:match("^(.*)/[^/]+$"), cwd)
-  local pin = assert(Fs.read(root .. "/bin/zig.pin"))
+  local pin = assert(Fs.read(Test.parent("bin/zig.pin")))
   local version = pin:match("^version (%S+)")
   assert(version == ZigPrune.zig_version(), "bin/zig.pin names zig " .. tostring(version) ..
       ", and cosmic_ci/zig_prune.tl reads " .. ZigPrune.zig_version() .. "'s caches")

@@ -4,7 +4,7 @@
 --- Its first argument names the case and the rest are that case's words.
 
 local Env = require("cosmic.env")
-local Steps = require("build.fake_steps")
+local Steps = require("cosmic.fake.steps")
 
 --- Each case, handed the words past its name.
 local cases: {string:function({string}): integer} = {

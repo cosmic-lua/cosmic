@@ -6,7 +6,7 @@
 --- Its first argument names the case and the rest are that case's words.
 
 local Env = require("cosmic.env")
-local Steps = require("build.fake_steps")
+local Steps = require("cosmic.fake.steps")
 
 --- Each case, handed the words past its name.
 local cases: {string:function({string}): integer} = {
@@ -58,7 +58,7 @@ local cases: {string:function({string}): integer} = {
   -- names it.
   ["cache-dir"] = function(_: {string}): integer
     local cache = Env.get("COSMIC_PORTABLE_CACHE") or ""
-    return Steps.mkdirs(cache) or Steps.ls(cache) or Steps.print(cache) or 0
+    return Steps.mkdirs(cache) or Steps.list(cache) or Steps.print(cache) or 0
   end,
 }
 

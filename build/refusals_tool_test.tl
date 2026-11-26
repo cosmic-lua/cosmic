@@ -5,7 +5,6 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
-local this_program = require("build.this_program")
 
 --- The program itself, which this test starts.
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
@@ -26,10 +25,10 @@ end
 --- Runs the program with `args` in `root`, unsandboxed (a sandbox nested in this test's own may be refused where the
 --- host nests only two deep), and returns what it said on stdout and stderr together.
 local function ran(root: string, tmp: string, args: {string}): Child.Result, string
-  local env = this_program.environment()
+  local env = Test.environment()
   env["COSMIC_TEST_SANDBOX"] = "0"
   env["TMPDIR"] = tmp
-  local started = this_program.program(args, {
+  local started = Test.cosmic(args, {
     cwd = root, env = env, stdout = "capture", stderr = "stdout", process_group = true, timeout_ns = Clock.seconds(120),
   })
   local result, trouble = Child.run(started.argv, started.options)

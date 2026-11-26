@@ -6,7 +6,6 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
-local this_program = require("build.this_program")
 
 --- The program itself, which builds the tree around the file it runs.
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
@@ -17,8 +16,8 @@ local function test_a_file_finds_its_words_in_arg_at_its_top_level(tmp: string)
   assert(Fs.write(root .. "/top.tl", 'print((arg[0] or "") .. "|" .. table.concat(arg, ","))\n' ..
       'return function(argv: {string}): integer\n  print(table.concat(argv, ","))\n' ..
       '  return 0\nend\n'))
-  local started = this_program.program({ "top.tl", "one", "two" }, { cwd = root,
-    env = this_program.environment(), stdout = "capture", stderr = "capture",
+  local started = Test.cosmic({ "top.tl", "one", "two" }, { cwd = root,
+    env = Test.environment(), stdout = "capture", stderr = "capture",
     timeout_ns = Clock.seconds(60) })
   local result = assert(Child.run(started.argv, started.options))
   assert(result.code == 0 and result.stdout == "top.tl|one,two\none,two\n",
@@ -30,10 +29,10 @@ end
 --- run that builds the tree, which COSMIC_STANDALONE=0 makes of a file
 --- that requires only `cosmic.*` modules too.
 local function run_in(root: string, file: string): Child.Result
-  local env = this_program.environment()
+  local env = Test.environment()
   env.COSMIC_BUILD_CACHE = "0" -- checked: map_field
   env["COSMIC_STANDALONE"] = "0"
-  local started = this_program.program({ file }, { cwd = root, env = env,
+  local started = Test.cosmic({ file }, { cwd = root, env = env,
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
   return (assert(Child.run(started.argv, started.options)))
 end
@@ -159,10 +158,10 @@ end
 
 --- Runs `file` in `root` as this program, building the tree as [`run_in`] does.
 local function run_new_in(root: string, file: string): Child.Result
-  local env = this_program.environment()
+  local env = Test.environment()
   env["COSMIC_BUILD_CACHE"] = "0"
   env["COSMIC_STANDALONE"] = "0"
-  local started = this_program.program({ file }, { cwd = root, env = env,
+  local started = Test.cosmic({ file }, { cwd = root, env = env,
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
   return (assert(Child.run(started.argv, started.options)))
 end
@@ -240,7 +239,7 @@ end
 local function test_a_lua_file_run_standalone_is_checked_as_teal(tmp: string)
   local file = tmp .. "/loose.lua"
   assert(Fs.write(file, "local function twice(n) return n * 2 end\nprint(twice(21))\n"))
-  local started = this_program.program({ "--standalone", file }, { env = this_program.environment(),
+  local started = Test.cosmic({ "--standalone", file }, { env = Test.environment(),
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
   local result = assert(Child.run(started.argv, started.options))
   assert(result.code == 4 and result.stdout == "" and (result.stderr or ""):find("param_untyped", 1, true) ~= nil,
@@ -388,7 +387,7 @@ local function test_script_is_nil_outside_a_file_run(tmp: string)
   assert(Fs.mkdirs(tmp .. "/alone"))
   assert(Fs.write(tmp .. "/alone/s.tl", check))
   for _, words in ipairs({ { "-e", check }, { "--standalone", "s.tl" } }) do
-    local started = this_program.program(words, { cwd = tmp .. "/alone", env = this_program.environment(),
+    local started = Test.cosmic(words, { cwd = tmp .. "/alone", env = Test.environment(),
       stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
     local result = assert(Child.run(started.argv, started.options))
     assert(result.code == 0 and result.stdout == "true\n", table.concat(words, " ") .. ": " .. tostring(result.stdout) ..
@@ -400,7 +399,7 @@ end
 --- records one, and one that runs the last build's projection records none.
 local function builds_of(root: string): integer
   local Sqlite = require("cosmic.sqlite")
-  local layout = require("build.paths").resolve(root, this_program.environment())
+  local layout = require("build.paths").resolve(root, Test.environment())
   local db = assert(Sqlite.open(layout.working))
   local rows = assert(db:rows("SELECT count(*) FROM builds"))
   local _, _ = db:close()
@@ -441,7 +440,7 @@ local function test_a_run_whose_projection_is_gone_builds_again(tmp: string)
   local first = run_in(root, "main.tl")
   assert(first.code == 0 and first.stdout == "one\n", tostring(first.stdout) .. tostring(first.stderr))
   local built = builds_of(root)
-  assert(Fs.remove(require("build.paths").resolve(root, this_program.environment()).projection))
+  assert(Fs.remove(require("build.paths").resolve(root, Test.environment()).projection))
   local again = run_in(root, "main.tl")
   assert(again.code == 0 and again.stdout == "one\n", tostring(again.stdout) .. tostring(again.stderr))
   assert(builds_of(root) == built + 1, "a run whose projection was gone did not build the tree")

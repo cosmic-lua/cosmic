@@ -8,7 +8,7 @@
 local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
-local Steps = require("build.fake_steps")
+local Steps = require("cosmic.fake.steps")
 
 --- Each case, handed the words past its name.
 local cases: {string:function({string}): integer} = {
@@ -25,7 +25,7 @@ local cases: {string:function({string}): integer} = {
     return 0
   end,
   present = function(words: {string}): integer return Steps.present(words[1]!) or 0 end,
-  ls = function(words: {string}): integer return Steps.ls(words[1]!) or 0 end,
+  ls = function(words: {string}): integer return Steps.list(words[1]!) or 0 end,
   append = function(words: {string}): integer return Steps.append(words[1]!, words[2]!) or 0 end,
   ["env-of"] = function(words: {string}): integer return Steps.env_of(words[1]!) or 0 end,
   rlimit = function(words: {string}): integer return Steps.rlimit(words[1]!) or 0 end,
@@ -75,7 +75,7 @@ local cases: {string:function({string}): integer} = {
   -- Names TMPDIR, makes /tmp/n and reads it, and lists /tmp.
   ["tmp-use"] = function(_: {string}): integer
     return Steps.env_of("TMPDIR") or Steps.create("/tmp/n", "x") or Steps.cat("/tmp/n") or
-      Steps.ls("/tmp") or 0
+      Steps.list("/tmp") or 0
   end,
   -- Copies program `words[1]` (this fake) to /tmp/mine/p, makes it
   -- executable, names TMPDIR, and runs the copy.

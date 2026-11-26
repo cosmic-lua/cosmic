@@ -16,7 +16,6 @@ local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
 local rebuild_lock = require("build.rebuild_lock")
-local this_program = require("build.this_program")
 local support = require("build.test_support_fixture")
 
 --- The program itself, which holds the lock against this process,
@@ -73,7 +72,7 @@ if sys.flock(fd, "exclusive") then print("taken") else print("refused") end
 --- `root`, holding what it takes for `hold_ns` (until its standard input
 --- ends, by default), and the first line it printed.
 local function start(script: string, root: string, hold_ns?: integer): Child.Handle, string
-  local started = this_program.program({ "-e", script:format(root, hold_ns or -1) },
+  local started = Test.cosmic({ "-e", script:format(root, hold_ns or -1) },
     { timeout_ns = Child.FOREVER, stdin = "stream", stdout = "stream" })
   local child = assert(Child.start(started.argv, started.options))
   local line, trouble = Stream.lines(child.stdout_stream as Stream.Reader):read() -- checked: cast_refused
@@ -185,9 +184,9 @@ print(tostring(held) .. " " .. trouble)
 --- `root` handed to it, its stdout and stderr to `output`.
 local function start_handed(root: string, role: string, output: string): Child.Handle
   local fd = assert(Fs.open_write(output))
-  local env = this_program.environment()
+  local env = Test.environment()
   env.COSMIC_REBUILD_LOCK_HANDED = support.build_dir(root) .. "/./rebuild.lock" -- checked: map_field
-  local started = this_program.program({ "-e", holding:format(root, role) },
+  local started = Test.cosmic({ "-e", holding:format(root, role) },
     { timeout_ns = Child.FOREVER, env = env, stdout = fd, stderr = fd, process_group = true })
   local h = assert(Child.start(started.argv, started.options))
   assert(Fs.close(fd))

@@ -4,7 +4,6 @@
 local Child = require("cosmic.child")
 local _ = require("cosmic.shape") -- in the closure, so the program the chunk runs in finds it
 local Test = require("cosmic.test")
-local this_program = require("build.this_program")
 
 Test.policy{
   profiles = { "cosmic", "proc" },
@@ -12,7 +11,7 @@ Test.policy{
 
 --- What checking `chunk` said, and whether it was taken.
 local function checking(chunk: string): boolean, string
-  local started = this_program.program({ "-e", chunk }, { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })
+  local started = Test.cosmic({ "-e", chunk }, { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })
   local r = assert(Child.run(started.argv, started.options))
   return r.ok, tostring(r.stdout) .. tostring(r.stderr)
 end

@@ -11,7 +11,6 @@ local Clock = require("cosmic.clock")
 local Http = require("cosmic.http")
 local testing = require("cosmic.internal.testing")
 local test_child = require("build.test_child")
-local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 
 --- The program itself, which the fixture runs.
@@ -45,7 +44,7 @@ test_child.register("multi_init", function(_args: {string}): integer
 end)
 
 local function test_a_failed_multi_init_does_not_poison_the_next_request(tmp: string)
-  local started = this_program.program(test_child.words(tmp, "core.fault_tool_test", "multi_init"),
+  local started = Test.cosmic(test_child.words(tmp, "core.fault_tool_test", "multi_init"),
     { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })
   local result = assert(Child.run(started.argv, started.options))
   assert(result.ok, "the fixture exited " .. tostring(result.code) .. ": " ..

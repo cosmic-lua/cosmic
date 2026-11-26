@@ -424,14 +424,24 @@ local function follows(v: Vector)
   same("A", client.public, v.client_public)
   same("B", server.public, v.server_public)
   local login, why = client:prove(v.salt, server.public)
-  assert(login ~= nil, why)
+  assert(login ~= nil, tostring(why))
   same("the client's key", login.key, v.key)
   same("M1", login.proof, v.client_proof)
   local session, refusal = server:verify(client.public, login.proof)
-  assert(session ~= nil, refusal)
+  assert(session ~= nil, tostring(refusal))
   same("the server's key", session.key, v.key)
   same("M2", session.proof, v.server_proof)
   assert(client:verify(session.proof))
+end
+
+local function accepted(server: Srp.Server, public: string, proof: string): boolean
+  local session, _ = server:verify(public, proof)
+  return session ~= nil
+end
+
+local function proved(client: Srp.Client, salt: string, public: string): boolean
+  local login, _ = client:prove(salt, public)
+  return login ~= nil
 end
 
 local function test_the_rfc_rules_match_rfc_5054_appendix_b()
@@ -506,9 +516,9 @@ local function logs_in(parameters: Srp.Parameters)
   local server = Srp.server(parameters, "alice", salt, verifier)
   assert(#client.public == #parameters.group.prime and #server.public == #parameters.group.prime)
   local login, why = client:prove(salt, server.public)
-  assert(login ~= nil, why)
+  assert(login ~= nil, tostring(why))
   local session, refusal = server:verify(client.public, login.proof)
-  assert(session ~= nil, refusal)
+  assert(session ~= nil, tostring(refusal))
   assert(session.key == login.key and client:verify(session.proof))
   assert(session.proof ~= login.proof)
 end
@@ -619,21 +629,22 @@ local function test_a_server_refuses_a_wrong_password()
   local client, server = sides("password124")
   local login = assert(client:prove("salt", server.public))
   local session, why = server:verify(client.public, login.proof)
-  assert(session == nil and why == "srp: the client's proof is wrong")
+  assert(session == nil, "refused")
+  assert(why.message == "srp: the client's proof is wrong")
 end
 
 local function test_a_server_refuses_another_identity_or_salt_and_a_changed_proof()
   local _, server = sides()
   local stranger = Srp.client(small, "alicf", "password123", string.rep("a", 32))
-  assert(server:verify(stranger.public, assert(stranger:prove("salt", server.public)).proof) == nil)
+  assert(not accepted(server, stranger.public, assert(stranger:prove("salt", server.public)).proof))
   local client = sides()
-  assert(server:verify(client.public, assert(client:prove("salu", server.public)).proof) == nil)
+  assert(not accepted(server, client.public, assert(client:prove("salu", server.public)).proof))
   local proof = assert(client:prove("salt", server.public)).proof
   local changed = proof:sub(1, -2) .. string.char(assert(proof:byte(-1)) ~ 1)
   for _, wrong in ipairs({ changed, "", proof:sub(1, -2), proof .. "\0" }) do
-    assert(server:verify(client.public, wrong) == nil)
+    assert(not accepted(server, client.public, wrong))
   end
-  assert(server:verify(client.public, proof) ~= nil)
+  assert(server:verify(client.public, proof))
 end
 
 local function test_a_client_refuses_a_server_that_does_not_hold_the_verifier()
@@ -641,7 +652,7 @@ local function test_a_client_refuses_a_server_that_does_not_hold_the_verifier()
   local other = Srp.verifier(small, "alice", "another password", "salt")
   local impostor = Srp.server(small, "alice", "salt", other, string.rep("b", 32))
   local login = assert(client:prove("salt", impostor.public))
-  assert(impostor:verify(client.public, login.proof) == nil)
+  assert(not accepted(impostor, client.public, login.proof))
   assert(not client:verify(login.proof))
   assert(not client:verify(""))
   local _, server = sides()
@@ -672,7 +683,8 @@ local function test_a_client_refuses_each_degenerate_public_value()
   local client = sides()
   for i, public in ipairs(degenerate()) do
     local login, why = client:prove("salt", public)
-    assert(login == nil and why == "srp: the server's public value is not from 1 to the prime less 1", tostring(i))
+    assert(login == nil, "refused")
+    assert(why.message == "srp: the server's public value is not from 1 to the prime less 1", tostring(i))
   end
   Test.raises(function() client:verify("") end, "after prove")
 end
@@ -684,7 +696,7 @@ local function test_a_refused_prove_forgets_the_session_before_it()
   local login = assert(client:prove("salt", server.public))
   local session = assert(server:verify(client.public, login.proof))
   assert(client:verify(session.proof))
-  assert(client:prove("salt", "\0") == nil)
+  assert(not proved(client, "salt", "\0"))
   Test.raises(function() client:verify(session.proof) end, "after prove")
 end
 
@@ -714,9 +726,10 @@ local function test_a_server_refuses_each_degenerate_public_value()
   local login = assert(client:prove("salt", server.public))
   for i, public in ipairs(degenerate()) do
     local session, why = server:verify(public, login.proof)
-    assert(session == nil and why == "srp: the client's public value is not from 1 to the prime less 1", tostring(i))
+    assert(session == nil, "refused")
+    assert(why.message == "srp: the client's public value is not from 1 to the prime less 1", tostring(i))
   end
-  assert(server:verify(client.public, login.proof) ~= nil)
+  assert(server:verify(client.public, login.proof))
 end
 
 local function test_a_public_value_with_leading_zero_bytes_is_the_same_number()
@@ -747,9 +760,11 @@ local function test_both_sides_refuse_a_scrambling_value_of_zero()
   local client = Srp.client(rigged, "alice", "password123")
   local server = Srp.server(rigged, "alice", "salt", verifier)
   local login, why = client:prove("salt", server.public)
-  assert(login == nil and why == "srp: the scrambling value is zero")
+  assert(login == nil, "refused")
+  assert(why.message == "srp: the scrambling value is zero")
   local session, refusal = server:verify(client.public, string.rep("\0", 32))
-  assert(session == nil and refusal == "srp: the scrambling value is zero")
+  assert(session == nil, "refused")
+  assert(refusal.message == "srp: the scrambling value is zero")
 end
 
 local function test_a_hash_given_as_a_function_computes_what_its_name_does()

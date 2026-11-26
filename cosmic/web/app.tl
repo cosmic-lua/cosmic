@@ -6,6 +6,7 @@
 local Builtin = require("cosmic.web.builtin")
 local Clock = require("cosmic.clock")
 local Errors = require("cosmic.web.errors")
+local Failure = require("cosmic.failure")
 local Middleware = require("cosmic.web.middleware")
 local Net = require("cosmic.net")
 local Request = require("cosmic.web.request")
@@ -29,6 +30,11 @@ end
 
 --- How long requests in flight have to finish once the server stops.
 local GRACE_NS <const> = Clock.seconds(10)
+
+--- How [`App.serve`]'s server ended: why it failed, nil while it has not.
+local record Served
+  mut failure: Failure?
+end
 
 --- The streams an app allows when it is not served: half the server's
 --- default of 256 connections.
@@ -185,12 +191,11 @@ function App.new(spec: Types.AppSpec): Types.App
 end
 
 --- Runs `app` over [`Server.serve`]: its lifespan first, then the server
---- until it stops, then the lifespan's cleanup. See [`Web.serve`].
+--- until it stops, then the lifespan's cleanup: true when the server
+--- stopped cleanly, or false and a [`Failure`]. See [`Web.serve`].
 --- @param app Types.App The app
 --- @param opts Types.ServeOptions Where and how
---- @return boolean Whether the server stopped cleanly
---- @return string Why not
-function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
+function App.serve(app: Types.App, opts: Types.ServeOptions): (true) | (false, Failure)
   local sink = assert(app.spec.sink)
   local listeners: mut {Net.Address} = {}
   for _, address in ipairs(opts.listeners or {}) do listeners[#listeners + 1] = address end
@@ -215,7 +220,7 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
   local socket: string? = nil
   local forwarded: {string}? = nil
   -- Refuses to serve, removing what Serve's socket left first.
-  local function declined(why: string): boolean, string
+  local function declined(why: Failure): (false, Failure)
     local undo = unplace
     if undo ~= nil then undo() end
     return false, why
@@ -226,7 +231,7 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
     -- tailscaled.
     local Tailnet = require("cosmic.web.tailnet")
     local reached, why = Tailnet.serving(if tailnet is boolean then {} else tailnet end)
-    if reached == nil then return false, tostring(why) end
+    if reached == nil then return false, why end
     for _, address in ipairs(reached.listeners) do listeners[#listeners + 1] = address end
     tls = reached.certs
     put_up, unplace, socket, forwarded = reached.put_up, reached.cleanup, reached.socket, reached.caps
@@ -242,13 +247,13 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
   for _, address in ipairs(clear or {}) do everywhere[#everywhere + 1] = address end
   if app.spec.dev == true then
     if app.proxies ~= nil then
-      return declined("web: an app in development mode (Dev.app) cannot also have a trusted_proxy")
+      return declined(Failure.new("web: an app in development mode (Dev.app) cannot also have a trusted_proxy"))
     end
     sink:line("development mode: stacks are shown and pages reload; serving on the loopback only")
     for _, address in ipairs(everywhere) do
       if not machine_only(address) then
-        return declined("web: an app in development mode (Dev.app) serves only on the loopback, " ..
-            "never a socket file")
+        return declined(Failure.new("web: an app in development mode (Dev.app) serves only on the loopback, " ..
+            "never a socket file"))
       end
     end
   end
@@ -267,10 +272,10 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
   local lifespan = app.spec.lifespan
   if lifespan ~= nil then
     local cleanup, why = lifespan(app)
-    if cleanup == nil and why ~= nil and why ~= "" then return declined(why) end -- checked: compare_disjoint
+    if cleanup == nil and why ~= nil and why ~= "" then return declined(Failure.new(why)) end -- checked: compare_disjoint
     shutdown = cleanup
   end
-  local served = { ok = false, err = "" }
+  local served: Served = { failure = nil }
   local filed: Tailscale.Serving? = nil
   local refusal = ""
   local on_ready = opts.on_ready
@@ -296,7 +301,7 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
   -- TODO: once Server.ServeSpec has an `on_start` run in a task before the
   -- listeners open, run the lifespan there, so it may wait on Poll.
   local ran, raised = pcall(function()
-    served.ok, served.err = Server.serve({
+    local ok, why = Server.serve({
       listeners = listeners, clear = clear, limits = opts.limits, tls = tls, timeout_ns = opts.timeout_ns,
       idle_ns = opts.idle_ns, head_ns = opts.head_ns, body_ns = opts.body_ns, compress = opts.compress,
       grace_ns = opts.grace_ns or GRACE_NS, on_ready = ready, handle = handle,
@@ -328,6 +333,7 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
       end,
       on_error = function(trouble: string) sink:line(trouble) end,
     })
+    if not ok then served.failure = why end
   end)
   local made = filed
   if made ~= nil then local _, _ = made:close() end
@@ -340,11 +346,12 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
     if trouble ~= nil then sink:line("lifespan cleanup: " .. trouble) end
   end
   if not ran then error(raised, 0) end
-  if not served.ok then return false, served.err end
+  local failure = served.failure
+  if failure ~= nil then return false, failure end
   -- A configuration the daemon refused stops the server, which then
   -- returns as a stopped one does.
-  if refusal ~= "" then return false, refusal end
-  return true, ""
+  if refusal ~= "" then return false, Failure.new(refusal) end
+  return true
 end
 
 return App

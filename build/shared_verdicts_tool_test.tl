@@ -14,7 +14,6 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
-local this_program = require("build.this_program")
 local shared_verdicts = require("build.shared_verdicts")
 local confine = require("build.confine")
 local sys = require("cosmic.sys")
@@ -38,7 +37,7 @@ local function run(root: string, output: string, env: {string:string},
   local fd = assert(Fs.open_write(output))
   local args: mut {string} = { "test" }
   for _, word in ipairs(words or {}) do args[#args + 1] = word end
-  local started = this_program.program(args, {
+  local started = Test.cosmic(args, {
     cwd = root, env = env, stdout = fd, stderr = fd,
     process_group = true, timeout_ns = Clock.seconds(60),
   })
@@ -67,7 +66,7 @@ end
 --- are, and a run sandboxed and required to be may start runs that
 --- cannot be, which [`skip_unless_shared`] holds it to.
 local function environment(): mut {string:string}
-  local env = this_program.environment()
+  local env = Test.environment()
   env["COSMIC_TEST_SANDBOX"] = nil
   return env
 end
@@ -183,6 +182,7 @@ local function test_a_rebooted_run_stands_on_the_first_ones_verdicts(tmp: string
   local env, said, _ = seeded(tmp)
   tmp = assert(Fs.absolute(tmp))
   env["COSMIC_REBOOTED"] = "1"
+  env["COSMIC_REBOOTED_TOOL"] = tmp .. "/rebooted/o/bin/cosmic"
   env["OLDPWD"] = tmp .. "/elsewhere"
   checkout(tmp .. "/rebooted", "one\n")
   said("rebooted", tmp .. "/rebooted", "0 ran, 5 stood")

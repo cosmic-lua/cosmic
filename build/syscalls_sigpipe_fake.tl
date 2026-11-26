@@ -1,7 +1,7 @@
 --- The fake of core/syscalls_sigpipe_test.tl, run as a [`cosmic.fake`] main. Its first argument
 --- names the case and the rest are that case's words.
 
-local Steps = require("build.fake_steps")
+local Steps = require("cosmic.fake.steps")
 
 local int = Steps.int
 

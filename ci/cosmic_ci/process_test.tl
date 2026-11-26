@@ -1,5 +1,8 @@
 local Fixture = require("cosmic_ci.fixture")
 local Process = require("cosmic_ci.process")
+local Test = require("cosmic.test")
+
+Test.policy{ profiles = { "system" } }
 
 local function test_await_ready_reads_the_childs_readiness(tmp: string)
   local diagnostics = tmp .. "/logs"

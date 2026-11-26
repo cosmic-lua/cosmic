@@ -8,7 +8,6 @@ local Signal = require("cosmic.signal")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
-local this_program = require("build.this_program")
 
 --- Children run chunks through this program's core, without a shell.
 Test.policy{ profiles = { "cosmic" } }
@@ -17,7 +16,7 @@ local function output(fd: integer): Child.Handle
   local options: Child.Options = { timeout_ns = Child.FOREVER, stdout = if fd == 1 then "stream" else "null" end,
     stderr = if fd == 1 then "null" else "stream" end }
   local script = 'assert(require("cosmic.fs").put(' .. tostring(fd) .. ', "abcdef"))'
-  local started = this_program.program({ "-e", script }, options)
+  local started = Test.cosmic({ "-e", script }, options)
   return (assert(Child.start(started.argv, started.options)))
 end
 

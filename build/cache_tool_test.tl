@@ -11,7 +11,6 @@ local Clock = require("cosmic.clock")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
-local this_program = require("build.this_program")
 
 --- The next chunk of `reader`: raises where it ended or failed.
 local function chunk_of(reader: Stream.Reader, max_bytes?: integer): string
@@ -24,9 +23,9 @@ end
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 local function run(dir: string, words: {string}): Child.Result
-  local env = this_program.environment()
+  local env = Test.environment()
   env.COSMIC_TREE = dir .. "/does-not-exist" -- checked: map_field
-  local started = this_program.program(words, { cwd = dir, env = env,
+  local started = Test.cosmic(words, { cwd = dir, env = env,
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(10) })
   return (assert(Child.run(started.argv, started.options)))
 end
@@ -62,7 +61,7 @@ local function test_busy_cache_cancellation_is_prompt_and_preserves_file(tmp: st
   local path = tmp .. "/cache.db"
   local db = assert(Sqlite.open(path, { writable = true }))
   assert(db:exec("CREATE TABLE untouched (value TEXT); INSERT INTO untouched VALUES ('keep'); BEGIN IMMEDIATE"))
-  local started = this_program.program({ "cache", "trim", "compiles", path, "--since-ns", "0", "--json" },
+  local started = Test.cosmic({ "cache", "trim", "compiles", path, "--since-ns", "0", "--json" },
     { cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(0.2) })
   local result = assert(Child.run(started.argv, started.options))
   assert(db:exec("ROLLBACK"))
@@ -84,12 +83,12 @@ local function test_long_lived_reader_prevents_a_save_ready_wal_snapshot(tmp: st
     'local db = assert(Sqlite.open(' .. string.format("%q", path) .. ')) ' ..
     'assert(db:exec("BEGIN")) assert(db:rows("SELECT * FROM keep")) ' ..
     'assert(Fs.put(1,"r")) assert(Fs.take(0,1)) assert(db:exec("ROLLBACK")) assert(db:close())'
-  local reader_start = this_program.program({ "-e", script }, { timeout_ns = Child.FOREVER, cwd = tmp,
+  local reader_start = Test.cosmic({ "-e", script }, { timeout_ns = Child.FOREVER, cwd = tmp,
     stdin = "stream", stdout = "stream", stderr = "capture" })
   local reader <close> = assert(Child.start(reader_start.argv, reader_start.options))
   assert(chunk_of(assert(reader.stdout_stream), 1) == "r")
   assert(db:exec("INSERT INTO keep VALUES ('later')"))
-  local started = this_program.program({ "cache", "trim", "verdicts", path, "--whole", "--json" },
+  local started = Test.cosmic({ "cache", "trim", "verdicts", path, "--whole", "--json" },
     { cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Clock.ms(200) })
   local result = assert(Child.run(started.argv, started.options))
   assert(result.timed_out and not (result.stdout or ""):find('"digest"', 1, true))
@@ -110,7 +109,7 @@ local function test_signal_exits_cooperatively_with_an_incomplete_json_report(tm
   local path = tmp .. "/cache.db"
   local db = assert(Sqlite.open(path, { writable = true }))
   assert(db:exec("CREATE TABLE untouched (value TEXT); BEGIN IMMEDIATE"))
-  local started = this_program.program({ "cache", "trim", "compiles", path, "--since-ns", "0", "--json" },
+  local started = Test.cosmic({ "cache", "trim", "compiles", path, "--since-ns", "0", "--json" },
     { timeout_ns = Child.FOREVER, cwd = tmp, stdout = "stream", stderr = "capture", process_group = false })
   local child <close> = assert(Child.start(started.argv, started.options))
   local output = assert(child.stdout_stream)

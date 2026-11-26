@@ -8,7 +8,6 @@ local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local test_child = require("build.test_child")
-local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
 
@@ -67,7 +66,7 @@ end)
 --- into an untrusted load without its raw value -- while any other
 --- `build.*` name still resolves project first.
 local function test_a_project_cannot_shadow_a_raw_value_wrapper(tmp: string)
-  local started = this_program.program(test_child.words(tmp, "cosmic.store_tool_test", "shadowing", { tmp .. "/project.db" }),
+  local started = Test.cosmic(test_child.words(tmp, "cosmic.store_tool_test", "shadowing", { tmp .. "/project.db" }),
     { env = { XDG_CACHE_HOME = tmp .. "/cache" },
       stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local result = assert(Child.run(started.argv, started.options))
@@ -117,7 +116,7 @@ test_child.register("stored", function(argv: {string}): integer
 end)
 
 local function test_the_searcher_loads_bytecode_stored_as_it_is_or_deflated_and_refuses_any_other(tmp: string)
-  local started = this_program.program(test_child.words(tmp, "cosmic.store_tool_test", "stored", { tmp .. "/packed.db" }),
+  local started = Test.cosmic(test_child.words(tmp, "cosmic.store_tool_test", "stored", { tmp .. "/packed.db" }),
     { env = { XDG_CACHE_HOME = tmp .. "/cache" },
       stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local result = assert(Child.run(started.argv, started.options))
@@ -140,7 +139,7 @@ end
 local function test_a_seal_without_a_path_lands_in_the_cache(tmp: string)
   local script = tmp .. "/sealing.tl"
   assert(Fs.write(script, sealing))
-  local started = this_program.program({ "--standalone", script },
+  local started = Test.cosmic({ "--standalone", script },
     { env = { XDG_CACHE_HOME = tmp .. "/cache", TMPDIR = tmp },
       stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local result = assert(Child.run(started.argv, started.options))

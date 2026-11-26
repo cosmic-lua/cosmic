@@ -371,9 +371,9 @@ refuses a module of the tree outside the closure.
   Start it with `test_child.words(tmp, "<the module>", "<name>", args)` as
   the words after the program, where the chunk is written for it.
 - A test that starts cosmic's core past the launcher uses
-  [`build.this_program`]'s `program` and needs no `"system"` profile.
-  Build a child's environment from its `environment()` only where the
-  test means to choose it.
+  [`Test.cosmic`] and needs no `"system"` profile. Build a child's
+  environment from [`Test.environment`] only where the test means to
+  choose it. A project's own tests start the program the same way.
 - `Store.source(name)` ([`cosmic.store`]) serves only the running
   binary's own database. Under `cosmic test` that is the test's sealed
   database. The source of a module the test requires is there. For a
@@ -578,8 +578,9 @@ assert(Fake.place(program, tmp .. "/bin/git", "abc1234"))
 
 A fake that only answers by its first argument needs no module of its
 own: [`Fake.reply`] places the reply fake ([`Fake.REPLY`]) with a
-table of answers. The tree's own tests build their fakes from the
-steps of build/fake_steps.tl, one case per first argument.
+table of answers. A main that does more is made of the steps of
+[`cosmic.fake.steps`], one case per first argument, as the tree's own
+fakes are.
 
 ## host requirements
 
@@ -620,7 +621,14 @@ only some of the time goes in a module of its own.
 What the worker sees is what its module grants, not what the runner
 found. A `path:` needs a `host` grant of the same path, or of /proc
 above it, or the profile `"proc"`. A `program:`
-needs the profile `"system"` and `env = { "PATH" }`.
+needs the profile `"system"` and `env = { "PATH" }`. An `env:<NAME>`
+needs `NAME` in `env`, and may not name a variable the runner sets in
+every worker itself, such as `PATH` or `TMPDIR`.
+
+A test of what another program's run prepares for it, and says where
+through variables, declares `requires = { "env:<NAME>" }` for each
+variable it reads. In any other run it is not applicable, and no worker
+starts.
 
 A test that writes a portable program (`cosmic build` without `--host`)
 declares `requires = { "all_cores" }`. A bare `bin/zig build boot` writes a
@@ -1392,7 +1400,6 @@ Other rules:
 [`build.test_sandbox_probe`]: ../build/test_sandbox_probe.tl
 [`build.test_sandbox`]: ../build/test_sandbox.tl
 [`build.test_worker`]: ../build/test_worker.tl
-[`build.this_program`]: ../build/this_program.tl
 [`build.tree_checks`]: ../build/tree_checks/init.tl
 [`build/declared_key.tl`]: ../build/declared_key.tl
 [`build/dispatch_sites.tl`]: ../build/dispatch_sites.tl
@@ -1410,7 +1417,8 @@ Other rules:
 [`Check.Checked.narrowed`]: ../lang/check/init.tl
 [`ci/cosmic_ci/capabilities.json`]: ../ci/cosmic_ci/capabilities.json
 [`ci/README.md`]: ../ci/README.md
-[`cosmic.fake`]: ../cosmic/fake.tl
+[`cosmic.fake.steps`]: ../cosmic/fake/steps.tl
+[`cosmic.fake`]: ../cosmic/fake/init.tl
 [`cosmic.fuzz`]: ../cosmic/fuzz.tl
 [`cosmic.internal.symbols`]: ../cosmic/internal/symbols.tl
 [`cosmic.layout`]: ../cosmic/layout.tl
@@ -1428,9 +1436,9 @@ Other rules:
 [`declared_key.host_split`]: ../build/declared_key.tl
 [`doc/performance.md`]: performance.md
 [`FactWraps.once`]: ../lang/fact_wraps.tl
-[`Fake.given`]: ../cosmic/fake.tl
-[`Fake.place`]: ../cosmic/fake.tl
-[`Fake.reply`]: ../cosmic/fake.tl
+[`Fake.given`]: ../cosmic/fake/init.tl
+[`Fake.place`]: ../cosmic/fake/init.tl
+[`Fake.reply`]: ../cosmic/fake/init.tl
 [`Fs.mkdtemp`]: ../cosmic/fs.tl
 [`Fuzz.label`]: ../cosmic/fuzz.tl
 [`Fuzz.more`]: ../cosmic/fuzz.tl
@@ -1446,6 +1454,8 @@ Other rules:
 [`lang/check_total_fuzz_test.tl`]: ../lang/check_total_fuzz_test.tl
 [`Store.withheld`]: ../cosmic/store.tl
 [`sys.cpu_features`]: ../core/syscalls.h
+[`Test.cosmic`]: ../cosmic/test.tl
+[`Test.environment`]: ../cosmic/test.tl
 [`Test.mode`]: ../cosmic/test.tl
 [`Test.passed_unchecked`]: ../cosmic/test.tl
 [`Test.policy`]: ../cosmic/test.tl
