@@ -1,7 +1,7 @@
 --- The fake of core/syscalls_session_test.tl, a [`cosmic.fake`] main a
 --- confined child runs. Its first argument names the case.
 
-local Steps = require("build.fake_steps")
+local Steps = require("cosmic.fake.steps")
 
 --- Each case, handed the words past its name.
 local cases: {string:function({string}): integer} = {

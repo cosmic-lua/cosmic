@@ -2,7 +2,7 @@
 --- confined child runs. Its first argument names the case and the rest
 --- are that case's words.
 
-local Steps = require("build.fake_steps")
+local Steps = require("cosmic.fake.steps")
 
 local int = Steps.int
 
@@ -45,7 +45,7 @@ local cases: {string:function({string}): integer} = {
   -- given, of its /tmp, and of /proc.
   mirrored = function(words: {string}): integer
     return Steps.present("/dev/fd/0") or Steps.print("fd") or Steps.mode(words[1]!) or
-      Steps.ls("/tmp") or Steps.write("/tmp/f", "t") or Steps.cat("/tmp/f") or
+      Steps.list("/tmp") or Steps.write("/tmp/f", "t") or Steps.cat("/tmp/f") or
       either(function(): integer? return Steps.present("/proc/sys") end, "host-proc", "own-proc") or
       either(function(): integer? return Steps.writable("/proc/self/uid_map") end, "own-writable", "own-read-only") or
       unless(function(): integer? return Steps.writable("/proc/sys/vm/swappiness") end, "sys-read-only") or 0
@@ -85,7 +85,7 @@ local cases: {string:function({string}): integer} = {
     return Steps.status_field("Pid") or
       either(function(): integer? return Steps.signal("KILL", int(pid)) end, "killed", "spared") or
       either(function(): integer? return Steps.present("/proc/" .. pid) end, "seen", "unseen") or
-      Steps.cat("/proc/1/comm") or Steps.ls("/proc") or 0
+      Steps.cat("/proc/1/comm") or Steps.list("/proc") or 0
   end,
   -- Sends itself SIGTERM; ends with 3 where that did not end it.
   ["signal-then-exit"] = function(_: {string}): integer return Steps.signal("TERM") or 3 end,
@@ -101,7 +101,7 @@ local cases: {string:function({string}): integer} = {
   orphan = function(words: {string}): integer
     local program = words[1]!
     return Steps.run({ program, "start", program, "sleep", "100" }) or Steps.sleep(1000) or
-      Steps.cat("/proc/1/comm") or Steps.ls("/proc") or 0
+      Steps.cat("/proc/1/comm") or Steps.list("/proc") or 0
   end,
   -- Each file of /proc that opens to write, then `done`.
   ["find-writable"] = function(_: {string}): integer
