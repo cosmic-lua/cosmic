@@ -16,7 +16,6 @@ local Test = require("cosmic.test")
 local confine = require("build.confine")
 local child_lua_fixture = require("build.child_lua_fixture")
 local child_tool_fixture = require("build.child_tool_fixture")
-local this_program = require("build.this_program")
 
 --- What the tests read: /proc, where a test finds a child's processes;
 --- the program itself (`tool`), which every child is, started past its
@@ -37,7 +36,7 @@ local function output(dir: string, name: string): integer, string
   return assert(Fs.open_write(path)), path
 end
 
---- This program again, past its launcher ([`this_program.program`]),
+--- This program again, past its launcher ([`Test.cosmic`]),
 --- running the Teal chunk `chunk` with `args` as its `...`: the child
 --- each test starts, where a shell would need the system's. The argv
 --- and options, for [`Child.run`] or [`Child.start`].
@@ -91,7 +90,7 @@ end
 ]]))
   local stdin = tmp .. "/stdin"
   assert(Fs.write(stdin, "stdin's own"))
-  local started = this_program.program({ fixture, stdin })
+  local started = Test.cosmic({ fixture, stdin })
   local result = assert(Child.run(started.argv, started.options))
   assert(result.ok, "descriptor fixture exited " .. tostring(result.code))
 end
@@ -122,7 +121,7 @@ return function(argv: {string}): integer
 end
 ]]))
   local fd, diagnostic = output(tmp, "driver.log")
-  local started = this_program.program({ fixture, descendant_path, ready },
+  local started = Test.cosmic({ fixture, descendant_path, ready },
     { timeout_ns = Child.FOREVER, stdout = fd, stderr = fd, process_group = false })
   local driver = assert(Child.start(started.argv, started.options))
   -- The driver is a nested cosmic that compiles its fixture before it
@@ -193,7 +192,7 @@ return function(): integer
   return 0
 end
 ]]))
-  local started = this_program.program({ script }, { cwd = tmp,
+  local started = Test.cosmic({ script }, { cwd = tmp,
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.signal == nil and r.ok, "ended by signal " .. tostring(r.signal) .. ": " ..
@@ -307,7 +306,7 @@ return function(argv: {string}): integer
   return 0
 end
 ]]))
-  local started = this_program.program({ fixture, report },
+  local started = Test.cosmic({ fixture, report },
     { stderr = "capture", timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   local cancelled = "true child: cancelled by signal " .. tostring(sys.SIGTERM)
@@ -358,7 +357,7 @@ return function(argv: {string}): integer
   return 0
 end
 ]]))
-  local started = this_program.program({ fixture, report },
+  local started = Test.cosmic({ fixture, report },
     { stderr = "capture", timeout_ns = Clock.seconds(60) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, "code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) ..

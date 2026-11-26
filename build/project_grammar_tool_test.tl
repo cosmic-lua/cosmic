@@ -8,7 +8,6 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Test = require("cosmic.test")
 local CheckerDeclarations = require("build.checker_declarations")
-local this_program = require("build.this_program")
 
 --- The program itself, which this test starts, and the two projects it builds.
 Test.policy{ profiles = { "cosmic" }, grants = {
@@ -28,11 +27,11 @@ end
 local function tested(root: string, tmp: string): Child.Result, string
   local output = tmp .. "/out." .. tostring(Clock.monotonic_ns())
   local fd = assert(Fs.open_write(output))
-  local env = this_program.environment()
+  local env = Test.environment()
   env["COSMIC_TEST_SANDBOX"] = "0"
   env["COSMIC_BUILD_CACHE"] = "0"
   env["TMPDIR"] = tmp
-  local started = this_program.program({ "test" }, {
+  local started = Test.cosmic({ "test" }, {
     cwd = root, env = env, stdout = fd, stderr = fd, process_group = true, timeout_ns = Clock.seconds(120),
   })
   local result, trouble = Child.run(started.argv, started.options)
@@ -93,8 +92,8 @@ end
 local function carried(module: string): string
   local chunk = "local Store = require('cosmic.store') local Hash = require('cosmic.hash') " ..
     "local text = assert(Store.source('" .. module .. "')) print(#text, Hash.hex_sha256(text))"
-  local started = this_program.program({ "-e", chunk }, {
-    env = this_program.environment(), stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60),
+  local started = Test.cosmic({ "-e", chunk }, {
+    env = Test.environment(), stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60),
   })
   local result = assert(Child.run(started.argv, started.options))
   assert(result.code == 0, (result.stdout or "") .. (result.stderr or ""))

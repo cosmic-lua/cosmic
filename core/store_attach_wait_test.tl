@@ -7,7 +7,6 @@ local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
-local this_program = require("build.this_program")
 
 --- The next line of `lines`: raises where they ended or failed.
 local function line_of(lines: Stream.Lines): string
@@ -22,7 +21,7 @@ Test.policy{ profiles = { "cosmic" } }
 --- A process that holds `path` locked against readers until its stdin
 --- closes, then `hold_ns` more.
 local function holder(path: string, hold_ns: integer): Child.Handle
-  local command = this_program.program({ "-e", ([[
+  local command = Test.cosmic({ "-e", ([[
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")

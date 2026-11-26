@@ -306,7 +306,7 @@ end
 --- - COSMIC_PORTABLE_CACHE, COSMIC_VERDICT_CACHE, COSMIC_AUTO_BOOT,
 ---   COSMIC_TEST_SANDBOX, COSMIC_SANDBOX and COSMIC_TEST_HELD: what a
 ---   process of the program running the tests reads to run at all
----   (build/this_program.tl's `runtime_environment`, and COSMIC_SANDBOX,
+---   (cosmic/test.tl's `runtime_environment`, and COSMIC_SANDBOX,
 ---   which `confine` reads).
 --- - COSMIC_BUILD_HOME: the generated-directory base, shared by a child
 ---   and the driver resolving its products.

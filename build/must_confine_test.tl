@@ -10,7 +10,6 @@ local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local confine = require("build.confine")
 local fixture = require("build.must_confine_fixture")
-local this_program = require("build.this_program")
 local _ = require("build.must_confine_children_test")
 
 --- What these tests start is this very program, which runs the tool's own modules besides the closure's, in a root of its
@@ -64,13 +63,13 @@ local function test_a_run_started_in_a_held_worker_refuses_to_sandbox_its_worker
   local root = tmp .. "/root"
   assert(Fs.mkdirs(root .. "/suite"))
   assert(Fs.write(root .. "/suite/plain_test.tl", "local function test_plain()\n  assert(true)\nend\n"))
-  local env = this_program.environment()
+  local env = Test.environment()
   env["COSMIC_VERDICT_CACHE"] = "0"
   env["COSMIC_TEST_ALL"] = nil
   env["COSMIC_TEST_SANDBOX"] = nil
   env["COSMIC_SANDBOX"] = nil
   env[confine.held_variable] = "suite.outer_test"
-  local started = this_program.program({ "test" }, { cwd = root, env = env, stdout = "capture", stderr = "stdout",
+  local started = Test.cosmic({ "test" }, { cwd = root, env = env, stdout = "capture", stderr = "stdout",
     timeout_ns = Clock.seconds(60) })
   local result = assert(Child.run(started.argv, started.options))
   local text = result.stdout or ""
@@ -101,13 +100,13 @@ local function test_the_sandbox_mode_is_part_of_the_key_of_a_verdict(tmp: string
   assert(Fs.mkdirs(root .. "/suite"))
   assert(Fs.write(root .. "/suite/plain_test.tl", "local function test_plain()\n  assert(true)\nend\n"))
   local function run(must: boolean): string
-    local env = this_program.environment()
+    local env = Test.environment()
     env["COSMIC_VERDICT_CACHE"] = "0"
     env["COSMIC_TEST_ALL"] = nil
     env["COSMIC_TEST_SANDBOX"] = nil
     env["COSMIC_SANDBOX"] = nil
     if must then env["COSMIC_SANDBOX"] = "must" end
-    local started = this_program.program({ "test" }, { cwd = root, env = env, stdout = "capture", stderr = "stdout",
+    local started = Test.cosmic({ "test" }, { cwd = root, env = env, stdout = "capture", stderr = "stdout",
       timeout_ns = Clock.seconds(60) })
     local result = assert(Child.run(started.argv, started.options))
     return result.stdout or ""

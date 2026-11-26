@@ -23,7 +23,6 @@ local Clock = require("cosmic.clock")
 local sys = require("cosmic.sys")
 local artifact = require("build.artifact")
 local confine = require("build.confine")
-local this_program = require("build.this_program")
 local harness_epoch = require("build.harness_epoch")
 local Test = require("cosmic.test")
 local support = require("build.test_support_fixture")
@@ -93,7 +92,7 @@ end
 --- The environment a sandboxed run of the suite is started with, its
 --- shared cache at `cache` and `harness_salt` where given.
 local function environment(cache: string, harness_salt?: string): mut {string:string}
-  local env = this_program.environment()
+  local env = Test.environment()
   if harness_salt ~= nil then env["COSMIC_TEST_HARNESS_SALT"] = harness_salt end
   env["COSMIC_VERDICT_CACHE"] = cache
   env["COSMIC_TEST_ALL"] = nil
@@ -116,7 +115,7 @@ local function run(root: string, output: string, env: {string:string}, words?: {
   local fd = assert(Fs.open_write(output))
   local args: mut {string} = { "test" }
   for _, word in ipairs(words or {}) do args[#args + 1] = word end
-  local started = this_program.program(args, {
+  local started = Test.cosmic(args, {
     cwd = root, env = env, stdout = fd, stderr = fd, process_group = true, timeout_ns = Clock.seconds(60),
   })
   local result, trouble = Child.run(started.argv, started.options)
@@ -246,9 +245,8 @@ local function tool_checkout(root: string)
   assert(Fs.mkdirs(support.build_dir(root) .. "/bin"))
   assert(Fs.write(support.build_dir(root) .. "/bin/stand-in", "one\n"))
   -- Each starts this program past its launcher by hand, as
-  -- [`this_program.program`] would: another project cannot reach build/.
-  -- TODO: start it through [`this_program.program`] once that moves to
-  -- [`cosmic.test`] (the TODO above it in build/this_program.tl).
+  -- [`Test.cosmic`] would, from when another project could not reach it.
+  -- TODO: start it through [`Test.cosmic`], now in [`cosmic.test`].
   local started = [[
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
@@ -463,7 +461,7 @@ local function run_then(tmp: string, root: string, env: {string:string}, out: st
   local fd = assert(Fs.open_write(out))
   local args: mut {string} = { "test" }
   for _, word in ipairs(words) do args[#args + 1] = word end
-  local started = this_program.program(args, { timeout_ns = Child.FOREVER,
+  local started = Test.cosmic(args, { timeout_ns = Child.FOREVER,
     cwd = root, env = env, stdout = fd, stderr = fd, process_group = true,
   })
   local handle = assert(Child.start(started.argv, started.options))

@@ -6,7 +6,6 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
-local this_program = require("build.this_program")
 
 --- The program itself, which this test starts, and the project it builds.
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" }, { path = "testdata/projects", letters = "r" } } }
@@ -20,7 +19,7 @@ end
 
 --- The environment of a run of the program: `tmp` as its temporary directory.
 local function environment(tmp: string): mut {string:string}
-  local env = this_program.environment()
+  local env = Test.environment()
   env["TMPDIR"] = tmp
   return env
 end
@@ -33,7 +32,7 @@ local function tested(root: string, tmp: string): Child.Result, string
   local env = environment(tmp)
   env["COSMIC_TEST_SANDBOX"] = "0"
   env["COSMIC_BUILD_CACHE"] = "0"
-  local started = this_program.program({ "test" }, {
+  local started = Test.cosmic({ "test" }, {
     cwd = root, env = env, stdout = fd, stderr = fd, process_group = true, timeout_ns = Clock.seconds(120),
   })
   local result, trouble = Child.run(started.argv, started.options)
@@ -43,7 +42,7 @@ end
 
 --- Runs `cosmic fix --check` in `root`, and returns what it said.
 local function checked(root: string, tmp: string): Child.Result, string
-  local started = this_program.program({ "fix", "--check" }, {
+  local started = Test.cosmic({ "fix", "--check" }, {
     cwd = root, env = environment(tmp), stdout = "capture", stderr = "stdout", process_group = true, timeout_ns = Clock.seconds(120),
   })
   local result, trouble = Child.run(started.argv, started.options)

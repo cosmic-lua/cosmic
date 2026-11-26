@@ -520,6 +520,13 @@ local CASES <const>: {Case} = {
     msg = "an element of this literal may be nil, and an array is dense", fix = "use a map `{integer: T}` for sparse data",
   },
   {
+    -- A test module returns nothing to bind; the fix says how it is run.
+    code = "unchecked_binding", source = "local t = require(\"stock_test\")\n",
+    modules = { stock_test = "local function test_one() assert(true) end\n" },
+    msg = "the module `stock_test` returns no declaration and no value of a written type",
+    fix = "`cosmic test stock_test.tl` runs its test_* functions",
+  },
+  {
     code = "require_unknown", source = "local x = require(\"nope\")\n",
     msg = "the project has no module `nope`", fix = "a file sees the modules of the tree it is in",
   },

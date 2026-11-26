@@ -6,7 +6,6 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
-local this_program = require("build.this_program")
 
 --- The program itself, which builds the tree around the file it runs.
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
@@ -21,9 +20,9 @@ local function run_in(tmp: string, name: string, files: {string:string}, file: s
     assert(Fs.mkdirs(Fs.dirname(root .. "/" .. each)))
     assert(Fs.write(root .. "/" .. each, source))
   end
-  local env = this_program.environment()
+  local env = Test.environment()
   env["COSMIC_BUILD_CACHE"] = "0"
-  local started = this_program.program({ file }, { cwd = root, env = env, stdout = "capture", stderr = "capture",
+  local started = Test.cosmic({ file }, { cwd = root, env = env, stdout = "capture", stderr = "capture",
     timeout_ns = Clock.seconds(60) })
   return (assert(Child.run(started.argv, started.options)))
 end

@@ -7,9 +7,9 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Fake = require("cosmic.fake")
+local Test = require("cosmic.test")
 -- Required, so the fake's main is of each test's closure.
 local _ = require("build.test_sandbox_fake")
-local this_program = require("build.this_program")
 
 local record test_sandbox_fixture
   --- What a run printed and whether it passed.
@@ -47,7 +47,7 @@ end
 --- @param env the run's environment
 function test_sandbox_fixture.run(root: string, output: string, env: {string:string}): test_sandbox_fixture.Run
   local fd = assert(Fs.open_write(output))
-  local started = this_program.program({ "test", "--all" }, {
+  local started = Test.cosmic({ "test", "--all" }, {
     cwd = root, env = env, stdout = fd, stderr = fd, process_group = true, timeout_ns = Clock.seconds(60),
   })
   local result, trouble = Child.run(started.argv, started.options)
@@ -62,12 +62,12 @@ end
 --- @param root the suite's tree, which the run starts in
 --- @param extra variables to set on top of the environment
 function test_sandbox_fixture.unsandboxed(root: string, extra: {string:string}): test_sandbox_fixture.Unsandboxed
-  local env = this_program.environment()
+  local env = Test.environment()
   env["COSMIC_TEST_SANDBOX"] = "0"
   env["COSMIC_SANDBOX"] = nil
   env["COSMIC_CI_REQUIRE_SANDBOX"] = nil
   for name, value in pairs(extra) do env[name] = value end
-  local started = this_program.program({ "test" }, {
+  local started = Test.cosmic({ "test" }, {
     cwd = root, env = env, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60),
   })
   local result = assert(Child.run(started.argv, started.options))
@@ -156,10 +156,10 @@ end
 function test_sandbox_fixture.invoke(root: string, tmp: string, words: {string}): test_sandbox_fixture.Invoked
   local output = tmp .. "/out." .. tostring(Clock.monotonic_ns())
   local fd = assert(Fs.open_write(output))
-  local env = this_program.environment()
+  local env = Test.environment()
   env["COSMIC_TEST_SANDBOX"] = "0"
   env["TMPDIR"] = tmp
-  local started = this_program.program(words, {
+  local started = Test.cosmic(words, {
     cwd = root, env = env, stdout = fd, stderr = fd,
     process_group = true, timeout_ns = Clock.seconds(120),
   })
@@ -168,11 +168,11 @@ function test_sandbox_fixture.invoke(root: string, tmp: string, words: {string})
   return { result = assert(result, trouble), text = (assert(Fs.read(output))) }
 end
 
---- The descriptors [`this_program.program`] hands its child, as
+--- The descriptors [`Test.cosmic`] hands its child, as
 --- [`process.spawn`] takes them: each a descriptor of this process, as
 --- the relaunch's are, and none "capture", which only [`cosmic.child`]
 --- reads.
-function test_sandbox_fixture.spawn_fds(started: this_program.Program): {integer:integer}
+function test_sandbox_fixture.spawn_fds(started: Test.Start): {integer:integer}
   local fds: mut {integer:integer} = {}
   for number, fd in pairs(started.options.fds or {}) do
     if fd is integer then
@@ -188,7 +188,7 @@ end
 --- stderr.
 --- @param words the program's arguments
 function test_sandbox_fixture.run_words(words: {string}): test_sandbox_fixture.Words
-  local started = this_program.program(words, { stdout = "capture", stderr = "capture",
+  local started = Test.cosmic(words, { stdout = "capture", stderr = "capture",
     timeout_ns = Clock.seconds(30) })
   local result = assert(Child.run(started.argv, started.options))
   return { ok = result.ok, stdout = result.stdout or "", stderr = result.stderr or "" }

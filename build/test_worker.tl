@@ -334,7 +334,7 @@ local SECOND_NS <const> = 1000 * 1000 * 1000
 worker.loads = {
   "build.assertions", "build.cache_names", "build.code_walk", "build.confine", "build.key_parts", "build.load_module",
   "build.test_inputs",
-  "build.test_worker", "build.this_program", "cmd.cosmic.main", "cosmic.coverage",
+  "build.test_worker", "cmd.cosmic.main", "cosmic.coverage",
   "cosmic.env", "cosmic.failure", "cosmic.fs", "cosmic.internal.source_run", "cosmic.internal.test_policy", "cosmic.proc",
   "cosmic.test",
 }
@@ -2329,6 +2329,9 @@ function worker.run(argv: {string}): integer
     parent = env_get("COSMIC_TEST_PARENT"),
     -- What makes the same work cost more in this run ([`Test.mode`]).
     types_checked = env_get("COSMIC_TEST_TYPES") == "1",
+    -- The running test's own directory, where a process of this program
+    -- it starts makes its temporary files ([`Test.environment`]).
+    directory = tmp,
     skipped = function(reason: string): {string:string}
       local seen = false
       for _, given in ipairs(reasons) do

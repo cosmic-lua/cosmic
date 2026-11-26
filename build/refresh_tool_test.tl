@@ -13,7 +13,6 @@ local Stream = require("cosmic.stream")
 local Tar = require("cosmic.tar")
 local Test = require("cosmic.test")
 local artifact = require("build.artifact")
-local this_program = require("build.this_program")
 local refresh = require("build.refresh")
 local Clock = require("cosmic.clock")
 
@@ -64,7 +63,7 @@ local function test_reads_a_zone()
   assert(Time.zone("Europe/Paris"))
 end
 ]]))
-  local env = this_program.environment()
+  local env = Test.environment()
   env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db" -- checked: map_field
   env.COSMIC_TEST_ALL = nil -- checked: map_field
   env.COSMIC_SANDBOX = nil -- checked: map_field

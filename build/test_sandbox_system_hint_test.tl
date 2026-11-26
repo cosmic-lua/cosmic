@@ -8,7 +8,6 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local confine = require("build.confine")
-local this_program = require("build.this_program")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
@@ -82,14 +81,14 @@ local function test_declared()
   assert(r.code == 0, "ran|" .. tostring(r.code) .. "|end")
 end
 ]]))
-  local env = this_program.environment()
+  local env = Test.environment()
   env["COSMIC_VERDICT_CACHE"] = "0"
   env["COSMIC_TEST_ALL"] = nil
   env["COSMIC_SANDBOX"] = nil
   env["COSMIC_TEST_SANDBOX"] = nil
   local output = tmp .. "/out"
   local fd = assert(Fs.open_write(output))
-  local started = this_program.program({ "test", "--all" }, {
+  local started = Test.cosmic({ "test", "--all" }, {
     cwd = root, env = env, stdout = fd, stderr = fd, process_group = true,
     timeout_ns = Clock.seconds(60),
   })

@@ -516,6 +516,28 @@ local function test_ascii_escapes_every_character_past_ascii()
   assert(encoded("plain", ascii) == '"plain"') -- checked: not_assignable
 end
 
+local function test_strings_escape_at_every_offset()
+  -- The writer scans sixteen bytes a step; an escape or a non-ASCII byte
+  -- at each offset of a long string, past two steps, crosses that edge.
+  for at = 1, 40 do
+    for _, c in ipairs({ "\"", "\\", "\n", "\0", "\31", "é", "😀" }) do
+      local s = ("a"):rep(at - 1) .. c .. ("b"):rep(40 - at)
+      local plain = assert(Json.encode(s))
+      assert(decoded(plain) == s, "encode round-trips at offset " .. tostring(at))
+      assert(assert(Json.format(plain)) == plain, "format keeps the text at offset " .. tostring(at))
+      local ascii = assert(Json.encode(s, { ascii = true }))
+      assert(not ascii:find("[\128-\255]"), "ascii escapes every byte from 0x80 at offset " .. tostring(at))
+      assert(decoded(ascii) == s, "ascii round-trips at offset " .. tostring(at))
+    end
+    local key = ("k"):rep(at)
+    local object = '{"' .. key .. '":"' .. ("v"):rep(at) .. '"}'
+    assert(assert(Json.format(object)) == object, "format keeps a plain key and value of " .. tostring(at) .. " bytes")
+    local bad = ("a"):rep(at - 1) .. "\255" .. ("b"):rep(40 - at)
+    local none, why = Json.encode(bad)
+    assert(none == nil and tostring(why):find("not UTF-8", 1, true) ~= nil, "a stray byte at offset " .. tostring(at) .. " is refused")
+  end
+end
+
 local function test_ascii_round_trips_through_decode()
   local value = { name = "Zo\xc3\xab \xe2\x82\xac \xf0\x9f\x98\x80", ["k\xc3\xa9y"] = { "\xc2\x80", "\xef\xbf\xbf" } } -- checked: literal_shape
   local text = encoded(value, { ascii = true })

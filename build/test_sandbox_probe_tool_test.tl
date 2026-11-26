@@ -8,7 +8,6 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Test = require("cosmic.test")
 local confine = require("build.confine")
-local this_program = require("build.this_program")
 
 --- The program itself, which the entry is of.
 Test.policy{
@@ -19,7 +18,7 @@ Test.policy{
 
 --- Starts the program with `words` and returns how it ended.
 local function started(tmp: string, words: {string}): Child.Result
-  local start = this_program.program(words, { cwd = tmp, stdout = "capture", stderr = "capture",
+  local start = Test.cosmic(words, { cwd = tmp, stdout = "capture", stderr = "capture",
     timeout_ns = Clock.seconds(30) })
   local result = assert(Child.run(start.argv, start.options))
   return result
