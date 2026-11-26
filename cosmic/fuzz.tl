@@ -14,8 +14,8 @@
 --- "fuzz stopped: " saying how many inputs it drew of those asked for, which
 --- `cosmic test` lists at the end of the run even when the test passes, and
 --- holds its labels to the inputs drawn. A property may always draw 64
---- inputs, however long they take. The limit is for a deep run (the nightly
---- fuzz.yml) over properties whose every input costs a tenth of a second or
+--- inputs, however long they take. The limit is for a deep run (cosmic's nightly fuzz
+--- workflow, say) over properties whose every input costs a tenth of a second or
 --- more, where `FUZZ_ITERS=10000` would take hours. It never fails a property
 --- by itself, and the inputs drawn are the first ones of the seed.
 ---
@@ -36,7 +36,8 @@
 --- the runner shows for a failing test.
 ---
 --- A failure found once is kept for good in the property's corpus, a
---- directory of inputs under `testdata/fuzz/` that `run` checks before
+--- directory of inputs under `testdata/fuzz/` (from the directory the
+--- tests run in, the tree's root under `cosmic test`) that `run` checks before
 --- it draws anything: the report says how to copy the shrunk input
 --- there, so a fixed bug stays fixed whatever seed a later run draws.
 ---
@@ -54,6 +55,26 @@
 --- rather than passing while it checks nothing; one whose `shares`
 --- names a label fails when too few did, so one whose inputs mostly
 --- stop there is found out too.
+---
+--- A project fuzzes its own parser from a test, in a file named
+--- `*_fuzz_test.tl`:
+---
+--- ```teal
+--- local Fuzz = require("cosmic.fuzz")
+--- local Parse = require("app.parse")
+---
+--- local function test_parse_never_raises(tmp: string)
+---   Fuzz.run({
+---     name = "parse total",
+---     dir = tmp,
+---     gen = function(src: Fuzz.Source): string return Fuzz.bytes(src, 200) end,
+---     check = function(input: string): boolean, string
+---       local ok, why = pcall(Parse.read, input)
+---       return ok, tostring(why)
+---     end,
+---   })
+--- end
+--- ```
 
 local Array = require("cosmic.array")
 local Clock = require("cosmic.clock")
