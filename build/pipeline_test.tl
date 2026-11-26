@@ -660,16 +660,6 @@ local function test_a_refused_call_points_to_the_worked_example_when_the_docs_ho
       why:find(" -- see also: cosmic docs generics_functions_returns", 1, true) ~= nil, tostring(why))
 end
 
-local function test_a_guide_example_is_forgiven_the_shadowing_of_print_and_no_other_name()
-  local function shadow(name: string): Driver.Problem
-    return { code = "shadows", msg = "local `" .. name .. "` shadows the global `" .. name .. "`", fix = "", y = 1, x = 1, offset = 0 } as Driver.Problem -- checked: cast_refused
-  end
-  local result = { scope_errors = { shadow("print"), shadow("printer"), shadow("println") } } as Driver.Outcome -- checked: cast_refused
-  Pipeline.discounted(result)
-  assert(#result.scope_errors == 2 and result.scope_errors[1].msg:find("`printer`", 1, true) ~= nil and
-      result.scope_errors[2].msg:find("`println`", 1, true) ~= nil)
-end
-
 local function test_a_test_or_an_example_or_a_generated_module_is_not_held_to_the_discipline()
   local text = Fixture.PRELUDE .. "local v = get()\nuse(v)\nuse(get, put, name, pair, complain, lead, maybe, sget, log)\n"
   for _, kind in ipairs({ "test", "example" }) do

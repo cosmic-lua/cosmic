@@ -6,10 +6,10 @@
 --- version holds. A code reads back as itself, and a damaged one reads
 --- back where its error correction can mend it and never raises.
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
---- (build/fuzz/init.tl).
+--- (cosmic/fuzz.tl).
 
 local Fixture = require("build.qr_fixture")
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Qr = require("cosmic.qr")
 
 local LEVELS <const>: {Qr.Level} = { "L", "M", "Q", "H" }

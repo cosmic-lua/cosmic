@@ -3,10 +3,10 @@
 --- [`lang.scopes_programs`], are written as Lua by the generator: it does not refuse a program that parses, the Lua loads
 --- (but for what Lua itself refuses in a program drawn without regard to it), and every line of the source is a line of
 --- the Lua. The properties that run a program compare it with plain Lua. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
---- (build/fuzz/init.tl).
+--- (cosmic/fuzz.tl).
 local Array = require("cosmic.array")
 local Codegen = require("lang.codegen")
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
 local Programs = require("lang.scopes_programs")

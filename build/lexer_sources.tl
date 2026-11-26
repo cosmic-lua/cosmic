@@ -1,6 +1,6 @@
 --- Sources for the properties of the lexer ([`lang.lexer`]): bytes of every kind, and runs of pieces that reach
 --- each branch of the lexer, with a `#!` first line now and then. Every property over lexed sources draws from here.
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 
 local record Sources
   --- One source drawn from `src`: a quarter of them are raw bytes, the rest a run of pieces.

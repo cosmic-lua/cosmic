@@ -4,11 +4,11 @@
 --- crash, a hang, or a run on ranges that were not checked. Each input
 --- rewrites the manifest block, the trailer, and where the database ends,
 --- and runs the program in a process of its own.
---- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
+--- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (cosmic/fuzz.tl).
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local embed = require("build.embed")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")

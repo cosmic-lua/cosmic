@@ -6,9 +6,9 @@
 --- a union when below a member); the relation is transitive; a refusal comes with a reason that
 --- agrees with the result, names a pair that is not related, and is the same in a judge that has
 --- settled other pairs and in another store. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
---- (build/fuzz/init.tl).
+--- (cosmic/fuzz.tl).
 local Array = require("cosmic.array")
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Programs = require("lang.relation_programs")
 local Relation = require("lang.relation")
 local Test = require("cosmic.test")

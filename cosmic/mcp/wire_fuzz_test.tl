@@ -1,10 +1,10 @@
 --- Fuzz properties for what [`cosmic.mcp`] reads from a peer it does not trust: [`wire.message`] and the decoders of
 --- each result, the event stream splitter, the `Bearer` challenge parser, and a server's reply to any text. Each is
 --- total, returning for whatever it is handed and never raising, and the splitter gives the events a stream holds
---- however it is cut. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
+--- however it is cut. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (cosmic/fuzz.tl).
 
 local Failure = require("cosmic.failure")
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Json = require("cosmic.json")
 local Mcp = require("cosmic.mcp")
 local Server = require("cosmic.mcp.server")

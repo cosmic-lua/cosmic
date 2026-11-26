@@ -5,9 +5,9 @@
 --- spelling of the text is total -- bytes or a reason naming an offset,
 --- and never a raise; and what it accepts encodes back to the text
 --- it came from, whitespace aside. `FUZZ_SEED` and `FUZZ_ITERS` pick the
---- inputs (build/fuzz/init.tl).
+--- inputs (cosmic/fuzz.tl).
 
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Sources = require("build.codec_fuzz_sources")
 local codec = require("build.codec")
 local support = require("build.test_support_fixture")

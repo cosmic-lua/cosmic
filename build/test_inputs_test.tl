@@ -1,5 +1,5 @@
 local Fs = require("cosmic.fs")
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local test_inputs = require("build.test_inputs")
 local key_parts = require("build.key_parts")
 local type PolicyRules = require("build.policy_rules")
@@ -44,7 +44,7 @@ end
 --- `fuzzes` says so.
 local function tree(inputs?: PolicyRules.Declared, fuzzes?: boolean): Module, mut {string:Module}
   local helper_requires = { "lib.deep", "lib.declared" }
-  if fuzzes == true then helper_requires[#helper_requires + 1] = "build.fuzz" end
+  if fuzzes == true then helper_requires[#helper_requires + 1] = "cosmic.fuzz" end
   local helper = module("lib.helper", "lib/helper.tl", helper_requires)
   local deep = module("lib.deep", "lib/deep/init.tl", {})
   local other = module("lib.other", "lib/other.tl", {})
@@ -136,13 +136,13 @@ local function test_a_declaration_adds_to_the_defaults()
 end
 
 --- Every fuzz corpus is a default input of a test whose closure runs
---- properties, where [`build.fuzz`] looks for one -- a property's name
+--- properties, where [`cosmic.fuzz`] looks for one -- a property's name
 --- may be computed -- and of no other test.
 local function test_a_fuzz_tests_corpora_are_default_inputs(tmp: string)
   local m, by_path = tree(nil, true)
   local effective = test_inputs.effective(m, by_path, staged)
   local name = "Keep " .. string.rep("me", 1) .. "!"
-  -- [`build.fuzz`] names the directory it looks in, in its report of a
+  -- [`cosmic.fuzz`] names the directory it looks in, in its report of a
   -- failure.
   local ok, report = pcall(Fuzz.run, {
     name = name, dir = tmp, iters = 1,

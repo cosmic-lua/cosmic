@@ -5,10 +5,10 @@
 --- `segments` never returns a segment that is empty, `.`, `..` or holds
 --- a `/` or a NUL, and reads back every name `escape` wrote; and `parse`
 --- reads back the parts a URL was built from. `FUZZ_SEED` and
---- `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
+--- `FUZZ_ITERS` pick the inputs (cosmic/fuzz.tl).
 
 local Array = require("cosmic.array")
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Url = require("cosmic.url")
 local type Failure = require("cosmic.failure")
 
