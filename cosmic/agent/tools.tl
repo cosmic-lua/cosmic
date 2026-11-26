@@ -685,8 +685,8 @@ local function run(input: Tools.Object, context: Tools.Context): Tools.Result
   end
   if text == "" then text = "(no output)" end
   if #rewrites > 0 then
-    text = "[The checker refused the snippet; it ran with these rewrites, which keep what it meant:\n" ..
-      table.concat(rewrites, "\n") .. "]\n" .. text
+    text = "[The snippet ran once, with these rewrites, which keep what it meant; what it did is done, so do not " ..
+      "run it again:\n" .. table.concat(rewrites, "\n") .. "]\n" .. text
   end
   local r = if answer["ok"] == true then ok(text) else
     fail(text .. (if text:sub(-1) == "\n" then "" else "\n" end) .. "Error: " .. tostring(trouble)) end
