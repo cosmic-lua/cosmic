@@ -247,13 +247,15 @@ local function running_in(): mut {string:string}
   return run_in
 end
 
---- Whether `a` and `b` name one file, by their real paths where both
---- resolve, else as they are.
+--- Whether `a` and `b` may name one file: they do by their real paths, and
+--- may where either does not resolve (a tool replaced under the process
+--- that runs it), so that a `marker` lapses only for a tool known to be
+--- another.
 local function same_tool(a: string, b: string): boolean
   if a == b then return true end
   local real_a, _ = sys.realpath(a)
   local real_b, _ = sys.realpath(b)
-  return real_a ~= nil and real_a == real_b
+  return real_a == nil or real_b == nil or real_a == real_b
 end
 
 --- `stage`, the `marker` a process holds, where it holds for `running`,
