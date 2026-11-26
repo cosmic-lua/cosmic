@@ -421,11 +421,15 @@ local total = 0
 for i = 1, #scores do
   scores[i] = scores[i] * 2
   total = total + scores[i]
+  print(tostring(i) .. ": " .. tostring(scores[i]))
 end
 print(total)
 ```
 
 ```output
+1: 6
+2: 2
+3: 4
 12
 ```
 
