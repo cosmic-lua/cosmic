@@ -2776,6 +2776,230 @@ local function cannot(trouble: string, refused: boolean, unavailable: string?): 
   return { command = nil, trouble = trouble, refused = refused, unavailable = unavailable }
 end
 
+--- One start of a job's worker ([`test_key.prepare`]): what it is given, and what each step sets as it goes, in
+--- the shape [`worker.invocation`] takes. A step that fails returns why ([`cannot`]); one that succeeds returns nil.
+local record Starting
+  rec: Recording
+  job: Job
+  --- How this program is started again ([`worker.program`]).
+  start: Proc.Relaunch
+  scratch: string
+  effective: test_inputs.Effective
+  --- The environment, root, scratch directory and directory the worker starts in. Sandboxed, the worker has the
+  --- tree at /tree, where it runs, and its scratch directory at [`test_sandbox.scratch`].
+  mut env: {string:string}
+  mut root: string
+  mut inside: string
+  mut cwd?: string
+  --- The store its worker attaches ([`worker.Invocation`]'s `store`).
+  mut attached?: string
+  --- The sealed database of its closure its worker runs on ([`sealed_for`]): nil for none.
+  mut sealed?: string
+  mut hold: worker.Hold
+  mut policy?: Sandbox.Policy
+  mut runs: {string}
+  --- How the worker itself is started: `start`, or the core on `sealed`.
+  mut started: Proc.Relaunch
+  mut relay?: worker.Relay
+end
+
+--- Places a sandboxed worker: the store and sealed database it is given, its sandbox's plan, kept from an earlier
+--- job of its module where there is one, and the environment and root the plan gives it.
+local function place_sandboxed(s: Starting): Prepared?
+  local rec, job, scratch, effective = s.rec, s.job, s.scratch, s.effective
+  local store, store_trouble = given_store(rec, job.m)
+  if store == nil and store_trouble ~= "" then
+    return cannot(store_trouble, false, nil)
+  end
+  -- A worker that runs on a sealed database is given no artifact: it
+  -- starts the core on that database, which grants the file itself.
+  local sealed, sealed_trouble = sealed_for(rec, job.m)
+  if sealed == nil and sealed_trouble ~= "" then
+    return cannot(sealed_trouble, false, nil)
+  end
+  s.sealed = sealed
+  if sealed == nil and effective.lua == true and not effective.store and not effective.tool then
+    local launched, _ = Proc.relaunch()
+    local why = if (launched == nil or launched.argv[2] ~= "--artifact" or launched.argv[3] == nil) then
+      "this program is no portable artifact to take its database from" else
+      "it is given no closure store to seal" end
+    return cannot("its module declares lua, so what its tests start runs a sealed " ..
+        "database of its closure, which cannot be made: " .. why, false, nil)
+  end
+  local kept = rec.plans[job.m.path]
+  local plan: test_sandbox.Plan
+  if kept ~= nil then
+    plan = test_sandbox.rebind(kept.plan, kept.scratch, scratch, effective)
+  else
+    plan = test_sandbox.plan(rec.root, scratch, effective, worker_view(), store, rec.projection)
+    if plan.trouble == "" then rec.plans[job.m.path] = { plan = plan, scratch = scratch } end
+  end
+  if plan.over > 0 then
+    return cannot("its sandbox would give it " .. plural.count(plan.over, "path") ..
+        " more than the most one holds", false, nil)
+  end
+  if plan.trouble ~= "" then
+    return cannot(plan.trouble, true, nil)
+  end
+  job.plan = plan
+  -- Where its sandbox gives it the store, whichever that is.
+  s.attached = build_paths.under(test_sandbox.output).projection
+  if plan.own_scratch then
+    -- Its worker makes its directory in a tmpfs of its own, where no
+    -- host directory is in its root: the runner keeps none, and nothing
+    -- is left of it once the worker ends.
+    local gone, gone_trouble = Fs.remove_tree(scratch)
+    if not gone then
+      return cannot("could not remove its unused directory: " ..
+          tostring(gone_trouble), false, nil)
+    end
+    job.scratch, job.tmp, job.own_scratch = nil, nil, true
+  end
+  s.env = plan.env
+  -- The worker starts in the root of its sandbox, which has no tree to
+  -- start in until the worker enters it ([`worker.run`]).
+  s.root, s.inside, s.cwd = test_sandbox.tree, test_sandbox.scratch, "/"
+  return nil
+end
+
+--- Places an unsandboxed worker.
+---
+--- Unsandboxed, the worker is given the environment its key holds
+--- (the pinned variables, its declared ones and the host's cores
+--- cache: [`view_of`]) with TMPDIR its scratch directory, as a sandbox gives it at
+--- [`test_sandbox.scratch`]. The key names that, not this path, which
+--- is new every run. Nothing holds it to the rest of what it declares.
+---
+--- It sees the tree where it is, not at /tree, so its key holds that
+--- path ([`declared_of`], [`declared_key.Spec`]'s `tree`): a verdict
+--- that turns on it stands only in a checkout at the same path. No
+--- host this runs on can give it the tree at a fixed path instead:
+--- a bind mount needs the user namespace a sandbox would have had,
+--- and a link at a fixed name is resolved by `getcwd` and `realpath`
+--- to the tree's own path.
+---
+--- A test that declares loopback addresses is keyed as offline, as
+--- a sandbox runs it, but here runs online, in the host's network
+--- namespace: a reach past loopback goes unnoticed here, and a Linux
+--- leg's sandbox, which runs it offline, is what fails it.
+---
+--- It attaches the store of its closure, as a sandbox gives it at its
+--- build directory's cosmic.db ([`given_store`]), and runs the core on the sealed
+--- database of its closure ([`sealed_for`]); nothing keeps it from the
+--- program's own file, which only a sandbox hides.
+--- TODO: hand that store on to what the test starts, once a cosmic
+--- run can be told which store to read in place of its tree's
+--- projection (a variable build.tree_root reads): today a process
+--- the test starts, which a sandbox would give the closure store in
+--- place of the projection, reads the whole projection, which its key holds
+--- only by the closure store's bytes; a Linux leg's sandbox
+--- enforces what macOS trusts.
+local function place_unsandboxed(s: Starting): Prepared?
+  local rec, job, scratch = s.rec, s.job, s.scratch
+  local store, store_trouble = given_store(rec, job.m)
+  if store == nil and store_trouble ~= "" then
+    return cannot(store_trouble, false, nil)
+  end
+  s.attached = store or rec.projection
+  -- Unsandboxed too it starts the core on the sealed database of its
+  -- closure, so what it and its starts read of the program is what its
+  -- key holds; only a sandbox keeps it from the program's own file.
+  local sealed, sealed_trouble = sealed_for(rec, job.m)
+  if sealed == nil and sealed_trouble ~= "" then
+    return cannot(sealed_trouble, false, nil)
+  end
+  s.sealed = sealed
+  local homed, home_trouble = test_sandbox.unenforced_home(rec.root, scratch)
+  if not homed then
+    return cannot(home_trouble, false, nil)
+  end
+  s.env = test_sandbox.unenforced_environment(worker_view(), s.effective, scratch, rec.root)
+  return nil
+end
+
+--- How a sandboxed worker is held, and the policy it is started under.
+---
+--- Sandboxed, a worker whose module does not declare `tool` may not
+--- run this program ([`confine.forbid_running`]): what it would run
+--- is no input of its test's key; and one whose module does not
+--- declare `nests` may not make a root of its own ([`hold_of`]), which
+--- every process it starts learns from its environment
+--- ([`confine.held_variable`]).
+local function police(s: Starting): Prepared?
+  local given: mut {string:string} = {}
+  for name, value in pairs(s.env) do given[name] = value end
+  given[confine.held_variable] = s.hold ~= "none" and s.job.m.path or nil -- checked: and_ternary
+  s.env = given
+  -- The grants hold the worker from its first instruction, but the core it
+  -- is started from must be run to start it, so a worker whose module does
+  -- not declare `tool` still puts up the ruleset that forbids it running
+  -- the program again ([`worker.run`]'s `forbid_running`).
+  -- A worker that may run the program has nothing to forbid: the ruleset
+  -- the policy puts up already refuses it every mount.
+  if s.hold == "mounts" then s.hold = "none" end
+  local made, made_trouble = policy_of(s.rec, s.job)
+  if made == nil then
+    return cannot(made_trouble, true, nil)
+  end
+  local sealed = s.sealed
+  made.setup = { tmp = (made.setup or {}).tmp, database = if sealed ~= nil then { path = sealed } else nil end } -- checked: field_fixed
+  s.policy = made
+  if s.hold == "forbid" then
+    local ran, ran_trouble = test_policy.runs(made)
+    if ran == nil then
+      return cannot(ran_trouble, true, nil)
+    end
+    s.runs = ran
+  end
+  return nil
+end
+
+--- How a worker on a sealed database is started: as the core on it, with no
+--- launcher, artifact or descriptor of the program's: a sandboxed one by
+--- this program's name, which its policy's `database` makes the core
+--- ([`Child.start`]); an unsandboxed one by the core itself.
+local function start_sealed(s: Starting, sealed: string): Prepared?
+  if s.rec.sandbox then
+    local executable, executable_trouble = Proc.executable()
+    if executable == nil then
+      return cannot("this program's name: " .. tostring(executable_trouble), false, nil)
+    end
+    s.started = { argv = { executable }, env = {}, fds = {} }
+  else
+    s.started = { argv = { s.start.argv[1], "--database", sealed }, env = {}, fds = {} } -- checked: index_may_be_nil
+  end
+  return nil
+end
+
+--- The stream a worker that forks for `forks` reports on, where it can fork.
+---
+--- A worker forks for its module's tests only where one after another can be given what each is promised: where
+--- a sandbox holds it, so that all it can write is its sandbox's /tmp, or its scratch directory alone where that
+--- is the host's, which its worker puts back between tests (the host caches a module declares apart, which every
+--- worker shares as it is), it has no loopback, whose sockets one test would leave the next, a Landlock ruleset
+--- holds it (its policy's, where it may run this program; one whose module declares `nests` has none), and this
+--- host's Landlock scopes signals.
+---
+--- TODO: fork for a module that declares `noexec`, once its worker puts back the private directory it is given
+--- at /noexec between tests as it does /tmp.
+--- TODO: fork for a module that declares `loopback`, once a copy can be given a network namespace of its own, so
+--- that no test meets the sockets an earlier one left closing.
+--- TODO: fork in an unsandboxed run (macOS, COSMIC_TEST_SANDBOX=0), once a worker there can tell that a test left
+--- no process running, which a pid namespace of its own tells a sandboxed one.
+local function relay_for(s: Starting): Prepared?
+  local declares = s.effective
+  local scoped, _ = worker.forks_here()
+  if s.rec.sandbox and next(declares.network) == nil and declares.nests ~= true and
+      declares.noexec ~= true and scoped then
+    local made_relay, relay_trouble = worker.relay()
+    if made_relay == nil then
+      return cannot("a stream for its worker's reports: " .. relay_trouble, false, nil)
+    end
+    s.relay = made_relay
+  end
+  return nil
+end
+
 --- What a job's worker is given, and the command that starts it: its
 --- directory, the sandbox's plan of its paths and environment, how it is
 --- held, the policy it is started under and the sealed database it runs
@@ -2795,12 +3019,7 @@ function test_key.prepare(rec: Recording, job: Job, forks?: {string}): Prepared
     return cannot("could not make a temporary directory: " .. tmp_trouble, false, nil)
   end
   job.scratch = scratch
-  local tmp = scratch .. "/tmp"
-  job.tmp = tmp
-  -- Sandboxed, the worker has the tree at /tree, where it runs, and
-  -- its scratch directory at [`test_sandbox.scratch`].
-  local env: {string:string} = worker_view()
-  local root, inside, cwd: string, string, string = rec.root, scratch, nil -- checked: nil_not_allowed
+  job.tmp = scratch .. "/tmp"
   local declares_trouble = unresolved(rec, job.m)
   if declares_trouble ~= "" then
     return cannot(declares_trouble, true, nil)
@@ -2809,205 +3028,37 @@ function test_key.prepare(rec: Recording, job: Job, forks?: {string}): Prepared
   if effective.noexec == true and effective.noexec_ready ~= true then -- checked: nil_not_allowed*2
     return cannot("", false, effective.noexec_trouble) -- checked: nil_not_allowed
   end
-  -- The store its worker attaches ([`worker.Invocation`]'s `store`).
-  local attached: string? = nil
-  -- The sealed database of its closure its worker runs on ([`sealed_for`]):
-  -- nil for none.
-  local sealed: string? = nil
-  local sealed_trouble = ""
-  if rec.sandbox then
-    local store, store_trouble = given_store(rec, job.m)
-    if store == nil and store_trouble ~= "" then
-      return cannot(store_trouble, false, nil)
-    end
-    -- A worker that runs on a sealed database is given no artifact: it
-    -- starts the core on that database, which grants the file itself.
-    sealed, sealed_trouble = sealed_for(rec, job.m)
-    if sealed == nil and sealed_trouble ~= "" then
-      return cannot(sealed_trouble, false, nil)
-    end
-    if sealed == nil and rec.effective[job.m.path].lua == true and not rec.effective[job.m.path].store and -- checked: nil_not_allowed*2
-        not rec.effective[job.m.path].tool then -- checked: nil_not_allowed
-      local launched, _ = Proc.relaunch()
-      local why = if (launched == nil or launched.argv[2] ~= "--artifact" or launched.argv[3] == nil) then
-        "this program is no portable artifact to take its database from" else
-        "it is given no closure store to seal" end
-      return cannot("its module declares lua, so what its tests start runs a sealed " ..
-          "database of its closure, which cannot be made: " .. why, false, nil)
-    end
-    local kept = rec.plans[job.m.path]
-    local plan: test_sandbox.Plan
-    if kept ~= nil then
-      plan = test_sandbox.rebind(kept.plan, kept.scratch, scratch, effective) -- checked: nil_not_allowed
-    else
-      plan = test_sandbox.plan(rec.root, scratch, effective, worker_view(), store, -- checked: nil_not_allowed
-        rec.projection)
-      if plan.trouble == "" then rec.plans[job.m.path] = { plan = plan, scratch = scratch } end
-    end
-    if plan.over > 0 then
-      return cannot("its sandbox would give it " .. plural.count(plan.over, "path") ..
-          " more than the most one holds", false, nil)
-    end
-    if plan.trouble ~= "" then
-      return cannot(plan.trouble, true, nil)
-    end
-    job.plan = plan
-    -- Where its sandbox gives it the store, whichever that is.
-    attached = build_paths.under(test_sandbox.output).projection
-    if plan.own_scratch then
-      -- Its worker makes its directory in a tmpfs of its own, where no
-      -- host directory is in its root: the runner keeps none, and nothing
-      -- is left of it once the worker ends.
-      local gone, gone_trouble = Fs.remove_tree(scratch)
-      if not gone then
-        return cannot("could not remove its unused directory: " ..
-            tostring(gone_trouble), false, nil)
-      end
-      job.scratch, job.tmp, job.own_scratch = nil, nil, true
-    end
-    env = plan.env
-    -- The worker starts in the root of its sandbox, which has no tree to
-    -- start in until the worker enters it ([`worker.run`]).
-    root, inside, cwd = test_sandbox.tree, test_sandbox.scratch, "/"
-  else
-    -- Unsandboxed, the worker is given the environment its key holds
-    -- (the pinned variables, its declared ones and the host's cores
-    -- cache: [`view_of`]) with TMPDIR its scratch directory, as a sandbox gives it at
-    -- [`test_sandbox.scratch`]. The key names that, not this path, which
-    -- is new every run. Nothing holds it to the rest of what it declares.
-    --
-    -- It sees the tree where it is, not at /tree, so its key holds that
-    -- path ([`declared_of`], [`declared_key.Spec`]'s `tree`): a verdict
-    -- that turns on it stands only in a checkout at the same path. No
-    -- host this runs on can give it the tree at a fixed path instead:
-    -- a bind mount needs the user namespace a sandbox would have had,
-    -- and a link at a fixed name is resolved by `getcwd` and `realpath`
-    -- to the tree's own path.
-    --
-    -- A test that declares loopback addresses is keyed as offline, as
-    -- a sandbox runs it, but here runs online, in the host's network
-    -- namespace: a reach past loopback goes unnoticed here, and a Linux
-    -- leg's sandbox, which runs it offline, is what fails it.
-    --
-    -- It attaches the store of its closure, as a sandbox gives it at its
-    -- build directory's cosmic.db ([`given_store`]), and runs the core on the sealed
-    -- database of its closure ([`sealed_for`]); nothing keeps it from the
-    -- program's own file, which only a sandbox hides.
-    -- TODO: hand that store on to what the test starts, once a cosmic
-    -- run can be told which store to read in place of its tree's
-    -- projection (a variable build.tree_root reads): today a process
-    -- the test starts, which a sandbox would give the closure store in
-    -- place of the projection, reads the whole projection, which its key holds
-    -- only by the closure store's bytes; a Linux leg's sandbox
-    -- enforces what macOS trusts.
-    local store, store_trouble = given_store(rec, job.m)
-    if store == nil and store_trouble ~= "" then
-      return cannot(store_trouble, false, nil)
-    end
-    attached = store or rec.projection
-    -- Unsandboxed too it starts the core on the sealed database of its
-    -- closure, so what it and its starts read of the program is what its
-    -- key holds; only a sandbox keeps it from the program's own file.
-    sealed, sealed_trouble = sealed_for(rec, job.m)
-    if sealed == nil and sealed_trouble ~= "" then
-      return cannot(sealed_trouble, false, nil)
-    end
-    local homed, home_trouble = test_sandbox.unenforced_home(rec.root, scratch)
-    if not homed then
-      return cannot(home_trouble, false, nil)
-    end
-    env = test_sandbox.unenforced_environment(worker_view(), rec.effective[job.m.path], scratch, -- checked: index_may_be_nil
-      rec.root)
-  end
+  local s: Starting = {
+    rec = rec, job = job, start = start, scratch = scratch, effective = effective, -- checked: nil_not_allowed
+    env = worker_view(), root = rec.root, inside = scratch, hold = "none", runs = {}, started = start,
+  }
+  local failed = if rec.sandbox then place_sandboxed(s) else place_unsandboxed(s) end
+  if failed ~= nil then return failed end
   local started_ns = Clock.monotonic_ns()
   job.started_ns = started_ns
   job.deadline_ns = started_ns + timeout_ns_of(rec, job.m)
-  -- Sandboxed, a worker whose module does not declare `tool` may not
-  -- run this program ([`confine.forbid_running`]): what it would run
-  -- is no input of its test's key; and one whose module does not
-  -- declare `nests` may not make a root of its own ([`hold_of`]), which
-  -- every process it starts learns from its environment
-  -- ([`confine.held_variable`]).
-  local declared = job.m.inputs
-  local hold = hold_of(rec, job.m)
+  s.hold = hold_of(rec, job.m)
   if rec.sandbox then
-    local given: mut {string:string} = {}
-    for name, value in pairs(env) do given[name] = value end
-    given[confine.held_variable] = hold ~= "none" and job.m.path or nil -- checked: and_ternary
-    env = given
+    failed = police(s)
+    if failed ~= nil then return failed end
   end
-  -- The grants hold the worker from its first instruction, but the core it
-  -- is started from must be run to start it, so a worker whose module does
-  -- not declare `tool` still puts up the ruleset that forbids it running
-  -- the program again ([`worker.run`]'s `forbid_running`).
-  local policy: Sandbox.Policy? = nil
-  local runs: {string} = {}
-  if rec.sandbox then
-    -- A worker that may run the program has nothing to forbid: the ruleset
-    -- the policy puts up already refuses it every mount.
-    if hold == "mounts" then hold = "none" end
-    local made, made_trouble = policy_of(rec, job)
-    if made == nil then
-      return cannot(made_trouble, true, nil)
-    end
-    policy = made
-    policy.setup = { tmp = (policy.setup or {}).tmp, database = if sealed ~= nil then { path = sealed } else nil end } -- checked: field_fixed
-    if hold == "forbid" then
-      local ran, ran_trouble = test_policy.runs(policy)
-      if ran == nil then
-        return cannot(ran_trouble, true, nil)
-      end
-      runs = ran
-    end
-  end
-  -- A worker on a sealed database starts as the core on it, with no
-  -- launcher, artifact or descriptor of the program's: a sandboxed one by
-  -- this program's name, which its policy's `database` makes the core
-  -- ([`Child.start`]); an unsandboxed one by the core itself.
-  local started = start
+  local sealed = s.sealed
   if sealed ~= nil then
-    if rec.sandbox then
-      local executable, executable_trouble = Proc.executable()
-      if executable == nil then
-        return cannot("this program's name: " .. tostring(executable_trouble), false, nil)
-      end
-      started = { argv = { executable }, env = {}, fds = {} }
-    else
-      started = { argv = { start.argv[1], "--database", sealed }, env = {}, fds = {} } -- checked: index_may_be_nil
-    end
+    failed = start_sealed(s, sealed)
+    if failed ~= nil then return failed end
   end
-  local plan = job.plan
-  -- A worker forks for its module's tests only where one after another can be given what each is promised: where
-  -- a sandbox holds it, so that all it can write is its sandbox's /tmp, or its scratch directory alone where that
-  -- is the host's, which its worker puts back between tests (the host caches a module declares apart, which every
-  -- worker shares as it is), it has no loopback, whose sockets one test would leave the next, a Landlock ruleset
-  -- holds it (its policy's, where it may run this program; one whose module declares `nests` has none), and this
-  -- host's Landlock scopes signals.
-  --
-  -- TODO: fork for a module that declares `noexec`, once its worker puts back the private directory it is given
-  -- at /noexec between tests as it does /tmp.
-  -- TODO: fork for a module that declares `loopback`, once a copy can be given a network namespace of its own, so
-  -- that no test meets the sockets an earlier one left closing.
-  -- TODO: fork in an unsandboxed run (macOS, COSMIC_TEST_SANDBOX=0), once a worker there can tell that a test left
-  -- no process running, which a pid namespace of its own tells a sandboxed one.
-  local declares = rec.effective[job.m.path]
-  local relay: worker.Relay? = nil
-  local scoped, _ = worker.forks_here()
-  if forks ~= nil and rec.sandbox and declares ~= nil and next(declares.network) == nil and
-      declares.nests ~= true and declares.noexec ~= true and scoped then
-    local made_relay, relay_trouble = worker.relay()
-    if made_relay == nil then
-      return cannot("a stream for its worker's reports: " .. relay_trouble, false, nil)
-    end
-    relay = made_relay
+  if forks ~= nil then
+    failed = relay_for(s)
+    if failed ~= nil then return failed end
   end
+  local plan, relay = job.plan, s.relay
   local command = worker.invocation({
     forks = if relay ~= nil then forks else nil end,
     report = if relay ~= nil then relay.writer else nil end,
-    start = started, env = env, root = root, cwd = cwd, module_path = job.m.path,
-    name = job.name, scratch = inside, own_scratch = job.own_scratch, needs = test_inputs.canonical(declared), hold = hold,
-    store = attached, closure = rec.closures[job.m.path], tree = rec.tree_names, -- checked: index_may_be_nil
-    policy = policy, runs = runs, checks = rec.checks,
+    start = s.started, env = s.env, root = s.root, cwd = s.cwd, module_path = job.m.path,
+    name = job.name, scratch = s.inside, own_scratch = job.own_scratch, needs = test_inputs.canonical(job.m.inputs),
+    hold = s.hold, store = s.attached, closure = rec.closures[job.m.path], tree = rec.tree_names, -- checked: index_may_be_nil
+    policy = s.policy, runs = s.runs, checks = rec.checks,
     program = if plan ~= nil then plan.program else nil end,
   })
   return { command = command, trouble = "", refused = false, unavailable = nil, relay = relay }
