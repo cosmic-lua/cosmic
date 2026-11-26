@@ -358,6 +358,11 @@ local PR_SKIPS <const> = "github.event_name != 'pull_request'"
 --- How a job that restores a cache starts: in the merge queue, only where
 --- the merge-queue ref's check (`queue-ref`) passed.
 local QUEUE_REF <const> = "!cancelled() && (github.event_name != 'merge_group' || needs.queue-ref.result == 'success')"
+--- A batch's pull request: a branch of this repository that build/batch.tl
+--- stacked (`claude/batch-*`), whose legs and driver check are skipped and
+--- read as passed, the merge queue testing the batch.
+local BATCH_PR <const> = "github.event_name == 'pull_request' && " ..
+  "github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'claude/batch-')"
 --- The parts of a leg ([`expand`]'s `part`) a step runs in: a whole leg
 --- (`all`) runs every part, and the queue runs a leg as its `suite` and
 --- its `product` in two jobs at once, beside linux-x86_64's `format`.
@@ -1776,7 +1781,8 @@ local function test_mains_push_repeats_nothing_the_queue_checked()
     "the legs check the pinned driver on other runs: " .. tostring(check["if"]))
   assert(leg_changed_at < leg_check_at, "the macOS leg asks of the paths changed after its check")
   local driver = job_of(jobs, "driver")
-  assert(driver["if"] == QUEUE_REF .. " && (github.event_name == 'merge_group' || github.event_name == 'pull_request')" and
+  assert(driver["if"] == QUEUE_REF .. " && (github.event_name == 'merge_group' || github.event_name == 'pull_request') && " ..
+      "!(" .. BATCH_PR .. ")" and
       table.concat(needs_of(driver), ",") == "queue-ref",
     "the pinned driver's own job runs on other runs than the queue's and a pull request's, or waits on another job")
   local own = driver.steps
@@ -2326,10 +2332,11 @@ local function test_the_gate_needs_every_job_and_compares_the_legs_products()
     "the gate needs " .. table.concat(needs_of(gate), ","))
   local passed = step_named(gate.steps, "every job passed")
   local env = map_of(passed.env)
-  assert(env["RESULT"] == "${{ needs.platform.result }}" and
+  assert(env["RESULT"] == "${{ (" .. BATCH_PR .. ") && 'success' || needs.platform.result }}" and
       env["CHECKED"] == "${{ github.event_name == 'pull_request' && 'success' || needs.checked.result }}" and
       env["NARROWING"] == "${{ github.event_name == 'pull_request' && 'success' || needs.narrowing.result }}" and
-      env["DRIVER"] == "${{ (github.event_name == 'merge_group' || github.event_name == 'pull_request') && needs.driver.result || 'success' }}" and
+      env["DRIVER"] == "${{ (" .. BATCH_PR .. ") && 'success' || " ..
+      "(github.event_name == 'merge_group' || github.event_name == 'pull_request') && needs.driver.result || 'success' }}" and
       env["QUEUE_REF"] == "${{ github.event_name == 'merge_group' && needs.queue-ref.result || 'success' }}" and
       (passed.run or ""):find("[ \"$DRIVER\" = success ]", 1, true) ~= nil and
       (passed.run or ""):find("[ \"$QUEUE_REF\" = success ]", 1, true) ~= nil,
@@ -2463,5 +2470,23 @@ local function test_a_pull_request_runs_the_suites_and_the_light_check()
       types)
   for _, name in ipairs({ "checked", "narrowing" }) do
     assert(job_of(ci.jobs, name)["if"] == QUEUE_REF .. " && " .. PR_SKIPS, name .. " runs on a pull request")
+  end
+end
+
+--- A batch's pull request runs no leg and no driver check, and its gate
+--- passes: build/batch.tl stacks it from members whose newest `ci` passed,
+--- and the merge queue tests the batch on every leg. Only a branch of this
+--- repository takes it, so a fork's pull request named like one still runs.
+local function test_a_batchs_pull_request_skips_its_legs_and_passes()
+  local jobs = ci_workflow().jobs
+  local skip = " && !(" .. BATCH_PR .. ")"
+  assert(job_of(jobs, "platform")["if"] == QUEUE_REF .. skip,
+    "a batch's pull request runs its legs: " .. tostring(job_of(jobs, "platform")["if"]))
+  local driver = job_of(jobs, "driver")["if"] or ""
+  assert(driver:sub(-#skip) == skip, "a batch's pull request runs the driver check: " .. driver)
+  assert(BATCH_PR:find("head.repo.full_name == github.repository", 1, true) ~= nil,
+    "a fork's pull request named like a batch skips its legs")
+  for _, name in ipairs({ "checked", "narrowing" }) do
+    assert(job_of(jobs, name)["if"] == QUEUE_REF .. " && " .. PR_SKIPS, name .. " runs on a batch's pull request")
   end
 end
