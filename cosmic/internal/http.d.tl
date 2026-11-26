@@ -22,8 +22,8 @@ local record http
     headers: function(Handle): {string:string}
     -- One chunk of the body, at most `max_bytes` bytes (a default when
     -- omitted), and "". `nil, ""` at a clean end of body; `nil, err`
-    -- on failure.
-    read: function(Handle, max_bytes?: integer): string?, string
+    -- on failure, and for a failure of curl's the code `open` names.
+    read: function(Handle, max_bytes?: integer): string?, string, string?
     -- What curl has written to a scripted transfer's connections so
     -- far; "" for one over the network. Raises if recording it ran
     -- out of memory.

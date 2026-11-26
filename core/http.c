@@ -1208,9 +1208,10 @@ static int handle_read (lua_State *L) {
       lua_pushnil(L);
       if (t->result != CURLE_OK) {
         push_transfer_error(L, t);
-      } else {
-        lua_pushliteral(L, ""); /* clean end of body */
+        lua_pushstring(L, transfer_code(t->result));
+        return 3;
       }
+      lua_pushliteral(L, ""); /* clean end of body */
       return 2;
     }
   }

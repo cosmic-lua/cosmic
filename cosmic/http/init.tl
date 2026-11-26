@@ -99,7 +99,7 @@ end
 --- "timeout" for [`Poll.TIMEOUT`], "cancelled" for [`Poll.CANCELLED`] and
 --- for "interrupted" (a signal a [`Signal.guard`] caught), "timeout" too
 --- where curl names its `code` "timed_out" (a limit of the transfer ran
---- out), else "other".
+--- out; `open` and `read` give it), else "other".
 local function failure_of(why: string, code?: string): Failure
   if why == Poll.TIMEOUT or code == "timed_out" then return Failure.timeout(why) end
   if why == Poll.CANCELLED or why == "interrupted" then return Failure.cancelled(why) end
@@ -121,10 +121,10 @@ local class HandleReader is Stream.Reader
         if self.closed then return nil, failure_of("http: the response is closed") end
       end
     end
-    local chunk, why = self.handle:read(max_bytes)
+    local chunk, why, code = self.handle:read(max_bytes)
     if chunk == nil then
       if why == "" then return false end
-      return nil, failure_of(why)
+      return nil, failure_of(why, code)
     end
     return chunk
   end
@@ -1212,19 +1212,19 @@ local function over(limit: integer): string
 end
 
 --- `response`'s whole body, read and closed, as [`Http.Body`]; nil and
---- why for one longer than `limit` bytes, read no further than the byte
---- past it. `encoded` says the body is decoded from a Content-Encoding,
---- whose Content-Length counts the bytes before decoding. The
---- Content-Length of a response to `method` HEAD, or of a 1xx, 204 or
---- 304, names a body that is never sent (RFC 9110 8.6), so it refuses
---- nothing.
-local function whole(response: Response, limit: integer, encoded: boolean, method: string): Http.Body?, string
+--- a [`Failure`] for one that fails to read or is longer than `limit`
+--- bytes, read no further than the byte past it. `encoded` says the body
+--- is decoded from a Content-Encoding, whose Content-Length counts the
+--- bytes before decoding. The Content-Length of a response to `method`
+--- HEAD, or of a 1xx, 204 or 304, names a body that is never sent (RFC
+--- 9110 8.6), so it refuses nothing.
+local function whole(response: Response, limit: integer, encoded: boolean, method: string): (Http.Body) | (nil, Failure)
   local status = response.status
   local bodiless = method == "HEAD" or status // 100 == 1 or status == 204 or status == 304
   local length = math.tointeger(tonumber(response.headers["content-length"] or ""))
   if not encoded and not bodiless and length ~= nil and length > limit then
     local _, _ = response:close()
-    return nil, over(limit)
+    return nil, Failure.new(over(limit))
   end
   local parts: mut {string} = {}
   local got = 0
@@ -1235,7 +1235,7 @@ local function whole(response: Response, limit: integer, encoded: boolean, metho
     local chunk, trouble = response:read(want)
     if chunk == nil then
       local _, _ = response:close()
-      return nil, tostring(trouble)
+      return nil, trouble
     end
     if chunk == false then
       local _, _ = response:close()
@@ -1244,11 +1244,11 @@ local function whole(response: Response, limit: integer, encoded: boolean, metho
     got = got + #chunk
     if got > limit then
       local _, _ = response:close()
-      return nil, over(limit)
+      return nil, Failure.new(over(limit))
     end
     parts[#parts + 1] = chunk
   end
-  return { status = response.status, body = table.concat(parts), headers = response.headers }, ""
+  return { status = response.status, body = table.concat(parts), headers = response.headers }
 end
 
 --- Opens `url`, blocking until the final response's headers arrive.
@@ -1296,7 +1296,7 @@ function Http.get(url: string, opts: Http.GetOptions): (Http.Body) | (nil, Failu
     return nil, trouble
   end
   local body, why = whole(response, limit, opts.decompress == true, "GET")
-  if body == nil then return nil, failure_of(why) end
+  if body == nil then return nil, why end
   return body
 end
 
@@ -1333,7 +1333,7 @@ function Http.request(method: string, url: string, opts: Http.RequestOptions): (
     return nil, trouble
   end
   local body, why = whole(response, limit, opts.decompress == true, method)
-  if body == nil then return nil, failure_of(why) end
+  if body == nil then return nil, why end
   return body
 end
 
@@ -1435,6 +1435,9 @@ local record DownloadResult
   kind: DownloadKind
   --- Empty on success; otherwise the human reason, without an added URL.
   reason: string
+  --- Present only for `failed` from a step that gave a [`Failure`]: it,
+  --- so its kind (a timeout, a cancel) is kept.
+  failure?: Failure
   --- Present only for `http_status`: the rejected response's status.
   status?: integer
   --- Present only for `digest_mismatch`: the checked algorithm.
@@ -1467,14 +1470,16 @@ local function downloading(url: string, path: string,
   local _, _ = raw_options(opts)
   local response, open_trouble = opened(url, opts, nil)
   pending.response = response
-  if response == nil then return { kind = "failed", reason = tostring(open_trouble) } end
+  if response == nil then
+    return { kind = "failed", reason = tostring(open_trouble), failure = open_trouble }
+  end
   if response.status < 200 or response.status >= 300 then
     return { kind = "http_status", status = response.status, reason = "HTTP " .. tostring(response.status) }
   end
   local file, create_trouble = Stream.create(path)
   pending.file = file
   if file == nil then
-    return { kind = "failed", reason = tostring(create_trouble) }
+    return { kind = "failed", reason = tostring(create_trouble), failure = create_trouble }
   end
   local sink: Stream.Writer = file
   for _, check in ipairs(checks) do sink = Stream.tee(sink, check.hashing) end
@@ -1485,7 +1490,7 @@ local function downloading(url: string, path: string,
   local _, _ = response:close()
   pending.response = nil
   if copied == nil then
-    return { kind = "failed", reason = tostring(trouble) }
+    return { kind = "failed", reason = tostring(trouble), failure = trouble }
   end
   for _, check in ipairs(checks) do
     local digest, digest_trouble = check.hashing:digest()
@@ -1501,7 +1506,7 @@ local function downloading(url: string, path: string,
   local committed, commit_trouble = file:sync()
   if committed then committed, commit_trouble = file:close() end
   if not committed then
-    return { kind = "failed", reason = tostring(commit_trouble) }
+    return { kind = "failed", reason = tostring(commit_trouble), failure = commit_trouble }
   end
   pending.file = nil
   return { kind = "downloaded", reason = "" }
@@ -1523,8 +1528,8 @@ end
 --- a status `curl -f` fails on too, is of kind "library", its `code` the status and its message
 --- `url: HTTP 404`. A checksum mismatch is of kind "mismatch", its path
 --- `path` and its message naming the algorithm and both digests. Other failures keep their words, of kind
---- "cancelled" where a signal or `opts.cancelled` stopped it, as
---- [`Http.open`] gives them.
+--- "cancelled" where a signal or `opts.cancelled` stopped it and
+--- "timeout" where a limit ran out, as [`Http.open`] gives them.
 function Http.download(url: string, path: string, opts: Http.DownloadOptions): (true) | (false, Failure)
   stated(opts)
   local result = downloading(url, path, opts)
@@ -1537,7 +1542,7 @@ function Http.download(url: string, path: string, opts: Http.DownloadOptions): (
     return false, Failure.mismatch(assert(result.algorithm) .. " mismatch: want " .. assert(result.expected) ..
         ", got " .. assert(result.actual), path)
   end
-  return false, failure_of(result.reason)
+  return false, result.failure or failure_of(result.reason)
 end
 
 --- Whether the TLS stack reads `der` as one X.509 certificate, as it
