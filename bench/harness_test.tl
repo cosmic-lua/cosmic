@@ -88,3 +88,15 @@ local function test_binary_without_against_is_refused()
   bench.case("one", function(_: integer) end)
   assert(bench.main({ "--binary", "/nonexistent" }) == 2)
 end
+
+local function test_six_rounds_give_a_band_from_the_lowest_ratio_to_the_highest()
+  local c = Bench.compare(Bench.timing("x", 1, { 10, 10, 10, 10, 10, 10 }),
+    Bench.timing("x", 1, { 8, 9, 11, 7, 12, 10 }))
+  assert(c.low == 0.7 and c.high == 1.2 and c.verdict == "same")
+end
+
+local function test_a_baseline_must_name_an_earlier_case()
+  local bench = Bench.new("t")
+  local ok, why = pcall(bench.case, "b", function(_: integer) end, { baseline = "a" })
+  assert(not ok and tostring(why):find("baseline a is no earlier case", 1, true) ~= nil, tostring(why))
+end

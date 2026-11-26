@@ -4,7 +4,7 @@
 ---     local Bench = require("bench.harness")
 ---     local bench = Bench.new("runtime")
 ---     bench.case("json.decode small", function(n: integer) for _ = 1, n do Json.decode(small) end end)
----     return bench.main
+---     return function(argv: {string}): integer return bench.main(argv) end
 ---
 --- A case's body runs its operation `n` times. The harness doubles `n` until one batch takes `--target-ms`
 --- (50 ms), then times `--rounds` batches (5) of that size and prints the fastest and the median, in ns per
@@ -100,7 +100,7 @@ local SPEC <const>: {string: boolean | Flags.Option} = {
   ["--sizes"] = { value = "path", about = "internal: a compare child's batch sizes, a JSON object of case to n" },
 }
 
---- `values` sorted, and its fastest and median.
+--- A timing of `samples`, kept in order, with their fastest and median.
 function Bench.timing(name: string, n: integer, samples: {number}): Bench.Timing
   assert(#samples > 0, "a timing needs a sample")
   local sorted: mut {number} = {}
@@ -175,6 +175,18 @@ end
 --- Writes `text` to stderr as it is.
 local function progress(text: string)
   local _, _ = Fs.put(Fs.stderr, text)
+end
+
+--- `path` as an absolute path, a bare name found on PATH, or nil and why.
+local function resolved(path: string): string?, string
+  if path:find("/", 1, true) == nil then
+    local found, why = Proc.find(path)
+    if found == nil then return nil, path .. " is not on PATH: " .. tostring(why) end
+    path = found
+  end
+  local whole, why = Fs.absolute(path)
+  if whole == nil then return nil, path .. ": " .. tostring(why) end
+  return whole, ""
 end
 
 --- The ns of one batch of `n` operations.
@@ -258,7 +270,7 @@ local function record_of(suite: Plan, c: Bench.Case, t: Bench.Timing, bests: {st
   local base = if baseline ~= nil then bests[baseline] else nil end
   if baseline ~= nil and base ~= nil then
     out["baseline"] = baseline
-    out["ratio"] = t.best / base
+    out["baseline_ratio"] = t.best / base
   end
   return encoded(out)
 end
@@ -310,8 +322,11 @@ end
 local function side(label: string, argv: {string}, env: {string: string}, fds: {integer: integer | string},
                     tmp: string, bench_dir: string, script_name: string): Side
   local root = tmp .. "/" .. label
-  assert(Fs.mkdirs(root))
-  assert(Fs.copy_tree(bench_dir, root .. "/bench"))
+  -- Only the script and this harness: a file the old checker refuses elsewhere in bench/ would stop its build.
+  assert(Fs.mkdirs(root .. "/bench"))
+  for _, file in ipairs({ "harness.tl", script_name }) do
+    assert(Fs.write(root .. "/bench/" .. file, assert(Fs.read(bench_dir .. "/" .. file))))
+  end
   local whole: mut {string: string} = Env.all()
   for name, value in pairs(env) do whole[name] = value end
   -- Each side builds its copy into its own directory under `tmp`, so removing `tmp` removes the builds.
@@ -332,8 +347,11 @@ local function child(s: Side, words: {string}): string
     error("bench: cannot start the " .. s.label .. " cosmic " .. s.binary .. ": " .. tostring(why), 0)
   end
   if not result.ok then
-    error(string.format("bench: the %s cosmic %s failed on %s (exit %s); a case may use what that binary lacks:\n%s",
-      s.label, s.binary, s.script, tostring(result.code), result.stderr or ""), 0)
+    local how = if result.timed_out then "ran past 600 s"
+      elseif result.code ~= nil then "exited " .. tostring(result.code)
+      else "was ended by signal " .. tostring(result.signal) end
+    error(string.format("bench: the %s cosmic %s %s on %s; a case may use what that binary lacks:\n%s",
+      s.label, s.binary, how, s.script, result.stderr or ""), 0)
   end
   return result.stdout or ""
 end
@@ -352,15 +370,16 @@ local function bests_of(output: string): {string: number}
 end
 
 local function compared_line(c: Bench.Comparison): string
-  return string.format("%-32s %12s %12s  %6.3f  [%.3f, %.3f]  %s", c.name, ns(c.old.best), ns(c.new.best),
-    c.ratio, c.low, c.high, c.verdict)
+  return string.format("%-32s %12s %12s  %7.3f  %7.3f  %-16s  %s", c.name, ns(c.old.best), ns(c.new.best),
+    c.ratio, c.paired, string.format("[%.3f, %.3f]", c.low, c.high), c.verdict)
 end
 
 local function compared_record(suite: Plan, c: Bench.Comparison, old: string, new: string): string
   local function side_json(t: Bench.Timing, binary: string): Json.Value
     return { binary = binary, best = t.best, median = t.median, samples = samples_json(t.samples) }
   end
-  return encoded({ suite = suite.name, case = c.name, unit = "ns/op", n = c.n, rounds = #c.new.samples,
+  return encoded({ mode = "compare", suite = suite.name, case = c.name, unit = "ns/op", n = c.n,
+    rounds = #c.new.samples,
     old = side_json(c.old, old), new = side_json(c.new, new), ratio = c.ratio, paired = c.paired,
     low = c.low, high = c.high, verdict = c.verdict })
 end
@@ -382,13 +401,31 @@ local function run_against(suite: Plan, cases: {Bench.Case}, got: Flags.Parsed, 
   local new_argv, new_env, new_fds: {string}, {string: string}, {integer: integer | string} =
     launched.argv, launched.env, launched.fds
   local given = got.values["--binary"]
-  if given ~= nil then new_argv, new_env, new_fds = { given }, {}, {} end
-  local old_path = assert(got.values["--against"])
-  local tmp = assert(Fs.mkdtemp("cosmic-bench-"))
+  if given ~= nil then
+    local path, trouble = resolved(given)
+    if path == nil then
+      complain("bench: --binary " .. trouble)
+      return 2
+    end
+    new_argv, new_env, new_fds = { path }, {}, {}
+  end
+  local old_path, trouble = resolved(assert(got.values["--against"]))
+  if old_path == nil then
+    complain("bench: --against " .. trouble)
+    return 2
+  end
+  local tmp, failure = Fs.mkdtemp("cosmic-bench-")
+  if tmp == nil then
+    complain("bench: cannot make a temporary directory: " .. tostring(failure))
+    return 1
+  end
   local ok, err = pcall(function()
     local name = Fs.basename(script)
     local new = side("new", new_argv, new_env, new_fds, tmp, bench_dir, name)
     local old = side("old", { old_path }, {}, {}, tmp, bench_dir, name)
+    -- One untimed child each builds its copy first, so a binary that cannot run the script fails before sizing.
+    child(new, { "--list" })
+    child(old, { "--list" })
     -- Sizes come from this process, so both sides run the same batches.
     local sizes: mut {string: Json.Value} = {}
     local done: mut {string: boolean} = {}
@@ -399,7 +436,7 @@ local function run_against(suite: Plan, cases: {Bench.Case}, got: Flags.Parsed, 
     local sizes_path = tmp .. "/sizes.json"
     assert(Fs.write(sizes_path, encoded(sizes)))
     local words = { "--sizes", sizes_path, "--rounds", tostring(CHILD_BATCHES) }
-    -- One untimed child each builds its copy and warms the page cache.
+    -- One untimed child each warms the page cache and the case's first batch.
     child(new, words)
     child(old, words)
     local tty = Proc.is_tty(2)
@@ -421,8 +458,8 @@ local function run_against(suite: Plan, cases: {Bench.Case}, got: Flags.Parsed, 
     end
     if tty then progress("\r") end
     if not json then
-      print(string.format("%-32s %12s %12s  %6s  %-16s  %s", "case (ns/op, best of " .. tostring(rounds) .. ")",
-        "old", "new", "new/old", "95% band", "verdict"))
+      print(string.format("%-32s %12s %12s  %7s  %7s  %-16s  %s", "case (ns/op, best of " .. tostring(rounds) .. ")",
+        "old", "new", "best", "paired", "95% band", "verdict"))
     end
     for _, c in ipairs(cases) do
       local n = math.tointeger(sizes[c.name]) or 1
@@ -431,7 +468,8 @@ local function run_against(suite: Plan, cases: {Bench.Case}, got: Flags.Parsed, 
       print(if json then compared_record(suite, compared, old.binary, new.binary) else compared_line(compared) end)
     end
   end)
-  local _, _ = Fs.remove_tree(tmp)
+  local removed, left = Fs.remove_tree(tmp)
+  if not removed then complain("bench: cannot remove " .. tmp .. ": " .. tostring(left)) end
   if not ok then
     complain(tostring(err))
     return 1
@@ -447,6 +485,10 @@ function Bench.new(name: string): Bench.Suite
   local function add(case_name: string, run: function(n: integer), options?: Bench.Options)
     if names[case_name] == true then
       error("bench: " .. name .. " has two cases named " .. case_name, 2)
+    end
+    local baseline = options and options.baseline
+    if baseline ~= nil and names[baseline] == nil then
+      error("bench: " .. case_name .. "'s baseline " .. baseline .. " is no earlier case of " .. name, 2)
     end
     names[case_name] = true
     cases[#cases + 1] = { name = case_name, run = run, options = options or {} }

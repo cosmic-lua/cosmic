@@ -72,7 +72,8 @@ pair("find 200 files", function(n: integer)
 end, command({ "find", dir .. "/tree", "-type", "f" }))
 
 return function(argv: {string}): integer
-  local code = bench.main(argv)
+  local ok, code = pcall(bench.main, argv)
   local _, _ = Fs.remove_tree(dir)
+  if not ok then error(code, 0) end
   return code
 end

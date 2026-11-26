@@ -1,7 +1,8 @@
 --- MIME base64 decoding, as an email attachment carries it: `bin/cosmic bench/base64.tl [name...]`.
 --- Follows Lemire, "Decoding base64 email attachments" (2026-11-20): one MiB of random bytes, encoded as base64 in
 --- lines of 76 characters that end in CRLF (1.43 MB of text, the post's 1.37 MiB), decoded and checked once.
---- [`bench.harness`] times each case and prints its rate in GB/s of input text beside its time. The post's table
+--- [`bench.harness`] times each case and prints its rate in GB/s of input text beside its time. A batch runs its
+--- decodes back to back after one collection, so their garbage is part of the time. The post's table
 --- runs from 0.61 GB/s (PHP 8.5) to 18.4 GB/s (C++ with simdutf) on one Xeon Gold 6548N core; Go is 1.6, Java 1.2,
 --- Zig 0.85.
 local Bench = require("bench.harness")

@@ -168,8 +168,8 @@ prints the names. A body that ignores its `n` is refused by name.
 
 `--json` prints one JSON object per case, a line each, in place of the
 table: `suite`, `case`, `unit`, `best`, `median`, `n`, `rounds` and every
-`samples` value, with `gb_per_s` and `ratio` where the case has them. A
-loop or a `todo verify --evidence` can cite a line as it is.
+`samples` value, with `gb_per_s` and `baseline_ratio` where the case has
+them. A loop, or the evidence of a logged item, can cite a line as it is.
 
 `--against <old-binary>` compares two cosmic binaries on the same cases.
 Keep the old tool before a change, then measure after it:
@@ -180,18 +180,23 @@ cp "$(bin/cosmic-bootstrap --standalone build/paths.tl .)/bin/cosmic" /tmp/cosmi
 bin/cosmic bench/runtime.tl --against /tmp/cosmic-old json
 ```
 
-This process sizes each case's batch once, so both sides run the same
-batches. Then each of 20 rounds (`--rounds`, at least 6) starts one child of
+Each side first runs the script once with `--list`, untimed, which builds
+it and refuses a binary that cannot run it before anything is measured.
+This process then sizes each case's batch once, so both sides run the same
+batches, and each side runs one untimed child to warm up. Then each of 20 rounds (`--rounds`, at least 6) starts one child of
 each binary, the two alternating which goes first, and each child times
 every selected case twice and reports the faster. Both children run a copy
 of `bench/` in a temporary directory outside the checkout, each building it
 into a directory of its own there, so each uses the standard library built
-into it, not the checkout's source. The table gives each side's best, their
-ratio (new over old: below 1 is faster), and a 95% sign interval for the
-median of the paired per-round ratios, the method of [`bin/perf`] on a
-smaller scale. The verdict is `faster` or `slower` when that band leaves
-out 1, and `same` otherwise. With `--json`, each case's record holds both
-sides' samples. `--binary <path>` replaces the new side, which is by default
+into it, not the checkout's source. Only the script and the harness are
+copied, so a script that requires another module of `bench/` has no compare
+mode. The table gives each side's best and their ratio (`best`, new over
+old: below 1 is faster), the median of the paired per-round ratios
+(`paired`), and a 95% sign interval for that median, the method of
+[`bin/perf`] on a smaller scale. The verdict is `faster` or `slower` when that band leaves
+out 1, and `same` otherwise. With `--json`, each case's record has `mode`
+`"compare"`, `old` and `new` objects (each with `binary`, `best`, `median`
+and `samples`), `ratio`, `paired`, `low`, `high` and `verdict`. `--binary <path>` replaces the new side, which is by default
 the cosmic that runs the script.
 
 Medians on a shared cloud VM swing by half from run to run. Paired rounds
