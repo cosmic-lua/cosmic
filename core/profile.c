@@ -536,9 +536,16 @@ static void stop_timer (void) {
 static int open_profile (const char *dir) {
   char path[4096];
   long pid = (long)getpid();
+  /* Where the pid's name is taken -- after an exec, or by the many
+   * processes each pid 2 of a sandbox's pid namespace -- a name of the
+   * pid and a number drawn from the clock, tried again on a clash. */
+  struct timespec now;
+  clock_gettime(CLOCK_MONOTONIC, &now);
+  uint64_t draw = (uint64_t)now.tv_sec * 1000000000u + (uint64_t)now.tv_nsec;
   for (int n = 0; n < 100; n++) {
+    draw = draw * 6364136223846793005ULL + 1442695040888963407ULL;
     int made = n == 0 ? snprintf(path, sizeof path, "%s/%ld.prof", dir, pid)
-                      : snprintf(path, sizeof path, "%s/%ld-%d.prof", dir, pid, n);
+                      : snprintf(path, sizeof path, "%s/%ld-%08x.prof", dir, pid, (unsigned)(draw >> 32));
     if (made < 0 || made >= (int)sizeof path) return -1;
     int fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
     if (fd >= 0 || errno != EEXIST) return fd;

@@ -103,6 +103,8 @@ local command: Flags.Command = {
   spec = {
     ["--all"] = { about = "run every test, whatever verdict stands for it (COSMIC_TEST_ALL=1); " ..
         "COSMIC_VERDICT_CACHE=0 turns off only the shared verdict cache" },
+    ["--profile"] = { value = "dir", about = "run every test it selects, whatever verdict stands, each worker " ..
+        "writing a profile into this directory; `cosmic profile <dir>` reads them" },
     ["--show-output"] = { about = "also list what a passing test printed, beneath it; a test " ..
         "that stands is not run and prints nothing (--all runs it)" },
     ["--no-shared"] = { about = "stand on no verdict another checkout reached; what " ..

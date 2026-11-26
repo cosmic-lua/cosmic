@@ -3,8 +3,9 @@
  * COSMIC_PROFILE set to a directory, every cosmic process (and every
  * child it starts, which inherits the variable) writes a profile of its
  * own there as it exits (a child whose environment is given anew gets
- * the variables back from its parent's start, core/coverage.c): `<dir>/<pid>.prof`, or `<pid>-<n>.prof` where
- * that is taken, as after an exec. The directory is made where it is
+ * the variables back from its parent's start, core/coverage.c): `<dir>/<pid>.prof`, or `<pid>-<8 hex digits>.prof` where
+ * that is taken, as after an exec or in a sandbox, where each process is
+ * pid 2 of a pid namespace of its own. The directory is made where it is
  * missing. Unset, it costs one getenv as the process starts.
  *
  * A timer drives the samples: COSMIC_PROFILE_HZ a second (997 when

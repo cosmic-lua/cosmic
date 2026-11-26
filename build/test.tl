@@ -2480,6 +2480,9 @@ local record Run
   mut shortfall?: test_report.Shortfall
   --- Whether the run lists what a passing test printed beneath it (`--show-output`).
   mut show_output?: boolean
+  --- The directory, absolute, each worker writes its profile into (`--profile`, or the run's own
+  --- `COSMIC_PROFILE`); nil for none.
+  mut profile?: string
 
   -- The checkout ([`hold_checkout`]).
   mut started?: integer
@@ -2648,6 +2651,26 @@ local function read_command(ctx: Run): integer?
   ctx.checks = parsed.set["--check-types"] == true or Env.read("COSMIC_TEST_CHECK_TYPES") == "1"
   ctx.bail = parsed.set["--bail"] == true or Env.read("COSMIC_TEST_BAIL") == "1"
   ctx.show_output = parsed.set["--show-output"] == true
+  -- A run asked to profile runs what it selects, since a test that stands writes no profile.
+  local profile_dir = parsed.values["--profile"]
+  if profile_dir ~= nil then
+    if profile_dir == "" then
+      log:complain("test: --profile needs a directory")
+      return 2
+    end
+    local made, made_why = Fs.mkdirs(profile_dir, 0x1c0)
+    if not made then
+      log:complain("test: --profile: " .. tostring(made_why))
+      return 5
+    end
+    ctx.forced = true
+  else
+    profile_dir = Env.get("COSMIC_PROFILE")
+  end
+  if profile_dir ~= nil and profile_dir ~= "" then
+    local absolute, _ = Fs.absolute(profile_dir)
+    ctx.profile = absolute
+  end
   return nil
 end
 
@@ -3082,7 +3105,7 @@ local function make_recording(ctx: Run)
     -- What every key holds of the harness and the runtime, which
     -- [`test_key.begin`] sets below and is the only code that does.
     runtime = "", sandbox = false, epoch = "", timeout_ns = 0, store_salt = "", carried = {},
-    run_at_ns = ctx.run_at_ns, run = handle.run,
+    run_at_ns = ctx.run_at_ns, run = handle.run, profile = ctx.profile,
     checks = ctx.checks == true, files = {}, violations = {}, violation_order = {}, violation_tests = {},
     violations_dropped = 0, fact_wraps = assert(ctx.result).fact_wraps,
     parameter_checks = assert(ctx.result).parameter_checks, violation_met = {}, violators = {}, violator_ns = {},

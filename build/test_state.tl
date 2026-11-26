@@ -248,6 +248,8 @@ local record test_state
     --- its key, in the order first met, the test that first met it, how many
     --- the workers kept no record of.
     checks: boolean
+    --- The directory each worker writes its profile into, nil for none ([`worker.Invocation`]'s `profile`).
+    profile?: string
     --- What a checked run's keys hold beside the bytes ([`declared_key.Spec`]'s `checks`), nil for
     --- an ordinary run.
     mut checks_part?: string
