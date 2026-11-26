@@ -37,7 +37,7 @@ end
 local function test_the_run_description_is_its_template_filled()
   local tool = assert(Tools.find(Tools.all(), "run"), "run is a tool")
   -- The slot is filled, and `{{` written as text in the template stands as it is.
-  assert(tool.description:find("(its start and end past 8KB)", 1, true) ~= nil, tool.description)
+  assert(tool.description:find("(its start and end past 4KB)", 1, true) ~= nil, tool.description)
   assert(tool.description:find("-> {{path, line, text}}:", 1, true) ~= nil, tool.description)
   assert(tool.description:find("^Run a program in cosmic, ") ~= nil, tool.description)
   -- No line ending after the example's last line, as the words were before the template.

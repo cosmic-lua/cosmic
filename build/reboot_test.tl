@@ -129,6 +129,28 @@ local function test_boot_into_boots_once(tmp: string)
   assert(trouble == "the tool is still stale after a reboot", trouble)
 end
 
+--- The marker holds only for the tool the reboot entered: a process that
+--- inherits it and runs another tool (a cosmic of another checkout) is
+--- not one a reboot entered, and boots, while the tool it names refuses,
+--- as does one naming a tool that is not there to tell apart.
+local function test_boot_into_holds_the_marker_only_for_the_tool_it_names(tmp: string)
+  local root = tmp .. "/tree"
+  assert(Fs.mkdirs(root .. "/bin"))
+  assert(Fs.write(root .. "/bin/zig", "#!/nonexistent/interpreter\n", 0x1ed))
+  assert(Fs.mkdirs(tmp .. "/elsewhere"))
+  assert(Fs.write(tmp .. "/elsewhere/cosmic", "", 0x1ed))
+  local other = reboot.boot_into(root, { "test" },
+    { COSMIC_REBOOTED = "1", COSMIC_REBOOTED_TOOL = tmp .. "/elsewhere/cosmic" })
+  assert(other ~= "the tool is still stale after a reboot" and other ~= "", other)
+  local running = assert(Proc.executable())
+  local own = reboot.boot_into(root, { "test" },
+    { COSMIC_REBOOTED = "1", COSMIC_REBOOTED_TOOL = running })
+  assert(own == "the tool is still stale after a reboot", own)
+  local gone = reboot.boot_into(root, { "test" },
+    { COSMIC_REBOOTED = "1", COSMIC_REBOOTED_TOOL = tmp .. "/gone/cosmic" })
+  assert(gone == "the tool is still stale after a reboot", gone)
+end
+
 --- A checkout in `tmp` whose bin/zig is a fake that records how it was
 --- run and exits 0, and that checkout's own tool as a run in a project sees
 --- it. A test makes one and uses it for each of its cases: a fake is a
@@ -194,9 +216,24 @@ local function test_every_core_into_boots_every_core_once(tmp: string)
   -- What the tool it enters runs in, the fake having written none to enter.
   assert(environment["COSMIC_REBOOTED"] ~= "1" and environment["COSMIC_REBOOTED"] ~= "2",
     "the boot of every core entered its tool as a stale reboot does")
+  assert(environment["COSMIC_REBOOTED_TOOL"] == paths.resolve(checkout).tool,
+    "the boot of every core did not name the tool it entered: " .. tostring(environment["COSMIC_REBOOTED_TOOL"]))
   assert(reboot.every_core_into({ "build" }, own, environment) == nil, "booted every core a second time")
   local ran, _ = Fs.read(checkout .. "/bin/ran")
   assert(ran == nil, "booted every core a second time")
+end
+
+--- A boot of every core that entered another tool says nothing of this
+--- one: a process that inherits its marker, naming that tool, boots every
+--- core of its own checkout.
+local function test_every_core_into_boots_where_the_marker_names_another_tool(tmp: string)
+  local checkout, own = checkout_with_zig(tmp)
+  assert(Fs.write(own.tool, "", 0x1ed))
+  assert(Fs.mkdirs(tmp .. "/elsewhere"))
+  assert(Fs.write(tmp .. "/elsewhere/cosmic", "", 0x1ed))
+  local environment: mut {string:string} = { COSMIC_REBOOTED = "cores", COSMIC_REBOOTED_TOOL = tmp .. "/elsewhere/cosmic" }
+  assert(reboot.every_core_into({ "build" }, own, environment) ~= nil)
+  assert(assert(Fs.read(checkout .. "/bin/ran")) == every_core_words, "a marker naming another tool held here")
 end
 
 --- It boots nothing, and returns nil, where the tool is told not to boot

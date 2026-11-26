@@ -7,7 +7,6 @@ local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
 local sys = require("cosmic.sys")
-local this_program = require("build.this_program")
 
 --- The next line of `lines`: raises where they ended or failed.
 local function line_of(lines: Stream.Lines): string
@@ -20,7 +19,7 @@ end
 Test.policy{ profiles = { "cosmic" } }
 
 local function start(script: string): Child.Handle
-  local command = this_program.program({ "-e", script },
+  local command = Test.cosmic({ "-e", script },
     { timeout_ns = Child.FOREVER, stdin = "stream", stdout = "stream", stderr = "capture" })
   return (assert(Child.start(command.argv, command.options)))
 end

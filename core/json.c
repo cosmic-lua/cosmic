@@ -430,6 +430,78 @@ static enum problem push_value (struct decoding *d, yyjson_val *val,
   }
 }
 
+/* The member of `obj` whose key is s[0..n), the last of them when the
+ * key is there twice (which only `duplicate_keys` lets through, the last
+ * standing as decode builds it), or NULL. */
+static yyjson_val *member_named (yyjson_val *obj, const char *s, size_t n) {
+  size_t idx;
+  size_t max;
+  yyjson_val *key;
+  yyjson_val *item;
+  yyjson_val *found = NULL;
+  yyjson_obj_foreach(obj, idx, max, key, item) {
+    if (yyjson_get_len(key) == n && memcmp(yyjson_get_str(key), s, n) == 0) {
+      found = item;
+    }
+  }
+  return found;
+}
+
+/* Pushes the part of the container `val` that the selection at stack
+ * slot `node` names (Selection in cosmic/internal/json.d.tl): in an
+ * object, the members its `names` holds; in an array, the elements at
+ * its `positions`, from 1. Each is the whole value when its own
+ * selection is `whole`, else the part of it that selection names. A
+ * step `val` does not hold, or one into a value that is no container,
+ * is left out. An array keeps each element at its position, so it is
+ * marked as one that may have holes. The whole text was checked for
+ * depth and repeated keys before, so this refuses nothing. */
+static void push_only (struct decoding *d, yyjson_val *val, int node) {
+  lua_State *L = d->L;
+  luaL_checkstack(L, 6, "JSON nests too deeply");
+  bool object = yyjson_is_obj(val);
+  lua_newtable(L);
+  if (!object) luaL_setmetatable(L, HOLES_TYPE);
+  int out = lua_gettop(L);
+  lua_getfield(L, node, object ? "names" : "positions");
+  int steps = lua_gettop(L);
+  if (!lua_istable(L, steps)) luaL_error(L, "json: a selection without its steps");
+  lua_pushnil(L);
+  while (lua_next(L, steps) != 0) {
+    yyjson_val *item = NULL;
+    if (object && lua_type(L, -2) == LUA_TSTRING) {
+      size_t n;
+      const char *s = lua_tolstring(L, -2, &n);
+      item = member_named(val, s, n);
+    } else if (!object && lua_isinteger(L, -2)) {
+      lua_Integer position = lua_tointeger(L, -2);
+      if (position >= 1 && (lua_Unsigned)position <= yyjson_arr_size(val)) {
+        item = yyjson_arr_get(val, (size_t)(position - 1));
+      }
+    }
+    if (item != NULL && lua_istable(L, -1)) {
+      int child = lua_gettop(L);
+      lua_getfield(L, child, "whole");
+      bool whole = lua_toboolean(L, -1);
+      lua_pop(L, 1);
+      if (whole) {
+        lua_pushvalue(L, child - 1);
+        /* read_text already walked the whole document under the same
+         * max_depth and duplicate-key rule, so push_value finds no
+         * problem, and its depth can start again at 0. */
+        (void)push_value(d, item, 0);
+        lua_rawset(L, out);
+      } else if (yyjson_is_ctn(item)) {
+        lua_pushvalue(L, child - 1);
+        push_only(d, item, child);
+        lua_rawset(L, out);
+      }
+    }
+    lua_pop(L, 1);
+  }
+  lua_pop(L, 1);
+}
+
 /* The index of the first member of `obj` whose key an earlier member
  * has, or its size when none does. A large object's keys go through a
  * Lua table, pushed and popped here, whose string hash is seeded. */
@@ -867,7 +939,7 @@ static int refused (lua_State *L) {
 
 /* decode(text, null?, max_depth?, json5?, big_as_string?,
  * lone_surrogates?, record?, hash_comments?, duplicate_keys?, line?,
- * column?, prefix?, opened?): the value
+ * column?, prefix?, opened?, only?): the value
  * `text` holds, and "". nil and a message when it is not one JSON
  * value -- RFC 8259, or JSON5 when `json5` is true, either with `#`
  * line comments when `hash_comments` is -- holds an object with a key
@@ -881,7 +953,9 @@ static int refused (lua_State *L) {
  * value the text is, a pointer a failure names is put under it; with
  * `opened`, that
  * many arrays and objects are open around it there, and count toward
- * `max_depth`. */
+ * `max_depth`. With `only`, a selection (Selection in
+ * cosmic/internal/json.d.tl), the text is checked whole first, then only
+ * what it selects is built ([`push_only`]). */
 static int json_decode (lua_State *L) {
   struct reading r;
   r.text = luaL_checklstring(L, 1, &r.len);
@@ -898,6 +972,8 @@ static int json_decode (lua_State *L) {
   luaL_argcheck(L, opened >= 0 && opened < r.max_depth, 13,
                 "fewer levels open than max_depth");
   r.opened = (int)opened;
+  bool only = !lua_isnoneornil(L, 14);
+  if (only) luaL_checktype(L, 14, LUA_TTABLE);
   r.flags = r.layout.json5 ? YYJSON_READ_JSON5 : YYJSON_READ_NOFLAG;
   struct decoding d;
   d.L = L;
@@ -911,15 +987,25 @@ static int json_decode (lua_State *L) {
   d.duplicate_keys = r.duplicate_keys;
   memset(&d.path, 0, sizeof d.path);
   d.repeated = NULL;
-  lua_settop(L, 13);
+  lua_settop(L, 14);
   luaL_getmetatable(L, ARRAY_TYPE);
   d.array_index = lua_gettop(L);
   /* Building the value allocates, and an allocation can raise: the
    * guard frees the document then, and on every return. */
   struct cosmic_guard *guard = cosmic_guard_push(L, release_doc);
-  yyjson_doc *doc = read_text(L, &r, guard, false);
+  /* With a selection, the whole text is checked as `check` checks it
+   * first, so a text decode refuses is refused whatever it selects; then
+   * only the selected values are built. */
+  yyjson_doc *doc = read_text(L, &r, guard, only);
   if (doc == NULL) return refused(L);
-  switch (push_value(&d, yyjson_doc_get_root(doc), r.opened)) {
+  yyjson_val *root = yyjson_doc_get_root(doc);
+  if (only && yyjson_is_ctn(root)) {
+    d.duplicate_keys = true;
+    push_only(&d, root, 14);
+    return cosmic_succeeded(L);
+  }
+  if (only) d.duplicate_keys = true;
+  switch (push_value(&d, root, r.opened)) {
     case REPEATED_KEY:
     repeat_failure(L, r.text, r.len, &r.layout, doc, d.repeated, &d.path);
     return refused(L);
@@ -1020,11 +1106,38 @@ static int put_break (struct encoding *e, int depth) {
   return 0;
 }
 
+/* Sixteen bytes, as the compiler's vector extension holds them: one
+ * SSE2 or NEON register, which every target cosmic ships has, so the
+ * scans below take sixteen bytes a step with no runtime dispatch. */
+typedef unsigned char bytes16 __attribute__((vector_size(16)));
+
+/* Whether any of the sixteen bytes at `s` is 0x80 or above. */
+static bool any_high (const unsigned char *s) {
+  bytes16 v;
+  memcpy(&v, s, sizeof v);
+  return __builtin_reduce_or(v >= 0x80) != 0;
+}
+
+/* Whether any of the sixteen bytes at `s` must be escaped in a JSON
+ * string: a control byte, `"` or `\`, or, when `ascii`, one 0x80 or
+ * above. */
+static bool any_special (const unsigned char *s, bool ascii) {
+  bytes16 v;
+  memcpy(&v, s, sizeof v);
+  bytes16 hit = (bytes16)((v < 0x20) | (v == '"') | (v == '\\'));
+  if (ascii) hit |= (bytes16)(v >= 0x80);
+  return __builtin_reduce_or(hit) != 0;
+}
+
 /* Whether s[0..n) is UTF-8: no overlong form, no surrogate, nothing
  * past U+10FFFF. */
 static int is_utf8 (const unsigned char *s, size_t n) {
   size_t i = 0;
   while (i < n) {
+    if (n - i >= 16 && !any_high(s + i)) {
+      i += 16;
+      continue;
+    }
     unsigned char c = s[i];
     if (c < 0x80) {
       i++;
@@ -1058,25 +1171,32 @@ static int is_utf8 (const unsigned char *s, size_t n) {
 
 static const char hex[] = "0123456789abcdef";
 
-static int put_string (struct encoding *e, const char *s, size_t n) {
-  if (!is_utf8((const unsigned char *)s, n)) {
-    return refuse(e, "cannot encode a string that is not UTF-8");
-  }
+/* s[0..n), which is UTF-8, as a JSON string: quoted, with what JSON must
+ * escape escaped, and every byte from 0x80 up too when `e->ascii`. The
+ * bytes between two escapes are copied in one step, found sixteen at a
+ * time. */
+static int put_utf8_string (struct encoding *e, const char *s, size_t n) {
+  const unsigned char *u = (const unsigned char *)s;
   if (PUT_LITERAL(e, "\"") < 0) return -1;
   size_t start = 0;
-  for (size_t i = 0; i < n; i++) {
-    unsigned char c = (unsigned char)s[i];
+  size_t i = 0;
+  while (i < n) {
+    if (n - i >= 16 && !any_special(u + i, e->ascii)) {
+      i += 16;
+      continue;
+    }
+    unsigned char c = u[i];
     if (e->ascii && c >= 0x80) {
-      /* [`is_utf8`] accepted the string, so the sequence is whole. */
+      /* The string is UTF-8, so the sequence is whole. */
       if (put(e, s + start, i - start) < 0) return -1;
       uint32_t code;
       size_t extra = c >= 0xf0 ? 3 : c >= 0xe0 ? 2 : 1;
       code = c & (0x3f >> extra);
       for (size_t k = 1; k <= extra; k++) {
-        code = code << 6 | ((unsigned char)s[i + k] & 0x3f);
+        code = code << 6 | (u[i + k] & 0x3f);
       }
-      i += extra;
-      start = i + 1;
+      i += extra + 1;
+      start = i;
       char escape[12];
       enum { escape_length = 6 };
       if (code >= 0x10000) {
@@ -1089,9 +1209,13 @@ static int put_string (struct encoding *e, const char *s, size_t n) {
       if (put(e, escape, escape_length) < 0) return -1;
       continue;
     }
-    if (c >= 0x20 && c != '"' && c != '\\') continue;
+    if (c >= 0x20 && c != '"' && c != '\\') {
+      i++;
+      continue;
+    }
     if (put(e, s + start, i - start) < 0) return -1;
-    start = i + 1;
+    i++;
+    start = i;
     char escape[6] = {'\\', 0, 0, 0, 0, 0};
     size_t length = 2;
     switch (c) {
@@ -1115,6 +1239,14 @@ static int put_string (struct encoding *e, const char *s, size_t n) {
   }
   if (put(e, s + start, n - start) < 0) return -1;
   return PUT_LITERAL(e, "\"");
+}
+
+/* s[0..n) as a JSON string, refused when it is not UTF-8. */
+static int put_string (struct encoding *e, const char *s, size_t n) {
+  if (!is_utf8((const unsigned char *)s, n)) {
+    return refuse(e, "cannot encode a string that is not UTF-8");
+  }
+  return put_utf8_string(e, s, n);
 }
 
 static int put_number (struct encoding *e, int idx) {
@@ -1661,7 +1793,9 @@ static int put_text_member (struct encoding *e, yyjson_val *key,
                             bool canonical) {
   if (!first && PUT_LITERAL(e, ",") < 0) return -1;
   if (put_break(e, depth + 1) < 0) return -1;
-  if (put_string(e, yyjson_get_str(key), yyjson_get_len(key)) < 0) return -1;
+  if (put_utf8_string(e, yyjson_get_str(key), yyjson_get_len(key)) < 0) {
+    return -1;
+  }
   if (PUT_LITERAL(e, ":") < 0) return -1;
   if (e->pretty && PUT_LITERAL(e, " ") < 0) return -1;
   if (put_text_value(e, value, depth + 1, canonical) < 0) {
@@ -1735,7 +1869,9 @@ static int put_text_value (struct encoding *e, yyjson_val *val, int depth,
       return put_canonical_number(e, f);
     }
     case YYJSON_TYPE_STR:
-    return put_string(e, yyjson_get_str(val), yyjson_get_len(val));
+    /* yyjson reads only UTF-8: it is not given
+     * YYJSON_READ_ALLOW_INVALID_UNICODE. */
+    return put_utf8_string(e, yyjson_get_str(val), yyjson_get_len(val));
     case YYJSON_TYPE_ARR:
     if (yyjson_arr_size(val) == 0) return PUT_LITERAL(e, "[]");
     if (PUT_LITERAL(e, "[") < 0) return -1;
@@ -1790,6 +1926,15 @@ static int json_format (lua_State *L) {
     if (doc == NULL) return refused(L);
   }
   e.guard = cosmic_guard_push(L, cosmic_free);
+  /* The text written again is about as long as the text read, so its
+   * room is made once rather than grown by doubling. A failed allocation
+   * leaves the room to `put`, which grows it or refuses for want of
+   * memory. */
+  e.p = cosmic_malloc(r.len + 16);
+  if (e.p != NULL) {
+    e.cap = r.len + 16;
+    e.guard->resource = e.p;
+  }
   if (put_text_value(&e, yyjson_doc_get_root(doc), 0, canonical) < 0) {
     lua_pushnil(L);
     if (e.path.len == 0 || e.out_of_memory) {

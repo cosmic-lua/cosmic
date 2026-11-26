@@ -753,6 +753,44 @@ local function find_reused(db: Sqlite.Handle): boolean
   return true
 end
 
+--- Drops from a project's `out.imports` each edge to a name it does not
+--- plan that the binary holds no module of: a binding the core preloads,
+--- such as [`cosmic.sys`], which `require` finds in no database. An edge
+--- to one would send [`Store.closure`] looking for a module that is
+--- nowhere, as the binary's own edges never do: its writer keeps only
+--- those to the modules it plans.
+local function drop_unheld_imports(db: Sqlite.Handle): boolean, string
+  local rows, trouble = db:rows("SELECT DISTINCT requires FROM out.imports " ..
+      "WHERE requires NOT IN (SELECT path FROM plan) ORDER BY requires")
+  if rows == nil then
+    return false, tostring(trouble)
+  end
+  local binary = Store.databases()
+  local held_by = binary[#binary]
+  local unheld: mut {string} = {}
+  for _, row in ipairs(rows) do
+    local name = row:text(1)
+    local held = false
+    if held_by ~= nil then
+      local found, find_trouble = held_by:rows("SELECT 1 FROM modules WHERE path = ?1", { { text = name } })
+      if found == nil then
+        return false, tostring(find_trouble)
+      end
+      held = #found > 0
+    end
+    if not held then unheld[#unheld + 1] = name end
+  end
+  if #unheld == 0 then
+    return true, ""
+  end
+  local ok, drop_trouble = db:run("DELETE FROM out.imports WHERE requires IN (SELECT value FROM carray(?1))",
+    { { texts = unheld } })
+  if not ok then
+    return false, tostring(drop_trouble)
+  end
+  return true, ""
+end
+
 --- Records in `out.public_modules` the modules of the projection being
 --- written that a reader with the binary alone is told of: those any
 --- module may require, by the two rules of [`positions.check`] that hold in
@@ -858,6 +896,12 @@ local function project(handle: work.Handle,
     local ok, failure = db:exec(statement)
     if not ok then
       return false, tostring(failure)
+    end
+  end
+  if not work.standing(handle).own then
+    local dropped, drop_trouble = drop_unheld_imports(db)
+    if not dropped then
+      return false, drop_trouble
     end
   end
   local recorded, record_trouble = fill_public(db, work.standing(handle).own)

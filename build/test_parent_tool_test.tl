@@ -7,7 +7,6 @@
 --- build/test_sandbox_run_tool_test.tl does.
 
 local Fs = require("cosmic.fs")
-local this_program = require("build.this_program")
 local confine = require("build.confine")
 local fixture = require("build.test_sandbox_fixture")
 local Test = require("cosmic.test")
@@ -41,7 +40,7 @@ end
 
 --- The environment of a run: nothing shared, every test run.
 local function run_environment(sandbox: string?): {string:string}
-  local env = this_program.environment()
+  local env = Test.environment()
   env.COSMIC_VERDICT_CACHE = "0" -- checked: map_field
   env.COSMIC_TEST_ALL = nil -- checked: map_field
   env.COSMIC_SANDBOX = nil -- checked: map_field

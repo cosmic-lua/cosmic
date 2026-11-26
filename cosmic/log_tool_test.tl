@@ -7,7 +7,6 @@ local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local _ = require("build.standalone")
-local this_program = require("build.this_program")
 
 --- The program itself, which its tests start to run a file `--standalone`
 --- ([`build.standalone`]).
@@ -17,7 +16,7 @@ Test.policy{ profiles = { "cosmic" } }
 local function run(tmp: string, body: string): string, string
   local script = tmp .. "/script.tl"
   assert(Fs.write(script, 'local Log = require("cosmic.log")\n' .. body))
-  local started = this_program.program({ "--standalone", script },
+  local started = Test.cosmic({ "--standalone", script },
     { stdout = "capture", stderr = "capture",
       timeout_ns = Clock.seconds(30) })
   local result = assert(Child.run(started.argv, started.options))

@@ -6,7 +6,6 @@ local TestSandboxFixture = require("build.test_sandbox_fixture")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local confine = require("build.confine")
-local this_program = require("build.this_program")
 local Fake = require("cosmic.fake")
 -- Required, so the fake's main is of this test's closure.
 local _fake = require("build.syscalls_session_fake")
@@ -48,7 +47,7 @@ local function in_own_session(tmp: string, name: string, args: {string}): string
   local setsid = setsid_program()
   if setsid == nil then return nil end
   local report = create(tmp .. "/session")
-  local started = this_program.program(test_child.words(tmp, "core.syscalls_session_test", name, args))
+  local started = Test.cosmic(test_child.words(tmp, "core.syscalls_session_test", name, args))
   local argv: mut {string} = { setsid }
   for _, word in ipairs(started.argv) do argv[#argv + 1] = word end
   local pid = assert(process.spawn(setsid, argv, started.options.env, tmp, nil, report, report,

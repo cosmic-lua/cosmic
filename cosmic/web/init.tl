@@ -60,6 +60,7 @@ local Testing = require("cosmic.web.testing")
 local Typed = require("cosmic.web.typed")
 local Shape = require("cosmic.shape")
 local Stream = require("cosmic.stream")
+local type Failure = require("cosmic.failure")
 local type Json = require("cosmic.json")
 local Types = require("cosmic.web.types")
 -- Only the type: the tailnet middleware, and the client of tailscaled it
@@ -283,7 +284,7 @@ local record Web
   --- Compiles routes and middleware into an app: see [`App.new`].
   app: function(spec: Types.AppSpec): Types.App
   --- Serves an app until the server stops: see [`App.serve`].
-  serve: function(app: Types.App, opts: Types.ServeOptions): boolean, string
+  serve: function(app: Types.App, opts: Types.ServeOptions): (true) | (false, Failure)
 
   --- A client calling an app in-process: see [`Testing.test_client`].
   test_client: function(app: Types.App): Testing.Client

@@ -10,7 +10,6 @@ local Fs = require("cosmic.fs")
 local Clock = require("cosmic.clock")
 local sys = require("cosmic.sys")
 local test_key = require("build.test_key")
-local this_program = require("build.this_program")
 local Fake = require("cosmic.fake")
 local Test = require("cosmic.test")
 
@@ -199,7 +198,7 @@ local function test_second(tmp: string) hold(tmp, "second") end
   env["MARKS"] = marks
   local output = tmp .. "/cancelled.out"
   local fd = assert(Fs.open_write(output))
-  local held = this_program.program(
+  local held = Test.cosmic(
     { "test", "--jobs", "2", "--timeout", "60", "suite/held_test.tl" },
     { timeout_ns = Child.FOREVER, cwd = root, env = env, stdout = fd, stderr = fd })
   local runner, trouble = Child.start(held.argv, held.options)
@@ -256,7 +255,7 @@ end
   env["MARKS"] = marks
   local output = tmp .. "/cancelled.out"
   local fd = assert(Fs.open_write(output))
-  local failed = this_program.program(
+  local failed = Test.cosmic(
     { "test", "--jobs", "1", "--timeout", "60", "suite/failed_test.tl" },
     { timeout_ns = Child.FOREVER, cwd = root, env = env, stdout = fd, stderr = fd })
   local runner, trouble = Child.start(failed.argv, failed.options)
@@ -283,7 +282,7 @@ end
 --- A fixture runtime's startup hooks pause one startup for a handshake;
 --- a worker inheriting them would pause too, with nobody to release it.
 --- The handshake's own variables never reach a run this program starts
---- (build.this_program's `program` drops them, and the core clears any
+--- ([`Test.cosmic`] drops them, and the core clears any
 --- other of their prefix as it starts), so the filter's case for them
 --- is the second half's. The first holds the rest of the filter end to
 --- end: its suite declares the variables, so the run's own filter
@@ -309,7 +308,8 @@ end
   local result = invoke(root, output, { "suite/hooks_test.tl" }, env)
   assert(result.ok, assert(Fs.read(output)))
   local kept = test_key.worker_environment({ COSMIC_PORTABLE_STARTUP_TEST_GO = "x",
-    COSMIC_PORTABLE_CACHE = "c", PATH = "p", COSMIC_REBOOTED = "1", OLDPWD = "/elsewhere",
+    COSMIC_PORTABLE_CACHE = "c", PATH = "p", COSMIC_REBOOTED = "1", COSMIC_REBOOTED_TOOL = "/tree/o/bin/cosmic",
+    OLDPWD = "/elsewhere",
     _ = "/usr/bin/timeout", SHLVL = "2", COSMIC_BUILD_CACHE = "/shared/cache.db",
     COSMIC_VERDICT_CACHE = "/shared/verdicts.db", COSMIC_TEST_NO_SHARED = "1", COSMIC_TEST_BAIL = "1",
     COSMIC_TEST_CHECK_TYPES = "1", COSMIC_TEST_TYPES = "1",
@@ -329,7 +329,8 @@ end
   -- How this run was started -- after a tool rebuilt itself, from a
   -- shell that was elsewhere before, or from a script rather than a
   -- terminal (the shell's depth) -- is no worker's to see.
-  assert(kept["COSMIC_REBOOTED"] == nil and kept["OLDPWD"] == nil and kept["_"] == nil)
+  assert(kept["COSMIC_REBOOTED"] == nil and kept["COSMIC_REBOOTED_TOOL"] == nil)
+  assert(kept["OLDPWD"] == nil and kept["_"] == nil)
   assert(kept["SHLVL"] == nil)
   assert(kept["COSMIC_PORTABLE_CACHE"] == "c" and kept["PATH"] == "p")
 end

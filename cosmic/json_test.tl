@@ -95,6 +95,64 @@ local function test_decode_object()
   assert(Json.is_array(v["c"]), "an array carries the array mark")
 end
 
+local function test_decode_only_builds_the_selected_values()
+  local text = '{"id": 7, "text": "long", "user": {"name": "ann", "bio": "b", "tags": [1, 2]}, "n": null}'
+  local v = assert(Json.decode_object(text, { only = { { "user", "name" }, { "id" }, { "missing", "x" }, { "text", "x" } } }))
+  assert(v["id"] == 7, "a top-level member is kept")
+  local user = assert(Json.to_object(v["user"]))
+  assert(user["name"] == "ann" and user["bio"] == nil and user["tags"] == nil, "only the named member of user is kept")
+  assert(v["text"] == nil and v["missing"] == nil, "a step into a string, or past a missing key, keeps nothing")
+  local whole = assert(Json.decode_object(text, { only = { { "user" }, { "user", "name" } } }))
+  local all_of_user = assert(Json.to_object(whole["user"]))
+  assert(all_of_user["bio"] == "b", "a path that ends at user keeps all of user, whatever a longer path says")
+  local kept_null = assert(Json.decode_object(text, { only = { { "n" } }, null_value = Json.null }))
+  assert(rawequal(kept_null["n"], Json.null), "a selected null is the stand-in when one is given")
+  local everything = assert(Json.decode_object(text, { only = { {} } }))
+  assert(everything["text"] == "long", "an empty path keeps the whole document")
+  assert(decoded("42", { only = { { "a" } } }) == 42, "a text that is no container is the value whole")
+  local near = assert(Json.decode_object('{"ab": 1, "a": 2, "abc": 3}', { only = { { "a" } } }))
+  assert(near["a"] == 2 and near["ab"] == nil and near["abc"] == nil, "a key is matched whole, not by its prefix")
+  local five = assert(Json.decode_object("{a: 1, b: 'x', // c\n}", { json5 = true, only = { { "b" } } }))
+  assert(five["b"] == "x" and five["a"] == nil, "JSON5 text is selected from as it is read")
+  local none = assert(Json.decode_object('{"a": 1}', { only = {} }))
+  assert(next(none) == nil, "no path selects nothing")
+end
+
+local function test_decode_only_keeps_array_positions()
+  local v = assert(Json.decode_object('{"xs": [10, 20, {"a": 1, "b": 2}]}', { only = { { "xs", 2 }, { "xs", 3, "b" }, { "xs", 9 } } }))
+  assert(Json.is_array(v["xs"]), "a selected array is still marked an array")
+  local first, _ = Json.get(v, { "xs", 1 })
+  local second, _ = Json.get(v, { "xs", 2 })
+  local b, _ = Json.get(v, { "xs", 3, "b" })
+  local a, _ = Json.get(v, { "xs", 3, "a" })
+  assert(first == nil and second == 20, "an element keeps its position")
+  assert(b == 2 and a == nil, "a path goes on into an element")
+  assert(assert(Json.encode(v)) == '{"xs":[null,20,{"b":2}]}', "the holes encode as null")
+end
+
+local function test_decode_only_refuses_what_decode_refuses()
+  local _, why = Json.decode('{"a": 1, "b": {"c": 1, "c": 2}}', { only = { { "a" } } })
+  assert(tostring(why):find("duplicate key", 1, true) ~= nil, why)
+  local _, deep = Json.decode('{"a": 1, "b": [[[1]]]}', { only = { { "a" } }, max_depth = 3 })
+  assert(deep ~= nil, "a text nested past max_depth is refused outside the selection too")
+  local last = assert(Json.decode_object('{"a": 1, "a": 2}', { only = { { "a" } }, duplicate_keys = true }))
+  assert(last["a"] == 2, "with duplicate_keys, the last of a key twice is selected, as decode keeps it")
+  local _, from_end = Json.decode("[1]", { only = { { -1 } } })
+  assert(tostring(from_end):find("from the end", 1, true) ~= nil, from_end)
+  local _, after_empty = Json.decode("[1]", { only = { {}, { -1 } } })
+  assert(after_empty ~= nil, "every path is checked, after an empty one too")
+  local ok, checked = Json.check("[1]", { only = { { -1 } } })
+  assert(not ok and tostring(checked):find("from the end", 1, true) ~= nil, "check refuses a selection decode refuses")
+  local _, zero = Json.decode("[1]", { only = { { "a", 0 } } })
+  assert(tostring(zero):find("path 1: step 2 is 0", 1, true) ~= nil, zero)
+end
+
+local function test_decode_lines_takes_only()
+  local rows = assert(Json.decode_lines('{"a": 1, "b": 2}\n{"a": 3, "b": 4}\n', { only = { { "b" } } }))
+  local second = assert(Json.to_object(rows[2]))
+  assert(second["b"] == 4 and second["a"] == nil, "only applies to each line")
+end
+
 local function test_decode_scalars()
   assert(decoded("42") == 42, "a number")
   assert(decoded('"s"') == "s", "a string")
@@ -455,6 +513,28 @@ local function test_ascii_escapes_every_character_past_ascii()
   assert(encoded("\xc3\xa9", { ascii = false }) == '"\xc3\xa9"', "false leaves the text alone")
   assert(encoded("\xc3\xa9") == '"\xc3\xa9"', "off by default")
   assert(encoded("plain", ascii) == '"plain"') -- checked: not_assignable
+end
+
+local function test_strings_escape_at_every_offset()
+  -- The writer scans sixteen bytes a step; an escape or a non-ASCII byte
+  -- at each offset of a long string, past two steps, crosses that edge.
+  for at = 1, 40 do
+    for _, c in ipairs({ "\"", "\\", "\n", "\0", "\31", "é", "😀" }) do
+      local s = ("a"):rep(at - 1) .. c .. ("b"):rep(40 - at)
+      local plain = assert(Json.encode(s))
+      assert(decoded(plain) == s, "encode round-trips at offset " .. tostring(at))
+      assert(assert(Json.format(plain)) == plain, "format keeps the text at offset " .. tostring(at))
+      local ascii = assert(Json.encode(s, { ascii = true }))
+      assert(not ascii:find("[\128-\255]"), "ascii escapes every byte from 0x80 at offset " .. tostring(at))
+      assert(decoded(ascii) == s, "ascii round-trips at offset " .. tostring(at))
+    end
+    local key = ("k"):rep(at)
+    local object = '{"' .. key .. '":"' .. ("v"):rep(at) .. '"}'
+    assert(assert(Json.format(object)) == object, "format keeps a plain key and value of " .. tostring(at) .. " bytes")
+    local bad = ("a"):rep(at - 1) .. "\255" .. ("b"):rep(40 - at)
+    local none, why = Json.encode(bad)
+    assert(none == nil and tostring(why):find("not UTF-8", 1, true) ~= nil, "a stray byte at offset " .. tostring(at) .. " is refused")
+  end
 end
 
 local function test_ascii_round_trips_through_decode()

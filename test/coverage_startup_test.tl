@@ -8,7 +8,6 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
-local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
 
@@ -41,9 +40,9 @@ return function(): integer
   return 0
 end
 ]]))
-  local env = this_program.environment()
+  local env = Test.environment()
   env.COSMIC_COVERAGE_STARTUP = if startup then "1" else nil end -- checked: map_field
-  local started = this_program.program({ "windows.tl" },
+  local started = Test.cosmic({ "windows.tl" },
     { env = env, cwd = dir, stdout = "capture", stderr = "capture",
       timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))

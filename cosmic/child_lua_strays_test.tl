@@ -10,7 +10,6 @@ local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
-local this_program = require("build.this_program")
 local fixture = require("build.child_lua_fixture")
 
 --- /proc, where a test reads a stray's name; and the program itself,
@@ -40,7 +39,7 @@ end
 --- grants no process of a sandbox.
 local function test_end_strays_ends_a_stray_named_as_an_init(tmp: string)
   local link = tmp .. "/cosmic-init"
-  assert(Fs.symlink(Array.at(this_program.program({}).argv, 1), link))
+  assert(Fs.symlink(Array.at(Test.cosmic({}).argv, 1), link))
   do
     -- A group started first makes this process the subreaper it adopts
     -- the stray as.

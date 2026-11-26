@@ -8,7 +8,6 @@
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
-local this_program = require("build.this_program")
 local confine = require("build.confine")
 local Test = require("cosmic.test")
 
@@ -46,9 +45,9 @@ end
 --- sandboxing fails.
 local function test_cosmic_test_runs_a_project_reached_through_links(tmp: string)
   local project = linked_project(tmp)
-  local env = this_program.environment()
+  local env = Test.environment()
   env.COSMIC_TEST_SANDBOX = nil -- checked: map_field
-  local started = this_program.program({ "test" }, {
+  local started = Test.cosmic({ "test" }, {
     cwd = project, env = env, stdout = "capture", stderr = "capture",
     timeout_ns = Clock.seconds(60),
   })

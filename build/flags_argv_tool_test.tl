@@ -8,7 +8,6 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
-local this_program = require("build.this_program")
 
 --- The program itself, which its tests start.
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
@@ -38,7 +37,7 @@ return function(argv: {string}): integer
   return 0
 end
 ]]))
-  local started = this_program.program({ script, "--help" }, {
+  local started = Test.cosmic({ script, "--help" }, {
     cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30),
   })
   local result = assert(Child.run(started.argv, started.options))

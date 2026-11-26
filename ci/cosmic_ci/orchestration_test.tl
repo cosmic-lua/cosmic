@@ -19,6 +19,7 @@ local Test = require("cosmic.test")
 -- read of the checkout around ci/.
 Test.policy{
   profiles = { "cosmic", "system" },
+  env = { "PATH" },
   grants = {
     { path = "cosmic_ci/", letters = "r" },
     { path = "fixtures/", letters = "r" },
@@ -1570,7 +1571,8 @@ local function test_the_macos_leg_stands_on_verdicts_keyed_by_declarations(tmp: 
   for _, event in ipairs({ "push", "merge_group" }) do
     local words, env = suite_run({
       COSMIC_CI_EVENT = event, COSMIC_CI_REQUIRE_SANDBOX = "0",
-      COSMIC_CI_DECLARED_KEYS = "1", COSMIC_TEST_SANDBOX = "" })
+      -- As the macOS leg's environment, whatever the run of this test holds.
+      COSMIC_CI_DECLARED_KEYS = "1", COSMIC_TEST_SANDBOX = "", COSMIC_SANDBOX = "" })
     assert(table.concat(words, " ") == (if event == "merge_group" then "test --bail" else "test" end),
       event .. ": the macOS leg ran --all")
     assert(env["COSMIC_TEST_NO_SHARED"] == nil, event .. ": the macOS leg stands on no shared verdict")

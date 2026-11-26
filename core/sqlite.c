@@ -1953,19 +1953,17 @@ static int statement_release (lua_State *L) {
   return 0;
 }
 
-/* row(metatable, as_text?): the row the statement stands on as one
- * table, two slots a column: its kind ("integer", "number", "text",
- * "blob" or "null"), then its value (false for NULL); with `as_text`,
- * every column "text" and its bytes, NULL as "". The table takes
+/* row(metatable): the row the statement stands on as one table, two
+ * slots a column: its kind ("integer", "number", "text", "blob" or
+ * "null"), then its value (false for NULL). The table takes
  * `metatable`. cosmic/sqlite.tl's rows read it. */
 static int statement_row (lua_State *L) {
   struct statement *s = checked_statement(L);
   luaL_checktype(L, 2, LUA_TTABLE);
-  bool as_text = lua_toboolean(L, 3);
   int columns = sqlite3_data_count(s->stmt);
   lua_createtable(L, 2 * columns, 0);
   for (int i = 0; i < columns; i++) {
-    int type = as_text ? SQLITE_TEXT : sqlite3_column_type(s->stmt, i);
+    int type = sqlite3_column_type(s->stmt, i);
     switch (type) {
       case SQLITE_INTEGER:
       lua_pushliteral(L, "integer");

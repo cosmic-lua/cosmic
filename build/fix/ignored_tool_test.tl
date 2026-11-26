@@ -10,7 +10,6 @@ local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 local build_paths = require("build.paths")
-local this_program = require("build.this_program")
 
 --- The program itself, the host's `git`, which `fix` asks what a
 --- repository ignores, and its `sh`, which runs the stand-in for a git
@@ -23,9 +22,9 @@ Test.policy{ profiles = { "cosmic" }, env = { "PATH", "HOME" },
 
 --- Runs fix with `args` in `root`; `extra` is added to the program's environment.
 local function run(root: string, args: {string}, extra?: {string: string}): Child.Result
-  local env = this_program.environment()
+  local env = Test.environment()
   for name, value in pairs(extra or {}) do env[name] = value end
-  local started = this_program.program(args, { cwd = root, env = env,
+  local started = Test.cosmic(args, { cwd = root, env = env,
     stdout = "capture", stderr = "stdout", timeout_ns = Clock.seconds(90) })
   return (assert(Child.run(started.argv, started.options)))
 end

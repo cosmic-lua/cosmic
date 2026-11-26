@@ -5,7 +5,7 @@
 
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
-local this_program = require("build.this_program")
+local Test = require("cosmic.test")
 
 local record sandbox_tool_fixture
   --- How a run of the program ended and what it printed.
@@ -24,7 +24,7 @@ end
 --- @param words its command line after the program
 --- @param fds descriptors of this process to hand on, by their number there
 function sandbox_tool_fixture.cosmic(dir: string, words: {string}, fds?: {integer:integer}): sandbox_tool_fixture.Ran
-  local started = this_program.program(words, {
+  local started = Test.cosmic(words, {
     cwd = dir, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60), fds = fds,
   })
   local result = assert(Child.run(started.argv, started.options))

@@ -2,7 +2,7 @@
 --- main under each set of grants the test checks. Its first argument
 --- names the case and the rest are that case's words.
 
-local Steps = require("build.fake_steps")
+local Steps = require("cosmic.fake.steps")
 
 local int = Steps.int
 
@@ -12,10 +12,10 @@ local cases: {string:function({string}): integer} = {
     return Steps.print(table.concat(words, " ")) or 0
   end,
   cat = function(words: {string}): integer return Steps.cat(words[1]!) or 0 end,
-  ls = function(words: {string}): integer return Steps.ls(words[1]!) or 0 end,
+  ls = function(words: {string}): integer return Steps.list(words[1]!) or 0 end,
   -- File `words[1]`, then the names in directory `words[2]`.
   ["cat-ls"] = function(words: {string}): integer
-    return Steps.cat(words[1]!) or Steps.ls(words[2]!) or 0
+    return Steps.cat(words[1]!) or Steps.list(words[2]!) or 0
   end,
   writable = function(words: {string}): integer return Steps.writable(words[1]!) or 0 end,
   truncate = function(words: {string}): integer return Steps.truncate(words[1]!) or 0 end,
@@ -29,7 +29,7 @@ local cases: {string:function({string}): integer} = {
   create = function(words: {string}): integer return Steps.create(words[1]!, words[2]!) or 0 end,
   mkdirs = function(words: {string}): integer return Steps.mkdirs(words[1]!) or 0 end,
   mkfifo = function(words: {string}): integer return Steps.mkfifo(words[1]!) or 0 end,
-  rm = function(words: {string}): integer return Steps.rm(words[1]!) or 0 end,
+  rm = function(words: {string}): integer return Steps.remove(words[1]!) or 0 end,
   rename = function(words: {string}): integer return Steps.rename(words[1]!, words[2]!) or 0 end,
   -- In directory `words[1]`: makes a file, directories, a pipe; renames
   -- the file and removes it and the deepest directory.
@@ -37,7 +37,7 @@ local cases: {string:function({string}): integer} = {
     local dir = words[1]!
     return Steps.create(dir .. "/new", "hello") or Steps.mkdirs(dir .. "/sub/deeper") or
       Steps.mkfifo(dir .. "/fifo") or Steps.rename(dir .. "/new", dir .. "/renamed") or
-      Steps.rm(dir .. "/renamed") or Steps.rmdir(dir .. "/sub/deeper") or 0
+      Steps.remove(dir .. "/renamed") or Steps.rmdir(dir .. "/sub/deeper") or 0
   end,
   -- Runs the program and words that follow, as a shell runs one.
   run = function(argv: {string}): integer return Steps.run(argv) or 0 end,

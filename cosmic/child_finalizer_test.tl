@@ -8,7 +8,6 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Clock = require("cosmic.clock")
 local Stream = require("cosmic.stream")
-local this_program = require("build.this_program")
 
 --- The child is this program, sleeping in a chunk (`cosmic`), so no program of the host's is
 --- started; /proc says whether a pid is still running or an unreaped zombie.
@@ -40,7 +39,7 @@ end
 --- Starts a child that sleeps and drops the handle unclosed, so no local holds it.
 --- Returns the pid, and the reader of its stdout where `keep_stream`.
 local function drop_a_sleeper(keep_stream: boolean): integer, Stream.Reader?
-  local sleeper = this_program.program({ "-e",
+  local sleeper = Test.cosmic({ "-e",
     'local Clock = require("cosmic.clock")\nlocal _, _ = Clock.sleep(Clock.seconds(30))' }, { timeout_ns = Child.FOREVER, stdout = "stream" })
   local h = assert(Child.start(sleeper.argv, sleeper.options))
   local pid = h.pid

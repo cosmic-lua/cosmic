@@ -13,7 +13,6 @@ local Server = require("cosmic.http.server")
 local Tailscale = require("cosmic.tailscale")
 local Test = require("cosmic.test")
 local _ = require("build.standalone")
-local this_program = require("build.this_program")
 
 Test.policy{ profiles = { "cosmic" }, loopback = { "127.0.0.1" }, requires = { "unix_socket" } }
 
@@ -142,7 +141,7 @@ local function across(tmp: string, listener: Net.Address, client: string): strin
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       local address = Array.at(addresses, 1)
       local where = address.path or tostring(address.port)
-      local started = this_program.program({ "--standalone", script, where },
+      local started = Test.cosmic({ "--standalone", script, where },
         { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
       local result = assert(Child.run(started.argv, started.options))
       server:stop()

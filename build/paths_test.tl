@@ -8,7 +8,6 @@ local paths = require("build.paths")
 local tree = require("build.tree")
 local rebuild_lock = require("build.rebuild_lock")
 local sys = require("cosmic.sys")
-local this_program = require("build.this_program")
 local work = require("build.work")
 local type _ = require("build.standalone")
 
@@ -153,7 +152,7 @@ local function test_bootstrap_and_runtime_resolve_the_same_directory(tmp: string
   for _, words in ipairs({ { root }, { "--prepare", root } } as {{string}}) do -- checked: cast_refused
     local argv = { "--standalone", script }
     for _, word in ipairs(words) do argv[#argv + 1] = word end
-    local started = this_program.program(argv, {
+    local started = Test.cosmic(argv, {
       cwd = tmp, env = { COSMIC_BUILD_HOME = home }, stdout = "capture", stderr = "capture",
       timeout_ns = Clock.seconds(30),
     })
@@ -163,7 +162,7 @@ local function test_bootstrap_and_runtime_resolve_the_same_directory(tmp: string
       tostring(result.stdout))
     assert(assert(Fs.status(home)).exists == (words[1] == "--prepare"), "only --prepare makes the directory")
   end
-  local started = this_program.program({ "--standalone", script, root }, {
+  local started = Test.cosmic({ "--standalone", script, root }, {
     cwd = tmp, env = { COSMIC_BUILD_HOME = "relative" }, stdout = "capture", stderr = "capture",
     timeout_ns = Clock.seconds(30),
   })
@@ -179,7 +178,7 @@ local function test_bootstrap_refuses_missing_and_extra_roots(tmp: string)
   for _, words in ipairs({ {}, { tmp, tmp }, { "--prepare" }, { "--prepare", tmp, tmp } } as {{string}}) do -- checked: cast_refused, literal_needs_type
     local argv = { "--standalone", script }
     for _, word in ipairs(words) do argv[#argv + 1] = word end
-    local started = this_program.program(argv, {
+    local started = Test.cosmic(argv, {
       env = {}, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30),
     })
     local result = assert(Child.run(started.argv, started.options))

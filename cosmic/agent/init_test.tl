@@ -92,6 +92,31 @@ local function test_the_loop_runs_tools_until_the_turn_ends()
   assert(again ~= nil and #again == 5)
 end
 
+--- A tool result that holds an answer (a snippet's Host.answer) ends the turn with it as the model's reply: no
+--- request asks the model for one, and the next turn reads it as the model's.
+local function test_an_answer_from_a_tool_ends_the_turn()
+  local a, send = api({ { content = { say_call("t1", "made") }, stop_reason = "tool_use" }, text_reply("again") })
+  local s = Agent.new({ model = Agent.MODELS.haiku, sign = keyed("k"), base_url = "https://api.test", system = "sys",
+    cwd = scratch(), send = send })
+  s.tools = { {
+    name = "say", snippet = "Say a text", guidelines = {}, description = "Answers its text.",
+    schema = { type = "object", properties = { text = { type = "string" } } },
+    run = function(_: Tools.Object, _: Tools.Context): Tools.Result
+      return { text = "(no output)", is_error = false, answer = "12 files" }
+    end,
+  } }
+  local seen = agent_fixture.events()
+  s.on = seen.on
+  local ok, why = s:prompt("how many files?")
+  assert(ok, why)
+  assert(#a.sent == 1 and seen.texts[1] == "12 files", tostring(#a.sent))
+  assert(#s.messages == 4, tostring(#s.messages))
+  local last = assert(Json.encode(s.messages[4]))
+  assert(last == '{"content":[{"text":"12 files","type":"text"}],"role":"assistant"}', last)
+  assert(s:prompt("more"))
+  assert(#a.sent == 2)
+end
+
 --- Each model has its own effort unless one is named: low for Haiku, medium for the rest.
 local function test_the_effort_is_the_models_own_unless_named()
   assert(Agent.effort(Agent.MODELS.haiku) == "low" and Agent.effort(Agent.MODELS.opus) == Agent.EFFORT)

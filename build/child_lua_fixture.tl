@@ -7,7 +7,7 @@
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
-local this_program = require("build.this_program")
+local Test = require("cosmic.test")
 
 local record child_lua_fixture
   --- A chunk's prefix: cosmic.fs as `Fs`.
@@ -43,14 +43,14 @@ local function again(chunk: string, opts?: Child.Options): Child.Handle
 end
 ]]
 
---- This program again, past its launcher ([`this_program.program`]),
+--- This program again, past its launcher ([`Test.cosmic`]),
 --- running the Teal chunk `chunk` with `args` as its `...`: the child
 --- each test starts, where a shell would need the system's. Its argv and
 --- options are for [`Child.run`] or [`Child.start`].
-function child_lua_fixture.lua(chunk: string, args?: {string}, opts?: Child.Options): this_program.Program
+function child_lua_fixture.lua(chunk: string, args?: {string}, opts?: Child.Options): Test.Start
   local words: mut {string} = { "-e", chunk }
   for _, word in ipairs(args or {}) do words[#words + 1] = word end
-  return this_program.program(words, opts)
+  return Test.cosmic(words, opts)
 end
 
 --- A chunk's statement that sleeps `ms` milliseconds.

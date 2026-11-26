@@ -1,6 +1,9 @@
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Verdicts = require("cosmic_ci.verdicts")
+local Test = require("cosmic.test")
+
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 --- [`Verdicts.command`], what it returns as three values.
 local function verdicts_command(argv: {string}, env: {string:string}): integer, string, string
