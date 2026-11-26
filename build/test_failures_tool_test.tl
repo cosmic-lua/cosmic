@@ -60,9 +60,9 @@ end
   assert(Fs.write(answer, "pass\n"))
   run("passed", true)
   local db = assert(Sqlite.open(support.build_dir(root) .. "/build.db"))
-  local failed = assert(db:text_rows("SELECT f.test, f.message FROM failures f " ..
+  local failed = assert(db:rows("SELECT f.test, f.message FROM failures f " ..
       "JOIN runs r USING (path, test) WHERE r.passed = 1 ORDER BY f.test"))
-  local flaked = assert(db:text_rows("SELECT f.test FROM failures f " ..
+  local flaked = assert(db:rows("SELECT f.test FROM failures f " ..
       "JOIN runs r USING (path, test) WHERE r.passed = 1 AND f.key = r.key"))
   assert(db:close())
   assert(#failed == 2, "failures after a pass: " .. tostring(#failed))

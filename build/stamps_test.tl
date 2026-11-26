@@ -23,7 +23,7 @@ end
 
 --- The rows of `db`'s `meta` that are stamps, as `key=value` lines.
 local function stamps_of(db: Sqlite.Handle): string
-  local rows = assert(db:text_rows("SELECT key || '=' || value FROM meta WHERE key LIKE 'stamp%' ORDER BY key"))
+  local rows = assert(db:rows("SELECT key || '=' || value FROM meta WHERE key LIKE 'stamp%' ORDER BY key"))
   local lines: mut {string} = {}
   for i, row in ipairs(rows) do lines[i] = row:text(1) end
   return table.concat(lines, "\n")

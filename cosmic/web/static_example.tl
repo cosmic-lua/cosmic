@@ -45,7 +45,7 @@ function Example.url()
   assert(url:find("^/static/css/app%.%x+%.css$"))
   local missing, why = StaticFiles.url(source, "/static", "nope.css")
   assert(missing == nil)
-  assert(why:find("no such asset", 1, true))
+  assert(tostring(why):find("no such asset", 1, true))
 end
 
 return Example -- checked: export_not_declared

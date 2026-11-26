@@ -35,9 +35,9 @@ local function test_a_handle_opened_before_is_refused_and_one_opened_after_is_no
     local after, _ = Sqlite.open(path)
     local read = false
     if after ~= nil then
-      local rows, _ = after:text_rows("SELECT n FROM t")
+      local rows, _ = after:rows("SELECT n FROM t")
       local first = if rows ~= nil then rows[1] else nil end
-      read = first ~= nil and first:text(1) == "7"
+      read = first ~= nil and first:integer(1) == 7
     end
     sys.exit(if held and closed and read then 0 else 1 end)
   end
@@ -46,8 +46,8 @@ local function test_a_handle_opened_before_is_refused_and_one_opened_after_is_no
   -- The process's own are as they were: the copy closed none of them.
   assert(statement:step())
   assert(before:exec("INSERT INTO t VALUES (8)"))
-  local rows = assert(before:text_rows("SELECT count(*) FROM t"))
-  assert(assert(rows[1]):text(1) == "2")
+  local rows = assert(before:rows("SELECT count(*) FROM t"))
+  assert(assert(rows[1]):integer(1) == 2)
   statement:finalize()
   assert(before:close())
 end
@@ -71,8 +71,8 @@ local function test_a_process_that_disowns_is_refused_what_it_opened_before(tmp:
   Sqlite.disown()
   assert(refused(function() local _, _ = after:exec("SELECT 1") end))
   local last = assert(Sqlite.open(path))
-  local rows = assert(last:text_rows("SELECT n FROM t"))
-  assert(assert(rows[1]):text(1) == "1")
+  local rows = assert(last:rows("SELECT n FROM t"))
+  assert(assert(rows[1]):integer(1) == 1)
   assert(last:close())
 end
 
@@ -117,9 +117,9 @@ local function test_a_copy_that_closes_or_drops_a_disowned_connection_leaves_its
     assert(status.code == 0, "the copy of case " .. tostring(case) .. " ended badly")
     local db = assert(held["db"])
     assert(db:exec("COMMIT"))
-    local counted = assert(db:text_rows("SELECT count(*) FROM t"))
-    assert(assert(counted[1]):text(1) == tostring(rows), way .. ": rows are missing: " .. assert(counted[1]):text(1))
-    local whole = assert(db:text_rows("PRAGMA integrity_check"))
+    local counted = assert(db:rows("SELECT count(*) FROM t"))
+    assert(assert(counted[1]):integer(1) == rows, way .. ": rows are missing: " .. tostring(assert(counted[1]):integer(1)))
+    local whole = assert(db:rows("PRAGMA integrity_check"))
     assert(assert(whole[1]):text(1) == "ok", way .. ": " .. assert(whole[1]):text(1))
     assert(db:close())
   end

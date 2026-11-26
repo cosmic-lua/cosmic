@@ -17,8 +17,8 @@ local build_paths = require("build.paths")
 local support = require("build.test_support_fixture")
 
 local function count(db: Sqlite.Handle, table_name: string): integer
-  local rows = assert(db:text_rows("SELECT count(*) FROM " .. table_name))
-  return math.tointeger(tonumber(support.nth(rows, 1):text(1))) as integer -- checked: cast_refused
+  local rows = assert(db:rows("SELECT count(*) FROM " .. table_name))
+  return support.nth(rows, 1):integer(1) as integer -- checked: cast_refused
 end
 
 --- The holder of a write lock is read from /proc/locks by the file's
@@ -154,7 +154,7 @@ local function test_symbol_schema_upgrade_discards_old_analysis(tmp: string)
   local upgraded = assert(work.open(tmp))
   assert(count(upgraded.db, "parsed") == 0)
   assert(count(upgraded.db, "refs") == 0)
-  local columns = assert(upgraded.db:text_rows("PRAGMA table_info(docs)"))
+  local columns = assert(upgraded.db:rows("PRAGMA table_info(docs)"))
   local names: mut {string: boolean} = {}
   for _, row in ipairs(columns) do names[row:text(2)] = true end
   assert(names["source_symbol"] == true and names["exported"] == true)
@@ -164,7 +164,7 @@ end
 --- The journal mode of the file at `path`, as a reader opening it sees.
 local function journal_mode(path: string): string
   local db = assert(Sqlite.open(path))
-  local rows = assert(db:text_rows("PRAGMA journal_mode"))
+  local rows = assert(db:rows("PRAGMA journal_mode"))
   assert(db:close())
   return assert(rows[1]):text(1)
 end
@@ -177,12 +177,12 @@ local function test_a_rollback_mode_database_is_put_in_write_ahead_mode(tmp: str
   assert(work.close((assert(work.open(tmp)))))
   assert(journal_mode(path) == "wal", journal_mode(path))
   local db = assert(Sqlite.open(path, { writable = true }))
-  local set = assert(assert(db:text_rows("PRAGMA journal_mode = DELETE"))[1]):text(1)
+  local set = assert(assert(db:rows("PRAGMA journal_mode = DELETE"))[1]):text(1)
   assert(set == "delete", set)
   assert(db:close())
   assert(journal_mode(path) == "delete", journal_mode(path))
   local reopened = assert(work.open(tmp))
-  local mode = assert(assert(reopened.db:text_rows("PRAGMA journal_mode"))[1]):text(1)
+  local mode = assert(assert(reopened.db:rows("PRAGMA journal_mode"))[1]):text(1)
   assert(mode == "wal", mode)
   assert(work.close(reopened))
   assert(journal_mode(path) == "wal", journal_mode(path))
@@ -198,7 +198,7 @@ local function test_a_commit_is_in_the_file_while_its_run_goes_on(tmp: string)
   assert(work.commit(handle))
   local alone = assert(Sqlite.open(support.build_dir(tmp) .. "/build.db", { immutable = true }))
   -- Without the copy into the file, it holds no table yet.
-  local rows = assert(alone:text_rows("SELECT value FROM meta WHERE key = 'marker'"))
+  local rows = assert(alone:rows("SELECT value FROM meta WHERE key = 'marker'"))
   assert(alone:close())
   assert(work.close(handle))
   assert(#rows == 1 and assert(rows[1]):text(1) == "committed", tostring(#rows))
@@ -242,7 +242,7 @@ end
 --- The value `meta` holds for `key` in the file at `path`, read alone.
 local function meta_of(path: string, key: string): string
   local db = assert(Sqlite.open(path))
-  local rows = assert(db:text_rows("SELECT value FROM meta WHERE key = '" .. key .. "'"))
+  local rows = assert(db:rows("SELECT value FROM meta WHERE key = '" .. key .. "'"))
   assert(db:close())
   if #rows == 0 then return "" end
   return assert(rows[1]):text(1)
@@ -381,21 +381,21 @@ local function test_a_read_answers_at_once_while_a_run_writes(tmp: string)
   local started = Clock.monotonic_ns()
   local reader = assert(Sqlite.open(support.build_dir(tmp) .. "/build.db"))
   reader:busy_timeout(Clock.seconds(2))
-  local rows = assert(reader:text_rows("SELECT value FROM meta WHERE key = 'marker'"))
-  local fillers = assert(reader:text_rows(
+  local rows = assert(reader:rows("SELECT value FROM meta WHERE key = 'marker'"))
+  local fillers = assert(reader:rows(
     "SELECT count(*) FROM meta WHERE key LIKE 'filler %'"))
   local took = Clock.monotonic_ns() - started
   assert(reader:close())
   assert(work.abort(handle))
   local marker = assert(rows[1]):text(1)
   assert(marker == "committed", marker)
-  assert(assert(fillers[1]):text(1) == "0", "no uncommitted row is read")
+  assert(assert(fillers[1]):integer(1) == 0, "no uncommitted row is read")
   assert(took < Clock.seconds(1), "the read took " .. tostring(took) .. " ns")
 end
 
 --- The bytes `files` holds for one staged path.
 local function staged_bytes(db: Sqlite.Handle, path: string): string
-  local rows = assert(db:text_rows(
+  local rows = assert(db:rows(
     "SELECT CAST(data AS TEXT) FROM files WHERE path = ?1", { { text = path } }))
   return support.nth(rows, 1):text(1)
 end
@@ -444,9 +444,9 @@ local function test_an_unsettled_row_is_read_again_at_the_epoch(tmp: string)
   local handle = assert(work.open(tmp))
   assert(work.stage(handle, { own = false }))
   assert(staged_bytes(handle.db, "probe.tl") == "return 1\n")
-  local unsettled = assert(handle.db:text_rows(
+  local unsettled = assert(handle.db:rows(
     "SELECT mtime_ns IS NULL FROM files WHERE path = 'probe.tl'"))
-  assert(support.nth(unsettled, 1):text(1) == "1", "the first stage must leave the row unsettled")
+  assert(support.nth(unsettled, 1):integer(1) == 1, "the first stage must leave the row unsettled")
   local before = assert(Fs.stat(path))
 
   local fd = assert(Fs.open_write(path))
@@ -502,9 +502,9 @@ local function test_stage_takes_a_link_for_what_it_leads_to(tmp: string)
   assert(work.stage(handle, { own = false }))
   assert(staged_bytes(handle.db, "lib/util.tl") == assert(Fs.read(tmp .. "/shared/lib/util.tl")))
   assert(staged_bytes(handle.db, "linked_test.tl") ~= nil, "the linked test is staged") -- checked: compare_disjoint
-  local looped = assert(handle.db:text_rows(
+  local looped = assert(handle.db:rows(
     "SELECT count(*) FROM files WHERE path LIKE 'loop/%'"))
-  assert(support.nth(looped, 1):text(1) == "0", "nothing is staged through the loop")
+  assert(support.nth(looped, 1):integer(1) == 0, "nothing is staged through the loop")
   assert(work.close(handle))
 end
 
@@ -513,15 +513,15 @@ end
 local function refused_above(project: string, target: string, link: string)
   local handle = assert(work.open(project))
   assert(work.stage(handle, { own = false }))
-  local before = assert(handle.db:text_rows("SELECT count(*) FROM files"))
-  assert(support.nth(before, 1):text(1) ~= "0")
+  local before = assert(handle.db:rows("SELECT count(*) FROM files"))
+  assert(support.nth(before, 1):integer(1) ~= 0)
   assert(Fs.symlink(target, project .. "/" .. link))
   local staged, trouble = work.stage(handle, { own = false })
   assert(staged == nil, "a link above the root is refused")
   assert(trouble:find(link .. ": a link to ", 1, true), trouble)
   assert(trouble:find("above the root", 1, true), trouble)
-  local after = assert(handle.db:text_rows("SELECT count(*) FROM files"))
-  assert(support.nth(after, 1):text(1) == support.nth(before, 1):text(1), "the refusal leaves the rows staged before")
+  local after = assert(handle.db:rows("SELECT count(*) FROM files"))
+  assert(support.nth(after, 1):integer(1) == support.nth(before, 1):integer(1), "the refusal leaves the rows staged before")
   assert(work.close(handle))
 end
 
@@ -564,7 +564,7 @@ local function test_zoneinfo_is_replaced_whole_and_read_back(tmp: string)
   local back = assert(work.zoneinfo_of(handle.db))
   assert(back["Old/Zone"] == nil, "a zone the tree no longer has is gone")
   assert(back["Europe/Paris"] == "TZif\0paris" and back["UTC"] == "TZif utc")
-  local rows = assert(handle.db:text_rows(
+  local rows = assert(handle.db:rows(
     "SELECT group_concat(name || ' ' || typeof(data), ',' ORDER BY rowid) FROM zoneinfo"))
   assert(support.nth(rows, 1):text(1) == "Europe/Paris blob,UTC blob", support.nth(rows, 1):text(1))
   assert(work.close(handle))
@@ -683,7 +683,7 @@ local function test_settled_rewrites_with_preserved_mtime_are_read(tmp: string)
     assert(stage_settled(handle, true).read == #paths)
     assert(staged_bytes(handle.db, "probe.tl") == "new text\n")
     for _, table_name in ipairs({ "files", "tool", "scanned", "linked" }) do
-      local rows = assert(handle.db:text_rows("SELECT DISTINCT sha256 FROM " .. table_name))
+      local rows = assert(handle.db:rows("SELECT DISTINCT sha256 FROM " .. table_name))
       assert(#rows > 0, table_name .. " must be exercised")
       for _, row in ipairs(rows) do assert(row:text(1) == Hash.hex_sha256("new text\n")) end
     end
@@ -932,7 +932,7 @@ local function test_stage_takes_every_file_under_static(tmp: string)
     ["static/bin.dat"] = "\0\1\2", ["static/.hidden/x"] = "x", ["main.tl"] = "return 1\n",
   }))
   local db = assert(Sqlite.open(support.build_dir(tmp) .. "/build.db"))
-  local rows = assert(db:text_rows(
+  local rows = assert(db:rows(
     "SELECT path FROM files WHERE path GLOB 'static/*' ORDER BY path"))
   local paths: mut {string} = {}
   for i, row in ipairs(rows) do paths[i] = row:text(1) end
@@ -1008,7 +1008,7 @@ local function test_stage_takes_a_programs_own_static_files(tmp: string)
   assert(#staged.notes == 1 and support.nth(staged.notes, 1):find("^cmd/spam/static/notes%.tl: ") ~= nil,
     table.concat(staged.notes, "\n"))
   local db = assert(Sqlite.open(support.build_dir(tmp) .. "/build.db"))
-  local rows = assert(db:text_rows("SELECT file FROM inputs WHERE file GLOB 'cmd/*' ORDER BY file"))
+  local rows = assert(db:rows("SELECT file FROM inputs WHERE file GLOB 'cmd/*' ORDER BY file"))
   local files: mut {string} = {}
   for i, row in ipairs(rows) do files[i] = row:text(1) end
   assert(table.concat(files, " ") == "cmd/spam/main.tl cmd/spam/sub/static/deep.tl", table.concat(files, " "))
@@ -1045,7 +1045,7 @@ local function test_opening_a_database_remakes_a_view_of_another_definition(tmp:
   assert(db:close())
   assert(stage_files(tmp, {}))
   db = assert(Sqlite.open(path))
-  local rows = assert(db:text_rows("SELECT file FROM inputs ORDER BY file"))
+  local rows = assert(db:rows("SELECT file FROM inputs ORDER BY file"))
   assert(#rows == 1 and support.nth(rows, 1):text(1) == "main.tl", "the view is the schema's again")
   assert(db:close())
 end
@@ -1087,7 +1087,7 @@ local function test_a_stage_records_the_code_that_staged_it(tmp: string)
   assert(before == "", "a database no stage wrote is taken for this code's: " ..
       tostring(before) .. before_trouble)
   stage_settled(handle)
-  local rows = assert(handle.db:text_rows("SELECT value FROM meta WHERE key = 'staged_by'"))
+  local rows = assert(handle.db:rows("SELECT value FROM meta WHERE key = 'staged_by'"))
   assert(#rows == 1, "the stage recorded no code")
   local own, own_trouble = work.other_code(handle.db)
   assert(own == nil and own_trouble == "", "this code's stage is taken for another's: " .. tostring(own))

@@ -27,13 +27,6 @@ local Clock = require("cosmic.clock")
 local support = require("build.test_support_fixture")
 local verbs_fixture = require("build.verbs_fixture")
 
---- The number `text` reads as, which the case knows is one.
-local function count_of(text: string): number
-  local count = tonumber(text)
-  assert(count ~= nil, "a number: " .. text)
-  return count
-end
-
 --- This program's database, which every executable's is joined from.
 --- The programs these tests run are built `--host`, so no launcher --
 --- and no `sh` -- runs them.
@@ -74,7 +67,7 @@ end
 
 local function rows_of(path: string, sql: string): Sqlite.Rows
   local db = assert(Sqlite.open(path))
-  local rows = assert(db:text_rows(sql))
+  local rows = assert(db:rows(sql))
   local _, _ = db:close()
   return rows
 end
@@ -129,27 +122,27 @@ local function test_the_carried_database_holds_what_a_program_needs(tmp: string)
   assert(#decls == 1, "the syscall declaration is in")
   local images = rows_of(path,
     "SELECT count(*) FROM sqlite_schema WHERE name = 'images'")
-  assert(support.nth(images, 1):text(1) == "0", "portable databases have no images table")
+  assert(support.nth(images, 1):integer(1) == 0, "portable databases have no images table")
   local guidance = rows_of(path,
     "SELECT count(*) FROM catalog_fts WHERE catalog_fts MATCH 'coverage'")
-  assert(count_of(support.nth(guidance, 1):text(1)) > 0, "the error catalog is in, and indexed")
+  assert(support.nth(guidance, 1):integer(1) > 0, "the error catalog is in, and indexed")
   local text = rows_of(path,
     "SELECT text IS NULL, length(file) > 0, line > 0 FROM catalog " ..
       "WHERE symbol = 'Coverage.start'")
-  assert(#text == 1 and support.nth(text, 1):text(1) == "1" and
-      support.nth(text, 1):text(2) == "1" and support.nth(text, 1):text(3) == "1",
+  assert(#text == 1 and support.nth(text, 1):integer(1) == 1 and
+      support.nth(text, 1):integer(2) == 1 and support.nth(text, 1):integer(3) == 1,
     "a row with no text of its own carries none, nor the doc comment: " ..
       "it carries where it is")
   local about_build = rows_of(path,
     "SELECT count(*) FROM catalog WHERE module LIKE 'build.%'")
-  assert(support.nth(about_build, 1):text(1) == "0", "guidance about the build is not")
+  assert(support.nth(about_build, 1):integer(1) == 0, "guidance about the build is not")
   local databases = Store.databases()
   local own = assert(databases[#databases], "this program has a database")
-  local carried = assert(own:text_rows("SELECT count(*) FROM zoneinfo"))
+  local carried = assert(own:rows("SELECT count(*) FROM zoneinfo"))
   local zones = rows_of(path, "SELECT count(*), sum(name = 'America/New_York') FROM zoneinfo")
-  assert(support.nth(zones, 1):text(1) == support.nth(carried, 1):text(1) and count_of(support.nth(zones, 1):text(1)) > 500 and support.nth(zones, 1):text(2) == "1",
+  assert(support.nth(zones, 1):integer(1) == support.nth(carried, 1):integer(1) and support.nth(zones, 1):integer(1) > 500 and support.nth(zones, 1):integer(2) == 1,
     "every zone the binary carries is in")
-  local assets = assert(own:text_rows(
+  local assets = assert(own:rows(
     "SELECT group_concat(name || ' ' || version || ' ' || sha256, ',' ORDER BY name) FROM web_assets"))
   local web = rows_of(path,
     "SELECT group_concat(name || ' ' || version || ' ' || sha256, ',' ORDER BY name) FROM web_assets")
@@ -158,10 +151,10 @@ local function test_the_carried_database_holds_what_a_program_needs(tmp: string)
   local materials = rows_of(path,
     "SELECT (SELECT count(*) FROM components WHERE name = 'lua'), " ..
       "(SELECT count(*) FROM notices WHERE component = 'lua' AND text LIKE '%Lua.org%')")
-  assert(support.nth(materials, 1):text(1) == "1" and support.nth(materials, 1):text(2) == "1",
+  assert(support.nth(materials, 1):integer(1) == 1 and support.nth(materials, 1):integer(2) == 1,
     "the program carries the bill of materials its cores ship under")
   local trusted = rows_of(path, "SELECT count(*) FROM ca_roots")
-  assert(count_of(support.nth(trusted, 1):text(1)) > 100, "the program carries the CA roots its requests trust")
+  assert(support.nth(trusted, 1):integer(1) > 100, "the program carries the CA roots its requests trust")
 end
 
 --- A project's tests and examples stay with the project: the program
@@ -197,7 +190,7 @@ local function test_the_carried_database_leaves_tests_and_examples_out(tmp: stri
   assert(embed.tree(tmp, true))
   local projected = rows_of(support.build_dir(tmp) .. "/cosmic.db",
     "SELECT count(*) FROM modules WHERE path IN ('greet_test', 'greet_example')")
-  assert(support.nth(projected, 1):text(1) == "2", "the project's own projection keeps both")
+  assert(support.nth(projected, 1):integer(1) == 2, "the project's own projection keeps both")
   local database = assert(embed.database(support.build_dir(tmp) .. "/cosmic.db", "cmd.hello.main"))
   local path = tmp .. "/carried.db"
   assert(Fs.write(path, database))
@@ -208,10 +201,10 @@ local function test_the_carried_database_leaves_tests_and_examples_out(tmp: stri
     "the module is in and its test and example are not")
   local imports = rows_of(path,
     "SELECT count(*) FROM imports WHERE path IN ('greet_test', 'greet_example')")
-  assert(support.nth(imports, 1):text(1) == "0", "no import edge from a test or example")
+  assert(support.nth(imports, 1):integer(1) == 0, "no import edge from a test or example")
   local catalog = rows_of(path,
     "SELECT count(*) FROM catalog WHERE module IN ('greet_test', 'greet_example')")
-  assert(support.nth(catalog, 1):text(1) == "0", "no catalog row about a test or example")
+  assert(support.nth(catalog, 1):integer(1) == 0, "no catalog row about a test or example")
 end
 
 --- A program carries what its users read of the project: the docs, uses and
@@ -359,7 +352,7 @@ local function test_the_carried_database_holds_the_documentation_of_the_public_m
 
   local function listed(sql: string): string
     local out: mut {string} = {}
-    for _, row in ipairs(rows_of(path, sql)) do out[#out + 1] = row:text(1) end
+    for _, row in ipairs(rows_of(path, sql)) do out[#out + 1] = (row:as_text(1) or "") end
     return table.concat(out, " ")
   end
   local internal = rows_of(support.build_dir(tmp) .. "/cosmic.db",
@@ -462,7 +455,7 @@ local function test_each_program_carries_only_what_its_main_requires(tmp: string
   assert(Fs.write(path, database))
   local function listed(sql: string): string
     local out: mut {string} = {}
-    for _, row in ipairs(rows_of(path, sql)) do out[#out + 1] = row:text(1) end
+    for _, row in ipairs(rows_of(path, sql)) do out[#out + 1] = (row:as_text(1) or "") end
     return table.concat(out, " ")
   end
   local modules = listed("SELECT path FROM modules WHERE path NOT LIKE 'cosmic.%' ORDER BY path")
@@ -526,7 +519,7 @@ local function test_a_pages_module_no_module_requires_is_carried(tmp: string)
   end
   assert(table.concat(modules, " ") == "cmd.spam.main store.helper store.pages", table.concat(modules, " "))
   local documented = rows_of(path, "SELECT count(*) FROM docs WHERE module = 'store.pages' AND symbol = 'pages.fry'")
-  assert(support.nth(documented, 1):text(1) == "1", "the pages module's field is documented")
+  assert(support.nth(documented, 1):integer(1) == 1, "the pages module's field is documented")
   -- Run from its source, it says so too.
   local help = verbs_fixture.run(tmp, { "cmd/spam/main.tl", "help", "fry" })
   assert(help.code == 0 and help.stdout:find("Fries the spam, golden.", 1, true) ~= nil, help.stdout .. help.stderr)
@@ -566,7 +559,7 @@ local function test_a_pages_module_named_by_a_local_is_carried(tmp: string)
   end
   assert(table.concat(modules, " ") == "by_constant by_local cmd.spam.main", table.concat(modules, " "))
   local documented = rows_of(path, "SELECT count(DISTINCT module) FROM docs WHERE module IN ('by_constant', 'by_local')")
-  assert(support.nth(documented, 1):text(1) == "2", "both are documented")
+  assert(support.nth(documented, 1):integer(1) == 2, "both are documented")
 end
 
 --- A pages module named by a field of another module the program requires (`{ pages = Names.docs_module }`) is
@@ -605,7 +598,7 @@ local function test_a_pages_module_named_by_another_modules_field_is_carried(tmp
   end
   assert(table.concat(modules, " ") == "by_module cmd.spam.main names", table.concat(modules, " "))
   local documented = rows_of(path, "SELECT count(*) FROM docs WHERE module = 'by_module' AND symbol = 'm.fry'")
-  assert(support.nth(documented, 1):text(1) == "1", "it is documented")
+  assert(support.nth(documented, 1):integer(1) == 1, "it is documented")
 end
 
 --- A test or example file is only a kind by its name: one the program
@@ -652,7 +645,7 @@ local function test_a_test_or_example_the_program_requires_is_carried(tmp: strin
   local imports = rows_of(path,
     "SELECT count(*) FROM imports WHERE path = 'shared_example' " ..
       "AND requires = 'fixture_test'")
-  assert(support.nth(imports, 1):text(1) == "1", "the edge between them is carried")
+  assert(support.nth(imports, 1):integer(1) == 1, "the edge between them is carried")
 end
 
 --- A `pcall(require, "<name>")` is an edge as a `require` is: the module it probes is carried with its edge, so the
@@ -676,7 +669,7 @@ local function test_a_module_a_program_probes_with_pcall_is_carried(tmp: string)
   assert(#modules == 1, "a module probed with pcall(require, ...) is carried")
   local imports = rows_of(path,
     "SELECT count(*) FROM imports WHERE path = 'cmd.hello.main' AND requires = 'probed'")
-  assert(assert(imports[1]):text(1) == "1", "the edge to it is carried")
+  assert(assert(imports[1]):integer(1) == 1, "the edge to it is carried")
 end
 
 --- A program that requires a module by a name it computes is not built: the build cannot tell which module it carries.
@@ -928,10 +921,10 @@ local Web = require("cosmic.web")
 
 return function(): integer
   for _, handle in ipairs(Store.databases()) do
-    local rows, _ = handle:text_rows(
+    local rows, _ = handle:rows(
       "SELECT path, type, length(data), gzip IS NOT NULL, zstd IS NOT NULL FROM payload ORDER BY path")
     if rows ~= nil and #rows > 0 then
-      for _, row in ipairs(rows) do print("payload", table.concat(row:texts(), "\t")) end
+      for _, row in ipairs(rows) do print("payload", table.concat(row:as_texts(), "\t")) end
       break
     end
   end
@@ -1027,7 +1020,7 @@ local function test_a_programs_own_static_files_are_laid_over_the_shared_ones(tm
     assert(Fs.write(path, database))
     local out: mut {string} = {}
     for _, row in ipairs(rows_of(path, "SELECT program, path, data FROM payload ORDER BY path")) do
-      out[#out + 1] = "[" .. row:text(1) .. "] " .. row:text(2) .. "=" .. row:text(3)
+      out[#out + 1] = "[" .. row:text(1) .. "] " .. row:text(2) .. "=" .. row:bytes(3)
     end
     return table.concat(out, ", ")
   end
@@ -1848,15 +1841,15 @@ local function test_a_program_run_from_its_source_holds_the_examples_of_what_it_
     local db = assert(Sqlite.open(projection))
     local view = assert(Doc.program({ db }, "spam"))
     local scoped = assert(view.databases[1])
-    local modules = assert(scoped:text_rows("SELECT group_concat(DISTINCT module) FROM examples"))
+    local modules = assert(scoped:rows("SELECT group_concat(DISTINCT module) FROM examples"))
     assert(support.nth(modules, 1):text(1) == "shared", "the examples of what it documents alone")
-    local indexed = assert(scoped:text_rows(
+    local indexed = assert(scoped:rows(
       "SELECT count(*) FROM examples_fts WHERE examples_fts MATCH 'eggs'"))
-    assert(support.nth(indexed, 1):text(1) == "0", "the index holds no other program's example")
-    local cataloged = assert(scoped:text_rows(
+    assert(support.nth(indexed, 1):integer(1) == 0, "the index holds no other program's example")
+    local cataloged = assert(scoped:rows(
       "SELECT count(*) FROM catalog_fts JOIN catalog c ON c.id = catalog_fts.rowid WHERE catalog_fts MATCH 'hens' " ..
         "AND c.module = 'eggs'"))
-    assert(support.nth(cataloged, 1):text(1) == "0", "the catalog holds no other program's row")
+    assert(support.nth(cataloged, 1):integer(1) == 0, "the catalog holds no other program's row")
     assert(Errors.guidance_in(db, "the hens refused their coop") == nil, "no other program's guidance answers")
     assert(Errors.guidance_in(db, "the drawer jammed shut") ~= nil, "its own does")
     assert(Errors.guidance_in(db, "the till ran out of receipts") == nil, "a module it does not carry answers none")

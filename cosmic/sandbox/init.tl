@@ -367,9 +367,9 @@ local ACTIONS <const>: {string:{letter: string, directory: boolean}} = {
 ---
 --- For code that acts for a held program in a process no kernel layer
 --- holds, as a second layer, never the only one: the program runs beside
---- it and can change a name between the check and its use, so open the
---- real name this returns and follow no link there. [`Sandbox.allows`] is
---- the plain rule under it.
+--- it and can change a name between the check and its use, so act
+--- through [`Sandbox.dir`], which opens the real name this returns with
+--- no link followed. [`Sandbox.allows`] is the plain rule under it.
 ---
 ---     local policy = { grants = { { path = "/srv/data", letters = "rwc" } } }
 ---     print(Sandbox.permits(policy, "/srv/data/new.txt", "create")) -- /srv/data/new.txt
@@ -460,6 +460,45 @@ function Sandbox.permits(policy: Sandbox.Policy, path: string, action: string, c
     return nil, string.format("sandbox: the policy does not permit %s %s: %s%s", action, named, allow_why, note)
   end
   return named, ""
+end
+
+--- The directory a program's `action` on the absolute `path` acts in,
+--- and the name to act on there: what [`Sandbox.permits`] permits, its
+--- directory opened at the real name the check gave with no link
+--- anywhere on its path ([`Fs.dir`]). The directory is held by a
+--- descriptor and each act names one entry in it with no link followed,
+--- so a program that swaps a link onto the path after the directory is
+--- open, or moves the directory, cannot send the act out of what was
+--- checked, and one that swaps a link in before it opens makes it fail.
+--- Act through the [`Fs.Dir`] by the name (`read`, `write`, `status`,
+--- `mkdir`) and close it.
+---
+--- `action` is "read", "write" or "create", the acts a [`Fs.Dir`] has.
+--- A write through it makes a new file and renames it over the name, so
+--- "write" asks `c` of the directory beside `w`, as Landlock would of
+--- that write. Nil and why where `policy` does not permit it, for "/",
+--- and where a link is met on the way (a name changed since the check).
+---
+---     local policy = { grants = { { path = "/srv/data", letters = "rwc" } } }
+---     local dir <close>, name = Sandbox.dir(policy, "/srv/data/note.txt", "write")
+---     assert(dir, name):write(name, "kept")
+function Sandbox.dir(policy: Sandbox.Policy, path: string, action: string, cwd?: string): (Fs.Dir, string) | (nil, string)
+  if action ~= "read" and action ~= "write" and action ~= "create" then
+    return refuse("dir: " .. string.format("%q", action) .. " is no act of a directory held: read, write or create")
+  end
+  local real, why = Sandbox.permits(policy, path, action, cwd)
+  if real == nil then return nil, why end
+  if real == "/" then return refuse("dir: / is in no directory to act in") end
+  -- The write renames a file it makes over the name.
+  if action == "write" then
+    local made, made_why = Sandbox.permits(policy, real, "create", cwd)
+    if made == nil then
+      return nil, made_why .. " (a write through a directory makes a file and renames it over the name)"
+    end
+  end
+  local opened, failure = Fs.dir(Fs.dirname(real))
+  if opened == nil then return nil, "sandbox: " .. tostring(failure) end
+  return opened, Fs.basename(real)
 end
 
 --- The policies [`Sandbox.restrict`] has held this process to, merged,

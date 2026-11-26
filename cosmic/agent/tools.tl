@@ -77,8 +77,10 @@ local record Tools
   --- Where a tool runs: the working directory, the database of the
   --- sessions kept and the current one's id (nil where none is). The
   --- sandbox is not put on a tool from outside: a tool of your own that
-  --- reads or writes a path asks `Sandbox.permits(context.policy, path,
-  --- action, context.cwd)` first and opens the real name it returns.
+  --- reads or writes a path makes it absolute from `context.cwd` and acts
+  --- through `Sandbox.dir(context.policy, path, action, context.cwd)`,
+  --- which checks it and opens its directory with no link followed, so
+  --- the program cannot swap a link in between.
   record Context
     --- The working directory, which a relative path is from.
     cwd: string
@@ -659,6 +661,14 @@ local function run(input: Tools.Object, context: Tools.Context): Tools.Result
     text = text .. (if text == "" or text:sub(-1) == "\n" then "" else "\n" end) .. "Returned: " .. shown
   end
   if text == "" then text = "(no output)" end
+  -- The checker's rewrites made the snippet one it passes ([`build.agent_worker`]): the model is told what they changed.
+  local fixed, _ = Json.to_array(answer["fixed"])
+  if fixed ~= nil and #fixed > 0 then
+    local told: mut {string} = {}
+    for _, line in ipairs(fixed) do told[#told + 1] = tostring(line) end
+    text = "[The checker refused the snippet; it ran with these rewrites, which keep what it meant:\n" ..
+      table.concat(told, "\n") .. "]\n" .. text
+  end
   local r = if answer["ok"] == true then ok(text) else
     fail(text .. (if text:sub(-1) == "\n" then "" else "\n" end) .. "Error: " .. tostring(trouble)) end
   if cut then r.raw = said end

@@ -13,9 +13,9 @@ local work = require("build.work")
 Test.policy{}
 
 local function count(db: Sqlite.Handle, table_name: string): integer
-  local rows = assert(db:text_rows("SELECT count(*) FROM " .. table_name))
+  local rows = assert(db:rows("SELECT count(*) FROM " .. table_name))
   -- `count(*)` gives exactly one row.
-  return assert(math.tointeger(tonumber(Array.at(rows, 1):text(1))))
+  return Array.at(rows, 1):integer(1)
 end
 
 local function same_lines(a: {integer: boolean}, b: {integer: boolean}): boolean

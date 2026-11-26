@@ -2,6 +2,7 @@
 --- canonical path, the client and the scheme resolved, and the typed
 --- per-request state of [`Web.key`].
 
+local Failure = require("cosmic.failure")
 local Grant = require("cosmic.relay.grant")
 local Stream = require("cosmic.stream")
 local Types = require("cosmic.web.types")
@@ -245,38 +246,38 @@ local function proxy_prefix(entry: string): Types.ProxyPrefix?, string
   return { octets = octets, bits = bits }, ""
 end
 
---- The peers `list` names, an app's [`Types.AppSpec.trusted_proxy`]: nil
---- for none (nil, `false` or an empty list), or nil and why for a `list`
+--- The peers `list` names, an app's [`Types.AppSpec.trusted_proxy`]: false
+--- for none (nil, `false` or an empty list), or nil and a Failure for a `list`
 --- that is no list (`true`) or holds an entry of none of the forms it
 --- describes.
 --- @param list {string} | boolean | nil The entries. A Lua caller may pass
 --- a boolean.
---- @return Types.Proxies | nil The peers
---- @return string Why not, "" for none
-function Request.proxies(list: ({string} | boolean)?): Types.Proxies?, string
-  if list == nil or list == false then return nil, "" end
+function Request.proxies(list: ({string} | boolean)?): (Types.Proxies | false) | (nil, Failure)
+  if list == nil or list == false then return false end
   if type(list) ~= "table" then
-    return nil, ("web: trusted_proxy lists the proxy's peers, such as { \"loopback\" }, " ..
-      "{ \"10.0.0.2\" }, { \"10.0.0.0/8\" } or { \"unix\" }, not %s"):format(tostring(list))
+    return nil, Failure.new(("web: trusted_proxy lists the proxy's peers, such as { \"loopback\" }, " ..
+      "{ \"10.0.0.2\" }, { \"10.0.0.0/8\" } or { \"unix\" }, not %s"):format(tostring(list)))
   end
   local unix = false
   local prefixes: mut {Types.ProxyPrefix} = {}
   for _, entry in ipairs(list) do
     if type(entry) ~= "string" then
-      return nil, ("web: trusted_proxy: %s is no address, prefix, \"loopback\" or \"unix\""):format(tostring(entry))
+      return nil, Failure.new(("web: trusted_proxy: %s is no address, prefix, \"loopback\" or \"unix\""):format(tostring(entry)))
     elseif entry == "unix" then
       unix = true
     else
       local texts: {string} = if entry == "loopback" then LOOPBACK else { entry } end
       for _, spelled in ipairs(texts) do
         local prefix, why = proxy_prefix(spelled)
-        if prefix == nil then return nil, ("web: trusted_proxy: %q %s"):format(entry, why) end
+        if prefix == nil then
+          return nil, Failure.new(("web: trusted_proxy: %q %s"):format(entry, why))
+        end
         prefixes[#prefixes + 1] = prefix
       end
     end
   end
-  if not unix and #prefixes == 0 then return nil, "" end
-  return { unix = unix, prefixes = prefixes }, ""
+  if not unix and #prefixes == 0 then return false end
+  return { unix = unix, prefixes = prefixes }
 end
 
 --- Whether `raw` came from one of `proxies`: a TCP peer at one of their

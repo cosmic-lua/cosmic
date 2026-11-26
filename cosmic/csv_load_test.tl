@@ -9,10 +9,10 @@ local Test = require("cosmic.test")
 --- `sql`'s rows on `handle` as text: each row's cells joined by `|`, the
 --- rows by `;`.
 local function quoted(handle: Sqlite.Handle, sql: string): string
-  local rows = assert(handle:text_rows(sql))
+  local rows = assert(handle:rows(sql))
   local out: mut {string} = {}
   for index, row in ipairs(rows) do
-    out[index] = table.concat(row:texts(), "|")
+    out[index] = table.concat(row:as_texts(), "|")
   end
   return table.concat(out, ";")
 end
@@ -96,7 +96,7 @@ local function test_a_csv_table_refuses_a_malformed_record()
   assert(db:exec([[CREATE VIRTUAL TABLE temp.x USING csv(data='a,b
 "q"z,1
 ')]]))
-  local rows, why = db:text_rows("SELECT * FROM temp.x")
+  local rows, why = db:rows("SELECT * FROM temp.x")
   assert(rows == nil and tostring(why):find("line 2: unescaped \" character", 1, true) ~= nil, why)
   assert(db:close())
 end

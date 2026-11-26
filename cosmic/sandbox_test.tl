@@ -746,6 +746,41 @@ local function test_permits_asks_each_action_of_the_path_or_its_directory(tmp: s
   assert(unknown:find("is no action", 1, true) ~= nil, unknown)
 end
 
+--- Sandbox.dir acts in the directory the check met: once it is open, a
+--- link swapped in at the checked path, with the directory moved away,
+--- does not send a write out of the grant; a path refused, a write the
+--- grant gives no `c` for, and an act a directory has not, open nothing;
+--- the walk the open makes fails at a link.
+local function test_dir_acts_where_the_check_met(tmp: string)
+  local base = assert(Fs.absolute(tmp))
+  local granted, outside = base .. "/in/work", base .. "/out"
+  assert(Fs.mkdirs(granted))
+  assert(Fs.mkdirs(outside))
+  local policy: Sandbox.Policy = { grants = { { path = base .. "/in", letters = "rwc" } } }
+  local opened, name = Sandbox.dir(policy, granted .. "/note.txt", "write")
+  local dir <close> = assert(opened, name)
+  assert(name == "note.txt", name)
+  -- The program swaps the checked directory for a link out of the grant.
+  assert(Fs.rename(granted, base .. "/in/moved"))
+  assert(Fs.symlink(outside, granted))
+  assert(dir:write(name, "kept"))
+  assert(assert(Fs.read(base .. "/in/moved/note.txt")) == "kept")
+  assert(not assert(Fs.status(outside .. "/note.txt")).exists, "the write followed the link")
+  local refused, why = Sandbox.dir(policy, outside .. "/note.txt", "write")
+  assert(refused == nil and why:find("does not permit", 1, true) ~= nil, why)
+  -- A write renames a file it makes over the name, so `w` without `c` is no write.
+  local unmade, unmade_why = Sandbox.dir({ grants = { { path = base .. "/in", letters = "rw" } } },
+    base .. "/in/moved/note.txt", "write")
+  assert(unmade == nil and unmade_why:find("renames it over the name", 1, true) ~= nil, unmade_why)
+  local removed, removed_why = Sandbox.dir(policy, base .. "/in/moved/note.txt", "remove")
+  assert(removed == nil and removed_why:find("no act of a directory held", 1, true) ~= nil, removed_why)
+  -- A link on the path when the directory opens fails the open, as one
+  -- swapped in after the check would.
+  local linked, link_why = Fs.dir(granted)
+  local said = tostring(link_why)
+  assert(linked == nil and (said:find("ELOOP", 1, true) ~= nil or said:lower():find("link", 1, true) ~= nil), said)
+end
+
 --- A relative grant is read from `cwd`; a grant with `from`, or "/tmp" itself where the policy
 --- isolates files with a `tmp` of its own, names another file inside the
 --- sandbox, so it permits nothing outside, and the refusal says so,
