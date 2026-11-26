@@ -49,7 +49,7 @@ end
 --- The policy is merged first: a profile is its paths, and grants of one
 --- path are one, their letters joined.
 local function test_the_policy_is_merged_first()
-  local profiled = layers_of({ profiles = { "proc" } })
+  local profiled = layers_of({ grants = { { profile = "proc" } } })
   local first = Array.at(profiled.landlock, 1)
   assert(first.path:find("^/proc") ~= nil, first.path)
   local joined = layers_of({ grants = { { path = "/b", letters = "r" }, { path = "/a", letters = "w" },
@@ -66,10 +66,10 @@ local function test_what_a_restriction_refuses_is_refused()
     assert(held == nil and seatbelt:find("Seatbelt", 1, true) ~= nil, seatbelt)
     return
   end
-  local none, why = Sandbox.layers({ profiles = { "nosuch" } })
+  local none, why = Sandbox.layers({ grants = { { profile = "nosuch" } } })
   assert(none == nil and why:find("^sandbox: ") ~= nil and why:find("nosuch", 1, true) ~= nil, why)
   local child_only: {Sandbox.Policy} = { { grants = { { connect = "api.github.com:443" } } },
-    { isolate = { "proc" } }, { loopback = { "127.0.0.2" } }, { tmp = true },
+    { isolate = { "proc" } }, { grants = { { loopback = "127.0.0.2" } } }, { setup = { tmp = true } },
     { grants = { { path = "/run/app.sock", letters = "u" } } } }
   for _, policy in ipairs(child_only) do
     local refused, refusal = Sandbox.layers(policy)

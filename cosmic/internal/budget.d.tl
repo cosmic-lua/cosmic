@@ -1,5 +1,5 @@
 --- The instruction budget provided by core/coverage.c, handed only to
---- [`build.fuzz`] when it loads from the binary's own tree.
+--- [`cosmic.fuzz`] when it loads from the binary's own tree.
 --- @kind binding
 
 local record budget

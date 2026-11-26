@@ -24,7 +24,8 @@
 --- databases, are core/allocation_tool_test.tl's and
 --- core/allocation_store_test.tl's, so these stand while the tree moves.
 --- The children-list walk is core/allocation_children_test.tl's: it
---- also requires the children file in this process's mounted /proc.
+--- also requires the children file in this process's mounted /proc. The
+--- maps walk, which only Linux takes, is core/allocation_maps_test.tl's.
 
 local AllocationFixture = require("build.allocation_fixture")
 local rsa_fixture = require("build.rsa_fixture")
@@ -302,37 +303,7 @@ local function test_net_in_a_run_leaves_no_descriptor_whenever_an_allocation_fai
   assert(after == before, "a refused allocation left descriptor " .. tostring(before) .. " open")
 end
 
---- Asserts the core's own C heap holds what it held when `c_heap`
---- returned `before_bytes` and `before_blocks`: a block a refusal path
---- forgot to free shows here.
-local function assert_c_heap(before_bytes: integer, before_blocks: integer, what: string)
-  collectgarbage("collect")
-  local bytes, blocks = testing.c_heap()
-  assert(bytes == before_bytes and blocks == before_blocks,
-    what .. " left " .. tostring((blocks - before_blocks)) .. " blocks (" ..
-      tostring((bytes - before_bytes)) .. " bytes) on the C heap")
-end
-
---- `maps_id` reads each map into a block of the core's C heap, and
---- closes the map's descriptor, whichever allocation is refused. A
---- refused block fails the call, which then raises, since every
---- allocation past the first refused is refused too, its failure's
---- message among them; so the walk checks what is left behind, not
---- the ENOMEM no caller here can see. Off Linux it allocates nothing,
---- and there is nothing to walk.
-local function test_maps_id_releases_its_block_whenever_an_allocation_fails(tmp: string)
-  if assert(sys.uname()).sysname ~= "Linux" then Test.skip("this test walks a Linux-only path") end
-  local before = AllocationFixture.next_descriptor(tmp)
-  local bytes, blocks = testing.c_heap()
-  local ended = AllocationFixture.under_every_failure(function()
-    local ok, why, errno = process.maps_id(0)
-    assert(ok or errno == sys.EINVAL, why)
-  end)
-  assert(ended > 0, "reading the maps allocates")
-  collectgarbage("collect")
-  assert(AllocationFixture.next_descriptor(tmp) == before, "a refused allocation left descriptor " .. tostring(before) .. " open")
-  assert_c_heap(bytes, blocks, "maps_id under refusal")
-end
+local assert_c_heap = AllocationFixture.assert_c_heap
 
 --- `getgroups` lists the groups into a block Lua owns, not the C heap's,
 --- so a refusal of the list's table after it leaves nothing behind.

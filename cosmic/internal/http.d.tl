@@ -22,8 +22,8 @@ local record http
     headers: function(Handle): {string:string}
     -- One chunk of the body, at most `max_bytes` bytes (a default when
     -- omitted), and "". `nil, ""` at a clean end of body; `nil, err`
-    -- on failure.
-    read: function(Handle, max_bytes?: integer): string?, string
+    -- on failure, and for a failure of curl's the code `open` names.
+    read: function(Handle, max_bytes?: integer): string?, string, string?
     -- What curl has written to a scripted transfer's connections so
     -- far; "" for one over the network. Raises if recording it ran
     -- out of memory.
@@ -119,7 +119,8 @@ local record http
   --
   -- A request curl itself failed (not one refused up front, as above)
   -- also returns a third value naming the failure: "couldnt_connect"
-  -- when it could not connect, "failed" for any other.
+  -- when it could not connect, "timed_out" when a time limit ran out,
+  -- "failed" for any other.
   open: function(url: string, opts?: Options): Handle?, string, string?
 
   -- What the shared transfers wait on, for a caller that waits itself:

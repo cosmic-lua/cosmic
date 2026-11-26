@@ -14,6 +14,7 @@ local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
+local type Sandbox = require("cosmic.sandbox")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
 
@@ -521,9 +522,10 @@ end
 --- `exit <status>` and what it printed, or why it did not start, to
 --- stdout.
 function Steps.run_isolated(argv: {string}, loopback?: {string}): integer?
+  local grants: mut {Sandbox.Grant} = { { path = argv[1]!, letters = "rx" }, { path = ".", letters = "r" } }
+  for _, address in ipairs(loopback or {}) do grants[#grants + 1] = { loopback = address } end
   local result, trouble = Child.run(argv, { timeout_ns = Child.FOREVER, policy = {
-    isolate = { "file" }, loopback = loopback, grants = { { path = argv[1]!, letters = "rx" },
-      { path = ".", letters = "r" } } }, stdout = "capture", stderr = "stdout" })
+    isolate = { "file" }, grants = grants }, stdout = "capture", stderr = "stdout" })
   if result == nil then return Steps.print(tostring(trouble)) end
   return Steps.put(1, "exit " .. tostring(result.code) .. "\n" .. (result.stdout or ""))
 end

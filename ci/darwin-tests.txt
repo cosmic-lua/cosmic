@@ -29,11 +29,12 @@ core/descriptor_limit_system_test.tl
 cosmic/child_test.tl
 cosmic/child_lua_test.tl
 cosmic/child_tool_test.tl
-# fork with the threads counted by proc_pidinfo, and a scoped one
-# refused (core/spawn.c's `fork`); and the build's copies of itself,
-# which that fork makes: what they compile is what one process does
-# (build/compile_fanout.tl, build/shared_compiles.tl's `fan`).
+# fork with the threads counted by proc_pidinfo, a copy's kqueue closed
+# and a scoped one refused (core/spawn.c's `fork`); and the build's
+# copies of itself, which that fork makes: what they compile is what one
+# process does (build/compile_fanout.tl, build/shared_compiles.tl's `fan`).
 core/fork_test.tl
+core/fork_darwin_test.tl
 build/compile_fanout_test.tl
 build/shared_compiles_test.tl
 build/importer_test.tl

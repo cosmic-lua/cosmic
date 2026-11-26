@@ -143,8 +143,8 @@ end
 local function test_a_child_under_a_policy_is_refused_after_the_restriction()
   SeatbeltFixture.macos_only("a process")
   local said = in_child([[
-say("restrict", Sandbox.restrict({ profiles = { "system" } }))
-local started, why = Child.start({ "/bin/cat" }, { timeout_ns = Child.FOREVER, policy = { profiles = { "system" } },
+say("restrict", Sandbox.restrict({ grants = { { profile = "system" } } }))
+local started, why = Child.start({ "/bin/cat" }, { timeout_ns = Child.FOREVER, policy = { grants = { { profile = "system" } } },
   stdin = "null" })
 say("policy", started ~= nil, why)
 ]])
@@ -211,7 +211,7 @@ end
 sys.close(source)
 sys.close(target)
 local db = assert(Sqlite.open(copy, { writable = true }))
-local rows = assert(db:text_rows("PRAGMA journal_mode=WAL"))
+local rows = assert(db:rows("PRAGMA journal_mode=WAL"))
 say("mode", assert(rows[1]):text(1))
 assert(db:close())
 assert(Store.attach(copy, { unchecked_bytecode = true }))
@@ -243,7 +243,7 @@ print(tostring(ok) .. " " .. why)
 print(soft() == before)
 ]]
   local result, why = Child.run({ (assert(Proc.executable())), "-e", chunk }, {
-    policy = { profiles = { "system" } }, stdout = "capture", stderr = "capture",
+    policy = { grants = { { profile = "system" } } }, stdout = "capture", stderr = "capture",
     stdin = "null", timeout_ns = Clock.seconds(60) })
   assert(result, why)
   assert(result.ok and result.stdout == HELD .. "\ntrue\n",
@@ -257,8 +257,8 @@ local function test_a_child_started_without_a_policy_is_held_by_the_profile(tmp:
   assert(Fs.write(tmp .. "/granted", "granted-bytes"))
   assert(Fs.write(tmp .. "/other", "other-bytes"))
   local said = in_child(string.format([[
-say("restrict", Sandbox.restrict({ profiles = { "system", "programs" },
-  grants = { { path = %q, letters = "r" }, { calls = "fork" } } }))
+say("restrict", Sandbox.restrict({
+  grants = { { profile = "system" }, { profile = "programs" }, { path = %q, letters = "r" }, { calls = "fork" } } }))
 local granted, _ = Child.run({ "/bin/cat", %q }, { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })
 if granted ~= nil then say("granted", granted.ok, granted.stdout) else say("granted", nil, nil) end
 local other, _ = Child.run({ "/bin/cat", %q }, { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })

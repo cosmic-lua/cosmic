@@ -281,6 +281,33 @@ local function store(r: Run): Sqlite.Handle?, string
   return Sessions.open(dir .. "/agent/sessions.db")
 end
 
+--- What `--modules` lets snippets load code from ([`Worker.Options`] `modules`): nil where it is not given, {} for
+--- `none`.
+local function modules_of(got: Flags.Parsed): {string}?, string
+  local given = got.values["--modules"]
+  if given == nil then return nil, "" end
+  local out: mut {string} = {}
+  local none = false
+  for word in given:gmatch("[^,]+") do
+    local trimmed = word:match("^%s*(.-)%s*$") or ""
+    if trimmed == "none" then
+      none = true
+    elseif trimmed ~= "" then
+      if trimmed ~= "cosmic" then
+        local status, _ = Fs.status(trimmed)
+        if status == nil or not status.is_dir then
+          return nil, "--modules: " .. trimmed .. " is no directory; each word is cosmic, a directory, or none alone"
+        end
+      end
+      out[#out + 1] = trimmed
+    end
+  end
+  if none and #out > 0 then
+    return nil, "--modules: none loads no code, so it stands alone; drop it, or the other words"
+  end
+  return out, ""
+end
+
 --- The commands' kept home, under the agent's cache, which [`Fs.cache_dir`]
 --- makes and holds to its owner; nil where there is none.
 local function sandbox_home(r: Run): string?
@@ -501,6 +528,8 @@ local function session(r: Run, got: Flags.Parsed, db: Sqlite.Handle, newest: boo
   local servers, servers_why = mcp_servers(r, got)
   if servers == nil then return refused(servers_why) end
   local commands = got.set["--commands"] == true
+  local modules, modules_why = modules_of(got)
+  if modules == nil and modules_why ~= "" then return refused(modules_why) end
   local now = Clock.now_ns() // Clock.seconds(1)
   if id == nil then
     -- A fork copies all the other session kept; this run goes on in the copy, and the other is left as it was.
@@ -536,8 +565,8 @@ local function session(r: Run, got: Flags.Parsed, db: Sqlite.Handle, newest: boo
         ", " .. model .. unfinished .. "); --new starts a fresh one")
   end
   local s = Agent.new({ model = model, effort = got.values["--effort"], sign = sign, base_url = base, cwd = here,
-    send = r.io.send, system = Prompt.build(here, Prompt.contexts(here), { commands = commands }),
-    sandbox = if policy == nil then nil else { policy } end, commands = commands,
+    send = r.io.send, system = Prompt.build(here, Prompt.contexts(here), { commands = commands, loads = modules }),
+    sandbox = if policy == nil then nil else { policy } end, commands = commands, modules = modules,
     worker = if r.io.worker ~= nil then r.io.worker() else Worker.new() end,
     mcp = AgentMcp.new(servers, here), build = build(), messages = held, db = db, id = id, restarts = restarts, ended = ended, budget = budget })
   if budget ~= nil and budget.cost ~= nil and Agent.cost(model, {}) == nil then
@@ -940,8 +969,14 @@ local function prompt(r: Run, got: Flags.Parsed): integer
     return bare.refused
   end
   local here = cwd(r)
+  local loads, loads_why = modules_of(got)
+  if loads == nil and loads_why ~= "" then
+    r.complain("prompt: " .. loads_why)
+    return bare.refused
+  end
   -- The system prompt, then the working directory that follows it.
-  r.io.out(Prompt.build(here, Prompt.contexts(here), { commands = got.set["--commands"] == true }) .. "\n\n" ..
+  r.io.out(Prompt.build(here, Prompt.contexts(here), { commands = got.set["--commands"] == true,
+    loads = loads }) .. "\n\n" ..
       Prompt.where(here))
   return bare.ok
 end
@@ -1001,8 +1036,13 @@ end
 
 --- `cosmic agent worker`: the process the `run` tool sends its snippets to ([`build.agent_worker`]), required here
 --- alone, since it brings the checker.
-local function worker(_r: Run, _got: Flags.Parsed): integer
-  return require("build.agent_worker").main()
+local function worker(r: Run, got: Flags.Parsed): integer
+  local modules, why = modules_of(got)
+  if modules == nil and why ~= "" then
+    r.complain("worker: " .. why)
+    return bare.refused
+  end
+  return require("build.agent_worker").main(modules)
 end
 
 --- The subcommands that run a session, which run held ([`held`]).

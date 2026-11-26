@@ -6,9 +6,9 @@
 --- manifest fields, cuts it or adds junk. And a core's image holds its
 --- code whatever its DWARF: a core drawn with other debug bytes keys the
 --- same, one with other code does not.
---- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
+--- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (cosmic/fuzz.tl).
 
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Hash = require("cosmic.hash")
 local artifact = require("build.artifact")
 local core_image = require("build.core_image")

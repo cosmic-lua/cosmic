@@ -2,6 +2,7 @@
 --- prefers the most specific route whatever the order they were declared
 --- in, canonical paths, and reverse routing.
 
+local type Failure = require("cosmic.failure")
 local Html = require("cosmic.html")
 local Middleware = require("cosmic.web.middleware")
 local Types = require("cosmic.web.types")
@@ -77,18 +78,16 @@ end
 --- `changed` says; the escapes of a segment are written again as
 --- [`Url.escape`] writes them, which `changed` does not count.
 --- @param path string The request's path as sent
---- @return Router.Canon | nil The canonical path
---- @return string Why it is refused
-function Router.canonical(path: string): Router.Canon?, string
+function Router.canonical(path: string): (Router.Canon) | (nil, Failure)
   local segments, why = Url.segments(path)
-  if segments == nil then return nil, tostring(why) end
+  if segments == nil then return nil, why end
   local rest = path:sub(2)
   local _, slashes = rest:gsub("/", "/")
   local last_empty = rest == "" or rest:sub(-1) == "/"
   local kept = if last_empty then slashes else slashes + 1 end
   local trailing = last_empty and #segments > 0
   return { path = path_of(segments, trailing), segments = segments, trailing = trailing,
-    changed = kept ~= #segments }, ""
+    changed = kept ~= #segments }
 end
 
 --- A pattern read: its segments, whether it ends in "/", and the names of
@@ -306,7 +305,7 @@ local class Built is Types.Router
     if path == "*" then return Router.star(self, method) end
     local canon, why = Router.canonical(path)
     if canon == nil then
-      return { kind = "bad_path", detail = why, handler = self.miss, mount_path = "" }
+      return { kind = "bad_path", detail = tostring(why), handler = self.miss, mount_path = "" }
     end
     if canon.changed then
       return { kind = "redirect", location = canon.path, handler = self.miss, mount_path = "" }

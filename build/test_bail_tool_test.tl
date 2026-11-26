@@ -91,11 +91,11 @@ local function test_a_bailing_run_starts_no_test_after_the_first_failure(tmp: st
 
   local build_db = assert(build_paths.directory(fresh)) .. "/build.db"
   local db = assert(Sqlite.open(build_db))
-  local rows = assert(db:text_rows("SELECT test, passed FROM runs ORDER BY test"))
+  local rows = assert(db:rows("SELECT test, passed FROM runs ORDER BY test"))
   assert(db:close())
   assert(#rows == 1, "the run kept a verdict for a test that did not start")
   local only = Array.at(rows, 1)
-  assert(only:text(1) == "test_a_fails" and only:text(2) == "0",
+  assert(only:text(1) == "test_a_fails" and only:integer(2) == 0,
     "the run kept a verdict for a test that did not start")
 
   local again = invoke(fresh, other .. "/again.out", {})
@@ -116,16 +116,16 @@ local function test_a_test_in_flight_at_the_first_failure_finishes(tmp: string)
   assert(not marked(tmp, "c_passes") and not marked(tmp, "d_passes"),
     "a test started after the first failure")
   local db = assert(Sqlite.open(assert(build_paths.directory(root)) .. "/build.db"))
-  local rows = assert(db:text_rows("SELECT test, passed FROM runs ORDER BY test"))
+  local rows = assert(db:rows("SELECT test, passed FROM runs ORDER BY test"))
   -- And the verdict of each, which a run that stopped early keeps as one that ran every test does.
-  local verdicts = assert(db:text_rows("SELECT passed FROM verdicts ORDER BY passed"))
+  local verdicts = assert(db:rows("SELECT passed FROM verdicts ORDER BY passed"))
   assert(db:close())
-  assert(#verdicts == 2 and Array.at(verdicts, 1):text(1) == "0" and Array.at(verdicts, 2):text(1) == "1",
+  assert(#verdicts == 2 and Array.at(verdicts, 1):integer(1) == 0 and Array.at(verdicts, 2):integer(1) == 1,
     "the verdicts kept: " .. tostring(#verdicts))
   assert(#rows == 2, "the runs kept: " .. tostring(#rows))
   local first, second = Array.at(rows, 1), Array.at(rows, 2)
-  assert(first:text(1) == "test_a_fails" and first:text(2) == "0" and
-      second:text(1) == "test_b_passes" and second:text(2) == "1", "the runs kept: " .. tostring(#rows))
+  assert(first:text(1) == "test_a_fails" and first:integer(2) == 0 and
+      second:text(1) == "test_b_passes" and second:integer(2) == 1, "the runs kept: " .. tostring(#rows))
 end
 
 --- With `--deadline`, the run starts no test once the deadline has

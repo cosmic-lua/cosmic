@@ -14,7 +14,7 @@
 --- - the tree at [`test_sandbox.tree`], /tree, wherever the host keeps
 ---   it, and its working directory there. Each read-only, it holds only
 ---   its module's import closure as source files, the fuzz corpora for a
----   module that uses [`build.fuzz`], and what the module declares it
+---   module that uses [`cosmic.fuzz`], and what the module declares it
 ---   `reads`;
 --- - the tree's build directory at [`test_sandbox.output`], wherever the
 ---   host keeps it, read-only, holding only the store at its `cosmic.db`

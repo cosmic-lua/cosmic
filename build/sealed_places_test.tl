@@ -22,9 +22,9 @@ local function test_a_sealed_database_holds_the_places_of_the_closure_s_modules(
   assert(assert(Fs.status(".")).exists and fs_bytecode ~= nil, "cosmic.fs is in the closure")
   local databases = Store.databases()
   local held = assert(databases[#databases])
-  local placed = assert(held:text_rows(
+  local placed = assert(held:rows(
     "SELECT symbol, kind FROM places WHERE module = 'cosmic.fs' AND symbol = 'Fs.read'"))
   assert(#placed == 1 and placed[1]:text(2) == "function", "the place of Fs.read is carried")
-  local beyond = assert(held:text_rows("SELECT count(*) FROM places WHERE module = 'cosmic.zip'"))
-  assert(assert(beyond[1]):text(1) == "0", "the places of a module beyond the closure are not")
+  local beyond = assert(held:rows("SELECT count(*) FROM places WHERE module = 'cosmic.zip'"))
+  assert(assert(beyond[1]):integer(1) == 0, "the places of a module beyond the closure are not")
 end

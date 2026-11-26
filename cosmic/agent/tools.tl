@@ -77,8 +77,10 @@ local record Tools
   --- Where a tool runs: the working directory, the database of the
   --- sessions kept and the current one's id (nil where none is). The
   --- sandbox is not put on a tool from outside: a tool of your own that
-  --- reads or writes a path asks `Sandbox.permits(context.policy, path,
-  --- action, context.cwd)` first and opens the real name it returns.
+  --- reads or writes a path makes it absolute from `context.cwd` and acts
+  --- through `Sandbox.dir(context.policy, path, action, context.cwd)`,
+  --- which checks it and opens its directory with no link followed, so
+  --- the program cannot swap a link in between.
   record Context
     --- The working directory, which a relative path is from.
     cwd: string
@@ -101,6 +103,8 @@ local record Tools
     --- Whether a snippet of run may run programs ([`Worker.Options`] `commands`, by Host.bash). Nil is false. A run
     --- whose commands differ from those its worker was started with starts a new one.
     commands?: boolean
+    --- What a snippet of run may load code from ([`Worker.Options`] `modules`); nil is [`Worker.MODULES`].
+    modules?: {string}
     --- The tools the agent offers; every tool ([`Tools.all`]) where nil.
     --- A tool's hints name only tools offered.
     tools?: {Tool}
@@ -623,6 +627,7 @@ local function run(input: Tools.Object, context: Tools.Context): Tools.Result
   local set = context.worker
   if set == nil then return fail("No worker runs snippets here") end
   local answer, run_why = Worker.run(set, code, { cwd = context.cwd, policy = context.policy, commands = context.commands,
+    modules = context.modules,
     seconds = seconds or RUN_SECONDS, stopped = context.stopped, serve = served(context) })
   if answer == nil then return fail(tostring(run_why)) end
   local refused, _ = Json.to_array(answer["refused"])
@@ -659,6 +664,14 @@ local function run(input: Tools.Object, context: Tools.Context): Tools.Result
     text = text .. (if text == "" or text:sub(-1) == "\n" then "" else "\n" end) .. "Returned: " .. shown
   end
   if text == "" then text = "(no output)" end
+  -- The checker's rewrites made the snippet one it passes ([`build.agent_worker`]): the model is told what they changed.
+  local fixed, _ = Json.to_array(answer["fixed"])
+  if fixed ~= nil and #fixed > 0 then
+    local told: mut {string} = {}
+    for _, line in ipairs(fixed) do told[#told + 1] = tostring(line) end
+    text = "[The checker refused the snippet; it ran with these rewrites, which keep what it meant:\n" ..
+      table.concat(told, "\n") .. "]\n" .. text
+  end
   local r = if answer["ok"] == true then ok(text) else
     fail(text .. (if text:sub(-1) == "\n" then "" else "\n" end) .. "Error: " .. tostring(trouble)) end
   if cut then r.raw = said end

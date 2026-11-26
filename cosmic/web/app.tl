@@ -74,8 +74,9 @@ function App.new(spec: Types.AppSpec): Types.App
   local hubs: {Types.Closable} = spec.hubs or {}
   local routes: {Types.Route} = spec.routes or {}
   local middleware: {Types.Middleware} = spec.middleware or {}
-  local proxies, refused = Request.proxies(spec.trusted_proxy)
-  if refused ~= "" then error(refused, 2) end
+  local found, refused = Request.proxies(spec.trusted_proxy)
+  if found == nil then error(tostring(refused), 2) end
+  local proxies: Types.Proxies? = if found == false then nil else found end
   local proxy_entries: {string}? = nil
   if proxies ~= nil then
     local entries: mut {string} = {}
@@ -144,7 +145,7 @@ function App.new(spec: Types.AppSpec): Types.App
     else
       local canon, why = Router.canonical(raw.path)
       if canon == nil then
-        outcome = { kind = "bad_path", detail = why, handler = router.miss, mount_path = "" }
+        outcome = { kind = "bad_path", detail = tostring(why), handler = router.miss, mount_path = "" }
       else
         parts = { path = canon.path, segments = canon.segments, trailing = canon.trailing }
         if canon.changed then
@@ -225,7 +226,7 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
     -- tailscaled.
     local Tailnet = require("cosmic.web.tailnet")
     local reached, why = Tailnet.serving(if tailnet is boolean then {} else tailnet end)
-    if reached == nil then return false, why end
+    if reached == nil then return false, tostring(why) end
     for _, address in ipairs(reached.listeners) do listeners[#listeners + 1] = address end
     tls = reached.certs
     put_up, unplace, socket, forwarded = reached.put_up, reached.cleanup, reached.socket, reached.caps

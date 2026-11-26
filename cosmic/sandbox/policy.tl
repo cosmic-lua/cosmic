@@ -77,10 +77,31 @@ local record rules
     connect: string
   end
 
+  --- A named set of grants a program is given, as a [`rules.Grant`]: `{ profile = "system" }`.
+  record Profile
+    --- Its name: "system" (what a dynamically linked program needs to start), "programs" (the host's programs,
+    --- run) or "proc" (the host's /proc, read). [`Sandbox.union`] puts its grants in its place.
+    profile: string
+  end
+
+  --- A variable passed through from the caller's environment, as a [`rules.Grant`]: `{ env = "HOME" }`.
+  record Env
+    --- Its name.
+    env: string
+  end
+
+  --- An address of 127/8 a program uses inside its own network, as a [`rules.Grant`]: `{ loopback = "127.0.0.2" }`.
+  record Loopback
+    --- The address.
+    loopback: string
+  end
+
   --- One thing a program may do: reach a path (`{ path = "data", letters = "r" }`, [`rules.Path`]), make system
-  --- calls beyond its basics (`{ calls = "fork" }`, [`rules.Calls`]), or reach a host (`{ connect = "github.com:443" }`,
-  --- [`rules.Connect`]). Each is told by the field it alone has.
-  type Grant = Path | Calls | Connect
+  --- calls beyond its basics (`{ calls = "fork" }`, [`rules.Calls`]), reach a host (`{ connect = "github.com:443" }`,
+  --- [`rules.Connect`]), have a profile's grants (`{ profile = "system" }`, [`rules.Profile`]), read a variable of the
+  --- caller's (`{ env = "HOME" }`, [`rules.Env`]) or use an address of its own network
+  --- (`{ loopback = "127.0.0.2" }`, [`rules.Loopback`]). Each is told by the field it alone has.
+  type Grant = Path | Calls | Connect | Profile | Env | Loopback
 
   --- Resource limits on every process the program starts. Nil is the
   --- start's default: 1024 open files, no core dump, and under `isolate`
@@ -104,20 +125,26 @@ local record rules
   --- What a program is held to; every field is optional, and what a policy
   --- leaves out it does not have.
   record Policy
-    --- Named policies to join in, by [`Sandbox.union`]: "system", "programs", "proc".
-    profiles?: {string}
-    --- What the program may do: the paths it reaches, the system calls it may make beyond its basics, and the hosts it
-    --- reaches.
+    --- What the program may do: the paths it reaches, the system calls it may make beyond its basics, the hosts it
+    --- reaches, the profiles it has, the variables it reads of the caller's and the addresses of its own network.
     grants?: {Grant}
     --- How far it is isolated from the host. With "file", a writable grant on a tree that user does not own (`/etc`
     --- as `rwc`, say) is mounted so that it is the tree's owner there: it
     --- writes the owner's files, root's included, through that mount.
     isolate?: {Isolate}
-    --- The addresses of 127/8 it uses inside its own network.
-    loopback?: {string}
-    --- The variables passed through from the caller's environment.
-    env?: {string}
-    --- The variables set, by name. With `env`, the program's whole
+    --- What the start sets up for the program, which is not a right: the
+    --- variables it sets, its temporary directory, the user and group it
+    --- runs as, and the database it runs on ([`rules.Setup`]).
+    setup?: Setup
+    --- The resources it may spend.
+    limits?: Limits
+  end
+  --- What a start sets up for a program, which is not a right
+  --- ([`rules.Policy`]'s `setup`): a policy's grants alone give rights.
+  --- [`Sandbox.union`] refuses two different values of a field, and
+  --- [`Sandbox.intersect`] joins them as a union does.
+  record Setup
+    --- The variables set, by name. With `env` grants, the program's whole
     --- environment; a name in both is set.
     set_env?: {string:string}
     --- What a decoded, encoded policy holds in place of `set_env`'s
@@ -133,8 +160,6 @@ local record rules
     --- does not), and a `set_env` TMPDIR beneath /tmp is kept, for a
     --- directory the program makes there.
     tmp?: boolean
-    --- The resources it may spend.
-    limits?: Limits
     --- The user a child runs as (1 to 4294967294, never root, nor the
     --- overflow ids 65534 and 65535), in place of the one of its own a root
     --- caller's child is given from a pool ([`Sandbox.user_id`]): the same
@@ -184,6 +209,7 @@ local record rules
     --- it.
     database?: rules.Database
   end
+
   --- A database a policy names: its absolute `path`, and the SHA-256 of
   --- its bytes (`sha256`, 64 lowercase hex digits) where the policy is to
   --- run only on a file of that digest. The two travel together through
@@ -227,13 +253,13 @@ local record rules
     --- false for them.
     exec_refused: boolean
     --- The socket families the filter lets the process make: "unix" for a
-    --- child with a `u` grant, "inet" for one with `loopback` or a
+    --- child with a `u` grant, "inet" for one with a loopback or a
     --- connect grant. A restricted process makes none.
     sockets: {rules.Socket}
     --- The namespaces a child starts in, of its own: "user", "pid",
     --- "mount" and "ipc" for one unveiled (`isolate`, or a root caller's
     --- policy that makes a namespace), "user" and "net" for one with a
-    --- network of its own (`loopback`, a connect grant or a `u` grant), all
+    --- network of its own (a loopback, connect or `u` grant), all
     --- five for both.
     namespaces: {rules.Namespace}
     --- Whether the child's files are a root of its own (`isolate` file),
@@ -242,7 +268,7 @@ local record rules
     --- The hosts the relay reaches for the child: its connect grants.
     relay: {string}
     --- The addresses of 127/8 the policy declares for the child's own
-    --- network (`loopback`); the relay's own listeners there are not among
+    --- network (its loopback grants); the relay's own listeners there are not among
     --- them.
     loopback: {string}
     --- The resource limits, by the names spawn and restriction take
@@ -332,13 +358,15 @@ end
 --- `loopback` address is the program's own network, which `NO_PROXY` keeps
 --- direct, while a `connect` target of it names the host's service, which
 --- the program reaches through the relay. `NO_PROXY` is by host, so the
---- port does not tell them apart. Names the `loopback` entry's path; in a merged policy, whose lists
---- hold each address once, sorted, it is the entry of the merged list.
-local function loopback_conflict(loopback: {string}, connect: {string}, joined: boolean): string
+--- port does not tell them apart. Names the loopback grant's path where `places` gives its index; a merged
+--- policy's addresses come from many grants, so its failure names `$.grants` and the address.
+local function loopback_conflict(loopback: {string}, places: {integer}?, connect: {string}): string
   for i, address in ipairs(loopback) do
     local target = RelayConfig.naming(connect, address)
     if target ~= "" then
-      return path_of({ "loopback", i }) .. ": " .. (if joined then "in the merged policy, " else "" end) .. "\"" .. address .. "\" is also the host address that " ..
+      local place = if places ~= nil then places[i] else nil end
+      return (if place ~= nil then path_of({ "grants", place, "loopback" }) .. ": " else
+        path_of({ "grants" }) .. ": in the merged policy, " end) .. "\"" .. address .. "\" is also the host address that " ..
         "connect \"" .. target .. "\" names, and a proxy client cannot tell the two apart by port: " ..
         "give the sandbox's own services another 127.x address (127.0.0.2, say)"
     end
@@ -355,15 +383,33 @@ local function invalid(p: rules.Policy, exact: boolean): string
   local function at(steps: {string | integer}, why: string): string
     return path_of(steps) .. ": " .. why
   end
-  for i, name in ipairs(p.profiles or {}) do
-    if name == "cosmic" then return at({ "profiles", i }, NO_COSMIC) end
-    if not listed(name, PROFILES) then
-      return at({ "profiles", i }, "unknown profile \"" .. name .. "\" (known: " ..
-          table.concat(PROFILES, ", ") .. ")")
-    end
-  end
   local connects: mut {string} = {}
+  local loopback: mut {string} = {}
+  local places: mut {integer} = {}
   for i, grant in ipairs(p.grants or {}) do
+    if grant is rules.Profile then
+      local name = grant.profile
+      if name == "cosmic" then return at({ "grants", i, "profile" }, NO_COSMIC) end
+      if not listed(name, PROFILES) then
+        return at({ "grants", i, "profile" }, "unknown profile \"" .. name .. "\" (known: " ..
+            table.concat(PROFILES, ", ") .. ")")
+      end
+      continue
+    end
+    if grant is rules.Env then
+      if not env_name_ok(grant.env) then
+        return at({ "grants", i, "env" }, "a variable's name is not empty and holds no '=' or NUL")
+      end
+      continue
+    end
+    if grant is rules.Loopback then
+      if not Loopback.ipv4(grant.loopback) then
+        return at({ "grants", i, "loopback" }, "\"" .. grant.loopback .. "\" is not an address of 127/8")
+      end
+      loopback[#loopback + 1] = grant.loopback
+      places[#places + 1] = i
+      continue
+    end
     if grant is rules.Connect then
       local target = grant.connect
       local tailnet, wrong = Grant.tailnet(target)
@@ -412,73 +458,64 @@ local function invalid(p: rules.Policy, exact: boolean): string
       return at({ "grants", i, "from" }, "a host path is not empty and holds no NUL")
     end
   end
-  for i, address in ipairs(p.loopback or {}) do
-    if not Loopback.ipv4(address) then
-      return at({ "loopback", i }, "\"" .. address .. "\" is not an address of 127/8")
-    end
-  end
-  local conflict = loopback_conflict(p.loopback or {}, connects, false)
+  local conflict = loopback_conflict(loopback, places, connects)
   if conflict ~= "" then return conflict end
-  for i, name in ipairs(p.env or {}) do
+  local setup = p.setup or {}
+  for name, value in pairs(setup.set_env or {}) do
     if not env_name_ok(name) then
-      return at({ "env", i }, "a variable's name is not empty and holds no '=' or NUL")
-    end
-  end
-  for name, value in pairs(p.set_env or {}) do
-    if not env_name_ok(name) then
-      return at({ "set_env", name }, "\"" .. name .. "\" is not a variable's name: not empty, no '=' or NUL")
+      return at({ "setup", "set_env", name }, "\"" .. name .. "\" is not a variable's name: not empty, no '=' or NUL")
     end
     if value:find("\0", 1, true) then
-      return at({ "set_env", name }, "a value holds no NUL")
+      return at({ "setup", "set_env", name }, "a value holds no NUL")
     end
   end
-  for name, digest in pairs(p.set_env_digests or {}) do
+  for name, digest in pairs(setup.set_env_digests or {}) do
     if not env_name_ok(name) then
-      return at({ "set_env_digests", name }, "\"" .. name .. "\" is not a variable's name: not empty, " ..
+      return at({ "setup", "set_env_digests", name }, "\"" .. name .. "\" is not a variable's name: not empty, " ..
           "no '=' or NUL")
     end
     if not digest:match("^%x+$") or #digest ~= 64 or digest:find("%u") ~= nil then
-      return at({ "set_env_digests", name }, "a digest is 64 lowercase hex digits")
+      return at({ "setup", "set_env_digests", name }, "a digest is 64 lowercase hex digits")
     end
   end
   for _, field in ipairs({ "user", "group" }) do
-    local id = field == "user" and p.user or p.group -- checked: and_ternary
+    local id = if field == "user" then setup.user else setup.group end
     if id ~= nil and (math.type(id) ~= "integer" or id < 1 or id > 4294967294) then
-      return at({ field }, "an id is a whole number from 1 to 4294967294: never root")
+      return at({ "setup", field }, "an id is a whole number from 1 to 4294967294: never root")
     end
     if id == 65534 or id == 65535 then
-      return at({ field }, tostring(id) .. " is the overflow id, which the kernel shows for an id " ..
+      return at({ "setup", field }, tostring(id) .. " is the overflow id, which the kernel shows for an id " ..
           "a namespace does not map: name another")
     end
   end
-  if p.group ~= nil and p.user == nil then
-    return at({ "group" }, "a group is given with a user")
+  if setup.group ~= nil and setup.user == nil then
+    return at({ "setup", "group" }, "a group is given with a user")
   end
-  local given = p.database
+  local given = setup.database
   if given ~= nil then
     local path = given.path
     if path == "" or path:find("\0", 1, true) ~= nil then
-      return at({ "database", "path" }, "a path is not empty and holds no NUL")
+      return at({ "setup", "database", "path" }, "a path is not empty and holds no NUL")
     end
     if path:sub(1, 1) ~= "/" then
-      return at({ "database", "path" }, "\"" .. path .. "\" is relative: the program's directory is not the " ..
+      return at({ "setup", "database", "path" }, "\"" .. path .. "\" is relative: the program's directory is not the " ..
           "one this is read from, so name the file by its absolute path")
     end
     for segment in path:gmatch("[^/]+") do
       if segment == ".." then
-        return at({ "database", "path" }, "\"..\" is not allowed; name the file itself")
+        return at({ "setup", "database", "path" }, "\"..\" is not allowed; name the file itself")
       end
     end
     local digest = given.sha256
     if digest ~= nil and not (digest:find("^%x+$") ~= nil and #digest == 64 and digest:lower() == digest) then
-      return at({ "database", "sha256" }, "a digest is 64 lowercase hex digits")
+      return at({ "setup", "database", "sha256" }, "a digest is 64 lowercase hex digits")
     end
     local found, trouble = sys.stat(path)
     if found == nil then
-      return at({ "database", "path" }, path .. ": " .. trouble)
+      return at({ "setup", "database", "path" }, path .. ": " .. trouble)
     end
     if found.kind ~= "file" then
-      return at({ "database", "path" }, path .. " is not a regular file")
+      return at({ "setup", "database", "path" }, path .. " is not a regular file")
     end
   end
   local limits = p.limits or {}
@@ -708,6 +745,33 @@ function rules.calls(p: rules.Policy): {rules.Promise}
   return out
 end
 
+--- The profiles the grants of `p` name, in its order.
+function rules.profiles(p: rules.Policy): {string}
+  local out: mut {string} = {}
+  for _, grant in ipairs(p.grants or {}) do
+    if grant is rules.Profile then out[#out + 1] = grant.profile end
+  end
+  return out
+end
+
+--- The variables of the caller's environment the grants of `p` pass through, in its order.
+function rules.env(p: rules.Policy): {string}
+  local out: mut {string} = {}
+  for _, grant in ipairs(p.grants or {}) do
+    if grant is rules.Env then out[#out + 1] = grant.env end
+  end
+  return out
+end
+
+--- The addresses of 127/8 the grants of `p` give its own network, in its order.
+function rules.loopback(p: rules.Policy): {string}
+  local out: mut {string} = {}
+  for _, grant in ipairs(p.grants or {}) do
+    if grant is rules.Loopback then out[#out + 1] = grant.loopback end
+  end
+  return out
+end
+
 --- What the policies given hold together: [`Sandbox.union`], which says
 --- how.
 function rules.merge(...: rules.Policy): rules.Policy?, string
@@ -716,7 +780,7 @@ function rules.merge(...: rules.Policy): rules.Policy?, string
   for _, p in ipairs(given) do
     local bad = invalid(p, false)
     if bad ~= "" then return refuse(bad) end
-    for _, name in ipairs(p.profiles or {}) do
+    for _, name in ipairs(rules.profiles(p)) do
       local profile, why = rules.profile(name)
       if profile == nil then return nil, why end
       flat[#flat + 1] = profile
@@ -737,16 +801,17 @@ function rules.merge(...: rules.Policy): rules.Policy?, string
   local user, group: integer?, integer?
   local database: rules.Database? = nil
   for _, p in ipairs(flat) do
-    local named = p.database
+    local setup = p.setup or {}
+    local named = setup.database
     if named ~= nil then
       local at = clean_path(named.path)
       local digest = named.sha256
       if database ~= nil and database.path ~= at then
-        return refuse(path_of({ "database", "path" }) .. ": given two values, " .. database.path .. " and " .. at)
+        return refuse(path_of({ "setup", "database", "path" }) .. ": given two values, " .. database.path .. " and " .. at)
       end
       local database_sha256 = database and database.sha256
       if database ~= nil and digest ~= nil and database_sha256 ~= nil and database_sha256 ~= digest then
-        return refuse(path_of({ "database", "sha256" }) .. ": given two digests for " .. at .. ", " .. database_sha256 ..
+        return refuse(path_of({ "setup", "database", "sha256" }) .. ": given two digests for " .. at .. ", " .. database_sha256 ..
             " and " .. digest)
       end
       database = { path = at, sha256 = digest or (database and database.sha256) }
@@ -760,6 +825,16 @@ function rules.merge(...: rules.Policy): rules.Policy?, string
         promises = sorted_set(promises, { grant.calls })
         continue
       end
+      -- A profile's grants were joined in its place, above.
+      if grant is rules.Profile then continue end
+      if grant is rules.Env then
+        env = sorted_set(env, { grant.env })
+        continue
+      end
+      if grant is rules.Loopback then
+        loopback = sorted_set(loopback, { grant.loopback })
+        continue
+      end
       local at = clean_path(grant.path)
       local key = at .. "\0" .. (grant.from or "")
       local held = joined[key]
@@ -771,30 +846,28 @@ function rules.merge(...: rules.Policy): rules.Policy?, string
       for i = 1, #grant.letters do held.letters[grant.letters:sub(i, i)] = true end
     end
     isolate = sorted_set(isolate, p.isolate or {})
-    loopback = sorted_set(loopback, p.loopback or {})
-    env = sorted_set(env, p.env or {})
-    for name, value in pairs(p.set_env or {}) do
+    for name, value in pairs(setup.set_env or {}) do
       if set_env[name] ~= nil and set_env[name] ~= value then
-        return refuse(path_of({ "set_env", name }) .. ": given two values")
+        return refuse(path_of({ "setup", "set_env", name }) .. ": given two values")
       end
       set_env[name] = value
     end
-    for name, digest in pairs(p.set_env_digests or {}) do
+    for name, digest in pairs(setup.set_env_digests or {}) do
       if digests[name] ~= nil and digests[name] ~= digest then
-        return refuse(path_of({ "set_env_digests", name }) .. ": given two digests")
+        return refuse(path_of({ "setup", "set_env_digests", name }) .. ": given two digests")
       end
       digests[name] = digest
     end
-    if p.tmp == true then tmp = true end
-    local p_user = p.user
+    if setup.tmp == true then tmp = true end
+    local p_user = setup.user
     if p_user ~= nil and user ~= nil and p_user ~= user then
-      return refuse(path_of({ "user" }) .. ": given two values, " .. tostring(user) .. " and " .. tostring(p_user))
+      return refuse(path_of({ "setup", "user" }) .. ": given two values, " .. tostring(user) .. " and " .. tostring(p_user))
     end
-    local p_group = p.group
+    local p_group = setup.group
     if p_group ~= nil and group ~= nil and p_group ~= group then
-      return refuse(path_of({ "group" }) .. ": given two values, " .. tostring(group) .. " and " .. tostring(p_group))
+      return refuse(path_of({ "setup", "group" }) .. ": given two values, " .. tostring(group) .. " and " .. tostring(p_group))
     end
-    user, group = p.user or user, p.group or group
+    user, group = setup.user or user, setup.group or group
     local own = p.limits or {}
     local why = limit_conflict("open_files", limits.open_files, own.open_files)
     if why == "" then why = limit_conflict("file_bytes", limits.file_bytes, own.file_bytes) end
@@ -821,11 +894,13 @@ function rules.merge(...: rules.Policy): rules.Policy?, string
     if a.path ~= b.path then return a.path < b.path end
     return (a.from or "") < (b.from or "")
   end)
-  -- The paths in order, then the calls in theirs.
+  -- The paths in order, then the calls, the hosts, the variables and the addresses in theirs.
   local grants: mut {rules.Grant} = {}
   for _, grant in ipairs(paths) do grants[#grants + 1] = grant end
   for _, promise in ipairs(promises) do grants[#grants + 1] = { calls = promise } end
   for _, target in ipairs(connect) do grants[#grants + 1] = { connect = target } end
+  for _, name in ipairs(env) do grants[#grants + 1] = { env = name } end
+  for _, address in ipairs(loopback) do grants[#grants + 1] = { loopback = address } end
   -- `file` implies `proc`: written out, so the two spellings are one policy.
   local implied: rules.Isolate = "proc"
   local has_file, has_proc = false, false
@@ -836,17 +911,18 @@ function rules.merge(...: rules.Policy): rules.Policy?, string
   if has_file and not has_proc then isolate = sorted_set(isolate, { implied }) end
   for name, value in pairs(set_env) do
     if digests[name] ~= nil and digests[name] ~= Hash.hex_sha256(value) then
-      return refuse(path_of({ "set_env_digests", name }) .. ": not the digest of set_env's value")
+      return refuse(path_of({ "setup", "set_env_digests", name }) .. ": not the digest of set_env's value")
     end
     digests[name] = nil
   end
-  local conflict = loopback_conflict(loopback, connect, true)
+  local conflict = loopback_conflict(loopback, nil, connect)
   if conflict ~= "" then return refuse(conflict) end
   local result: rules.Policy = {
-    grants = grants, isolate = isolate,
-    loopback = loopback, env = env, set_env = set_env,
-    set_env_digests = digests, tmp = tmp, limits = limits,
-    user = user, group = group, database = database,
+    grants = grants, isolate = isolate, limits = limits,
+    setup = {
+      set_env = set_env, set_env_digests = digests, tmp = tmp,
+      user = user, group = group, database = database,
+    },
   }
   return result, ""
 end
@@ -947,7 +1023,7 @@ end
 --- up, so stacked layers must name the same one.
 local function setup_conflict(name: string, a: string?, b: string?): string
   if a ~= nil and b ~= nil and a ~= b then
-    return path_of({ name }) .. ": layers give two values, " .. a .. " and " .. b ..
+    return path_of({ "setup", name }) .. ": layers give two values, " .. a .. " and " .. b ..
       ", and a layer cannot narrow what the start sets up"
   end
   return ""
@@ -990,6 +1066,12 @@ local function intersect_two(a: rules.Policy, b: rules.Policy): rules.Policy?, s
       if met ~= nil then grants[#grants + 1] = { connect = met } end
     end
   end
+  for _, name in ipairs(common(rules.env(a), rules.env(b))) do
+    grants[#grants + 1] = { env = name }
+  end
+  for _, address in ipairs(common(rules.loopback(a), rules.loopback(b))) do
+    grants[#grants + 1] = { loopback = address }
+  end
   local function shown(value: integer?): string?
     if value == nil then return nil end
     return tostring(value)
@@ -998,10 +1080,11 @@ local function intersect_two(a: rules.Policy, b: rules.Policy): rules.Policy?, s
     if database == nil then return nil end
     return database.path
   end
-  local why = setup_conflict("user", shown(a.user), shown(b.user))
-  if why == "" then why = setup_conflict("group", shown(a.group), shown(b.group)) end
+  local sa, sb = a.setup or {}, b.setup or {}
+  local why = setup_conflict("user", shown(sa.user), shown(sb.user))
+  if why == "" then why = setup_conflict("group", shown(sa.group), shown(sb.group)) end
   if why == "" then
-    why = setup_conflict("database", path_of_database(a.database), path_of_database(b.database))
+    why = setup_conflict("database", path_of_database(sa.database), path_of_database(sb.database))
   end
   if why ~= "" then return refuse(why) end
   local la, lb = a.limits or {}, b.limits or {}
@@ -1016,13 +1099,16 @@ local function intersect_two(a: rules.Policy, b: rules.Policy): rules.Policy?, s
   -- one user, group and database, refused where the two disagree.
   local result: rules.Policy = {
     grants = grants, isolate = sorted_set(a.isolate or {}, b.isolate or {}),
-    loopback = common(a.loopback or {}, b.loopback or {}), env = common(a.env or {}, b.env or {}),
-    set_env = a.set_env, set_env_digests = a.set_env_digests, limits = limits,
-    tmp = a.tmp == true and b.tmp == true, user = a.user or b.user, group = a.group or b.group,
-    database = a.database or b.database,
+    limits = limits,
+    setup = {
+      set_env = sa.set_env, set_env_digests = sa.set_env_digests, tmp = sa.tmp == true and sb.tmp == true,
+      user = sa.user or sb.user, group = sa.group or sb.group, database = sa.database or sb.database,
+    },
   }
-  local setup: rules.Policy = { set_env = b.set_env, set_env_digests = b.set_env_digests, database = b.database }
-  return rules.merge(result, setup)
+  local other: rules.Policy = {
+    setup = { set_env = sb.set_env, set_env_digests = sb.set_env_digests, database = sb.database },
+  }
+  return rules.merge(result, other)
 end
 
 --- [`Sandbox.intersect`]: what the layers given hold stacked, merged.
@@ -1071,9 +1157,7 @@ function rules.with_connect(p: rules.Policy, connect: {string}): rules.Policy
   for _, target in ipairs(connect) do grants[#grants + 1] = { connect = target } end
   local result: rules.Policy = {
     grants = grants, isolate = p.isolate,
-    loopback = p.loopback, env = p.env, set_env = p.set_env,
-    set_env_digests = p.set_env_digests, tmp = p.tmp, limits = p.limits,
-    user = p.user, group = p.group, database = p.database, profiles = p.profiles,
+    limits = p.limits, setup = p.setup,
   }
   return result
 end

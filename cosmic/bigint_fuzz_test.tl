@@ -3,10 +3,10 @@
 --- for drawn operands and moduli of every length that crosses a limb.
 --- They prove the numbers and nothing of the time taken, which no test
 --- measures. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
---- (build/fuzz/init.tl).
+--- (cosmic/fuzz.tl).
 
 local Bigint = require("cosmic.bigint")
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Test = require("cosmic.test")
 
 Test.policy{ cpu_features = true }

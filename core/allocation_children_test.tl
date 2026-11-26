@@ -13,16 +13,7 @@ Test.policy{
 
 local process = require("cosmic.internal.process")
 
---- Asserts the core's own C heap holds what it held when `c_heap`
---- returned `before_bytes` and `before_blocks`: a block a refusal path
---- forgot to free shows here.
-local function assert_c_heap(before_bytes: integer, before_blocks: integer, what: string)
-  collectgarbage("collect")
-  local bytes, blocks = testing.c_heap()
-  assert(bytes == before_bytes and blocks == before_blocks,
-    what .. " left " .. tostring((blocks - before_blocks)) .. " blocks (" ..
-      tostring((bytes - before_bytes)) .. " bytes) on the C heap")
-end
+local assert_c_heap = AllocationFixture.assert_c_heap
 
 --- `children` reads its list into a block of the core's C heap, and
 --- closes the list's descriptor, whichever allocation is refused. The

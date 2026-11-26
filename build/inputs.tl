@@ -11,7 +11,7 @@
 ---
 --- A test's default inputs are its module's import closure, as source
 --- files, every fuzz corpus (`testdata/fuzz/`) when that closure holds
---- [`build.fuzz`], and a pinned environment; its module declares the
+--- [`cosmic.fuzz`], and a pinned environment; its module declares the
 --- rest. The build reads the call from the source without running the
 --- module ([`build.syntax_analyzer`]): a statement at the top level of a test or
 --- example module, once, on the name a `local` binds

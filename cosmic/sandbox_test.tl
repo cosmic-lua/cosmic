@@ -17,24 +17,24 @@ local function test_check_holds_letters_to_the_canonical_order_only_when_exact()
   assert(not bad and trouble:find("$.grants[0].connect", 1, true) ~= nil, trouble)
 end
 
---- A merged policy's `loopback` is one list, so the failure says which one.
+--- A merged policy's loopback addresses come from many grants, so the failure names the address.
 local function test_a_loopback_conflict_of_the_merged_policy_is_named_by_its_path()
-  local none, why = Sandbox.union({ loopback = { "127.0.0.1" } }, { grants = { { connect = "127.0.0.1:80" } } })
-  assert(none == nil and why:find("^sandbox: %$%.loopback%[0%]: in the merged policy, ") ~= nil, why)
-  local ok, own = Sandbox.check({ loopback = { "127.0.0.2", "127.0.0.1" }, grants = { { connect = "127.0.0.1:80" } } })
-  assert(not ok and own:find("^sandbox: %$%.loopback%[1%]: ") ~= nil, own)
+  local none, why = Sandbox.union({ grants = { { loopback = "127.0.0.1" } } }, { grants = { { connect = "127.0.0.1:80" } } })
+  assert(none == nil and why:find("^sandbox: %$%.grants: in the merged policy, \"127%.0%.0%.1\"") ~= nil, why)
+  local ok, own = Sandbox.check({ grants = { { connect = "127.0.0.1:80" }, { loopback = "127.0.0.2" }, { loopback = "127.0.0.1" } } })
+  assert(not ok and own:find("^sandbox: %$%.grants%[2%]%.loopback: ") ~= nil, own)
 end
 
 local function test_check_reads_each_loopback_octet_as_a_number_up_to_255()
   for _, address in ipairs({ "127.0.0.1", "127.255.255.255", "127.0.0.255" }) do
-    local ok, why = Sandbox.check({ loopback = { address } })
+    local ok, why = Sandbox.check({ grants = { { loopback = address } } })
     assert(ok, address .. ": " .. tostring(why))
   end
   -- Octets past 255, of any length (one is more digits than an integer holds),
   -- or with a leading zero, or not digits, are refused with the address named.
   for _, address in ipairs({ "127.0.0.256", "127.0.0.1000", "127.0.0.99999999999999999999",
       "127.0.0.01", "127.0.0.", "127.0.0.x" }) do
-    local ok, why = Sandbox.check({ loopback = { address } })
+    local ok, why = Sandbox.check({ grants = { { loopback = address } } })
     assert(not ok, address)
     assert(why:find("is not an address of 127/8", 1, true), why)
   end
@@ -70,22 +70,22 @@ end
 
 local function test_merge_unions_lists_sorted_without_repeats()
   local out = PolicyMerge.merged(
-    { grants = { { calls = "jit" }, { calls = "fork" }, { connect = "b:1" }, { connect = "a:1" } }, env = { "B", "A" }, isolate = { "proc" }, loopback = { "127.0.0.2" } },
-    { grants = { { calls = "fork" }, { calls = "fattr" }, { connect = "a:1" } }, env = { "A", "C" }, isolate = { "file", "proc" }, loopback = { "127.0.0.1" } })
+    { grants = { { calls = "jit" }, { calls = "fork" }, { connect = "b:1" }, { connect = "a:1" }, { env = "B" }, { env = "A" }, { loopback = "127.0.0.2" } }, isolate = { "proc" } },
+    { grants = { { calls = "fork" }, { calls = "fattr" }, { connect = "a:1" }, { env = "A" }, { env = "C" }, { loopback = "127.0.0.1" } }, isolate = { "file", "proc" } })
   assert(table.concat(Sandbox.calls(out), ",") == "fattr,fork,jit")
-  assert(table.concat(assert(out.env), ",") == "A,B,C")
+  assert(table.concat(Sandbox.env(out), ",") == "A,B,C")
   assert(table.concat(Sandbox.connects(out), ",") == "a:1,b:1")
   assert(table.concat(assert(out.isolate), ",") == "file,proc")
-  assert(table.concat(assert(out.loopback), ",") == "127.0.0.1,127.0.0.2")
+  assert(table.concat(Sandbox.loopback(out), ",") == "127.0.0.1,127.0.0.2")
 end
 
 local function test_merge_answers_every_field_even_for_nothing()
   local out = PolicyMerge.merged()
-  assert(out.profiles == nil and out.tmp == false)
+  assert(#Sandbox.profiles(out) == 0 and assert(out.setup).tmp == false)
   assert(#assert(out.grants) == 0 and #assert(out.isolate) == 0 and #Sandbox.calls(out) == 0 and #Sandbox.connects(out) == 0)
-  assert(#assert(out.loopback) == 0 and #assert(out.env) == 0 and next(assert(out.set_env)) == nil)
-  assert(next(assert(out.set_env_digests)) == nil and assert(out.limits).open_files == nil)
-  assert(PolicyMerge.merged({}, { tmp = false }).tmp == false and PolicyMerge.merged({ tmp = false }, { tmp = true }).tmp) -- checked: or_mix
+  assert(#Sandbox.loopback(out) == 0 and #Sandbox.env(out) == 0 and next(assert(assert(out.setup).set_env)) == nil)
+  assert(next(assert(assert(out.setup).set_env_digests)) == nil and assert(out.limits).open_files == nil)
+  assert(assert(PolicyMerge.merged({}, { setup = { tmp = false } }).setup).tmp == false and assert(PolicyMerge.merged({ setup = { tmp = false } }, { setup = { tmp = true } }).setup).tmp) -- checked: or_mix
 end
 
 local function test_merge_agrees_on_one_limit_and_refuses_two()
@@ -106,30 +106,30 @@ local function test_merge_agrees_on_one_limit_and_refuses_two()
 end
 
 local function test_merge_takes_one_user_and_group_and_refuses_two()
-  local out = PolicyMerge.merged({ user = 1000 }, {})
-  assert(out.user == 1000 and out.group == nil, "a group left out is the start's to choose")
-  out = PolicyMerge.merged({ user = 1000 }, { user = 1000, group = 100 })
-  assert(out.user == 1000 and out.group == 100)
-  assert(PolicyMerge.merged().user == nil and PolicyMerge.merged().group == nil)
-  local none, why = Sandbox.union({ user = 1 }, { user = 2 })
-  assert(none == nil and why:find("$.user: given two values", 1, true) ~= nil, why)
-  none, why = Sandbox.union({ user = 1, group = 1 }, { user = 1, group = 2 })
-  assert(none == nil and why:find("$.group: given two values", 1, true) ~= nil, why)
+  local out = PolicyMerge.merged({ setup = { user = 1000 } }, {})
+  assert(assert(out.setup).user == 1000 and assert(out.setup).group == nil, "a group left out is the start's to choose")
+  out = PolicyMerge.merged({ setup = { user = 1000 } }, { setup = { user = 1000, group = 100 } })
+  assert(assert(out.setup).user == 1000 and assert(out.setup).group == 100)
+  assert(assert(PolicyMerge.merged().setup).user == nil and assert(PolicyMerge.merged().setup).group == nil)
+  local none, why = Sandbox.union({ setup = { user = 1 } }, { setup = { user = 2 } })
+  assert(none == nil and why:find("$.setup.user: given two values", 1, true) ~= nil, why)
+  none, why = Sandbox.union({ setup = { user = 1, group = 1 } }, { setup = { user = 1, group = 2 } })
+  assert(none == nil and why:find("$.setup.group: given two values", 1, true) ~= nil, why)
 end
 
 local function test_merge_refuses_root_and_a_group_without_a_user()
-  local roots: {Sandbox.Policy} = { { user = 0 }, { user = 4294967295 }, { user = 1, group = 0 } }
+  local roots: {Sandbox.Policy} = { { setup = { user = 0 } }, { setup = { user = 4294967295 } }, { setup = { user = 1, group = 0 } } }
   for _, policy in ipairs(roots) do
     local none, why = Sandbox.union(policy)
     assert(none == nil and why:find("never root", 1, true) ~= nil, why)
   end
-  local overflows: {Sandbox.Policy} = { { user = 65534 }, { user = 1, group = 65535 } }
+  local overflows: {Sandbox.Policy} = { { setup = { user = 65534 } }, { setup = { user = 1, group = 65535 } } }
   for _, policy in ipairs(overflows) do
     local none, why = Sandbox.union(policy)
     assert(none == nil and why:find("overflow id", 1, true) ~= nil, why)
   end
-  local none, why = Sandbox.union({ group = 5 })
-  assert(none == nil and why:find("$.group", 1, true) ~= nil and why:find("with a user", 1, true) ~= nil, why)
+  local none, why = Sandbox.union({ setup = { group = 5 } })
+  assert(none == nil and why:find("$.setup.group", 1, true) ~= nil and why:find("with a user", 1, true) ~= nil, why)
 end
 
 local function test_in_pool_is_whether_an_id_is_a_pool_user_s()
@@ -148,10 +148,10 @@ local function test_maps_id_is_whether_a_map_holds_the_id()
 end
 
 local function test_merge_refuses_two_values_for_one_variable_without_saying_them()
-  local out = PolicyMerge.merged({ set_env = { A = "1", B = "2" } }, { set_env = { A = "1", C = "3" } })
-  assert(assert(out.set_env).A == "1" and assert(out.set_env).B == "2" and assert(out.set_env).C == "3") -- checked: map_field*3
-  local none, why = Sandbox.union({ set_env = { TOKEN = "hunter2" } }, { set_env = { TOKEN = "hunter3" } })
-  assert(none == nil and why:find("$.set_env.TOKEN: given two values", 1, true) ~= nil, why)
+  local out = PolicyMerge.merged({ setup = { set_env = { A = "1", B = "2" } } }, { setup = { set_env = { A = "1", C = "3" } } })
+  assert(assert(assert(out.setup).set_env).A == "1" and assert(assert(out.setup).set_env).B == "2" and assert(assert(out.setup).set_env).C == "3") -- checked: map_field*3
+  local none, why = Sandbox.union({ setup = { set_env = { TOKEN = "hunter2" } } }, { setup = { set_env = { TOKEN = "hunter3" } } })
+  assert(none == nil and why:find("$.setup.set_env.TOKEN: given two values", 1, true) ~= nil, why)
   assert(not why:find("hunter", 1, true), why)
 end
 
@@ -161,7 +161,7 @@ local function test_merge_refuses_values_a_type_does_not_stop()
     at: string
   end
   local cases: {Refused} = {
-    { policy = { profiles = { "bogus" } }, at = "$.profiles[0]" },
+    { policy = { grants = { { profile = "bogus" } } }, at = "$.grants[0].profile" },
     { policy = { grants = { { path = "a", letters = "z" } } }, at = "$.grants[0].letters" },
     { policy = { grants = { { path = "a", letters = "" } } }, at = "$.grants[0].letters" },
     { policy = { grants = { { path = "", letters = "r" } } }, at = "$.grants[0].path" },
@@ -181,10 +181,10 @@ local function test_merge_refuses_values_a_type_does_not_stop()
     { policy = { grants = { { connect = "[]:80" } } }, at = "$.grants[0].connect" },
     { policy = { grants = { { connect = "[::1.2.3.04]:80" } } }, at = "$.grants[0].connect" },
     { policy = { grants = { { connect = "[::1.2.3.256]:80" } } }, at = "$.grants[0].connect" },
-    { policy = { loopback = { "8.8.8.8" } }, at = "$.loopback[0]" },
-    { policy = { loopback = { "127.0.0.2", "127.0.0.1" }, grants = { { connect = "127.0.0.1:80" } } }, at = "$.loopback[1]" },
-    { policy = { loopback = { "127.0.0.1" }, grants = { { connect = "[::ffff:127.0.0.1]:*" } } }, at = "$.loopback[0]" },
-    { policy = { env = { "A=1" } }, at = "$.env[0]" },
+    { policy = { grants = { { loopback = "8.8.8.8" } } }, at = "$.grants[0].loopback" },
+    { policy = { grants = { { connect = "127.0.0.1:80" }, { loopback = "127.0.0.2" }, { loopback = "127.0.0.1" } } }, at = "$.grants[2].loopback" },
+    { policy = { grants = { { connect = "[::ffff:127.0.0.1]:*" }, { loopback = "127.0.0.1" } } }, at = "$.grants[1].loopback" },
+    { policy = { grants = { { env = "A=1" } } }, at = "$.grants[0].env" },
     { policy = { limits = { open_files = 0 } }, at = "$.limits.open_files" },
   }
   for _, case in ipairs(cases) do
@@ -196,11 +196,12 @@ end
 --- A loopback address and a connect target of the same address, in one
 --- policy or in two, are refused at the loopback entry, saying what to do.
 local function test_a_loopback_address_a_connect_target_names_is_refused()
-  local none, why = Sandbox.union({ loopback = { "127.0.0.1" } }, { grants = { { connect = "127.0.0.1:8080" } } })
-  assert(none == nil and why:find("$.loopback[0]", 1, true) ~= nil and why:find("127.0.0.2", 1, true) ~= nil, tostring(why))
-  local ok, checked = Sandbox.check({ loopback = { "127.0.0.2" }, grants = { { connect = "127.0.0.1:80" } } })
+  local none, why = Sandbox.union({ grants = { { loopback = "127.0.0.1" } } }, { grants = { { connect = "127.0.0.1:8080" } } })
+  assert(none == nil and why:find("$.grants: in the merged policy", 1, true) ~= nil and why:find("127.0.0.2", 1, true) ~= nil,
+    tostring(why))
+  local ok, checked = Sandbox.check({ grants = { { connect = "127.0.0.1:80" }, { loopback = "127.0.0.2" } } })
   assert(ok, checked)
-  assert(PolicyMerge.merged({ loopback = { "127.0.0.2" }, grants = { { connect = "127.0.0.3:80" }, { connect = "[::1]:80" }, { connect = "example.com:80" } } }))
+  assert(PolicyMerge.merged({ grants = { { connect = "127.0.0.3:80" }, { connect = "[::1]:80" }, { connect = "example.com:80" }, { loopback = "127.0.0.2" } } }))
 end
 
 local function test_merge_takes_letters_in_any_order_where_decode_does_not()
@@ -211,22 +212,22 @@ end
 local function test_merge_resolves_profiles_away()
   local system = assert(Sandbox.profile("system"))
   local first = Array.at(Sandbox.paths(system), 1)
-  local out = PolicyMerge.merged({ profiles = { "system" }, grants = { { path = "/data", letters = "r" } } })
-  assert(out.profiles == nil)
+  local out = PolicyMerge.merged({ grants = { { profile = "system" }, { path = "/data", letters = "r" } } })
+  assert(#Sandbox.profiles(out) == 0)
   local found, data = false, false
   for _, grant in ipairs(Sandbox.paths(out)) do
     if grant.path == first.path then found = true end
     if grant.path == "/data" then data = true end
   end
   assert(found and data)
-  local none, why = Sandbox.union({ profiles = { "nope" } })
-  assert(none == nil and why:find("$.profiles[0]", 1, true) ~= nil and why:find("known", 1, true) ~= nil, why)
+  local none, why = Sandbox.union({ grants = { { profile = "nope" } } })
+  assert(none == nil and why:find("$.grants[0].profile", 1, true) ~= nil and why:find("known", 1, true) ~= nil, why)
 end
 
 --- "cosmic" is a profile no more: a start of this program needs no grant of it, and the refusal says so.
 local function test_the_cosmic_profile_is_refused_saying_what_to_write()
-  local none, why = Sandbox.union({ profiles = { "cosmic" } })
-  assert(none == nil and why:find("$.profiles[0]", 1, true) ~= nil and why:find("grants its file by name", 1, true) ~= nil,
+  local none, why = Sandbox.union({ grants = { { profile = "cosmic" } } })
+  assert(none == nil and why:find("$.grants[0].profile", 1, true) ~= nil and why:find("grants its file by name", 1, true) ~= nil,
     why)
   local profile, profile_why = Sandbox.profile("cosmic")
   assert(profile == nil and profile_why:find("no grant", 1, true) ~= nil, profile_why)
@@ -235,7 +236,7 @@ end
 local function test_a_profile_joins_with_the_policys_own_grant_of_the_same_path()
   local system = assert(Sandbox.profile("system"))
   local first = Array.at(Sandbox.paths(system), 1)
-  local out = PolicyMerge.merged({ profiles = { "system" }, grants = { { path = first.path, letters = "w" } } })
+  local out = PolicyMerge.merged({ grants = { { profile = "system" }, { path = first.path, letters = "w" } } })
   local count = 0
   for _, grant in ipairs(Sandbox.paths(out)) do
     if grant.path == first.path then
@@ -250,7 +251,7 @@ local function test_profile_names_what_it_holds_and_refuses_what_it_has_not()
   -- The "system" profile's paths are the host's, and are checked on a
   -- host that has them (cosmic/child_policy_system_test.tl).
   local system = assert(Sandbox.profile("system"))
-  assert(system.profiles == nil and system.grants ~= nil)
+  assert(#Sandbox.profiles(system) == 0 and system.grants ~= nil)
   local none, why = Sandbox.profile("bogus")
   assert(none == nil and why:find("unknown profile \"bogus\"", 1, true) ~= nil, why)
 end
@@ -264,8 +265,8 @@ local function test_proc_profile_is_proc_on_linux_and_nothing_on_macos()
   else
     assert(#assert(proc.grants) == 1 and Array.at(Sandbox.paths(proc), 1).path == "/proc" and Array.at(Sandbox.paths(proc), 1).letters == "r")
   end
-  local both = assert(Sandbox.union({ profiles = { "proc" } }, { grants = { { path = "/proc", letters = "r" } } }))
-  assert(both.profiles == nil and #assert(both.grants) == 1 and Array.at(Sandbox.paths(both), 1).path == "/proc")
+  local both = assert(Sandbox.union({ grants = { { profile = "proc" } } }, { grants = { { path = "/proc", letters = "r" } } }))
+  assert(#Sandbox.profiles(both) == 0 and #assert(both.grants) == 1 and Array.at(Sandbox.paths(both), 1).path == "/proc")
 end
 
 --- On macOS /bin/sh is a stub that runs the shell /private/var/select/sh
@@ -551,32 +552,32 @@ end
 
 local function test_check_refuses_a_database_that_is_not_a_file_by_its_absolute_path(tmp: string)
   local path = database_file(tmp)
-  assert(Sandbox.check({ database = { path = path } }))
-  local ok, why = Sandbox.check({ database = { path = "program.db" } })
-  assert(not ok and why:find("$.database", 1, true) ~= nil and why:find("relative", 1, true) ~= nil, why)
-  ok, why = Sandbox.check({ database = { path = tmp .. "/absent.db" } })
-  assert(not ok and why:find("$.database", 1, true) ~= nil and why:find("absent.db", 1, true) ~= nil, why)
-  ok, why = Sandbox.check({ database = { path = tmp .. "/../" .. assert(tmp:match("[^/]+$")) .. "/program.db" } })
+  assert(Sandbox.check({ setup = { database = { path = path } } }))
+  local ok, why = Sandbox.check({ setup = { database = { path = "program.db" } } })
+  assert(not ok and why:find("$.setup.database", 1, true) ~= nil and why:find("relative", 1, true) ~= nil, why)
+  ok, why = Sandbox.check({ setup = { database = { path = tmp .. "/absent.db" } } })
+  assert(not ok and why:find("$.setup.database", 1, true) ~= nil and why:find("absent.db", 1, true) ~= nil, why)
+  ok, why = Sandbox.check({ setup = { database = { path = tmp .. "/../" .. assert(tmp:match("[^/]+$")) .. "/program.db" } } })
   assert(not ok and why:find("\"..\"", 1, true) ~= nil, why)
-  ok, why = Sandbox.check({ database = { path = tmp } })
+  ok, why = Sandbox.check({ setup = { database = { path = tmp } } })
   assert(not ok and why:find("not a regular file", 1, true) ~= nil, why)
-  ok, why = Sandbox.check({ database = { path = "" } })
-  assert(not ok and why:find("$.database", 1, true) ~= nil, why)
+  ok, why = Sandbox.check({ setup = { database = { path = "" } } })
+  assert(not ok and why:find("$.setup.database", 1, true) ~= nil, why)
 end
 
 local function test_merge_carries_a_database_and_refuses_two(tmp: string)
   local path = database_file(tmp)
   local other = database_file(tmp, "other.db")
-  assert(assert(PolicyMerge.merged({ database = { path = path } }).database).path == path)
-  assert(assert(PolicyMerge.merged({ database = { path = path } }, { database = { path = tmp .. "//./program.db" } }, {}).database).path == path)
-  local none, why = Sandbox.union({ database = { path = path } }, { database = { path = other } })
-  assert(none == nil and why:find("$.database.path: given two values", 1, true) ~= nil, tostring(why))
-  assert(PolicyMerge.merged({}).database == nil)
+  assert(assert(assert(PolicyMerge.merged({ setup = { database = { path = path } } }).setup).database).path == path)
+  assert(assert(assert(PolicyMerge.merged({ setup = { database = { path = path } } }, { setup = { database = { path = tmp .. "//./program.db" } } }, {}).setup).database).path == path)
+  local none, why = Sandbox.union({ setup = { database = { path = path } } }, { setup = { database = { path = other } } })
+  assert(none == nil and why:find("$.setup.database.path: given two values", 1, true) ~= nil, tostring(why))
+  assert(assert(PolicyMerge.merged({}).setup).database == nil)
 end
 
 local function test_restrict_refuses_a_database_before_it_holds_anything(tmp: string)
   local path = database_file(tmp)
-  local ok, why = Sandbox.restrict({ database = { path = path } })
+  local ok, why = Sandbox.restrict({ setup = { database = { path = path } } })
   assert(not ok and why:find("^sandbox: restrict: ") ~= nil, why)
   assert(why:find("database", 1, true) and why:find("Child.start", 1, true), why)
 end
@@ -591,29 +592,29 @@ local function test_intersect_keeps_the_deeper_path_with_the_letters_of_both()
 end
 
 local function test_intersect_meets_connect_targets_and_lists()
-  local a: Sandbox.Policy = { grants = { { calls = "fork" }, { calls = "jit" }, { connect = "*:443" }, { connect = "db.internal:5432" } }, env = { "HOME", "PATH" } }
-  local b: Sandbox.Policy = { grants = { { calls = "fork" }, { connect = "api.github.com:*" } }, env = { "PATH" } }
+  local a: Sandbox.Policy = { grants = { { calls = "fork" }, { calls = "jit" }, { connect = "*:443" }, { connect = "db.internal:5432" }, { env = "HOME" }, { env = "PATH" } } }
+  local b: Sandbox.Policy = { grants = { { calls = "fork" }, { connect = "api.github.com:*" }, { env = "PATH" } } }
   local both = assert(Sandbox.intersect(a, b))
   assert(table.concat(Sandbox.connects(both), ",") == "api.github.com:443", table.concat(Sandbox.connects(both), ","))
   assert(table.concat(Sandbox.calls(both), ",") == "fork")
-  assert(table.concat(assert(both.env), ",") == "PATH")
+  assert(table.concat(Sandbox.env(both), ",") == "PATH")
 end
 
 local function test_intersect_takes_the_lower_limit_the_wider_isolation_and_tmp_of_both()
-  local a: Sandbox.Policy = { limits = { cpu_seconds = 5 }, isolate = { "proc" }, tmp = true }
+  local a: Sandbox.Policy = { limits = { cpu_seconds = 5 }, isolate = { "proc" }, setup = { tmp = true } }
   local b: Sandbox.Policy = { limits = { cpu_seconds = 2, open_files = 64 }, isolate = { "file" } }
   local both = assert(Sandbox.intersect(a, b))
   local limits = assert(both.limits)
   assert(limits.cpu_seconds == 2 and limits.open_files == 64)
   assert(table.concat(assert(both.isolate), ",") == "file,proc")
-  assert(both.tmp == false)
+  assert(assert(both.setup).tmp == false)
 end
 
 local function test_intersect_joins_what_the_start_sets_up_and_refuses_two_users()
-  local both = assert(Sandbox.intersect({ set_env = { A = "1" } }, { set_env = { B = "2" } }))
-  local set = assert(both.set_env)
+  local both = assert(Sandbox.intersect({ setup = { set_env = { A = "1" } } }, { setup = { set_env = { B = "2" } } }))
+  local set = assert(assert(both.setup).set_env)
   assert(set["A"] == "1" and set["B"] == "2")
-  local none, why = Sandbox.intersect({ user = 1000 }, { user = 1001 })
+  local none, why = Sandbox.intersect({ setup = { user = 1000 } }, { setup = { user = 1001 } })
   assert(none == nil and why:find("user", 1, true) ~= nil, why)
   local empty, empty_why = Sandbox.intersect()
   assert(empty == nil and empty_why:find("^sandbox: ") ~= nil, empty_why)
@@ -746,6 +747,41 @@ local function test_permits_asks_each_action_of_the_path_or_its_directory(tmp: s
   assert(unknown:find("is no action", 1, true) ~= nil, unknown)
 end
 
+--- Sandbox.dir acts in the directory the check met: once it is open, a
+--- link swapped in at the checked path, with the directory moved away,
+--- does not send a write out of the grant; a path refused, a write the
+--- grant gives no `c` for, and an act a directory has not, open nothing;
+--- the walk the open makes fails at a link.
+local function test_dir_acts_where_the_check_met(tmp: string)
+  local base = assert(Fs.absolute(tmp))
+  local granted, outside = base .. "/in/work", base .. "/out"
+  assert(Fs.mkdirs(granted))
+  assert(Fs.mkdirs(outside))
+  local policy: Sandbox.Policy = { grants = { { path = base .. "/in", letters = "rwc" } } }
+  local opened, name = Sandbox.dir(policy, granted .. "/note.txt", "write")
+  local dir <close> = assert(opened, name)
+  assert(name == "note.txt", name)
+  -- The program swaps the checked directory for a link out of the grant.
+  assert(Fs.rename(granted, base .. "/in/moved"))
+  assert(Fs.symlink(outside, granted))
+  assert(dir:write(name, "kept"))
+  assert(assert(Fs.read(base .. "/in/moved/note.txt")) == "kept")
+  assert(not assert(Fs.status(outside .. "/note.txt")).exists, "the write followed the link")
+  local refused, why = Sandbox.dir(policy, outside .. "/note.txt", "write")
+  assert(refused == nil and why:find("does not permit", 1, true) ~= nil, why)
+  -- A write renames a file it makes over the name, so `w` without `c` is no write.
+  local unmade, unmade_why = Sandbox.dir({ grants = { { path = base .. "/in", letters = "rw" } } },
+    base .. "/in/moved/note.txt", "write")
+  assert(unmade == nil and unmade_why:find("renames it over the name", 1, true) ~= nil, unmade_why)
+  local removed, removed_why = Sandbox.dir(policy, base .. "/in/moved/note.txt", "remove")
+  assert(removed == nil and removed_why:find("no act of a directory held", 1, true) ~= nil, removed_why)
+  -- A link on the path when the directory opens fails the open, as one
+  -- swapped in after the check would.
+  local linked, link_why = Fs.dir(granted)
+  local said = tostring(link_why)
+  assert(linked == nil and (said:find("ELOOP", 1, true) ~= nil or said:lower():find("link", 1, true) ~= nil), said)
+end
+
 --- A relative grant is read from `cwd`; a grant with `from`, or "/tmp" itself where the policy
 --- isolates files with a `tmp` of its own, names another file inside the
 --- sandbox, so it permits nothing outside, and the refusal says so,
@@ -759,20 +795,20 @@ local function test_permits_refuses_from_grants_and_proc(tmp: string)
   assert(permitted(relative, base .. "/rel/x", "read", base) and not permitted(relative, base .. "/x", "read", base))
   local mapped: Sandbox.Policy = { grants = { { path = "/etc", letters = "r", from = base } } }
   assert(not permitted(mapped, "/etc/hosts", "read"))
-  local isolated: Sandbox.Policy = { isolate = { "file" }, tmp = true, grants = { { path = "/tmp", letters = "rwc" } } }
+  local isolated: Sandbox.Policy = { isolate = { "file" }, setup = { tmp = true }, grants = { { path = "/tmp", letters = "rwc" } } }
   local refused, own_tmp = Sandbox.permits(isolated, "/tmp/x", "create")
   assert(refused == nil and own_tmp:find("sandbox's own /tmp", 1, true) ~= nil, own_tmp)
-  local relative_tmp: Sandbox.Policy = { isolate = { "file" }, tmp = true, grants = { { path = "tmp", letters = "rwc" } } }
+  local relative_tmp: Sandbox.Policy = { isolate = { "file" }, setup = { tmp = true }, grants = { { path = "tmp", letters = "rwc" } } }
   assert(not permitted(relative_tmp, "/tmp/x", "create", "/"))
   local real_tmp = assert(Sandbox.real("/tmp"))
   if base:sub(1, #real_tmp + 1) == real_tmp .. "/" then
-    local bound: Sandbox.Policy = { isolate = { "file" }, tmp = true, grants = { { path = base, letters = "rwc" } } }
+    local bound: Sandbox.Policy = { isolate = { "file" }, setup = { tmp = true }, grants = { { path = base, letters = "rwc" } } }
     assert(permitted(bound, base .. "/made.txt", "create"))
   end
   local everything: Sandbox.Policy = { grants = { { path = "/", letters = "rwxc" } } }
   local proc, why = Sandbox.permits(everything, "/proc/self/environ", "read")
   assert(proc == nil and why:find("/proc", 1, true) ~= nil, why)
   assert(Sandbox.permits(everything, "/", "read") == "/")
-  local _, none = Sandbox.permits({ profiles = { "nosuch" } }, base, "read")
+  local _, none = Sandbox.permits({ grants = { { profile = "nosuch" } } }, base, "read")
   assert(none:find("nosuch", 1, true) ~= nil, none)
 end

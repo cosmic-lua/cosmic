@@ -1,7 +1,7 @@
 --- The programs the checker's fuzz properties draw ([`lang.check_flow_fuzz_test`], [`lang.check_total_fuzz_test`]; adapted to
 --- the grammar by [`lang.check_drawn`]). They are programs of the fork's Teal, which the
 --- fork's checker drew first; the properties hold what the new checker does with them.
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 
 --- What the program at a point of the draw can name: the locals of type
 --- `integer | nil` (`ints`), of type `R | nil` (`recs`), the functions

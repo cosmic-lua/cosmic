@@ -150,7 +150,7 @@ static const struct raw_value {
  * store its test is given, as a loader no test can replace.
  * [`build.coverage_hits`] gets the collector's, to read the open window
  * in place, which [`cosmic.coverage`] does not offer. [`build.assertions`]
- * gets the counting `assert`. [`build.fuzz`] gets the instruction budget
+ * gets the counting `assert`. [`cosmic.fuzz`] gets the instruction budget
  * alone, which shares the coverage collector's hook but none of its
  * collection. */
 static const struct raw_module {
@@ -162,7 +162,7 @@ static const struct raw_module {
   {"build.test_worker", "cosmic.internal.store"},
   {"cosmic.coverage", "cosmic.internal.debug"},
   {"build.coverage_hits", "cosmic.internal.debug"},
-  {"build.fuzz", "cosmic.internal.budget"},
+  {"cosmic.fuzz", "cosmic.internal.budget"},
   {"build.assertions", "cosmic.internal.assertions"},
 };
 #define RAW_MODULE_COUNT (sizeof raw_modules / sizeof *raw_modules)

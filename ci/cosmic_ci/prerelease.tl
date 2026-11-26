@@ -240,9 +240,12 @@ local launcher_programs <const> = { "uname", "id", "mkdir", "stat", "mktemp", "d
 --- environment of the job's later steps (`GITHUB_ENV`, `GITHUB_PATH`), the publishing one among them, nor the
 --- driver that step runs; of the job's variables it gets `PATH` and `HOME` alone. The launcher is a shell script that unpacks its core and marks it
 --- executable: `fork` lets it run its programs, and `fattr` lets the tool change the mode of any file its user
---- owns, but not write one outside the cache. With `as_grants` they are `{"calls": ...}` grants, as cosmic writes
---- them now; without, a `promises` list, as the pinned driver (ci/cosmic-driver.pin) reads them.
-function Prerelease.smoke_policy_text(path: string, cache: string, as_grants: boolean): string
+--- owns, but not write one outside the cache; both are `{"calls": ...}` grants. With `in_setup` the policy is in
+--- the form cosmic writes now: the cache's variable is set under `setup`, and the "system" profile and the
+--- variables passed through are `{"profile": ...}` and `{"env": ...}` grants. Without, the variable is a top-level
+--- `set_env`, and the profile and the variables are top-level `profiles` and `env`, as the pinned driver
+--- (ci/cosmic-driver.pin) reads them.
+function Prerelease.smoke_policy_text(path: string, cache: string, in_setup: boolean): string
   local grants: mut {Json.Value} = { { path = path, letters = "rx" }, { path = cache, letters = "rwxc" } }
   for _, name in ipairs(launcher_programs) do
     for _, dir in ipairs({ "/bin/", "/usr/bin/", "/sbin/" }) do
@@ -261,13 +264,19 @@ function Prerelease.smoke_policy_text(path: string, cache: string, as_grants: bo
       table.insert(grants, { path = file, letters = "r" })
     end
   end
-  local fields: mut {string: Json.Value} = { profiles = Json.array({ "system" }),
-    env = Json.array({ "PATH", "HOME" }), set_env = { COSMIC_PORTABLE_CACHE = cache } }
-  if as_grants then
-    table.insert(grants, { calls = "fork" })
-    table.insert(grants, { calls = "fattr" })
+  local fields: mut {string: Json.Value} = {}
+  local set_env: {string: Json.Value} = { COSMIC_PORTABLE_CACHE = cache }
+  table.insert(grants, { calls = "fork" })
+  table.insert(grants, { calls = "fattr" })
+  if in_setup then
+    fields["setup"] = { set_env = set_env }
+    table.insert(grants, 1, { profile = "system" })
+    table.insert(grants, { env = "PATH" })
+    table.insert(grants, { env = "HOME" })
   else
-    fields["promises"] = Json.array({ "fork", "fattr" })
+    fields["set_env"] = set_env
+    fields["profiles"] = Json.array({ "system" })
+    fields["env"] = Json.array({ "PATH", "HOME" })
   end
   fields["grants"] = Json.array(grants)
   return (assert(Json.encode(fields)))
@@ -275,7 +284,8 @@ end
 
 --- The policy [`Prerelease.smoke_policy_text`] writes, read by the running cosmic: in the form it writes now, or
 --- else in the form the pinned driver reads.
--- TODO: build the policy directly, its calls as grants, once ci/cosmic-driver.pin names a release that has them.
+-- TODO: build the policy directly, its variable under `setup` and its profile and variables as grants, once
+-- ci/cosmic-driver.pin names a release that has them.
 function Prerelease.smoke_policy(path: string, cache: string): Sandbox.Policy
   local policy, why = PolicyJson.decode(Prerelease.smoke_policy_text(path, cache, true))
   if policy ~= nil then return policy end

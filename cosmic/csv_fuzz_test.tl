@@ -7,10 +7,10 @@ local Array = require("cosmic.array")
 --- the line each row was written to begin on; `records` refuses what `parse`
 --- refuses, reads its records, and puts each at the line `table` gives its row;
 --- and `load`, reading through SQLite's CSV table, copies what `table` reads.
---- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
+--- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (cosmic/fuzz.tl).
 
 local Csv = require("cosmic.csv")
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 
 local DELIMITERS <const> = { ",", "\t", ";", "|", "\xa7" }
 
@@ -511,11 +511,11 @@ local function test_load_reads_what_table_reads(tmp: string)
       local copied = loaded and loaded.count
       local cells: Sqlite.Rows = {}
       if copied ~= nil then
-        cells = assert(db:text_rows("SELECT * FROM loaded ORDER BY rowid"))
+        cells = assert(db:rows("SELECT * FROM loaded ORDER BY rowid"))
       end
       local _, _ = db:exec("DROP TABLE IF EXISTS loaded")
-      local temps = assert(db:text_rows("SELECT count(*) FROM sqlite_temp_schema"))
-      if Array.at(temps, 1):text(1) ~= "0" then return false, "load left its CSV table behind" end
+      local temps = assert(db:rows("SELECT count(*) FROM sqlite_temp_schema"))
+      if Array.at(temps, 1):integer(1) ~= 0 then return false, "load left its CSV table behind" end
       if text:find("\0", 1, true) ~= nil then
         Fuzz.label("a NUL")
         if copied ~= nil then

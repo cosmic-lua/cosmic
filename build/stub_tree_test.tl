@@ -83,7 +83,7 @@ local function test_the_tool_carries_each_standard_module_s_stub(tmp: string)
   assert(work.close(handle))
   assert(writer.carried(dir .. "/cosmic.db", tmp .. "/carried.db"))
   local db = assert(Sqlite.open(tmp .. "/carried.db"))
-  local rows = assert(db:text_rows(
+  local rows = assert(db:rows(
     "SELECT path, CAST(inflate(source) AS TEXT) FROM stubs ORDER BY path"))
   assert(db:close())
   assert(#rows == 1)
@@ -100,9 +100,9 @@ end
 --- too, have none there.
 local function test_the_tool_carries_the_places_of_each_standard_module_alone(tmp: string)
   local handle, tool = own_tree(tmp)
-  local held = assert(handle.db:text_rows(
+  local held = assert(handle.db:rows(
     "SELECT count(*) FROM places p JOIN inputs i ON i.source_hash = p.source_hash WHERE i.path = 'build.importer'"))
-  assert(assert(held[1]):text(1) ~= "0", "the working database places the tree's other module")
+  assert(assert(held[1]):integer(1) ~= 0, "the working database places the tree's other module")
   local result = assert(importer.compile(handle, tool))
   local dir = assert(build_paths.prepare(handle.root))
   assert(writer.write_result(handle, dir .. "/cosmic.db", result))
@@ -110,13 +110,13 @@ local function test_the_tool_carries_the_places_of_each_standard_module_alone(tm
   assert(writer.carried(dir .. "/cosmic.db", tmp .. "/carried.db"))
   for _, path in ipairs({ dir .. "/cosmic.db", tmp .. "/carried.db" }) do
     local db = assert(Sqlite.open(path))
-    local modules = assert(db:text_rows("SELECT DISTINCT module FROM places"))
+    local modules = assert(db:rows("SELECT DISTINCT module FROM places"))
     assert(#modules == 1 and assert(modules[1]):text(1) == "cosmic.thing", path)
-    local rows = assert(db:text_rows(
+    local rows = assert(db:rows(
       "SELECT line, column, length FROM places WHERE module = 'cosmic.thing' AND symbol = 'thing.Box.n'"))
     local row = assert(rows[1], path .. ": no place of thing.Box.n")
-    assert(row:text(1) == "4" and row:text(2) == "5" and row:text(3) == "1",
-      row:text(1) .. ":" .. row:text(2) .. "+" .. row:text(3))
+    assert(row:integer(1) == 4 and row:integer(2) == 5 and row:integer(3) == 1,
+      tostring(row:integer(1)) .. ":" .. tostring(row:integer(2)) .. "+" .. tostring(row:integer(3)))
     assert(db:close())
   end
 end
@@ -125,9 +125,9 @@ end
 --- projection and in the tool, for `cosmic lsp`'s completion in a project; the tree's other modules have none there.
 local function test_the_tool_carries_the_members_of_each_standard_module_alone(tmp: string)
   local handle, tool = own_tree(tmp)
-  local held = assert(handle.db:text_rows(
+  local held = assert(handle.db:rows(
     "SELECT count(*) FROM members m JOIN inputs i ON i.source_hash = m.source_hash WHERE i.path = 'build.importer'"))
-  assert(assert(held[1]):text(1) ~= "0", "the working database holds the tree's other module's members")
+  assert(assert(held[1]):integer(1) ~= 0, "the working database holds the tree's other module's members")
   local result = assert(importer.compile(handle, tool))
   local dir = assert(build_paths.prepare(handle.root))
   assert(writer.write_result(handle, dir .. "/cosmic.db", result))
@@ -135,13 +135,13 @@ local function test_the_tool_carries_the_members_of_each_standard_module_alone(t
   assert(writer.carried(dir .. "/cosmic.db", tmp .. "/carried.db"))
   for _, path in ipairs({ dir .. "/cosmic.db", tmp .. "/carried.db" }) do
     local db = assert(Sqlite.open(path))
-    local modules = assert(db:text_rows("SELECT DISTINCT module FROM members"))
+    local modules = assert(db:rows("SELECT DISTINCT module FROM members"))
     assert(#modules == 1 and assert(modules[1]):text(1) == "cosmic.thing", path)
-    local rows = assert(db:text_rows(
+    local rows = assert(db:rows(
       "SELECT kind, scope, type FROM members WHERE module = 'cosmic.thing' AND owner = 'thing.Box' AND name = 'n'"))
     local row = assert(rows[1], path .. ": no member n of thing.Box")
     assert(row:text(1) == "field" and row:text(3) == "integer", row:text(1) .. ":" .. row:text(3))
-    local made = assert(db:text_rows(
+    local made = assert(db:rows(
       "SELECT kind, type FROM members WHERE module = 'cosmic.thing' AND owner = 'thing' AND name = 'box'"))
     assert(assert(made[1], path .. ": no function box"):text(2) == "function(n: integer): thing.Box")
     assert(db:close())
@@ -171,14 +171,14 @@ local function test_the_tool_carries_the_header_a_generated_module_is_placed_in(
   assert(writer.carried(dir .. "/cosmic.db", tmp .. "/carried.db"))
   for _, path in ipairs({ dir .. "/cosmic.db", tmp .. "/carried.db" }) do
     local db = assert(Sqlite.open(path))
-    local origins = assert(db:text_rows(
+    local origins = assert(db:rows(
       "SELECT module, file, sha256, CAST(inflate(source) AS TEXT) FROM origins"))
     local origin = assert(origins[1], path .. ": no origin")
     assert(#origins == 1 and origin:text(1) == "cosmic.sys" and origin:text(2) == "core/syscalls.h", path)
     assert(origin:text(4) == syscalls_header and origin:text(3) == Hash.hex_sha256(syscalls_header), path)
-    local rows = assert(db:text_rows("SELECT line FROM places WHERE module = 'cosmic.sys' AND symbol = 'sys.getpid'"))
+    local rows = assert(db:rows("SELECT line FROM places WHERE module = 'cosmic.sys' AND symbol = 'sys.getpid'"))
     local row = assert(rows[1], path .. ": no place of sys.getpid")
-    assert(row:text(1) == "7", row:text(1))
+    assert(row:integer(1) == 7, tostring(row:integer(1)))
     assert(db:close())
   end
 end

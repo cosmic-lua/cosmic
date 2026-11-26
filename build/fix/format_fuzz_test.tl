@@ -5,12 +5,12 @@
 --- comments, the tree and the doc comments of the source, and formatting the layout changes nothing. A refusal of any
 --- other kind is a fault of the layout, and fails the property: the guard of `format` is what stops a faulty layout
 --- from being written, not what the property relies on. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
---- ([`build.fuzz`]).
+--- ([`cosmic.fuzz`]).
 local Ast = require("lang.ast")
 local Check = require("build.fix.layout_check")
 local Equiv = require("build.fix.equiv")
 local Format = require("build.fix.format")
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Lexer = require("lang.lexer")
 local Programs = require("build.parser_programs")
 local Test = require("cosmic.test")

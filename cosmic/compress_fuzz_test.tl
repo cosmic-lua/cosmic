@@ -2,10 +2,10 @@
 --- bytes is total, gives no update more than it was asked for, and
 --- comes out the same however the input is split; and what the encoder
 --- writes, at any level and in any chunks, decodes to what went in.
---- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
+--- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (cosmic/fuzz.tl).
 
 local Compress = require("cosmic.compress")
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 
 --- `plain` through a fresh zstd encoder at `level`, whole.
 local function packed(plain: string, level: integer): string

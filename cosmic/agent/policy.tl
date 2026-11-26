@@ -419,12 +419,14 @@ function Policy.of(cwd: string, config: Policy.Config): Sandbox.Policy?, string
   local calls: {Sandbox.Promise} = if linux then { "fork", "fattr", "jit", "nest" } else { "fork", "fattr", "jit" } end
   for _, promise in ipairs(calls) do grants[#grants + 1] = { calls = promise } end
   for _, target in ipairs(connect_of(config)) do grants[#grants + 1] = { connect = target } end
+  for _, name in ipairs({ "system", "programs", "proc" }) do
+    grants[#grants + 1] = { profile = name }
+  end
+  local passed: {string} = if config.path ~= nil then { "LANG", "LC_ALL", "TERM" } else { "PATH", "LANG", "LC_ALL", "TERM" } end
+  for _, name in ipairs(passed) do grants[#grants + 1] = { env = name } end
   local own: Sandbox.Policy = {
-    profiles = { "system", "programs", "proc" },
     grants = grants,
-    tmp = true,
-    env = if config.path ~= nil then { "LANG", "LC_ALL", "TERM" } else { "PATH", "LANG", "LC_ALL", "TERM" } end,
-    set_env = env_of(linux, home, if config.path ~= nil then real_path(config.path) else nil end, cert),
+    setup = { tmp = true, set_env = env_of(linux, home, if config.path ~= nil then real_path(config.path) else nil end, cert) },
     -- On Linux a root of its own: what it was not granted is not there,
     -- and it owns what it was, whoever runs the agent. macOS has no
     -- namespaces to give it one.
@@ -496,7 +498,8 @@ end
 --- what it holds.
 function Policy.describe(p: Sandbox.Policy, home?: string): {string}
   local out: mut {string} = {}
-  local set = p.set_env or {}
+  local setup = p.setup or {}
+  local set = setup.set_env or {}
   local kept = set["HOME"]
   if home ~= nil and kept ~= nil then
     local real, _ = Fs.absolute(home)
@@ -514,17 +517,18 @@ function Policy.describe(p: Sandbox.Policy, home?: string): {string}
     return a.path < b.path
   end)
   for _, g in ipairs(grants) do out[#out + 1] = string.format("  %-5s %s", g.letters, g.path) end
-  if p.profiles ~= nil and #p.profiles > 0 then
-    out[#out + 1] = "profiles: " .. table.concat(p.profiles, " ")
+  local profiles = Sandbox.profiles(p)
+  if #profiles > 0 then out[#out + 1] = "profiles: " .. table.concat(profiles, " ") end
+  if setup.tmp == true then
+    out[#out + 1] = "tmp: a fresh /tmp for each command, removed after it"
   end
-  if p.tmp == true then out[#out + 1] = "tmp: a fresh /tmp for each command, removed after it" end
   out[#out + 1] = "calls: " .. table.concat(Sandbox.calls(p), " ")
   out[#out + 1] = "isolate: " .. (if p.isolate ~= nil then table.concat(p.isolate, " ") else "none" end)
   local limits = p.limits
   if limits ~= nil and limits.processes ~= nil then
     out[#out + 1] = "processes: at most " .. tostring(limits.processes)
   end
-  out[#out + 1] = "env passed on: " .. table.concat(p.env or {}, " ")
+  out[#out + 1] = "env passed on: " .. table.concat(Sandbox.env(p), " ")
   local names: mut {string} = {}
   for k, _ in pairs(set) do names[#names + 1] = k end
   table.sort(names)

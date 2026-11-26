@@ -41,7 +41,7 @@ local function filled(tmp: string, pem: string): Sqlite.Rows?, string
     assert(db:close())
     return nil, trouble
   end
-  local rows = assert(db:text_rows("SELECT label, hex(der) FROM ca_roots ORDER BY rowid"))
+  local rows = assert(db:rows("SELECT label, hex(der) FROM ca_roots ORDER BY rowid"))
   assert(db:close())
   return rows, ""
 end
@@ -91,7 +91,7 @@ local function test_fill_writes_one_row_per_distinct_certificate(tmp: string)
       "B\n=\n" .. block("\7") .. "\n" .. "A again\n=\n" .. block("\5\6") .. "\n"))
   local db = database()
   assert(roots.fill(db, tmp, "main."))
-  local rows = assert(db:text_rows(
+  local rows = assert(db:rows(
     "SELECT hex(sha256), label, hex(der) FROM ca_roots ORDER BY rowid"))
   assert(db:close())
   assert(#rows == 2, "a certificate listed twice is one root")
@@ -123,15 +123,15 @@ local function test_the_tree_s_bundle_becomes_a_row_per_certificate()
   local _, blocks = text:gsub("\nCKA_TRUST_SERVER_AUTH CK_TRUST CKT_NSS_TRUSTED_DELEGATOR\n", "")
   local db = database()
   assert(roots.fill(db, root, "main."))
-  local counted = assert(db:text_rows(
+  local counted = assert(db:rows(
     "SELECT count(*), count(*) FILTER (WHERE label = ''), " ..
       "count(*) FILTER (WHERE sha256 <> sha256(der)) FROM ca_roots"))
   assert(db:close())
   -- An aggregate query gives one row.
   local totals = Array.at(counted, 1)
-  assert(tonumber(totals:text(1)) == blocks, totals:text(1) .. " rows for " .. tostring(blocks))
-  assert(totals:text(2) == "0", "every root of the bundle is labelled")
-  assert(totals:text(3) == "0", "each row is keyed by its certificate's digest")
+  assert(totals:integer(1) == blocks, tostring(totals:integer(1)) .. " rows for " .. tostring(blocks))
+  assert(totals:integer(2) == 0, "every root of the bundle is labelled")
+  assert(totals:integer(3) == 0, "each row is keyed by its certificate's digest")
 end
 
 --- `bytes` as certdata.txt writes a `MULTILINE_OCTAL` value: `\ooo`
@@ -249,7 +249,7 @@ local function test_a_distrust_date_is_carried_in_the_row(tmp: string)
   })))
   local db = database()
   assert(roots.fill(db, tmp, "main."))
-  local rows = assert(db:text_rows("SELECT label, distrust_after FROM ca_roots ORDER BY label"))
+  local rows = assert(db:rows("SELECT label, distrust_after FROM ca_roots ORDER BY label"))
   assert(db:close())
   assert(#rows == 2)
   local dated, plain = assert(rows[1]), assert(rows[2])

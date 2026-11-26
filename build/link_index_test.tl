@@ -25,8 +25,8 @@ end
 --- The rows of `sql` over `db`, each row's cells joined by spaces.
 local function rows(db: Sqlite.Handle, sql: string): {string}
   local out: mut {string} = {}
-  for _, row in ipairs((assert(db:text_rows(sql)))) do
-    out[#out + 1] = table.concat(row:texts(), " ")
+  for _, row in ipairs((assert(db:rows(sql)))) do
+    out[#out + 1] = table.concat(row:as_texts(), " ")
   end
   return out
 end

@@ -30,18 +30,18 @@ local function test_a_bare_example_with_no_output_is_named_example_n()
   assert(code:find("local x = 1", 1, true) ~= nil, "got:\n" .. code)
 end
 
---- What the generator writes to catch `print` is code the new checker takes with no ceiling to hold it: what it caught is a field
---- of a record, and no array is written nor local assigned by a closure.
-local function test_the_capture_of_print_writes_no_array_and_assigns_no_captured_local()
+--- An example with output calls the global `print`, as a reader's program does: the generator catches descriptor 1 and
+--- declares no `print` of its own, so the checker reads the example as written.
+local function test_the_capture_of_an_example_s_output_leaves_print_the_global()
   local blocks: {Block} = {
     block("teal", 'print("hi")', no_mods),
     block("output", "hi", no_mods),
   }
   local code, trouble = generate.from_blocks(blocks, "fixture.md")
   assert(code ~= nil, "generate failed: " .. tostring(trouble))
-  assert(code:find("local record __doctest_caught", 1, true) ~= nil, "got:\n" .. code)
-  assert(code:find("caught.text = caught.text ..", 1, true) ~= nil, "got:\n" .. code)
-  assert(code:find("parts[", 1, true) == nil and code:find("lines[", 1, true) == nil, "got:\n" .. code)
+  assert(code:find("local __doctest_get = __doctest_capture()", 1, true) ~= nil, "got:\n" .. code)
+  assert(code:find("__doctest_sys.dup2(file, 1)", 1, true) ~= nil, "got:\n" .. code)
+  assert(code:find("local print", 1, true) == nil, "got:\n" .. code)
 end
 
 local function test_an_example_with_output_is_named_test_n_and_asserts()

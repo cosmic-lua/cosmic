@@ -49,7 +49,7 @@ local FS <const> = 'local Fs = require("cosmic.fs") '
 
 local function test_this_program_runs_a_chunk_under_a_policy()
   SeatbeltFixture.macos_only()
-  local result = ran('print(6 * 7)', { profiles = { "system" } })
+  local result = ran('print(6 * 7)', { grants = { { profile = "system" } } })
   expect(result.ok and result.stdout == "42\n", result)
 end
 
@@ -59,8 +59,8 @@ local function test_it_reads_a_granted_file_and_no_other(tmp: string)
   assert(Fs.write(granted, "granted-bytes"))
   assert(Fs.write(other, "other-bytes"))
   local result = ran(FS .. 'local a, b = ... local g, _ = Fs.read(assert(a)) local o, _ = Fs.read(assert(b)) ' ..
-      'print(g, o == nil)', { profiles = { "system" },
-        grants = { { path = granted, letters = "r" } } }, { granted, other })
+      'print(g, o == nil)', {
+        grants = { { profile = "system" }, { path = granted, letters = "r" } } }, { granted, other })
   expect(result.ok and result.stdout == "granted-bytes\ttrue\n", result)
   assert(not (result.stdout or ""):find("other-bytes", 1, true), "an ungranted file was read")
 end
@@ -71,14 +71,14 @@ local function test_nothing_outside_its_grants_is_readable()
   local result = ran(FS .. 'local home, hosts = ... ' ..
       'local listed, _ = Fs.list(assert(home)) local read, _ = Fs.read(assert(hosts)) ' ..
       'print(listed == nil, read == nil)',
-    { profiles = { "system" } }, { home, "/etc/hosts" })
+    { grants = { { profile = "system" } } }, { home, "/etc/hosts" })
   expect(result.ok and result.stdout == "true\ttrue\n", result)
 end
 
 local function test_tmp_is_a_directory_it_may_write()
   SeatbeltFixture.macos_only()
   local result = ran(FS .. 'local dir = assert(require("cosmic.sys").getenv("TMPDIR")) local path = dir .. "/made" ' ..
-      'local wrote, _ = Fs.write(path, "x") local read, _ = Fs.read(path) print(dir, wrote, read)', { profiles = { "system" }, tmp = true })
+      'local wrote, _ = Fs.write(path, "x") local read, _ = Fs.read(path) print(dir, wrote, read)', { grants = { { profile = "system" } }, setup = { tmp = true } })
   expect(result.ok, result)
   local dir = (result.stdout or ""):match("^([^\t]+)\ttrue\tx\n$")
   assert(dir ~= nil, "the child's tmp was not writable: " .. string.format("%q", result.stdout or ""))
@@ -95,8 +95,8 @@ local function test_tmp_leaves_its_parent_and_a_read_granted_file_unwritable(tmp
   local result = ran(FS .. 'local sys = require("cosmic.sys") local granted = assert((...)) ' ..
       'local dir = assert(sys.getenv("TMPDIR")) local parent = Fs.dirname(dir) ' ..
       'local inside, _ = Fs.write(dir .. "/in", "x") local beside, _ = Fs.write(parent .. "/beside", "x") ' ..
-      'local changed, _ = Fs.write(granted, "changed") print(inside, beside, changed)', { profiles = { "system" }, tmp = true,
-        grants = { { path = granted, letters = "r" } } }, { granted })
+      'local changed, _ = Fs.write(granted, "changed") print(inside, beside, changed)', { setup = { tmp = true },
+        grants = { { profile = "system" }, { path = granted, letters = "r" } } }, { granted })
   expect(result.ok and result.stdout == "true\tfalse\tfalse\n", result)
   assert(assert(Fs.read(granted)) == "granted-bytes", "the read-granted file was written")
 end
@@ -113,6 +113,6 @@ local function test_a_portable_artifacts_relaunch_runs_under_a_policy()
         tostring(launched.argv[2]) .. "): no descriptors to hand on")
   end
   assert(next(launched.fds) ~= nil, "a portable artifact's relaunch hands on no descriptor")
-  local result = ran('print(assert(require("cosmic.proc").relaunch()).argv[2])', { profiles = { "system" } })
+  local result = ran('print(assert(require("cosmic.proc").relaunch()).argv[2])', { grants = { { profile = "system" } } })
   expect(result.ok and result.stdout == "--artifact\n", result)
 end

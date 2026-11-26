@@ -3,7 +3,7 @@
 --- is total on any path, and every redirect it makes leads to a path of
 --- one leading "/" that is not itself sent on again.
 
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Router = require("cosmic.web.router")
 local Server = require("cosmic.http.server")
 local Stream = require("cosmic.stream")
@@ -59,7 +59,7 @@ local function test_canonical_never_raises_and_is_idempotent(tmp: string)
     check = function(input: string): boolean, string
       local canon, why = Router.canonical(input)
       if canon == nil then
-        if not why:find("^url: ") then return false, "refused with " .. why end
+        if not tostring(why):find("^url: ") then return false, "refused with " .. tostring(why) end
         Fuzz.label("refused")
         return true, ""
       end
@@ -73,7 +73,7 @@ local function test_canonical_never_raises_and_is_idempotent(tmp: string)
       end
       local again, again_why = Router.canonical(canon.path)
       if again == nil then
-        return false, ("the canonical path %q is refused: %s"):format(canon.path, again_why)
+        return false, ("the canonical path %q is refused: %s"):format(canon.path, tostring(again_why))
       end
       if again.path ~= canon.path or again.changed or again.trailing ~= canon.trailing then
         return false, ("%q is canonical as %q, but that is %q (changed %s)"):format(input, canon.path,

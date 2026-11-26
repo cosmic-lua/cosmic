@@ -1412,11 +1412,8 @@ function worker.invocation(given: worker.Invocation): worker.Command
     -- it would contradict: what the worker is given, the one place it is
     -- made whole, goes in the policy's `set_env`.
     local held = given_policy2
-    local policy: Sandbox.Policy = { profiles = held.profiles, grants = held.grants,
-      isolate = held.isolate,
-      loopback = held.loopback, env = held.env, tmp = held.tmp, limits = held.limits,
-      database = held.database }
-    policy.set_env = env -- checked: field_fixed
+    local policy: Sandbox.Policy = { grants = held.grants, isolate = held.isolate, limits = held.limits,
+      setup = { tmp = (held.setup or {}).tmp, database = (held.setup or {}).database, set_env = env } }
     -- `timeout_ns` is Child.FOREVER, which the harness cannot read: it
     -- requires no cosmic.child value. The runner ends a worker past its limit.
     return { argv = argv, options = { timeout_ns = -1,

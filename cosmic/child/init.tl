@@ -108,6 +108,9 @@ local Hold = require("cosmic.child.hold")
 local type Held = Hold.Held
 local type MappedUser = Hold.MappedUser
 local RELAY_MAIN = Hold.RELAY_MAIN
+--- The most grants spawn takes, as hold.tl counts them (`GRANT_MAX` in
+--- core/sandbox.h, which is `UNVEIL_MAX`).
+local MAX_GRANTS <const> = raw.UNVEIL_MAX
 local beneath = Hold.beneath
 local by_path = Hold.by_path
 local database_holds = Hold.database_holds
@@ -332,7 +335,7 @@ local record Options
   --- A [`cosmic.sandbox`] policy the child is held to, met or the start
   --- fails (nil, and a message naming what is missing and how to give it).
   --- The policy is merged ([`Sandbox.union`], which resolves its
-  --- `profiles`), and then:
+  --- profile grants), and then:
   ---
   --- - `grants` are the only paths the child reaches, by Landlock (by the
   ---   root alone under the `nest` promise), a relative one from `cwd`; the child's program, found on this
@@ -345,8 +348,11 @@ local record Options
   ---   writable one noexec unless granted `x`; a grant's `from` is the
   ---   host's path, bound at the grant's `path`, which only this has (a
   ---   `from` without it fails). The program's own file, its loader and
-  ---   its directory (`cwd`, or this process's) must be granted, and it is
-  ---   run by its real path. Beside them the root has a /proc of its own
+  ---   its directory (`cwd`, or this process's) must be granted. A
+  ---   program named through a link (a virtual environment's interpreter)
+  ---   is run by that name where the root shows the same file there (the
+  ---   link is in a granted directory, or is a grant's name), else by its
+  ---   real path. Beside them the root has a /proc of its own
   ---   (see `proc`), the links /dev/fd and /dev/stdin, /dev/stdout and
   ---   /dev/stderr into it, and, with `tmp`, a /tmp that is a tmpfs of 256
   ---   MiB, noexec unless a grant of "/tmp" with no `from` has the letters
@@ -2407,6 +2413,108 @@ local function holds_place(grants: {Rules.Path}, base: string): boolean
   return false
 end
 
+--- What `p` sets up for its program: its `setup`, or none.
+local function setup_of(p: Rules.Policy): Rules.Setup
+  return p.setup or {}
+end
+
+--- A path a root places, and whether it shows the host's file there.
+local record Placed
+  at: string
+  host: boolean
+end
+
+--- The most links a path is followed through, as the kernel's MAXSYMLINKS.
+local MAX_LINKS <const> = 40
+
+--- Whether the root `root` describes shows at `name` the file the host
+--- has at `real`, so a program reached by a link (a virtual environment's
+--- interpreter) is run by its name: each link on the way is the host's,
+--- in a bind at its real path, or one the root makes at a grant's name to
+--- that grant's real path. A bind at another name, the sandbox's own
+--- /proc or /tmp, or a path the root has not, shows another file.
+local function root_shows(root: raw_process.Unveil, name: string, real: string): boolean
+  local placed: mut {Placed} = { { at = "/proc", host = false } }
+  if root.tmp ~= nil then placed[#placed + 1] = { at = "/tmp", host = false } end
+  local links: mut {string:string} = {}
+  for _, bind in ipairs(root.binds or {}) do
+    if bind.at ~= nil then
+      placed[#placed + 1] = { at = bind.at, host = false }
+    else
+      local bound, _ = sys.realpath(bind.path)
+      if bound == nil then return false end
+      placed[#placed + 1] = { at = bound, host = true }
+      if bound ~= bind.path then links[bind.path] = bound end
+    end
+  end
+  -- The place a path is in is the longest holding it; of two at one
+  -- name, the later, which the root mounts over the other.
+  local function shown(at: string): boolean?
+    local longest = -1
+    local host: boolean?
+    for _, place in ipairs(placed) do
+      if beneath(at, place.at) and #place.at >= longest then
+        longest, host = #place.at, place.host
+      end
+    end
+    return host
+  end
+  -- Whether a placed path or a link is strictly beneath `at`, which the
+  -- root then makes a directory.
+  local function above(at: string): boolean
+    for _, place in ipairs(placed) do
+      if place.at ~= at and beneath(place.at, at) then return true end
+    end
+    for link, _ in pairs(links) do
+      if link ~= at and beneath(link, at) then return true end
+    end
+    return false
+  end
+  local rest: mut {string} = {}
+  for part in name:gmatch("[^/]+") do rest[#rest + 1] = part end
+  local at = ""
+  local followed = 0
+  while #rest > 0 do
+    local part = assert(table.remove(rest, 1), "a part is left")
+    if part == ".." then
+      at = at:match("^(.*)/[^/]*$") or ""
+    elseif part ~= "." then
+      local here = at .. "/" .. part
+      local host = shown(here)
+      if host == false then return false end
+      local points: string?
+      if host == true then
+        local st, _ = sys.lstat(here)
+        if st == nil then return false end
+        if st.kind == "link" then
+          local read, _ = sys.readlink(here)
+          if read == nil then return false end
+          points = read
+        end
+      elseif links[here] ~= nil and not above(here) then
+        -- A name another placed path is beneath is a directory the root
+        -- makes for it, where no link is made (core/sandbox_root.c's
+        -- make_link).
+        points = links[here]
+      elseif not above(here) then
+        return false
+      end
+      if points ~= nil then
+        followed = followed + 1
+        if followed > MAX_LINKS then return false end
+        local spliced: mut {string} = {}
+        for piece in points:gmatch("[^/]+") do spliced[#spliced + 1] = piece end
+        for _, left in ipairs(rest) do spliced[#spliced + 1] = left end
+        rest = spliced
+        if points:sub(1, 1) == "/" then at = "" end
+      else
+        at = here
+      end
+    end
+  end
+  return (if at == "" then "/" else at end) == real
+end
+
 --- The core a policy's program runs as, where it is this program or runs on
 --- a `database`: [`relaunch_of`]'s start, and for a `database`, with this
 --- program's own file out of the child's reach (it holds modules the
@@ -2416,7 +2524,8 @@ end
 --- the host's own (Landlock's profiles are not Seatbelt's).
 local function core_of(argv: {string}, opts: Options, merged: Rules.Policy, user: MappedUser?,
                        base: string?, reach: {Rules.Path}): Proc.Relaunch?, string
-  local named_database = merged.database
+  local setup = merged.setup or {}
+  local named_database = setup.database
   local database: string = named_database and named_database.path -- checked: nil_not_allowed
   local program: string?
   if database ~= nil then -- checked: compare_disjoint
@@ -2483,7 +2592,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
   -- or `rwxc`, a /tmp that may run what is made there. It is no bind of the
   -- host's /tmp, so it is no grant of the root's.
   local tmp_exec = false
-  if file and merged.tmp == true then
+  if file and setup_of(merged).tmp == true then
     local others: mut {Rules.Grant} = {}
     for _, grant in ipairs(merged.grants or {}) do
       if grant is Rules.Path and grant.from == nil and named(grant.path, "/") == "/tmp" then
@@ -2520,7 +2629,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
   -- `database` it is the core and that file alone, so this program's own
   -- file, which holds every module of the tree, is none of the child's.
   local relaunch: Proc.Relaunch?
-  local named_database = merged.database
+  local named_database = setup_of(merged).database
   local database: string = named_database and named_database.path -- checked: nil_not_allowed
   local found, relaunch_trouble = core_of(argv, opts, merged, user, base, Rules.paths(merged))
   if found == nil and relaunch_trouble ~= "" then return nil, relaunch_trouble end
@@ -2558,13 +2667,6 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
     if widened == nil then return nil, "sandbox: " .. widen_trouble end
     merged = widened
   end
-  -- TODO: [`unmet`] counts the grants before these two are added, so a
-  -- start at the most raises inside spawn rather than refusing with a
-  -- message: "too many grants" where the grants are handed to it
-  -- (core/sandbox_rules.c's `read_grants`), and under `nest`, which hands
-  -- none, "too many unveiled paths" for the root they are bound into.
-  -- The fix: count the grants after adding these two, and refuse with
-  -- the count and the most.
   local core_grant: Rules.Path?
   if found ~= nil then
     relaunch = found
@@ -2582,11 +2684,11 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
   -- A bare name is found on this process's PATH and run by its real path,
   -- so what is granted is what runs; a name with a slash is run as written
   -- (a virtual environment's interpreter link keeps its prefix), and its
-  -- grants are the real path's, which is what the kernel opens.
-  -- TODO: run a link as the link under `isolate` file too, binding it at
-  -- its name (a virtual environment's interpreter), once a bind can place
-  -- a link: a root holds the real path alone, so the program is run by it.
+  -- grants are the real path's, which is what the kernel opens. Under
+  -- `isolate` file it is run as written where the root shows the same
+  -- file there ([`root_shows`]), else by its real path.
   local path = argv[1]
+  local link_name, link_real: string?, string = nil, ""
   if relaunch ~= nil then
     path = relaunch.argv[1]
   elseif not path:find("/", 1, true) then -- checked: nil_not_allowed
@@ -2598,6 +2700,8 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
   elseif file then
     local real, real_trouble = sys.realpath(named(path, base)) -- checked: nil_not_allowed
     if real == nil then return nil, path .. ": " .. real_trouble end -- checked: nil_not_allowed
+    local written = named(assert(path, "a start names a program"), base)
+    if real ~= written then link_name, link_real = written, real end
     path = real
   end
   local files, loader_trouble = Rules.loaders(path, base) -- checked: nil_not_allowed
@@ -2645,7 +2749,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
     local reached, reach_trouble = reached_by(merged, here, file, user)
     if reached == nil then return nil, "sandbox: " .. reach_trouble end
     idmap = reached
-    if file or proc or #(merged.loopback or {}) > 0 or relayed or isolated_unix(merged) then
+    if file or proc or #Rules.loopback(merged) > 0 or relayed or isolated_unix(merged) then
       proc = true
       -- The namespace is mapped from outside with this process's own group
       -- beside the program's, which may not be one id twice.
@@ -2683,6 +2787,9 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
   end
   local missing = ungranted(files, checked, base)
   if missing ~= "" then return nil, "sandbox: " .. missing end
+  if root ~= nil and link_name ~= nil and root_shows(root, link_name, link_real) then
+    path = link_name
+  end
   if file and not holds_place(Rules.paths(merged), base) then
     return nil, "sandbox: under isolate file the root holds only what is granted, so the " ..
       "directory the program starts in, " .. string.format("%q", base) .. ", must be at, " ..
@@ -2743,13 +2850,13 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
     end
   end
   local env: mut {string:string} = {}
-  for _, name in ipairs(merged.env or {}) do
+  for _, name in ipairs(Rules.env(merged)) do
     local value = sys.getenv(name)
     if value ~= nil then env[name] = value end
   end
-  for name, value in pairs(merged.set_env or {}) do env[name] = value end
+  for name, value in pairs(setup_of(merged).set_env or {}) do env[name] = value end
   if relayed then
-    for name, value in pairs(RelayConfig.proxy_env(assert(merged.loopback), nil, nil, Rules.connects(merged))) do
+    for name, value in pairs(RelayConfig.proxy_env(Rules.loopback(merged), nil, nil, Rules.connects(merged))) do
       env[name] = value
     end
   end
@@ -2777,7 +2884,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
   -- unix socket to reach: the filter then lets it make inet sockets (the
   -- namespace is their hold) when it declared a loopback or `connect`, and
   -- unix ones when it was granted `u`.
-  local inet = #(merged.loopback or {}) > 0 or relayed
+  local inet = #Rules.loopback(merged) > 0 or relayed
   -- The relay's own start (`online`) makes inet sockets in this process's
   -- network instead: it connects and resolves itself, and holds no
   -- loopback, `connect` or `u` grant of its own.
@@ -2797,11 +2904,11 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
     group = if user ~= nil and drop == nil then user.gid else nil end }
   if root ~= nil then
     sandbox.unveil = root -- checked: field_fixed
-    if merged.tmp == true then
+    if setup_of(merged).tmp == true then
       -- A normalized path beneath /tmp (no empty, `.` or `..` component)
       -- that `set_env` names stays TMPDIR: the program makes it, in the /tmp
       -- it has. Any other value is /tmp.
-      local chosen = (merged.set_env or {}).TMPDIR -- checked: map_field
+      local chosen = (setup_of(merged).set_env or {}).TMPDIR -- checked: map_field
       local normal = chosen ~= nil and chosen:find("^/tmp/[^/]") ~= nil -- untyped: call
       if normal then
         for part in chosen:gmatch("[^/]*") do -- untyped: call
@@ -2817,10 +2924,29 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
     -- reopens the database by its path after the hash, so a file swapped
     -- in that instant runs. Hand it the checked descriptor once core/main.c
     -- opens SQLite on the descriptor it checked (the TODO in open_database).
-    local holds, held_why = database_holds(assert(merged.database), relaunch.argv[3]) -- checked: index_may_be_nil
+    local holds, held_why = database_holds(assert(setup_of(merged).database), relaunch.argv[3]) -- checked: index_may_be_nil
     if not holds then return nil, "sandbox: " .. held_why end
   end
-  return { path = path, env = env, tmp = "", wants_tmp = merged.tmp == true and not file, -- checked: nil_not_allowed
+  -- What spawn is handed, counted once every path the start adds is in:
+  -- its core's, a database's, the program's start files, the directory
+  -- `tmp` makes, and under `isolate` file the root's own /proc. A start
+  -- past the most is refused here, with the count, and not raised inside
+  -- spawn ("too many grants", "too many unveiled paths").
+  local made_tmp = if setup_of(merged).tmp == true and not file then 1 else 0 end
+  local handed = (if nest then 0 else #grants end) + made_tmp
+  -- The boot ruleset counts only where it is sent: a cosmic child, not under `nest`.
+  local laid = if relaunch ~= nil and not nest then #layer + made_tmp else 0 end
+  -- A root's reads, writes and binds are one list of spawn's (core/spawn.c `read_unveil`).
+  local unveiled = 0
+  if root ~= nil then unveiled = #root.reads + #(root.writes or {}) + #(root.binds or {}) end
+  local most_held = math.max(handed, laid, unveiled)
+  if most_held > MAX_GRANTS then
+    return nil, "sandbox: grants: with the paths the start adds (the program's start files, its core, a " ..
+      "database and " .. (if file then "the sandbox's /proc" else "tmp's directory" end) .. ", where it has " ..
+      "them), the start holds " .. tostring(most_held) .. ", past the most a start takes, " .. tostring(MAX_GRANTS) ..
+      "; grant a directory above them instead"
+  end
+  return { path = path, env = env, tmp = "", wants_tmp = setup_of(merged).tmp == true and not file, -- checked: nil_not_allowed
     layer = if relaunch ~= nil and not nest then layer else nil end,
     sandbox = sandbox, cwd = if file then base else nil end, user = user, drop = drop, nests = nest,
     argv = run_argv, fds = if relaunch ~= nil then relaunch.fds else nil end,
@@ -2924,10 +3050,10 @@ local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Pol
   -- held by the trampoline, as its profile is the start's.
   local booted = relaunch ~= nil and serves_relay == nil and core ~= nil and
     startable(core, Rules.paths(merged), opts.cwd)
-  for name in pairs(merged.set_env or {}) do
+  for name in pairs(setup_of(merged).set_env or {}) do
     if name:sub(1, 5) == "DYLD_" then booted = false end
   end
-  for _, name in ipairs(merged.env or {}) do
+  for _, name in ipairs(Rules.env(merged)) do
     if name:sub(1, 5) == "DYLD_" and sys.getenv(name) ~= nil then booted = false end
   end
   options.booted = booted
@@ -2940,11 +3066,11 @@ local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Pol
   local missing = ungranted(files, Rules.paths(merged), opts.cwd)
   if missing ~= "" then return nil, "sandbox: " .. missing end
   local env: mut {string:string} = {}
-  for _, name in ipairs(merged.env or {}) do
+  for _, name in ipairs(Rules.env(merged)) do
     local value = sys.getenv(name)
     if value ~= nil then env[name] = value end
   end
-  for name, value in pairs(merged.set_env or {}) do env[name] = value end
+  for name, value in pairs(setup_of(merged).set_env or {}) do env[name] = value end
   local run_argv: mut {string}?
   if relaunch ~= nil then
     for name, value in pairs(relaunch.env) do env[name] = value end
@@ -2955,7 +3081,7 @@ local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Pol
     for _, word in ipairs(relaunch.argv) do run_argv[#run_argv + 1] = word end -- checked: nil_not_allowed*2
     for i = 2, #argv do run_argv[#run_argv + 1] = argv[i] end -- checked: nil_not_allowed*2
   end
-  local database = merged.database
+  local database = setup_of(merged).database
   if relaunch ~= nil and database ~= nil then
     local holds, held_why = database_holds(database, relaunch.argv[3]) -- checked: index_may_be_nil
     if not holds then return nil, "sandbox: " .. held_why end
@@ -2964,7 +3090,7 @@ local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Pol
     seatbelt = { profile = profile.text, parameters = profile.parameters, boot = booted },
     rlimits = profile.rlimits,
   }
-  return { path = path, env = env, tmp = "", wants_tmp = merged.tmp, tmp_parameter = profile.tmp, -- checked: nil_not_allowed*2
+  return { path = path, env = env, tmp = "", wants_tmp = setup_of(merged).tmp, tmp_parameter = profile.tmp, -- checked: nil_not_allowed*2
     sandbox = sandbox, nests = false, seatbelt = true, seatbelt_boot = booted, argv = run_argv,
     fds = if relaunch ~= nil then relaunch.fds else nil end, relay = if relayed then Rules.connects(merged) else nil end,
     seatbelt_policy = policy, seatbelt_options = options }, ""
@@ -3485,6 +3611,20 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
         string.format("%q", argv[1]) .. ") answers where a shell would find it"
     elseif errno == sys.EINVAL or errno == sys.EMFILE then
       trouble = trouble .. descriptor_limit_hint(slots)
+    elseif (errno == sys.EACCES or errno == sys.EPERM) and not string.find(tostring(trouble), ":", 1, true) and
+        opts.credentials == nil then
+      -- A bare refusal, with no step of the start named: the run of the
+      -- program, or entering its directory. Name the file the start ran,
+      -- which is not always argv[1]: a cosmic program runs by its core,
+      -- and a root caller's child by a copy of it (cosmic/child/hold.tl's `shared_core`).
+      trouble = trouble .. ": running " .. string.format("%q", path) ..
+        " (the program, or the interpreter it starts through)" ..
+        (if held ~= nil then
+          ": a program to run needs an `rx` grant on it in this start's policy, and in any sandbox holding this process"
+          else
+          ": a sandbox holding this process gives no `rx` there, or the file's mode refuses it"
+          end) ..
+        (if opts.cwd ~= nil then "; or its directory, " .. string.format("%q", opts.cwd) .. ", cannot be entered" else "" end)
     end
     return refuse("start: " .. trouble)
   end
@@ -3704,7 +3844,7 @@ function Child.layers(argv: {string}, opts: Options): Rules.Layers?, string
   return {
     landlock = landlock, boot = boot, calls = calls, exec_refused = not runs,
     sockets = sockets, namespaces = namespaces, root = sandbox.unveil ~= nil, relay = held.relay or {},
-    loopback = merged.loopback or {}, rlimits = rlimits,
+    loopback = Rules.loopback(merged), rlimits = rlimits,
   }, ""
 end
 

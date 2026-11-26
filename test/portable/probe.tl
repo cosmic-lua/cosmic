@@ -104,7 +104,7 @@ local function verify_verdicts(argv: {string}): integer
   assert(database ~= nil and counter ~= nil,
     "usage: probe.tl verify-verdicts DATABASE COUNTER")
   local db = assert(Sqlite.open(database))
-  local keys = assert(db:text_rows(
+  local keys = assert(db:rows(
     "SELECT key FROM verdicts ORDER BY key"))
   assert(db:close())
   local content = assert(Fs.read(counter))
