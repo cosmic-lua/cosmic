@@ -309,7 +309,8 @@ end
   local result = invoke(root, output, { "suite/hooks_test.tl" }, env)
   assert(result.ok, assert(Fs.read(output)))
   local kept = test_key.worker_environment({ COSMIC_PORTABLE_STARTUP_TEST_GO = "x",
-    COSMIC_PORTABLE_CACHE = "c", PATH = "p", COSMIC_REBOOTED = "1", OLDPWD = "/elsewhere",
+    COSMIC_PORTABLE_CACHE = "c", PATH = "p", COSMIC_REBOOTED = "1", COSMIC_REBOOTED_TOOL = "/tree/o/bin/cosmic",
+    OLDPWD = "/elsewhere",
     _ = "/usr/bin/timeout", SHLVL = "2", COSMIC_BUILD_CACHE = "/shared/cache.db",
     COSMIC_VERDICT_CACHE = "/shared/verdicts.db", COSMIC_TEST_NO_SHARED = "1", COSMIC_TEST_BAIL = "1",
     COSMIC_TEST_CHECK_TYPES = "1", COSMIC_TEST_TYPES = "1",
@@ -329,7 +330,8 @@ end
   -- How this run was started -- after a tool rebuilt itself, from a
   -- shell that was elsewhere before, or from a script rather than a
   -- terminal (the shell's depth) -- is no worker's to see.
-  assert(kept["COSMIC_REBOOTED"] == nil and kept["OLDPWD"] == nil and kept["_"] == nil)
+  assert(kept["COSMIC_REBOOTED"] == nil and kept["COSMIC_REBOOTED_TOOL"] == nil)
+  assert(kept["OLDPWD"] == nil and kept["_"] == nil)
   assert(kept["SHLVL"] == nil)
   assert(kept["COSMIC_PORTABLE_CACHE"] == "c" and kept["PATH"] == "p")
 end
