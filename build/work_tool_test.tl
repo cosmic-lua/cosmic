@@ -9,7 +9,6 @@ local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local build_paths = require("build.paths")
 local rebuild_lock = require("build.rebuild_lock")
-local this_program = require("build.this_program")
 local work = require("build.work")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
@@ -29,7 +28,7 @@ local function test_a_second_build_of_a_tree_waits_for_the_first(tmp: string)
   local held = assert(work.open(tmp))
   local output = tmp .. "/second.out"
   local fd = assert(Fs.open_write(output))
-  local build = this_program.program({ "main.tl" },
+  local build = Test.cosmic({ "main.tl" },
     { timeout_ns = Child.FOREVER, cwd = tmp, stdout = fd, stderr = fd })
   local second, trouble = Child.start(build.argv, build.options)
   assert(Fs.close(fd))
@@ -56,7 +55,7 @@ end
 --- it has waited a second; and what it said on stderr until then, or till
 --- it ended. `env`, where given, is its whole environment.
 local function waiting(tmp: string, script: string, env?: {string:string}): Child.Handle, string
-  local started = this_program.program({ "-e", script }, { cwd = tmp, env = env,
+  local started = Test.cosmic({ "-e", script }, { cwd = tmp, env = env,
     stdout = "capture", stderr = "stream", timeout_ns = Clock.seconds(60) })
   local child = assert(Child.start(started.argv, started.options))
   local said = ""
@@ -238,7 +237,7 @@ local function test_a_build_handed_the_rebuild_lock_makes_a_file_of_another_sche
   -- Held here as a stale tool holds it while its boot runs.
   assert(rebuild_lock.take(tmp, 0, "rebuild") == "held")
   local child, said = waiting(tmp, opening_script(tmp),
-    rebuild_lock.hand(this_program.environment(), tmp))
+    rebuild_lock.hand(Test.environment(), tmp))
   local waited = said:find("waiting for it", 1, true) ~= nil
   if waited then
     local _, _ = child:stop()
@@ -305,8 +304,8 @@ local function test_a_settled_source_rewrite_runs_new_bytecode(tmp: string)
   assert(Fs.write(path, 'print("OLD")\n'))
   assert(Fs.set_mtime(path, 0, 0))
   local function run(): string
-    local started = this_program.program({ "main.tl" }, { cwd = tmp,
-      env = this_program.environment(), stdout = "capture", stderr = "capture",
+    local started = Test.cosmic({ "main.tl" }, { cwd = tmp,
+      env = Test.environment(), stdout = "capture", stderr = "capture",
       timeout_ns = Clock.seconds(60) })
     local result = assert(Child.run(started.argv, started.options))
     assert(result.ok, (result.stdout or "") .. (result.stderr or ""))

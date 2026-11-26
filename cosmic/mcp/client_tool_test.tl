@@ -9,7 +9,6 @@ local Fs = require("cosmic.fs")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 local _ = require("build.standalone")
-local this_program = require("build.this_program")
 --- What the server script requires, as the standalone run loads it.
 local type _ = require("cosmic.mcp.server")
 
@@ -46,7 +45,7 @@ return function(_: {string}): integer
   return 0
 end
 ]]))
-  local started = this_program.program({ "--standalone", script }, { stderr = "capture", timeout_ns = Clock.seconds(60) })
+  local started = Test.cosmic({ "--standalone", script }, { stderr = "capture", timeout_ns = Clock.seconds(60) })
   local session = assert(Client.spawn(started.argv, started.options))
   local d = assert(session:discover())
   assert(d.serverInfo ~= nil and d.serverInfo.name == "spawned")
@@ -68,9 +67,9 @@ end
 ]]))
   local token = "0123456789abcdef-token"
   local env: mut {string: string} = {}
-  for k, v in pairs(this_program.environment()) do env[k] = v end
+  for k, v in pairs(Test.environment()) do env[k] = v end
   env["MCP_TOKEN"] = token
-  local started = this_program.program({ "--standalone", script, "--http", "127.0.0.1:0", "--token-env", "MCP_TOKEN" },
+  local started = Test.cosmic({ "--standalone", script, "--http", "127.0.0.1:0", "--token-env", "MCP_TOKEN" },
     { env = env, stderr = "stream", timeout_ns = Clock.seconds(60) })
   local handle <close> = assert(Child.start(started.argv, started.options))
   local lines = Stream.lines(assert(handle.stderr_stream))

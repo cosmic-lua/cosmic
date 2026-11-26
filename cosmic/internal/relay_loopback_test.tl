@@ -15,7 +15,6 @@ local RelayConfig = require("cosmic.internal.relay_config")
 local RelayStart = require("cosmic.internal.relay_start")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
-local this_program = require("build.this_program")
 local _ = require("build.relay_children_test")
 local test_child = require("build.test_child")
 
@@ -54,7 +53,7 @@ end
 --- Starts the relay's main on `config`, handed `fds`: the process, a writer of
 --- its standard input and the lines of its standard output.
 local function relay_started(tmp: string, fds: {integer:integer}): Child.Handle
-  local started = this_program.program(test_child.words(tmp, "build.relay_children_test", "relay"), { stdin = "stream", stdout = "stream",
+  local started = Test.cosmic(test_child.words(tmp, "build.relay_children_test", "relay"), { stdin = "stream", stdout = "stream",
     stderr = "capture", fds = fds, timeout_ns = Clock.seconds(60) })
   return (assert(Child.start(started.argv, started.options)))
 end

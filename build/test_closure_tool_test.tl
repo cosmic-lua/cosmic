@@ -4,7 +4,6 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
-local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
 
@@ -21,9 +20,9 @@ Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx
 --- everywhere.
 local function run(root: string, output: string): boolean, string
   local fd = assert(Fs.open_write(output))
-  local env = this_program.environment()
+  local env = Test.environment()
   env.COSMIC_TEST_SANDBOX = "0" -- checked: map_field
-  local started = this_program.program({ "test" }, {
+  local started = Test.cosmic({ "test" }, {
     cwd = root, env = env, stdout = fd, stderr = fd,
     process_group = true, timeout_ns = Clock.seconds(60),
   })

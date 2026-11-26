@@ -9,7 +9,6 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
-local this_program = require("build.this_program")
 
 --- The program itself, which this test starts.
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
@@ -52,10 +51,10 @@ local suite = table.concat({
 local function invoke(root: string, tmp: string, words: {string}): Child.Result, string
   local output = tmp .. "/out"
   local fd = assert(Fs.open_write(output))
-  local env = this_program.environment()
+  local env = Test.environment()
   env["COSMIC_TEST_SANDBOX"] = "0"
   env["TMPDIR"] = tmp
-  local started = this_program.program(words, {
+  local started = Test.cosmic(words, {
     cwd = root, env = env, stdout = fd, stderr = fd,
     process_group = true, timeout_ns = Clock.seconds(120),
   })

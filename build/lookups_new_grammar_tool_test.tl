@@ -5,7 +5,6 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
-local this_program = require("build.this_program")
 
 --- The program itself, which this test starts, and the project of testdata/projects it reads.
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" }, { path = "testdata/projects", letters = "r" } } }
@@ -161,11 +160,11 @@ local function ran(root: string, tmp: string, args: {string}): Child.Result, str
   local stamp = tostring(Clock.monotonic_ns())
   local out_path, err_path = tmp .. "/out." .. stamp, tmp .. "/err." .. stamp
   local out_fd, err_fd = assert(Fs.open_write(out_path)), assert(Fs.open_write(err_path))
-  local env = this_program.environment()
+  local env = Test.environment()
   env["COSMIC_TEST_SANDBOX"] = "0"
   env["COSMIC_BUILD_CACHE"] = "0"
   env["TMPDIR"] = tmp
-  local started = this_program.program(args, {
+  local started = Test.cosmic(args, {
     cwd = root, env = env, stdout = out_fd, stderr = err_fd, process_group = true, timeout_ns = Clock.seconds(120),
   })
   local result, trouble = Child.run(started.argv, started.options)

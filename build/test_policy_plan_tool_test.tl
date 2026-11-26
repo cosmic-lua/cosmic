@@ -23,7 +23,6 @@ local Test = require("cosmic.test")
 local test_inputs = require("build.test_inputs")
 local test_policy = require("build.test_policy")
 local test_sandbox = require("build.test_sandbox")
-local this_program = require("build.this_program")
 local support = require("build.test_support_fixture")
 
 --- The program itself, which the case that starts it runs through its
@@ -167,7 +166,7 @@ end
   end
   assert(Fs.mkdirs(tmp .. "/beside/ci"))
   assert(Fs.symlink(Array.at(launched.argv, 3), tmp .. "/beside/cosmic"))
-  local started = this_program.program({ "-e", script })
+  local started = Test.cosmic({ "-e", script })
   local root, scratch = tmp .. "/beside/ci", scratch_in(tmp)
   local env = started.options.env or {}
   env.ROOT, env.SCRATCH, env.PATH = root, scratch, "/usr/bin:/bin" -- checked: map_field*3

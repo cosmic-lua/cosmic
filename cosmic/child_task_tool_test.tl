@@ -12,7 +12,6 @@ local Poll = require("cosmic.poll")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local type raw_process = require("cosmic.internal.process")
-local this_program = require("build.this_program")
 
 --- What the tests read: the program itself, which every child is,
 --- started only to run a chunk (`lua`), and /proc, for the signal
@@ -100,7 +99,7 @@ end
 
 --- This program again, past its launcher, running the Teal chunk `chunk`.
 local function lua(chunk: string, opts?: Child.Options): {string}, Child.Options
-  local started = this_program.program({ "-e", chunk }, opts)
+  local started = Test.cosmic({ "-e", chunk }, opts)
   return started.argv, started.options
 end
 
@@ -564,7 +563,7 @@ end
 --- cosmic, where the signal is sent; a task there ticks meanwhile.
 local function test_a_signal_ends_a_run_in_a_task(tmp: string)
   local report = tmp .. "/report"
-  local started = this_program.program({ "-e", [[
+  local started = Test.cosmic({ "-e", [[
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")

@@ -19,7 +19,6 @@ local _ = require("build.tool_fake")
 local Zig = require("build.zig")
 local Child = require("cosmic.child")
 local test_child = require("build.test_child")
-local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 local support = require("build.test_support_fixture")
 
@@ -428,8 +427,8 @@ end
 local function test_a_boot_says_how_long_a_holder_has_held_the_lock(tmp: string)
   local root = tmp .. "/tree"
   assert(support.build_dir(root))
-  local started = this_program.program({ "-e", 'assert(require("cosmic.clock").sleep(60000000000))' },
-    { timeout_ns = Child.FOREVER, cwd = tmp, env = this_program.environment(), process_group = true })
+  local started = Test.cosmic({ "-e", 'assert(require("cosmic.clock").sleep(60000000000))' },
+    { timeout_ns = Child.FOREVER, cwd = tmp, env = Test.environment(), process_group = true })
   local sleeper <close> = assert(Child.start(started.argv, started.options))
   local file = support.build_dir(root) .. "/rebuild.lock.pid"
   assert(Fs.write(file, tostring(sleeper.pid) .. "\ntest\n"))
@@ -611,7 +610,7 @@ end)
 --- once the guard closes. A release instead leaves it alive, so it exits 0. A guard left open would keep the
 --- signal too.
 local function test_run_delivers_the_signal_it_caught_when_supervising_raises(tmp: string)
-  local started = this_program.program(test_child.words(tmp, "build.zig_test", "raises_after_a_signal"),
+  local started = Test.cosmic(test_child.words(tmp, "build.zig_test", "raises_after_a_signal"),
     { env = {}, cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.signal == sys.SIGTERM,

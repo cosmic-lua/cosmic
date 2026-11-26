@@ -13,7 +13,6 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
-local this_program = require("build.this_program")
 local test_sandbox = require("build.test_sandbox")
 local confine = require("build.confine")
 local fixture = require("build.test_sandbox_fixture")
@@ -62,7 +61,7 @@ end
 --- printed and whether it passed.
 local function run_again(root: string, output: string, env: {string:string}): string, boolean
   local fd = assert(Fs.open_write(output))
-  local started = this_program.program({ "test" }, {
+  local started = Test.cosmic({ "test" }, {
     cwd = root, env = env, stdout = fd, stderr = fd, process_group = true, timeout_ns = Clock.seconds(60),
   })
   local result, trouble = Child.run(started.argv, started.options)
@@ -85,7 +84,7 @@ local function test_a_sandboxed_run_holds_each_worker_to_its_inputs(tmp: string)
   local root, hidden = tmp .. "/root", tmp .. "/hidden"
   suite_tree(tmp, root)
   fixture.view_suite(tmp, root, hidden)
-  local env = this_program.environment()
+  local env = Test.environment()
   env["COSMIC_VERDICT_CACHE"] = "0"
   env["COSMIC_TEST_ALL"] = nil
   env["COSMIC_SANDBOX"] = nil
@@ -140,7 +139,7 @@ local function test_write()
   error("wrote|" .. tostring(declared) .. "|" .. tostring(undeclared) .. "|end")
 end
 ]]))
-  local env = this_program.environment()
+  local env = Test.environment()
   env["COSMIC_VERDICT_CACHE"] = "0"
   env["COSMIC_TEST_ALL"] = nil
   env["COSMIC_SANDBOX"] = nil
@@ -169,7 +168,7 @@ local function test_a_host_path_is_given_where_it_is_declared(tmp: string)
   assert(Fs.mkdirs(product))
   assert(Fs.write(product .. "/given.txt", "given"))
   assert(Fs.write(product .. "/sibling.txt", "sibling"))
-  local env = this_program.environment()
+  local env = Test.environment()
   env["COSMIC_VERDICT_CACHE"] = "0"
   env["COSMIC_TEST_ALL"] = nil
   env["COSMIC_SANDBOX"] = nil
@@ -224,7 +223,7 @@ local function test_child_reads_the_closure_store()
   assert(assert(Child.run({ "bin/probe", "exit", "0" }, { timeout_ns = Child.FOREVER })).ok)
 end
 ]]))
-  local env = this_program.environment()
+  local env = Test.environment()
   env["COSMIC_VERDICT_CACHE"] = "0"
   env["COSMIC_TEST_ALL"] = nil
   env["COSMIC_SANDBOX"] = nil
@@ -299,7 +298,7 @@ end
 local function test_first(tmp: string) hold(tmp) end
 local function test_second(tmp: string) hold(tmp) end
 ]]))
-  local env = this_program.environment()
+  local env = Test.environment()
   env["COSMIC_VERDICT_CACHE"] = "0"
   env["COSMIC_TEST_ALL"] = nil
   env["COSMIC_SANDBOX"] = nil
@@ -319,7 +318,7 @@ local function test_second(tmp: string) hold(tmp) end
   end
   local output = tmp .. "/interrupted.out"
   local fd = assert(Fs.open_write(output))
-  local interrupted = this_program.program(
+  local interrupted = Test.cosmic(
     { "test", "--jobs", "2", "--timeout", "60", "suite/held_test.tl" },
     { timeout_ns = Child.FOREVER, cwd = root, env = env, stdout = fd, stderr = fd, process_group = true })
   local runner, trouble = Child.start(interrupted.argv, interrupted.options)

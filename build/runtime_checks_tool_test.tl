@@ -10,7 +10,6 @@ local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 local artifact = require("build.artifact")
 local build_paths = require("build.paths")
-local this_program = require("build.this_program")
 
 --- The program itself, which this test starts.
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
@@ -86,11 +85,11 @@ local function invoke(root: string, tmp: string, words: {string}, extra?: {strin
     Child.Result, string
   local output = tmp .. "/out." .. tostring(Clock.monotonic_ns())
   local fd = assert(Fs.open_write(output))
-  local env = this_program.environment()
+  local env = Test.environment()
   env.COSMIC_TEST_SANDBOX = "0" -- checked: map_field
   env.TMPDIR = tmp -- checked: map_field
   for name, value in pairs(extra or {}) do env[name] = value end
-  local started = this_program.program(words, {
+  local started = Test.cosmic(words, {
     cwd = root, env = env, stdout = fd, stderr = fd,
     process_group = true, timeout_ns = Clock.seconds(120),
   })

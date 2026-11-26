@@ -5,7 +5,6 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
-local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 local _ = require("build.standalone")
 local Clock = require("cosmic.clock")
@@ -30,7 +29,7 @@ Script.main = function(argv: {string}): integer
 end
 return Script
 ]]))
-  local started = this_program.program({ "--standalone", script, "one", "two" }, {
+  local started = Test.cosmic({ "--standalone", script, "one", "two" }, {
     cwd = tmp, stdout = "capture", stderr = "capture",
     timeout_ns = Clock.seconds(30),
   })
@@ -50,7 +49,7 @@ local function test_a_main_that_returns_no_exit_status_is_refused(tmp: string)
     local script = tmp .. "/script.tl"
     assert(Fs.write(script, "return function(_argv: {string}): " .. kind .. "\n  return " ..
         returned .. "\nend\n"))
-    local started = this_program.program({ "--standalone", script }, {
+    local started = Test.cosmic({ "--standalone", script }, {
       env = { XDG_CACHE_HOME = tmp .. "/cache" },
       stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30),
     })
@@ -72,7 +71,7 @@ local function test_a_main_that_returns_no_exit_status_is_refused(tmp: string)
 end
 
 local function test_a_run_without_a_file_is_a_usage_error()
-  local started = this_program.program({ "--standalone" }, {
+  local started = Test.cosmic({ "--standalone" }, {
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30),
   })
   local result = assert(Child.run(started.argv, started.options))
@@ -89,7 +88,7 @@ local function test_a_project_module_is_told_to_drop_standalone(tmp: string)
   assert(Fs.write(project .. "/cmd/main.tl", 'local Greet = require("greet")\nprint(Greet.hi)\n'))
   assert(Fs.write(project .. "/cmd/alone.tl", 'local a: integer = "no"\nprint(a)\n'))
   local function run(args: {string}): Child.Result
-    local started = this_program.program(args, { cwd = project, stdout = "capture", stderr = "capture",
+    local started = Test.cosmic(args, { cwd = project, stdout = "capture", stderr = "capture",
       timeout_ns = Clock.seconds(30) })
     return (assert(Child.run(started.argv, started.options)))
   end
@@ -115,7 +114,7 @@ local function test_a_nested_project_module_is_found(tmp: string)
   assert(Fs.write(project .. "/a.tl", 'local n = require("lib.deep.inner")\nprint(n)\n'))
   assert(Fs.write(project .. "/b.tl", 'local n = require("pkg")\nprint(n)\n'))
   for _, file in ipairs({ "a.tl", "b.tl" }) do
-    local started = this_program.program({ "--standalone", "--check", file }, { cwd = project,
+    local started = Test.cosmic({ "--standalone", "--check", file }, { cwd = project,
       stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
     local result = assert(Child.run(started.argv, started.options))
     assert(result.code == 4 and (result.stderr or ""):find("belongs to a project", 1, true) ~= nil,
@@ -129,7 +128,7 @@ local function test_a_stray_file_above_the_project_root_is_no_project_module(tmp
   local project = tmp .. "/stray/project"
   assert(Fs.mkdirs(project))
   assert(Fs.write(project .. "/main.tl", 'local u = require("util")\nprint(u)\n'))
-  local started = this_program.program({ "--standalone", "--check", "main.tl" }, { cwd = project,
+  local started = Test.cosmic({ "--standalone", "--check", "main.tl" }, { cwd = project,
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local result = assert(Child.run(started.argv, started.options))
   assert(result.code == 4, tostring(result.stderr))
@@ -146,7 +145,7 @@ local function test_check_types_a_file_without_running_it(tmp: string)
   local broken = tmp .. "/broken.tl"
   assert(Fs.write(broken, 'local n: integer = "text"\nreturn n\n'))
   local function check(file: string): Child.Result
-    local started = this_program.program({ "--standalone", "--check", file }, { cwd = tmp,
+    local started = Test.cosmic({ "--standalone", "--check", file }, { cwd = tmp,
       env = { XDG_CACHE_HOME = tmp .. "/cache" }, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
     local result = assert(Child.run(started.argv, started.options))
     return result
@@ -157,11 +156,11 @@ local function test_check_types_a_file_without_running_it(tmp: string)
   local refused = check(broken)
   assert(refused.code == 4, tostring(refused.stderr))
   assert(tostring(refused.stderr):find("not_assignable", 1, true), tostring(refused.stderr))
-  local run = this_program.program({ "--standalone", broken }, { cwd = tmp, env = { XDG_CACHE_HOME = tmp .. "/cache" },
+  local run = Test.cosmic({ "--standalone", broken }, { cwd = tmp, env = { XDG_CACHE_HOME = tmp .. "/cache" },
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local ran = assert(Child.run(run.argv, run.options))
   assert(ran.stderr == refused.stderr, "--check prints what a run does")
-  local usage = this_program.program({ "--standalone", "--check" }, { stdout = "capture", stderr = "capture",
+  local usage = Test.cosmic({ "--standalone", "--check" }, { stdout = "capture", stderr = "capture",
     timeout_ns = Clock.seconds(30) })
   assert(assert(Child.run(usage.argv, usage.options)).code == 2)
 end
@@ -172,14 +171,14 @@ local function test_a_run_lets_an_unused_name_pass(tmp: string)
   local file = tmp .. "/unused.tl"
   assert(Fs.write(file, 'local unused = 1\nlocal function never() end\nprint("ran")\n'))
   for _, args in ipairs({ { "--standalone", file }, { "-e", 'local unused = 1\nprint("ran")' } }) do
-    local started = this_program.program(args, { cwd = tmp, env = { XDG_CACHE_HOME = tmp .. "/cache" },
+    local started = Test.cosmic(args, { cwd = tmp, env = { XDG_CACHE_HOME = tmp .. "/cache" },
       stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
     local ran = assert(Child.run(started.argv, started.options))
     assert(ran.code == 0 and ran.stdout == "ran\n", tostring(ran.stderr))
     assert(tostring(ran.stderr):find("unused", 1, true) == nil, tostring(ran.stderr))
   end
   -- A check is a review: `--check` refuses the name a run let pass.
-  local started = this_program.program({ "--standalone", "--check", file }, { cwd = tmp,
+  local started = Test.cosmic({ "--standalone", "--check", file }, { cwd = tmp,
     env = { XDG_CACHE_HOME = tmp .. "/cache" }, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local checked = assert(Child.run(started.argv, started.options))
   assert(checked.code == 4 and tostring(checked.stderr):find("unused_variable", 1, true) ~= nil, tostring(checked.stderr))
@@ -190,7 +189,7 @@ end
 local function test_a_file_finds_its_words_in_arg_at_its_top_level(tmp: string)
   local script = tmp .. "/top.tl"
   assert(Fs.write(script, 'print((arg[0] or "") .. "|" .. table.concat(arg, ","))\n'))
-  local started = this_program.program({ "--standalone", script, "one", "two" }, { cwd = tmp,
+  local started = Test.cosmic({ "--standalone", script, "one", "two" }, { cwd = tmp,
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local result = assert(Child.run(started.argv, started.options))
   assert(result.code == 0 and result.stdout == script .. "|one,two\n",
@@ -209,9 +208,9 @@ return function(argv: {string}): integer
   return 0
 end
 ]]))
-  local env = this_program.environment()
+  local env = Test.environment()
   env.COSMIC_STANDALONE = "1" -- checked: map_field
-  local started = this_program.program({ script, "one", "two" }, { cwd = dir, env = env,
+  local started = Test.cosmic({ script, "one", "two" }, { cwd = dir, env = env,
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local result = assert(Child.run(started.argv, started.options))
   assert(result.code == 0 and result.stdout == "one,two\n", tostring(result.stderr))
@@ -226,7 +225,7 @@ local function test_a_run_with_no_boot_hash_keeps_no_compile(tmp: string)
   assert(require("cosmic.store").meta("boot_hash") == nil, "a test's closure store records a boot hash")
   local script = tmp .. "/script.tl"
   assert(Fs.write(script, "return function(_argv: {string}): integer return 3 end\n"))
-  local started = this_program.program({ "--standalone", script }, {
+  local started = Test.cosmic({ "--standalone", script }, {
     env = { XDG_CACHE_HOME = tmp .. "/cache" }, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30),
   })
   local result = assert(Child.run(started.argv, started.options))

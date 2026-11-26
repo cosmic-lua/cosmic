@@ -6,14 +6,13 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Proc = require("cosmic.proc")
 local Test = require("cosmic.test")
-local this_program = require("build.this_program")
 
 local record startup_fixture
 end
 
 --- This program's environment, without the startup tests' handshake.
 function startup_fixture.environment(): mut {string:string}
-  local env = this_program.environment()
+  local env = Test.environment()
   env["COSMIC_PORTABLE_STARTUP_TEST_READY"] = nil
   env["COSMIC_PORTABLE_STARTUP_TEST_GO"] = nil
   return env

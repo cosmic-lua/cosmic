@@ -9,7 +9,6 @@ local Fs = require("cosmic.fs")
 local _ = require("cosmic.net") -- in the closure: the scripts require it
 local Poll = require("cosmic.poll")
 local sys = require("cosmic.sys")
-local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 local Udp = require("build.udp_fixture")
 local _ = require("build.standalone")
@@ -143,7 +142,7 @@ local function lookup(tmp: string, name: string, timeout_ms: integer,
   local script = tmp .. "/resolve.tl"
   assert(Fs.write(script, if guarded == true then GUARDED else SCRIPT end))
   local server <close> = assert(Udp.bind("127.0.0.1", 0))
-  local started = this_program.program({ "--standalone", script, name,
+  local started = Test.cosmic({ "--standalone", script, name,
     tostring(server.address.port), tostring(timeout_ms) },
     { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
   local child <close> = assert(Child.start(started.argv, started.options))
