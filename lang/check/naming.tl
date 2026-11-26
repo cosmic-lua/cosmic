@@ -82,6 +82,21 @@ function Naming.on_nil(ctx: Ctx, name: string): string
   return "error(" .. missing .. ")"
 end
 
+--- The rewrite of a read of `node`, which may be nil, where Lua raises for nil (an operand of arithmetic, an
+--- ordering, `..` or `#`, or what is indexed or called a method of): `node!`, which raises there as well, with the
+--- name of the value. Nil where `node` is no expression `!` follows (a cast), or ends in a token none follows (a
+--- string or a table given to a call).
+function Naming.must(ctx: Ctx, node: Ast.Node): Codes.Rewrite?
+  -- `!` follows an expression of a name, a call, an index or parentheses; not a cast, which ends in a type.
+  local of = node.kind
+  if not (of == "Name" or of == "Field" or of == "Index" or of == "Call" or of == "MethodCall" or of == "Paren") then
+    return nil
+  end
+  local kind = Lexer.kind(ctx.tokens, base_of(node).last)
+  if kind == "identifier" or kind == ")" or kind == "]" then return { before = "", after = "!" } end
+  return nil
+end
+
 --- Reports `code` on the tokens of `node`. A value that may be nil because an assignment dropped what a test had
 --- shown is told that (`narrowing_dropped`), with the assignment as the second place. `rewrite` is the one rewrite of
 --- `node` that puts it right ([`Codes.Rewrite`]), where there is one.

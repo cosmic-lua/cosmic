@@ -5,7 +5,7 @@
 --- one environment, not a tool for each thing.
 ---
 ---     run    code, timeout?, output_bytes?
----       what it printed, its start and end past 8KB, and the JSON of
+---       what it printed, its start and end past 4KB, and the JSON of
 ---       what it returned; a refused snippet's result is the checker's
 ---       lines; 120 seconds unless the model says, after which the
 ---       worker ends
@@ -59,6 +59,9 @@ local record Tools
     --- The files a snippet of run changed through Host.edit and Host.write, in order, for a person to see: the model
     --- reads none of it. A snippet stopped, or past its time, answers none.
     mut changes?: {Change}
+    --- What a snippet of run gave by [`Host.answer`], where it ran to its end: the turn ends with it, as the model's
+    --- reply, and no request asks the model for one.
+    mut answer?: string
   end
 
   --- A file a snippet changed: an edit's replacements (the lines they change, with one of context, each cut to 4KB), or
@@ -126,6 +129,8 @@ local record Tools
     --- JSON, else as a string, and an error result raises in the
     --- snippet. `raw` is not read. A raise fails the call.
     amend?: function(name: string, input: Object, result: Result): Result
+    --- What a snippet gave by [`Host.answer`] as its answer to the user, where it gave one: the turn ends with it.
+    mut answered?: string
   end
 
   --- A path a call touches, and how: one of [`Sandbox.permits`]'s actions.
@@ -228,8 +233,10 @@ local function too_long(seconds?: integer): string
   return "timeout is " .. tostring(seconds) .. ": give at most " .. String.counted(MOST_SECONDS, "second")
 end
 
---- The most bytes of a snippet's output run gives the model: a snippet prints what it needs.
-local RUN_BYTES <const> = 8 * 1024
+--- The most bytes of a snippet's output run gives the model: a snippet prints what it needs. Each byte shown is written
+--- to the prompt cache once and read again on every later request of the turn; the whole is kept in sessions.db, which
+--- Host.output reads.
+local RUN_BYTES <const> = 4 * 1024
 --- How long a snippet may run, in seconds, unless the model says.
 local RUN_SECONDS <const> = 120
 
@@ -551,9 +558,18 @@ local function served(context: Tools.Context): Worker.Serve
   local answer_of = served_unguarded(context)
   return function(name: string, args: Json.Value, budget: Worker.Budget): (Json.Value) | (nil, Failure)
     if name == "use" then return used(context, args, budget) end
+    if name == "answer" then
+      local fields, _ = Json.to_object(args)
+      local text = fields and fields["text"]
+      if not (text is string) or text:match("^%s*$") ~= nil then
+        return nil, Failure.new("the answer is blank: give the reply's text")
+      end
+      context.answered = text
+      return true
+    end
     if SERVED[name] ~= true then
       return nil, Failure.new("the agent serves no call " .. Json.quote(String.as_utf8(name)) ..
-          ": it serves history, store.put, store.get, mcp.servers, mcp.tools, mcp.call and use")
+          ": it serves history, store.put, store.get, mcp.servers, mcp.tools, mcp.call, use and answer")
     end
     local fields, _ = Json.to_object(args)
     local given: {string: Json.Value} = fields or {}
@@ -627,10 +643,19 @@ local function run(input: Tools.Object, context: Tools.Context): Tools.Result
   local answer, run_why = Worker.run(set, code, { cwd = context.cwd, policy = context.policy, commands = context.commands,
     seconds = seconds or RUN_SECONDS, stopped = context.stopped, serve = served(context) })
   if answer == nil then return fail(tostring(run_why)) end
+  -- The checker's rewrites of the snippet's errors ([`build.agent_worker`]): the model is told what they changed.
+  local fixed, _ = Json.to_array(answer["fixed"])
+  local rewrites: mut {string} = {}
+  for _, line in ipairs(fixed or {}) do rewrites[#rewrites + 1] = tostring(line) end
   local refused, _ = Json.to_array(answer["refused"])
   if refused ~= nil then
     local told: mut {string} = {}
     for _, line in ipairs(refused) do told[#told + 1] = tostring(line) end
+    if #rewrites > 0 then
+      return fail("The checker refused the snippet, so it did not run. It made these rewrites, which keep what it " ..
+          "meant; write them so in the next one:\n" .. table.concat(rewrites, "\n") .. "\nThe errors left, with columns " ..
+          "of the rewritten lines:\n" .. table.concat(told, "\n"))
+    end
     return fail("The checker refused the snippet, so it did not run:\n" .. table.concat(told, "\n"))
   end
   local trouble = answer["error"]
@@ -661,18 +686,15 @@ local function run(input: Tools.Object, context: Tools.Context): Tools.Result
     text = text .. (if text == "" or text:sub(-1) == "\n" then "" else "\n" end) .. "Returned: " .. shown
   end
   if text == "" then text = "(no output)" end
-  -- The checker's rewrites made the snippet one it passes ([`build.agent_worker`]): the model is told what they changed.
-  local fixed, _ = Json.to_array(answer["fixed"])
-  if fixed ~= nil and #fixed > 0 then
-    local told: mut {string} = {}
-    for _, line in ipairs(fixed) do told[#told + 1] = tostring(line) end
+  if #rewrites > 0 then
     text = "[The checker refused the snippet; it ran with these rewrites, which keep what it meant:\n" ..
-      table.concat(told, "\n") .. "]\n" .. text
+      table.concat(rewrites, "\n") .. "]\n" .. text
   end
   local r = if answer["ok"] == true then ok(text) else
     fail(text .. (if text:sub(-1) == "\n" then "" else "\n" end) .. "Error: " .. tostring(trouble)) end
   if cut then r.raw = said end
   r.changes = changes_in(answer["changes"])
+  if answer["ok"] == true then r.answer = context.answered end
   return r
 end
 

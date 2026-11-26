@@ -90,7 +90,7 @@ function Operands.bad_operand(ctx: Ctx, node: Ast.Node, t: Type, op: string, tak
           else "ranges over every type" end) .. ", and " .. quoted(op) .. " takes " .. takes, bound_fix, { name })
   elseif nilable(t) then
     report(ctx, "nil_not_allowed", node, s .. " is " .. tq(ctx, t) .. ", so it may be nil, and " .. quoted(op) .. " takes " .. takes,
-      nil_fix(ctx, node, t), { show(ctx, t) })
+      nil_fix(ctx, node, t), { show(ctx, t) }, nil, Naming.must(ctx, node))
   else
     report(ctx, "operand_type", node, s .. " is " .. tq(ctx, t) .. ", and " .. quoted(op) .. " takes " .. takes, fix,
       { show(ctx, t) })
