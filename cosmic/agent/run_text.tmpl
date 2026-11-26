@@ -1,5 +1,5 @@
 {{type Text from cosmic.agent.run_text_data}}{{mode text -}}
-Run a program in cosmic, a typed language much like Lua with a library of its own, in a sandboxed worker kept for the session: one program in place of many tool calls, printing only what you need; its locals end with it. It is type-checked first: a refusal runs nothing, costs a turn, and gives the fix. Returns what it printed (its start and end past {{.kb}}KB) and the JSON of what it returned.
+Run a program in cosmic, a typed language much like Lua with a library of its own, in a sandboxed worker kept for the session: one program in place of many tool calls, printing only what you need; its locals end with it. Do the whole task in one snippet where you can: it checks its own work (print what it wrote as it writes it), with no later snippet that reads a file back or counts again. It is type-checked first: a refusal runs nothing, costs a turn, and gives the fix. Returns what it printed (its start and end past {{.kb}}KB) and the JSON of what it returned.
 
 Host (cosmic.agent.host), Fs (cosmic.fs) and Json (cosmic.json) need no require. Host's calls do as the commands they are named for and raise where they fail (no assert):
 - Host.find(dir, suffix?) -> {string}: every file under dir, sorted (`Host.find("src", ".tl")`).
