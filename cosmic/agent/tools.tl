@@ -59,6 +59,9 @@ local record Tools
     --- The files a snippet of run changed through Host.edit and Host.write, in order, for a person to see: the model
     --- reads none of it. A snippet stopped, or past its time, answers none.
     mut changes?: {Change}
+    --- What a snippet of run gave by [`Host.answer`], where it ran to its end: the turn ends with it, as the model's
+    --- reply, and no request asks the model for one.
+    mut answer?: string
   end
 
   --- A file a snippet changed: an edit's replacements (the lines they change, with one of context, each cut to 4KB), or
@@ -124,6 +127,8 @@ local record Tools
     --- JSON, else as a string, and an error result raises in the
     --- snippet. `raw` is not read. A raise fails the call.
     amend?: function(name: string, input: Object, result: Result): Result
+    --- What a snippet gave by [`Host.answer`] as its answer to the user, where it gave one: the turn ends with it.
+    mut answered?: string
   end
 
   --- A path a call touches, and how: one of [`Sandbox.permits`]'s actions.
@@ -551,9 +556,16 @@ local function served(context: Tools.Context): Worker.Serve
   local answer_of = served_unguarded(context)
   return function(name: string, args: Json.Value, budget: Worker.Budget): (Json.Value) | (nil, Failure)
     if name == "use" then return used(context, args, budget) end
+    if name == "answer" then
+      local fields, _ = Json.to_object(args)
+      local text = fields and fields["text"]
+      if not (text is string) then return nil, Failure.new("the answer has no text") end
+      context.answered = text
+      return true
+    end
     if SERVED[name] ~= true then
       return nil, Failure.new("the agent serves no call " .. Json.quote(String.as_utf8(name)) ..
-          ": it serves history, store.put, store.get, mcp.servers, mcp.tools, mcp.call and use")
+          ": it serves history, store.put, store.get, mcp.servers, mcp.tools, mcp.call, use and answer")
     end
     local fields, _ = Json.to_object(args)
     local given: {string: Json.Value} = fields or {}
@@ -678,6 +690,7 @@ local function run(input: Tools.Object, context: Tools.Context): Tools.Result
     fail(text .. (if text:sub(-1) == "\n" then "" else "\n" end) .. "Error: " .. tostring(trouble)) end
   if cut then r.raw = said end
   r.changes = changes_in(answer["changes"])
+  if answer["ok"] == true then r.answer = context.answered end
   return r
 end
 

@@ -1163,6 +1163,8 @@ local function loop(s: Agent.Session): boolean, string
     -- Why the budget halted the turn, where it did rather than the user.
     local spent_reason: string? = nil
     local calls = false
+    -- What a snippet gave by Host.answer: the turn ends with it as the model's reply.
+    local reply_given: string? = nil
     for _, item in ipairs(content or {}) do
       local block, _ = Json.to_object(item)
       if block ~= nil and block["type"] == "tool_use" then calls = true end
@@ -1246,6 +1248,7 @@ local function loop(s: Agent.Session): boolean, string
               { text = Tools.unknown(s.tools, called), is_error = true } end
             if tool ~= nil then result = afterward(s, asked_call, result) end
           end
+          if result.answer ~= nil then reply_given = result.answer end
           local shown, record_why = record(s, call_id, called, given, result)
           if shown == nil then failed = record_why end
           tell(s, { kind = "result", name = called, result = result })
@@ -1277,6 +1280,14 @@ local function loop(s: Agent.Session): boolean, string
       return finish(s, false, spent_reason)
     end
     if halted then return stop(s) end
+    -- A snippet gave the answer (Host.answer): it is the reply, kept as the model's, and no request asks for one. Not
+    -- where the user wrote meanwhile: the model reads that next.
+    if reply_given ~= nil and #sent == 0 then
+      local added, add_why = add(s, { role = "assistant", content = Json.array({ { type = "text", text = reply_given } }) })
+      if not added then return false, add_why end
+      tell(s, { kind = "text", text = reply_given, calls = false })
+      return finish(s, true, "")
+    end
     local stop_reason = reply["stop_reason"]
     if stop_reason == "refusal" then return finish(s, false, "the model refused") end
     if stop_reason == "max_tokens" then return finish(s, false, "the reply ran past max_tokens") end
