@@ -33,8 +33,9 @@ void cosmic_coverage_install (lua_State *L);
 int cosmic_open_budget (lua_State *L);
 
 /* `envp`, or, once processes this one starts are to report their C to a
- * test (`children`), a new array of the same entries plus the name that
- * tells them where: free it, not its entries, when it differs from `envp`.
+ * test (`children`) or this process takes a profile (core/profile.h), a
+ * new array of the same entries plus the names that tell them where:
+ * free it, not its entries, when it differs from `envp`.
  * Built before a child starts, since the child, on this process's memory
  * on Linux, may not allocate. */
 char **cosmic_coverage_environment (char **envp);

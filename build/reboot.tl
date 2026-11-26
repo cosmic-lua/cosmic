@@ -404,6 +404,7 @@ end
 --- entered this process.
 local function into(handle: work.Handle, argv: {string}, settle: boolean): string, boolean
   local started = Clock.monotonic_ns()
+  local _phase <close> = Clock.phase("tool rebuild")
   local refused = refusal(settle)
   if refused ~= nil then
     return closing(handle, refused), false

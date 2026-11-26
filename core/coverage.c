@@ -16,6 +16,7 @@
 
 #include "check.h"
 #include "hook.h"
+#include "profile.h"
 #include "lauxlib.h"
 #include "lapi.h"
 /* setsvalue2s checks the string is live when Lua is built with its own
@@ -262,18 +263,38 @@ static int set_children (const char *directory) {
   return set;
 }
 
-char **cosmic_coverage_environment (char **envp) {
-  if (!children_entry) return envp;
-  size_t count = 0;
-  size_t name = sizeof CHILDREN_NAME; /* with its '=' in place of the NUL */
-  for (; envp[count]; count++) {
-    if (strncmp(envp[count], children_entry, name) == 0) return envp;
+/* Whether `envp` has an entry of the variable `entry` (`NAME=value`)
+ * names. */
+static int has_entry (char **envp, const char *entry) {
+  const char *equals = strchr(entry, '=');
+  size_t name = equals ? (size_t)(equals - entry) + 1 : strlen(entry);
+  for (size_t i = 0; envp[i]; i++) {
+    if (strncmp(envp[i], entry, name) == 0) return 1;
   }
-  char **given = malloc((count + 2) * sizeof *given);
+  return 0;
+}
+
+char **cosmic_coverage_environment (char **envp) {
+  char *const *profile = NULL;
+  size_t profiled = cosmic_profile_entries(&profile);
+  if (!children_entry && profiled == 0) return envp;
+  size_t count = 0;
+  for (; envp[count]; count++) {}
+  char **given = malloc((count + 2 + profiled) * sizeof *given);
   if (!given) return envp; /* the child goes unreported rather than unstarted */
   memcpy(given, envp, count * sizeof *given);
-  given[count] = children_entry;
-  given[count + 1] = NULL;
+  size_t at = count;
+  if (children_entry && !has_entry(envp, children_entry)) given[at++] = children_entry;
+  /* A profile's variables the child's own environment leaves out: the
+   * child profiles itself into the same directory. One it sets wins. */
+  for (size_t i = 0; i < profiled; i++) {
+    if (!has_entry(envp, profile[i])) given[at++] = profile[i];
+  }
+  if (at == count) {
+    free(given);
+    return envp;
+  }
+  given[at] = NULL;
   return given;
 }
 
