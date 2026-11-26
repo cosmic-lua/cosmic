@@ -118,7 +118,7 @@ end
 
 --- A policy that runs `binary` and grants nothing else.
 local function running(binary: string): Sandbox.Policy
-  return { profiles = { "system" }, grants = { { path = binary, letters = "rx" } } }
+  return { grants = { { profile = "system" }, { path = binary, letters = "rx" } } }
 end
 
 --- Asserts that `said` holds the Lua pattern `pattern`, showing all of it

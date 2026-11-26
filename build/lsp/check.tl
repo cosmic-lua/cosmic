@@ -546,7 +546,7 @@ local function checked_of(checker: Checker, document: Document): Checked
   if generated then
     local compiled, trouble = Template.compile(document.text, document.name, { dialects = nil })
     if compiled == nil then
-      return { refusals = with_banner({ plan.refusal_of(trouble) }), text = text, splices = none, generated = false,
+      return { refusals = with_banner({ plan.refusal_of(tostring(trouble)) }), text = text, splices = none, generated = false,
         outcome = nil, program = nil }
     end
     text = compiled

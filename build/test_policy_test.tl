@@ -104,13 +104,13 @@ local function test_the_declaration_beside_the_paths_is_the_policys_other_fields
   assert(support.holds(promises, "fork") and support.holds(promises, "fattr") and
       support.holds(promises, "jit") and not support.holds(promises, "nest"),
     table.concat(promises, ","))
-  assert(policy.profiles == nil and #assert(policy.loopback) == 0)
+  assert(#Sandbox.profiles(policy) == 0 and #Sandbox.loopback(policy) == 0)
   policy = worker_of(plan, { ...inputs, nests = true, system = true, tool = true,
     network = { ["127.0.0.3"] = true, ["127.0.0.1"] = true } })
   promises = Sandbox.calls(policy)
   assert(support.holds(promises, "nest"), table.concat(promises, ","))
-  assert(table.concat(assert(policy.profiles), ",") == "system,programs", table.concat(assert(policy.profiles), ","))
-  local loopback = assert(policy.loopback)
+  assert(table.concat(Sandbox.profiles(policy), ",") == "system,programs", table.concat(Sandbox.profiles(policy), ","))
+  local loopback = Sandbox.loopback(policy)
   assert(table.concat(loopback, " ") == "127.0.0.1 127.0.0.3", table.concat(loopback, " "))
   -- Whole, as a start takes it: merging it refuses nothing.
   local merged, why = Sandbox.union(policy)

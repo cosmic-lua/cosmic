@@ -137,9 +137,9 @@ function Errors.wrap(inner: Types.Handler): Types.Handler
       if req.app.spec.debug == true then
         -- The server's own words for a response it would refuse (see
         -- `reply_trouble` in cosmic/http/server.tl).
-        local trouble = Server.check(res, req.method)
-        if trouble ~= "" then
-          return fault(req, "web: the handler's response cannot be sent: " .. trouble)
+        local sendable, trouble = Server.check(res, req.method)
+        if not sendable then
+          return fault(req, "web: the handler's response cannot be sent: " .. tostring(trouble))
         end
       end
       return res

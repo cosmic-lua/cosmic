@@ -898,7 +898,7 @@ local function tunnel(run: Running, req: Request, client: Net.Conn, far: Net.Con
       if rewrite ~= nil then
         local out, why = rewrite:feed(given)
         if out == nil then
-          end_with(why)
+          end_with(tostring(why))
           return false
         end
         if out == "" then return true end

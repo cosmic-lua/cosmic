@@ -18,8 +18,10 @@ Test.policy{
 
 --- The features `cpu_features` can return, by machine.
 local KNOWN_FEATURES <const>: {string:{string:boolean}} = {
-  x86_64 = { aes = true, avx512_vnni = true, avx512f = true, avx512vl = true, avx_vnni = true,
-    pclmulqdq = true, sha_ni = true, sse4_1 = true, ssse3 = true },
+  x86_64 = { aes = true, avx2 = true, avx512_vbmi2 = true, avx512_vnni = true,
+    avx512_vpopcntdq = true, avx512bw = true, avx512cd = true, avx512f = true, avx512vl = true,
+    avx_vnni = true, bmi1 = true, bmi2 = true, pclmulqdq = true, sha_ni = true, sse4_1 = true,
+    ssse3 = true },
   aarch64 = { aes = true, asimd = true, crc32 = true, pmull = true, sha2 = true, sha512 = true },
   arm64 = { aes = true, asimd = true, crc32 = true, pmull = true, sha2 = true, sha512 = true },
 }

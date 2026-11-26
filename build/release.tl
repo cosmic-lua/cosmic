@@ -586,7 +586,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     end
     if as_json then
       if #shown == 0 then return written(to.out("[]\n")) end
-      local encoded = assert(Json.encode_any(shown, { pretty = true }))
+      local encoded = assert(Json.encode_any(shown, { layout = "expanded" }))
       return written(to.out(encoded .. "\n"))
     end
     local lines: mut {string} = {}
@@ -652,7 +652,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   if target == nil and not to_cache and pin == nil then
     if as_json then
       local encoded = assert(Json.encode({ tag = release.tag, commit = release.commit,
-        published_at = release.published_at, url = release.url, sha256 = digest }, { pretty = true }))
+        published_at = release.published_at, url = release.url, sha256 = digest }, { layout = "expanded" }))
       return written(to.out(encoded .. "\n"))
     end
     return written(to.out(verb.pin_text(release.tag, release.commit, digest)))

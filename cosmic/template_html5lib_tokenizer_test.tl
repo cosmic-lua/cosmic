@@ -780,7 +780,8 @@ local function closer_for(wrapper: string, input: string): string?
   for _, base in ipairs(MARKUP_CLOSERS) do
     for _, tail in ipairs({ "", if tag then ("</" .. tag .. ">") else "" end }) do
       local closer = base .. tail
-      if Template.compile(HEAD .. wrapper .. input .. closer, "t.tmpl") ~= nil then
+      local compiled, _ = Template.compile(HEAD .. wrapper .. input .. closer, "t.tmpl")
+      if compiled ~= nil then
         return closer
       end
     end
@@ -943,7 +944,7 @@ local function check_case(
     local next_byte = input:byte(at + 1)
     if next_byte == nil or next_byte < 0x80 or next_byte >= 0xC0 then
       local template = HEAD .. wrapper .. input:sub(1, at) .. "{{.x}}" .. input:sub(at + 1) .. closer
-      local out = Template.compile(template, "t.tmpl")
+      local out, _ = Template.compile(template, "t.tmpl")
       reach.positions = reach.positions + 1
       if out ~= nil then
         local kind = kind_of(out)

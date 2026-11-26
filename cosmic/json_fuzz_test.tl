@@ -865,9 +865,12 @@ local function text_holds(input: string): boolean, string
       if assert(Json.format(compact, { json5 = json5 })) ~= compact then
         return false, where .. ": format is no fixed point: " .. compact
       end
-      local pretty, _ = Json.format(input, { json5 = json5, pretty = true })
-      if pretty == nil or assert(Json.format(pretty, { json5 = json5 })) ~= compact then
-        return false, where .. ": laid out, it is not the same text: " .. tostring(pretty)
+      local layouts: {Json.TextLayout} = { "expanded", "fractured" }
+      for _, layout in ipairs(layouts) do
+        local laid, _ = Json.format(input, { json5 = json5, layout = layout, width = 40 })
+        if laid == nil or assert(Json.format(laid, { json5 = json5 })) ~= compact then
+          return false, where .. ": laid out " .. layout .. ", it is not the same text: " .. tostring(laid)
+        end
       end
     end
     local jcs, cerr = Json.canonical(input, { json5 = json5 })
@@ -985,7 +988,8 @@ end
 
 local function recipe_options(r: Recipe): Json.EncodeOptions
   local bits = next_byte(r)
-  local opts: Json.EncodeOptions = { pretty = bits & 1 ~= 0 }
+  local layouts: {Json.TextLayout} = { "compact", "expanded", "fractured", "fractured" }
+  local opts: Json.EncodeOptions = { layout = layouts[(bits & 1) + (bits >> 6 & 2) + 1], width = ((bits >> 3) & 7) * 10 + 1 }
   if bits & 2 ~= 0 then opts.max_depth = next_byte(r) % 8 + 1 end
   opts.ascii = bits & 4 ~= 0
   return opts
@@ -1004,7 +1008,7 @@ local function encode_holds(input: string): boolean, string
   if opts.ascii == true then
     -- `ascii` changes how a string is written, never whether the value
     -- encodes, and the text has no byte past 0x7f.
-    local plain, _ = Json.encode_any(value, { pretty = opts.pretty, max_depth = opts.max_depth })
+    local plain, _ = Json.encode_any(value, { layout = opts.layout, width = opts.width, max_depth = opts.max_depth })
     if (plain == nil) ~= (text == nil) then
       return false, "ascii changed whether the value encodes"
     end

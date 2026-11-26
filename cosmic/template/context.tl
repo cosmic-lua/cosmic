@@ -16,13 +16,14 @@
 --- `{{if .a}}<b class="{{else}}<i class="{{end}}` is refused at the `{{if}}`
 --- rather than guessed at.
 
+local Failure = require("cosmic.failure")
 local dialect = require("cosmic.template.dialect")
 local markup = require("cosmic.template.markup")
 local types = require("cosmic.template.types")
 
 --- `name:line:col: reason`.
-local function refuse(name: string, line: integer, col: integer, reason: string): string
-  return name .. ":" .. tostring(line) .. ":" .. tostring(col) .. ": " .. reason
+local function refuse(name: string, line: integer, col: integer, reason: string): Failure
+  return Failure.at(reason, line, col, name)
 end
 
 --- The place a walk last gave each interpolation it reached.
@@ -32,7 +33,7 @@ local type Marks = mut {types.Node: types.Slot}
 --- refusal, and the place it last gave each interpolation inside it.
 local record Outcome
   after?: markup.Place
-  why: string
+  why: Failure?
   marks: Marks
 end
 
@@ -49,10 +50,10 @@ local function difference(a: markup.Place, b: markup.Place): string
   return if raw ~= "" then " (" .. raw .. ")" else " (a tag, attribute or comment is left open in one way and not another)" end
 end
 
-local walk: function(w: Walk, body: {types.Node}, from: markup.Place, marks: Marks): markup.Place?, string
+local walk: function(w: Walk, body: {types.Node}, from: markup.Place, marks: Marks): (markup.Place) | (nil, Failure)
 
 --- The place after the `range` `node`, which begins at `from`.
-local function range_after(w: Walk, node: types.Node, from: markup.Place, marks: Marks): markup.Place?, string -- checked: not_assigned
+local function range_after(w: Walk, node: types.Node, from: markup.Place, marks: Marks): (markup.Place) | (nil, Failure) -- checked: not_assigned
   local first = node.branches[1]
   if first == nil then
     return nil, refuse(w.name, node.line, node.col, "this {{range}} has no body")
@@ -63,7 +64,7 @@ local function range_after(w: Walk, node: types.Node, from: markup.Place, marks:
     return nil, why
   end
   local loop: markup.Place = walked
-  local function differs(place: markup.Place): string
+  local function differs(place: markup.Place): Failure
     return refuse(w.name, node.line, node.col, "the body of this {{range}} ends where it did not begin" ..
         difference(place, from))
   end
@@ -95,11 +96,11 @@ local function range_after(w: Walk, node: types.Node, from: markup.Place, marks:
     end
     markup.join(loop, alternative)
   end
-  return loop, ""
+  return loop
 end
 
 --- The place after the `if` or `with` `node`, whose arms start at `from`.
-local function arms_after(w: Walk, node: types.Node, from: markup.Place, marks: Marks): markup.Place?, string
+local function arms_after(w: Walk, node: types.Node, from: markup.Place, marks: Marks): (markup.Place) | (nil, Failure)
   local ends: mut {markup.Place} = {}
   local closed = false
   for _, arm in ipairs(node.branches) do
@@ -124,7 +125,7 @@ local function arms_after(w: Walk, node: types.Node, from: markup.Place, marks: 
     end
     markup.join(settled, place)
   end
-  return settled, ""
+  return settled
 end
 
 --- The place after the block `node`, which begins at `from`. A block is
@@ -132,7 +133,7 @@ end
 --- again from a place already seen would take time exponential in how deep
 --- ranges nest. A walk not taken again still sets the places it set on
 --- its interpolations, as taking it again would.
-local function block(w: Walk, node: types.Node, from: markup.Place, marks: Marks): markup.Place?, string
+local function block(w: Walk, node: types.Node, from: markup.Place, marks: Marks): (markup.Place) | (nil, Failure)
   if w.seen[node] == nil then w.seen[node] = {} end
   local outcomes = assert(w.seen[node])
   -- The key holds fields `same` ignores (the tag and attribute outside the
@@ -142,7 +143,8 @@ local function block(w: Walk, node: types.Node, from: markup.Place, marks: Marks
   local outcome = outcomes[at]
   if outcome == nil then
     local own: Marks = {}
-    local after, why: markup.Place?, string
+    local after: markup.Place?
+    local why: Failure?
     if node.kind == "range" then
       after, why = range_after(w, node, from, own)
     else
@@ -156,12 +158,13 @@ local function block(w: Walk, node: types.Node, from: markup.Place, marks: Marks
     marks[interp] = ctx
   end
   if outcome.after == nil then
-    return nil, outcome.why
+    local refused = assert(outcome.why, "a block with no place has its reason")
+    return nil, refused
   end
-  return markup.copy(outcome.after), ""
+  return markup.copy(outcome.after)
 end
 
-walk = function(w: Walk, body: {types.Node}, from: markup.Place, marks: Marks): markup.Place?, string
+walk = function(w: Walk, body: {types.Node}, from: markup.Place, marks: Marks): (markup.Place) | (nil, Failure)
   local name = w.name
   local at = markup.copy(from)
   for _, node in ipairs(body) do
@@ -195,7 +198,7 @@ walk = function(w: Walk, body: {types.Node}, from: markup.Place, marks: Marks): 
       at = after
     end
   end
-  return at, ""
+  return at
 end
 
 local record Context
@@ -209,13 +212,13 @@ end
 --- @param name string The template's name, for messages
 --- @param attributes dialect.Table What the template's dialects say of its attributes
 --- @return boolean True when every slot has a place
---- @return string The reason, as `name:line:col: ...`, on a refusal
-function Context.annotate(template: types.Template, name: string, attributes: dialect.Table): boolean, string
+--- @return Failure The reason, as `name:line:col: ...`, on a refusal
+function Context.annotate(template: types.Template, name: string, attributes: dialect.Table): (true) | (false, Failure)
   if template.mode == "text" then
-    return true, ""
+    return true
   end
   local w: Walk = { name = name, seen = {} }
-  local function whole(body: {types.Node}, end_line: integer, end_col: integer, what: string): string
+  local function whole(body: {types.Node}, end_line: integer, end_col: integer, what: string): Failure?
     local after, why = walk(w, body, markup.start(attributes), {})
     if after == nil then
       return why
@@ -225,19 +228,19 @@ function Context.annotate(template: types.Template, name: string, attributes: di
       return refuse(name, end_line, end_col,
         what .. " ends " .. open .. ": it would put what follows it in another template into that place")
     end
-    return ""
+    return nil
   end
   local why = whole(template.body, template.body_end_line, template.body_end_col, "the template")
-  if why ~= "" then
+  if why ~= nil then
     return false, why
   end
   for _, define in ipairs(template.defines) do
     why = whole(define.body, define.end_line, define.end_col, "{{define " .. define.name .. "}}")
-    if why ~= "" then
+    if why ~= nil then
       return false, why
     end
   end
-  return true, ""
+  return true
 end
 
 return Context

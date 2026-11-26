@@ -149,7 +149,7 @@ local function test_paths_are_checked_as_granted()
   end
   assert(asked("/a/b/in.txt") == nil)
   -- Profiles count, as the sandbox reads them.
-  local system = Check.paths({ profiles = { "system" } })
+  local system = Check.paths({ grants = { { profile = "system" } } })
   local function read_of(path: string): string?
     return system({ name = "read", input = NONE, caller = "model", cwd = "/", paths = { { path = path, action = "read" } },
       stopped = function(): boolean return false end })

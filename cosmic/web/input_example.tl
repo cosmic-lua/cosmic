@@ -88,7 +88,9 @@ function Example.json_body()
     detail: string
     errors: {{string: any}}
   end
-  local problem, why = Shape.record_of("Problem"):into((reply:json()))
+  local body, parsed = reply:json()
+  assert(body ~= nil, tostring(parsed))
+  local problem, why = Shape.record_of("Problem"):into(body)
   assert(problem ~= nil, why)
   local first = assert(problem.errors[1])
   assert(first["pointer"] == "/tags/1" and first["field"] == "tags.1", tostring(first["pointer"]))

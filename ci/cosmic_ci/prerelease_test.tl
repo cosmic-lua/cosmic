@@ -64,12 +64,20 @@ local function test_the_smoke_policy_grants_the_tool_and_its_cache_alone()
     local granted: mut {string: boolean} = {}
     local grants: mut {string} = {}
     local calls: mut {string} = {}
-    for at, value in ipairs(assert(Json.array_of(policy["grants"]))) do
+    local profiles: mut {string} = {}
+    local env: mut {string} = {}
+    local at = 0
+    for _, value in ipairs(assert(Json.array_of(policy["grants"]))) do
       local grant = assert(Json.object_of(value))
-      local call = grant["calls"]
+      local call, profile, name = grant["calls"], grant["profile"], grant["env"]
       if type(call) == "string" then
         calls[#calls + 1] = call
+      elseif type(profile) == "string" then
+        profiles[#profiles + 1] = profile
+      elseif type(name) == "string" then
+        env[#env + 1] = name
       else
+        at = at + 1
         local path, letters = tostring(grant["path"]), tostring(grant["letters"])
         if at > 2 then
           local program = path:match("^/usr/bin/(%w+)$") or path:match("^/bin/(%w+)$") or path:match("^/sbin/(%w+)$")
@@ -87,10 +95,16 @@ local function test_the_smoke_policy_grants_the_tool_and_its_cache_alone()
       assert(granted[name] == true, "the launcher's " .. name .. " is not granted")
     end
     assert(table.concat(calls, ",") == "fork,fattr" and policy["promises"] == nil, text)
-    assert(encoded(policy["env"]) == '["PATH","HOME"]', text)
-    assert(encoded(policy["profiles"]) == '["system"]', text)
-    -- What the start sets up is a `setup` of its own, as cosmic writes it now.
-    local set_env = if in_setup then assert(Json.object_of(policy["setup"]))["set_env"] else policy["set_env"] end
+    if in_setup then
+      assert(table.concat(env, ",") == "PATH,HOME" and policy["env"] == nil, text)
+      assert(table.concat(profiles, ",") == "system" and policy["profiles"] == nil, text)
+    else
+      assert(encoded(policy["env"]) == '["PATH","HOME"]' and #env == 0, text)
+      assert(encoded(policy["profiles"]) == '["system"]' and #profiles == 0, text)
+    end
+    -- What the start sets up is a `setup` of its own in both forms.
+    local set_env = assert(Json.object_of(policy["setup"]))["set_env"]
+    assert(policy["set_env"] == nil, text)
     assert(encoded(set_env) == '{"COSMIC_PORTABLE_CACHE":"/tmp/smoke-cache"}', text)
     assert(policy["isolate"] == nil and policy["connect"] == nil, text)
   end

@@ -256,3 +256,33 @@ local function test_the_keys_kept_for_one_compiler_are_not_served_for_another()
   assert(one ~= other, "the key of a module did not move with the compiler")
   assert(key_of("tool-one") == one, "the keys of a compiler came back other than they were")
 end
+
+--- A compile's key holds a module it requires by its shape ([`build.shape_key`]): an edit inside a body of `m1` leaves
+--- the key of `m2`, which requires it, where it was, and moves its graph key, which a test's verdict is keyed by; an
+--- edit to a signature moves both; the key of `m1` itself moves with any edit.
+local function test_a_body_edit_moves_the_compile_key_of_its_module_alone()
+  local root = assert(Fs.mkdtemp("cosmic-dependency-keys-shape-"))
+  local function m1(body: string, ret: string): string
+    return "local record M1\nend\nfunction M1.f(): " .. ret .. "\n  return " .. body .. "\nend\nreturn M1\n"
+  end
+  assert(Fs.write(root .. "/m2.tl", "local M1 = require(\"m1\")\nreturn { n = M1.f() }\n"))
+  local function keys_with(text: string): plans.Keys, plans.Keys
+    assert(Fs.write(root .. "/m1.tl", text))
+    local handle = assert(work.open(root))
+    assert(work.stage(handle, { own = false }))
+    assert(importer.derive(handle))
+    local modules = assert(plans.collect(handle.db))
+    local keys = assert(plans.dependency_keys(handle.db, modules, "shape-test"))
+    local full = assert(plans.full_keys(handle.db, modules, "shape-test"))
+    work.close(handle)
+    assert(assert(keys["m2"]).key == assert(full["m2"]).key, "the kept keys are not the keys made of everything")
+    return assert(keys["m1"]), assert(keys["m2"])
+  end
+  local first1, first2 = keys_with(m1("1", "integer"))
+  local body1, body2 = keys_with(m1("2", "integer"))
+  assert(body1.key ~= first1.key, "the key of the module edited did not move")
+  assert(body2.key == first2.key, "a body edit moved the compile key of a module that requires it")
+  assert(body2.graph ~= first2.graph, "a body edit left the graph key of a module that requires it")
+  local _, typed2 = keys_with(m1("2", "number"))
+  assert(typed2.key ~= first2.key, "a signature edit left the compile key of a module that requires it")
+end

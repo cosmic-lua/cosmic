@@ -8,6 +8,7 @@
 --- build/test_sandbox_system_confined_test.tl and
 --- build/test_sandbox_system_hint_test.tl.
 
+local Sandbox = require("cosmic.sandbox")
 local Fs = require("cosmic.fs")
 local test_inputs = require("build.test_inputs")
 local test_policy = require("build.test_policy")
@@ -37,5 +38,5 @@ local function test_a_module_that_declares_system_is_given_the_system_profile(tm
   assert(plan.trouble == "", plan.trouble)
   assert(not support.holds(assert(plan.sandbox.unveil).reads, "/usr"))
   local policy = assert(test_policy.worker(plan, inputs))
-  assert(support.holds(policy.profiles or {}, "system"))
+  assert(support.holds(Sandbox.profiles(policy), "system"))
 end

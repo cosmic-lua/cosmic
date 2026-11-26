@@ -20,12 +20,15 @@ local function stderr_of(trace: string?): string
   return result.stderr or ""
 end
 
---- A traced process names each module it loads, with its times; cosmic.mcp, which the chunk loads, is said after
---- cosmic.json, which it requires and nothing before it loaded, one level in.
+--- A traced process names each module it loads, with its times, indented by how deep it was required: cosmic.mcp, which
+--- the chunk loads, is said at the top level, and a module some module required is said one level in. (A dev tool
+--- first checks whether it is older than its checkout, loading what reads it, so which module first loaded one of mcp's
+--- own requires is not asserted.)
 local function test_a_traced_process_names_each_module_it_loads()
   local said = stderr_of("1")
   local times = "[%d.]+ ms %([%d.]+ ms its own, [%d.]+ ms reading it%)"
-  assert(said:find("\nrequire:   cosmic%.json " .. times .. "\nrequire: cosmic%.mcp " .. times .. "\n") ~= nil, said)
+  assert(said:find("\nrequire: cosmic%.mcp " .. times .. "\n") ~= nil, said)
+  assert(said:find("\nrequire:   [%w_.]+ " .. times .. "\n") ~= nil, said)
 end
 
 --- Unset, empty or "0", the trace says nothing.

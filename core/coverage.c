@@ -15,6 +15,7 @@
 #include <unistd.h>
 
 #include "check.h"
+#include "hook.h"
 #include "lauxlib.h"
 #include "lapi.h"
 /* setsvalue2s checks the string is live when Lua is built with its own
@@ -339,7 +340,8 @@ static void install_hook (lua_State *L, Collector *collector);
  * runs is counted against it again. A coroutine made while it was armed
  * keeps its inherited count after a disarm; its later counts find the
  * budget unarmed and do nothing. */
-static void budget_hook (lua_State *L, Collector *collector) {
+void cosmic_coverage_count (lua_State *L) {
+  Collector *collector = current_collector(L);
   if (!collector || collector->budget == 0) return;
   collector->budget = 0;
   install_hook(L, collector);
@@ -402,18 +404,14 @@ static int instruction_line (lua_State *L, const Proto *p, int pc) {
   return 0;
 }
 
-/* The line hook, and the count hook of a budget. Lua is pinned with the
+/* The line hook (core/hook.c gives it each line event). Lua is pinned with the
  * core, so the hook reads the running closure's source straight from its
  * internals: lua_getinfo("S") would format a display name on every line.
  * It never caches a CallInfo, since Lua reuses frames. Each cached
  * TString, long strings included, is kept alive in the collector's
  * uservalue table. */
-static void native_line_hook (lua_State *L, lua_Debug *ar) {
+void cosmic_coverage_line (lua_State *L, lua_Debug *ar) {
   Collector *collector = current_collector(L);
-  if (ar->event == LUA_HOOKCOUNT) {
-    budget_hook(L, collector);
-    return;
-  }
   /* A coroutine can retain an inherited hook after its parent stops. */
   if (!collector || !collector->active || ar->currentline < 0) {
     return;
@@ -472,17 +470,10 @@ static void native_line_hook (lua_State *L, lua_Debug *ar) {
   page->bits[offset / 64] |= UINT64_C(1) << (offset % 64);
 }
 
-/* The one hook slot carries lines while collecting and a count while a
- * budget is armed; with neither it is cleared. */
+/* The hook slot (core/hook.c) carries lines while collecting and a count
+ * while a budget is armed. */
 static void install_hook (lua_State *L, Collector *collector) {
-  int mask = 0;
-  int count = 0;
-  if (collector && collector->active) mask |= LUA_MASKLINE;
-  if (collector && collector->budget > 0) {
-    mask |= LUA_MASKCOUNT;
-    count = collector->budget;
-  }
-  lua_sethook(L, mask ? native_line_hook : NULL, mask, count);
+  cosmic_hook_set(L, collector && collector->active, collector ? collector->budget : 0);
   /* Lua asks it only while a line hook is set, and it counts nothing
    * while no window collects, so it stays set from the first. */
   luaG_instructionline = instruction_line;

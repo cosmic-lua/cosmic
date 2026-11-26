@@ -10,6 +10,7 @@
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Net = require("cosmic.net")
+local type Sandbox = require("cosmic.sandbox")
 local Test = require("cosmic.test")
 local ChildPolicy = require("build.child_policy_fixture")
 
@@ -38,12 +39,20 @@ local function serving(body: function(port: integer))
   end, body)
 end
 
+--- The "system" profile, `target` to connect to and each address of
+--- `loopback`, as grants.
+local function curl_grants(target: string, loopback?: {string}): {Sandbox.Grant}
+  local out: mut {Sandbox.Grant} = { { profile = "system" }, { connect = target } }
+  for _, address in ipairs(loopback or {}) do out[#out + 1] = { loopback = address } end
+  return out
+end
+
 --- curl, in a sandbox whose policy grants `target`, asked for `url` through
 --- a CONNECT tunnel (-p) where it uses the proxy; its output and exit code.
 local function curl(target: string, url: string, loopback?: {string}): string, integer
   local out, code = "", -1
   local result, why = Child.run({ "curl", "-sS", "-p", "--max-time", "20", url }, {
-    policy = { profiles = { "system" }, grants = { { connect = target } }, loopback = loopback },
+    policy = { grants = curl_grants(target, loopback) },
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
   if result == nil then
     if ChildPolicy.unsandboxable(tostring(why)) then Test.skip(tostring(why)) end

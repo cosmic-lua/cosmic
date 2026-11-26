@@ -51,7 +51,8 @@ directory with the worktree.
    read, run `bin/cosmic fix --check .`, as CI does: only the whole tree
    runs [`build/tree_checks/`].
 3. A tool older than the tree rebuilds itself when a verb runs (`fix`,
-   `test`, `docs` and the rest; not `--version`). A change to the core's C, `build.zig`, the launcher, the
+   `test`, `docs` and the rest; not `--version`, `-e` or `-`, which note
+   on stderr that the tool is older than its checkout). A change to the core's C, `build.zig`, the launcher, the
    artifact format or a vendored pin or patch boots first. A failed boot
    stops the command: check its exit status, do not pipe it away.
 4. Test what you changed: `bin/cosmic test <their *_test.tl files>`.

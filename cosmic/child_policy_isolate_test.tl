@@ -314,7 +314,7 @@ local function test_loopback_gives_a_network_of_its_own_the_host_does_not_share(
   -- Nothing is vacuous: the test itself reaches that listener.
   local probe_conn = assert(Net.connect(Net.tcp("127.0.0.1", port)))
   assert(probe_conn:close())
-  local policy: Sandbox.Policy = { loopback = { "127.0.0.1" }, grants = at.grants }
+  local policy: Sandbox.Policy = { grants = ChildPolicy.with(at.grants, { loopback = "127.0.0.1" }) }
   -- The child binds, connects and accepts on its own loopback ...
   local inside = ChildPolicy.under(at.probe, policy, at.work, { "loopback-tcp", "127.0.0.1" })
   assert(inside.code == 0 and inside.said == "connected\n", inside.said)
@@ -323,8 +323,8 @@ local function test_loopback_gives_a_network_of_its_own_the_host_does_not_share(
   assert(across.said ~= "connected\n" and across.said:find("refused", 1, true) ~= nil, across.said)
   assert(host:close())
   -- With isolate file as well.
-  local rooted = ChildPolicy.under(at.probe, { loopback = { "127.0.0.1" }, isolate = { "file" },
-    grants = at.grants }, at.work, { "loopback-tcp", "127.0.0.1" })
+  local rooted = ChildPolicy.under(at.probe, { isolate = { "file" },
+    grants = ChildPolicy.with(at.grants, { loopback = "127.0.0.1" }) }, at.work, { "loopback-tcp", "127.0.0.1" })
   assert(rooted.code == 0 and rooted.said == "connected\n", rooted.said)
 end
 
@@ -413,15 +413,15 @@ local function test_a_root_of_files_and_its_own_tmp_makes_unix_sockets_without_u
   local at = placed(tmp)
   unix_socket.skip_if_refused(tmp)
   local args = { "loopback-unix", "/tmp/own.sock" }
-  local alone = ChildPolicy.under(at.probe, { isolate = { "file" }, setup = { tmp = true }, loopback = { "127.0.0.1" },
-    grants = at.bare }, at.home, args)
+  local alone = ChildPolicy.under(at.probe, { isolate = { "file" }, setup = { tmp = true },
+    grants = ChildPolicy.with(at.bare, { loopback = "127.0.0.1" }) }, at.home, args)
   assert(alone.code == 0 and alone.said == "connected\n", alone.said)
   local isolated = ChildPolicy.under(at.probe, { isolate = { "file" }, setup = { tmp = true }, grants = at.bare }, at.home, args)
   assert(isolated ~= nil and isolated.said:find("not permitted", 1, true) ~= nil, "no network of its own: " .. -- checked: compare_disjoint
       tostring(isolated.said))
   local abi, _ = require("cosmic.internal.process").landlock_abi()
-  local shown = ChildPolicy.under(at.probe, { isolate = { "file" }, setup = { tmp = true }, loopback = { "127.0.0.1" },
-    grants = at.grants }, at.work, args)
+  local shown = ChildPolicy.under(at.probe, { isolate = { "file" }, setup = { tmp = true },
+    grants = ChildPolicy.with(at.grants, { loopback = "127.0.0.1" }) }, at.work, args)
   assert(shown ~= nil, "started") -- checked: compare_disjoint
   if abi ~= nil and abi < 9 then
     assert(shown.said:find("not permitted", 1, true), "a directory shown, below ABI 9: " .. shown.said)
@@ -450,8 +450,8 @@ end
 --- devices work, and a device it does not grant is not there.
 local function test_the_system_profiles_devices_are_in_the_root(tmp: string)
   local at = placed(tmp)
-  local policy: Sandbox.Policy = { isolate = { "file" }, profiles = { "system" },
-    grants = ChildPolicy.with(at.grants) }
+  local policy: Sandbox.Policy = { isolate = { "file" },
+    grants = ChildPolicy.with(at.grants, { profile = "system" }) }
   local null = ChildPolicy.under(at.probe, policy, at.work, { "devices" })
   assert(null.code == 0 and null.said == "", null.said)
   local tty = ChildPolicy.under(at.probe, policy, at.work, { "present", "/dev/tty" })
@@ -509,15 +509,15 @@ local function test_a_link_the_root_shows_is_run_by_its_name_under_isolate_file(
   assert(sys.symlink("../../real/run.sh", link))
   local lone = tmp .. "/lone/python"
   assert(sys.symlink(script, lone))
-  local policy: Sandbox.Policy = { isolate = { "file" }, profiles = { "system" },
-    grants = { { path = tmp .. "/venv", letters = "r" }, { path = tmp .. "/real", letters = "r" } } }
+  local policy: Sandbox.Policy = { isolate = { "file" },
+    grants = { { profile = "system" }, { path = tmp .. "/venv", letters = "r" }, { path = tmp .. "/real", letters = "r" } } }
   local named = ChildPolicy.under(link, policy, tmp .. "/real", {})
   assert(named.code == 0 and named.said == link .. "\n", named.said)
   -- A grant whose name is a link: the root makes that link to its real path.
   local alias = tmp .. "/alias"
   assert(sys.symlink(tmp .. "/venv", alias))
-  local by_alias: Sandbox.Policy = { isolate = { "file" }, profiles = { "system" },
-    grants = { { path = alias, letters = "r" }, { path = tmp .. "/real", letters = "r" } } }
+  local by_alias: Sandbox.Policy = { isolate = { "file" },
+    grants = { { profile = "system" }, { path = alias, letters = "r" }, { path = tmp .. "/real", letters = "r" } } }
   local through = ChildPolicy.under(alias .. "/bin/python", by_alias, tmp .. "/real", {})
   assert(through.code == 0 and through.said == alias .. "/bin/python\n", through.said)
   local real = ChildPolicy.under(lone, policy, tmp .. "/real", {})

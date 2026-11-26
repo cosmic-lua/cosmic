@@ -311,7 +311,8 @@ end
 
 --- The fields [`Test.Policy`] repeats are the fields of cosmic.sandbox.policy's
 --- `Policy` but `setup`, which the harness chooses, and `requires`, `timeout`, `cpu_features` and `store_text`,
---- which only a test declares.
+--- which only a test declares. `profiles`, `loopback` and `env` are a sandbox policy's profile, loopback and
+--- env grants, which Test.Policy still writes as fields of their own.
 local function test_the_policy_record_is_the_sandboxs()
   local text = assert(Fs.read("cosmic/sandbox/policy.tl"))
   local record = assert(text:match("\n  record Policy\n(.-)\n  end\n"), "no Policy")
@@ -319,6 +320,9 @@ local function test_the_policy_record_is_the_sandboxs()
   for name in ("\n" .. record):gmatch("\n    ([%a_]+)%??: ") do
     if name ~= "setup" then theirs[#theirs + 1] = name end
   end
+  theirs[#theirs + 1] = "profiles"
+  theirs[#theirs + 1] = "loopback"
+  theirs[#theirs + 1] = "env"
   theirs[#theirs + 1] = "requires"
   theirs[#theirs + 1] = "timeout"
   theirs[#theirs + 1] = "cpu_features"

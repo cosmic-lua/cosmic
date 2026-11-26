@@ -345,7 +345,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   end
   local function print_seen(seen: Seen, digits?: integer): integer
     if as_json then
-      local encoded, why = Json.encode(record_of(seen), { pretty = true })
+      local encoded, why = Json.encode(record_of(seen), { layout = "expanded" })
       if encoded == nil then
         complain(tostring(why))
         return bare.refused
@@ -439,7 +439,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       unit = unit, value = value,
       from = record_of({ ns = first.ns, zone = calendar }),
       to = record_of({ ns = second.ns, zone = calendar }),
-    }, { pretty = true })
+    }, { layout = "expanded" })
     if encoded == nil then
       complain(tostring(why))
       return bare.refused
