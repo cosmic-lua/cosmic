@@ -370,9 +370,9 @@ refuses a module of the tree outside the closure.
   Start it with `test_child.words(tmp, "<the module>", "<name>", args)` as
   the words after the program, where the chunk is written for it.
 - A test that starts cosmic's core past the launcher uses
-  [`build.this_program`]'s `program` and needs no `"system"` profile.
-  Build a child's environment from its `environment()` only where the
-  test means to choose it.
+  [`Test.cosmic`] and needs no `"system"` profile. Build a child's
+  environment from [`Test.environment`] only where the test means to
+  choose it. A project's own tests start the program the same way.
 - `Store.source(name)` ([`cosmic.store`]) serves only the running
   binary's own database. Under `cosmic test` that is the test's sealed
   database. The source of a module the test requires is there. For a
@@ -1391,7 +1391,6 @@ Other rules:
 [`build.test_sandbox_probe`]: ../build/test_sandbox_probe.tl
 [`build.test_sandbox`]: ../build/test_sandbox.tl
 [`build.test_worker`]: ../build/test_worker.tl
-[`build.this_program`]: ../build/this_program.tl
 [`build.tree_checks`]: ../build/tree_checks/init.tl
 [`build/declared_key.tl`]: ../build/declared_key.tl
 [`build/dispatch_sites.tl`]: ../build/dispatch_sites.tl
@@ -1445,6 +1444,8 @@ Other rules:
 [`lang/check_total_fuzz_test.tl`]: ../lang/check_total_fuzz_test.tl
 [`Store.withheld`]: ../cosmic/store.tl
 [`sys.cpu_features`]: ../core/syscalls.h
+[`Test.cosmic`]: ../cosmic/test.tl
+[`Test.environment`]: ../cosmic/test.tl
 [`Test.mode`]: ../cosmic/test.tl
 [`Test.passed_unchecked`]: ../cosmic/test.tl
 [`Test.policy`]: ../cosmic/test.tl

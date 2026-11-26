@@ -6,7 +6,6 @@
 local Child = require("cosmic.child")
 local Coverage = require("cosmic.coverage")
 local Fs = require("cosmic.fs")
-local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 local _ = require("build.standalone")
 local Clock = require("cosmic.clock")
@@ -38,8 +37,8 @@ return function(): integer
   return 0
 end
 ]]))
-  local started = this_program.program({ "--standalone", script },
-    { env = this_program.environment(), cwd = tmp, stdout = "capture", stderr = "capture",
+  local started = Test.cosmic({ "--standalone", script },
+    { env = Test.environment(), cwd = tmp, stdout = "capture", stderr = "capture",
       timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stderr))

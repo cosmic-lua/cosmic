@@ -6,7 +6,6 @@
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
-local this_program = require("build.this_program")
 local Clock = require("cosmic.clock")
 local tool_fixture = require("build.tool_fixture")
 
@@ -45,7 +44,7 @@ local function test_a_failed_standard_output_write_exits_5(tmp: string)
     return
   end
   local full = assert(Fs.open_write("/dev/full"))
-  local started = this_program.program({ "codec", "hex" }, {
+  local started = Test.cosmic({ "codec", "hex" }, {
     cwd = tmp, stdout = full, stderr = "capture", input = "abc", timeout_ns = Clock.seconds(30),
   })
   local result = assert(Child.run(started.argv, started.options))

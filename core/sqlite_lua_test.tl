@@ -5,7 +5,6 @@ local Clock = require("cosmic.clock")
 local Sqlite = require("cosmic.sqlite")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
-local this_program = require("build.this_program")
 
 --- The next line of `lines`: raises where they ended or failed.
 local function line_of(lines: Stream.Lines): string
@@ -28,7 +27,7 @@ print("held")
 local _, _ = Fs.take(Fs.stdin, 1)
 assert(db:close())
 ]]
-  local command = this_program.program({ "-e", script:format(path) },
+  local command = Test.cosmic({ "-e", script:format(path) },
     { timeout_ns = Child.FOREVER, stdin = "stream", stdout = "stream", stderr = "capture" })
   local child <close> = assert(Child.start(command.argv, command.options))
   assert(line_of(Stream.lines(assert(child.stdout_stream))) == "held")
@@ -65,7 +64,7 @@ assert(statement:step_result() == "done")
 statement:finalize()
 assert(db:close())
 ]]
-  local command = this_program.program({ "-e", script }, { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })
+  local command = Test.cosmic({ "-e", script }, { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })
   local child <close> = assert(Child.start(command.argv, command.options))
   local result = assert(child:wait(Clock.seconds(5)))
   assert(result.ok, result.stderr)

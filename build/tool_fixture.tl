@@ -5,7 +5,7 @@
 
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
-local this_program = require("build.this_program")
+local Test = require("cosmic.test")
 
 local record tool_fixture
   --- How a run of the program ended and what it printed.
@@ -23,7 +23,7 @@ end
 --- @param words its command line after the program
 --- @param input what it reads on its standard input
 function tool_fixture.cosmic(dir: string, words: {string}, input?: string): tool_fixture.Ran
-  local started = this_program.program(words, {
+  local started = Test.cosmic(words, {
     cwd = dir, stdout = "capture", stderr = "capture", input = input,
     timeout_ns = Clock.seconds(30),
   })

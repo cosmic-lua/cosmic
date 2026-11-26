@@ -12,7 +12,6 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local build_paths = require("build.paths")
-local this_program = require("build.this_program")
 local worker = require("build.test_worker")
 -- The module the worker below runs, which its store must hold.
 local _ = require("build.key_parts")
@@ -32,7 +31,7 @@ local lua <const>: {string:boolean} = {
 local function test_a_worker_loads_what_worker_loads_names(tmp: string)
   local root = assert(Fs.absolute("."))
   assert(Fs.mkdirs(tmp .. "/tmp"))
-  local started = this_program.program({ "test", "--worker", root, "build.key_parts",
+  local started = Test.cosmic({ "test", "--worker", root, "build.key_parts",
     "test_none", tmp .. "/tmp", tmp .. "/children", "", "--store",
     build_paths.resolve(root).projection }, {
       cwd = root, stdin = "null", stdout = "capture", stderr = "stdout",
@@ -70,7 +69,7 @@ local function test_a_worker_attaches_the_store_it_is_given(tmp: string)
   local root = assert(Fs.absolute("."))
   assert(Fs.mkdirs(tmp .. "/tmp"))
   local missing = tmp .. "/missing/closure.db"
-  local started = this_program.program({ "test", "--worker", root, "build.key_parts",
+  local started = Test.cosmic({ "test", "--worker", root, "build.key_parts",
     "test_none", tmp .. "/tmp", tmp .. "/children", "", "--store", missing,
     "build.key_parts", "--tree", "build.key_parts" }, {
       cwd = root, stdin = "null", stdout = "capture", stderr = "stdout",
@@ -80,7 +79,7 @@ local function test_a_worker_attaches_the_store_it_is_given(tmp: string)
   assert(result.code == 2, tostring(result.code) .. ": " .. tostring(result.stdout))
   assert(tostring(result.stdout):find(missing, 1, true), tostring(result.stdout))
   -- Given the tree's own projection, the same worker attaches it and runs.
-  started = this_program.program({ "test", "--worker", root, "build.key_parts",
+  started = Test.cosmic({ "test", "--worker", root, "build.key_parts",
     "test_none", tmp .. "/tmp", tmp .. "/children-again", "", "--store",
     build_paths.resolve(root).projection, "build.key_parts", "--tree", "build.key_parts" }, {
       cwd = root, stdin = "null", stdout = "capture", stderr = "stdout",
@@ -93,7 +92,7 @@ local function test_a_worker_attaches_the_store_it_is_given(tmp: string)
   assert(report ~= nil, tostring(result.stdout))
   assert(report.message == "build.key_parts has no test named test_none", report.message)
   -- Given none, it resolves no build directory of its own: it refuses.
-  started = this_program.program({ "test", "--worker", root, "build.key_parts",
+  started = Test.cosmic({ "test", "--worker", root, "build.key_parts",
     "test_none", tmp .. "/tmp", tmp .. "/children-none", "",
     "build.key_parts", "--tree", "build.key_parts" }, {
       cwd = root, stdin = "null", stdout = "capture", stderr = "stdout",

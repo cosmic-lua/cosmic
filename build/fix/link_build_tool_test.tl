@@ -5,7 +5,6 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
-local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 local String = require("cosmic.string")
 local Clock = require("cosmic.clock")
@@ -14,7 +13,7 @@ local Clock = require("cosmic.clock")
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 local function check(root: string): string
-  local started = this_program.program({ "fix", "--check" }, { cwd = root,
+  local started = Test.cosmic({ "fix", "--check" }, { cwd = root,
     stdout = "capture", stderr = "stdout", timeout_ns = Clock.seconds(60) })
   local result = assert(Child.run(started.argv, started.options))
   assert(not result.ok, result.stdout)

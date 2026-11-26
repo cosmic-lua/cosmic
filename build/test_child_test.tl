@@ -4,7 +4,6 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Test = require("cosmic.test")
 local test_child = require("build.test_child")
-local this_program = require("build.this_program")
 
 Test.policy{ profiles = { "cosmic" } }
 
@@ -16,7 +15,7 @@ end)
 
 --- Runs the child `name` of this module with `args` and returns how it ended.
 local function run(tmp: string, name: string, args: {string}): Child.Result
-  local started = this_program.program(test_child.words(tmp, "build.test_child_test", name, args),
+  local started = Test.cosmic(test_child.words(tmp, "build.test_child_test", name, args),
     { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local result = assert(Child.run(started.argv, started.options))
   return result

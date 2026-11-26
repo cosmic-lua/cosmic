@@ -17,7 +17,6 @@ local Proc = require("cosmic.proc")
 local Test = require("cosmic.test")
 local support = require("build.test_support_fixture")
 local searchable = require("build.searchable")
-local this_program = require("build.this_program")
 local ChildPolicy = require("build.child_policy_fixture")
 
 --- The verb is started by its own launch (the grant of o/bin) and starts
@@ -43,8 +42,8 @@ end
 --- ends the test, skipped, where the host gave the sandbox it asked for none.
 local function verb(dir: string, words: {string}, input: string, env?: {string:string}): Ran
   searchable.open(dir)
-  local environment = env or this_program.environment()
-  local started = this_program.program(words, {
+  local environment = env or Test.environment()
+  local started = Test.cosmic(words, {
     cwd = dir, env = environment, input = input, stdout = "capture",
     stderr = "capture", timeout_ns = Clock.seconds(60),
   })
@@ -175,7 +174,7 @@ local function test_a_callers_https_proxy_is_the_relays_upstream(tmp: string)
       local _, _ = conn:shutdown("write")
       local _, _ = conn:close()
     end)
-    local env = this_program.environment()
+    local env = Test.environment()
     env["https_proxy"] = "http://127.0.0.2:" .. tostring(proxy)
     made.value = verb(tmp, client("through.example:443", "through.example", 443), "ping", env)
     task:cancel()

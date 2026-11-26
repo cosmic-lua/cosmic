@@ -11,7 +11,6 @@ local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 local _ = require("build.standalone")
 local sys = require("cosmic.sys")
-local this_program = require("build.this_program")
 local Clock = require("cosmic.clock")
 local Url = require("cosmic.url")
 --- What the client scripts its tests run standalone require, as in
@@ -76,7 +75,7 @@ end
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       local listening = assert(addresses[1], "the server listens")
       local base = "http://127.0.0.1:" .. tostring(assert(listening.port))
-      local started = this_program.program({ "--standalone", script, base },
+      local started = Test.cosmic({ "--standalone", script, base },
         { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
       result = assert(Child.run(started.argv, started.options))
       server:stop()
@@ -130,7 +129,7 @@ end
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       local listening = assert(addresses[1], "the server listens")
       local base = "http://127.0.0.1:" .. tostring(assert(listening.port))
-      local started = this_program.program({ "--standalone", script, base },
+      local started = Test.cosmic({ "--standalone", script, base },
         { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
       result = assert(Child.run(started.argv, started.options))
       server:stop()
@@ -177,7 +176,7 @@ return function(argv: {string}): integer
   return 0
 end
 ]]))
-  local started = this_program.program({ "--standalone", script, marker },
+  local started = Test.cosmic({ "--standalone", script, marker },
     { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })
   local child <close> = assert(Child.start(started.argv, started.options))
   for _ = 1, 3000 do

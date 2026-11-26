@@ -3,7 +3,6 @@
 
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
-local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 
 --- The program itself, which each test starts again with the variable set or not.
@@ -12,9 +11,9 @@ Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx
 --- What this program says on stderr running a chunk that loads cosmic.mcp, with COSMIC_TRACE_REQUIRE as `trace` (unset
 --- where nil).
 local function stderr_of(trace: string?): string
-  local env = this_program.environment()
+  local env = Test.environment()
   if trace ~= nil then env["COSMIC_TRACE_REQUIRE"] = trace end
-  local started = this_program.program({ "-e", "local _ = require(\"cosmic.mcp\")" },
+  local started = Test.cosmic({ "-e", "local _ = require(\"cosmic.mcp\")" },
     { env = env, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
   local result = assert(Child.run(started.argv, started.options))
   assert(result.ok, "the chunk exited " .. tostring(result.code) .. ": " .. tostring(result.stderr))

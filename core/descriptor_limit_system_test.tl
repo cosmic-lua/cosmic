@@ -7,7 +7,6 @@
 local Child = require("cosmic.child")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
-local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 --- What the chunk the program runs requires besides.
 local type _ = require("cosmic.env")
@@ -65,7 +64,7 @@ local function started_low(tmp: string, chunk: string): {string}
   if limits.hard < 2 * LOW then
     Test.skip("this host's hard descriptor limit leaves no room above " .. tostring(LOW))
   end
-  local started = this_program.program({ "-e", chunk }, { env = this_program.environment(),
+  local started = Test.cosmic({ "-e", chunk }, { env = Test.environment(),
     cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local argv = { "/bin/sh", "-c", 'ulimit -Sn "$0" && exec "$@"', tostring(LOW) }
   for _, word in ipairs(started.argv) do argv[#argv + 1] = word end

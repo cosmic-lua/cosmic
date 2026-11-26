@@ -4,7 +4,6 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
-local this_program = require("build.this_program")
 local _ = require("build.shared_sqlite") -- the child loads it
 
 Test.policy{ profiles = { "cosmic" } }
@@ -35,7 +34,7 @@ print("opened")
 assert(db:close())
 return 0
 ]]
-  local command = this_program.program({ "-e", script, path },
+  local command = Test.cosmic({ "-e", script, path },
     { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(20) })
   local child = assert(Child.start(command.argv, command.options))
   -- It is waiting on the holder, not failing: it has not finished a quarter of a second in.

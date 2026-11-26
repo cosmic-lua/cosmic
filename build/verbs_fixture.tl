@@ -8,7 +8,7 @@
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local invoke = require("build.invoke")
-local this_program = require("build.this_program")
+local Test = require("cosmic.test")
 local verb_list = require("build.verb_list")
 local String = require("cosmic.string")
 local Clock = require("cosmic.clock")
@@ -60,9 +60,9 @@ function verbs_fixture.run(dir: string, args: {string}): invoke.Result
   -- test's own directory. A `cosmic test`'s workers run unsandboxed: its
   -- command line is what is held here, and a sandbox nested in this
   -- test's own is one a host may refuse.
-  local env = this_program.environment()
+  local env = Test.environment()
   env.COSMIC_TEST_SANDBOX = "0" -- checked: map_field
-  local started = this_program.program(args, {
+  local started = Test.cosmic(args, {
     cwd = dir, env = env, stdout = "capture", stderr = "capture",
     timeout_ns = Clock.seconds(60),
   })

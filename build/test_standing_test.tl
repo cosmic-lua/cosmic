@@ -7,7 +7,6 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
-local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
 
@@ -21,7 +20,7 @@ local function run(root: string, output: string, env: {string:string}, fails?: b
   local fd = assert(Fs.open_write(output))
   local args: mut {string} = { "test" }
   for _, word in ipairs(words or { "suite" }) do args[#args + 1] = word end
-  local started = this_program.program(args, {
+  local started = Test.cosmic(args, {
     cwd = root, env = env, stdout = fd, stderr = fd,
     process_group = true, timeout_ns = Clock.seconds(60),
   })
@@ -64,7 +63,7 @@ local function test_plain()
 end
 ]]
   assert(Fs.write(root .. "/suite/outside_test.tl", source))
-  local env = this_program.environment()
+  local env = Test.environment()
   env["COSMIC_TEST_SANDBOX"] = "0"
   env["COSMIC_TEST_ALL"] = nil
   env["COSMIC_SANDBOX"] = nil

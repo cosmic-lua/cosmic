@@ -10,7 +10,6 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local parses_fixture = require("build.parses_fixture")
-local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 local String = require("cosmic.string")
 local Clock = require("cosmic.clock")
@@ -100,7 +99,7 @@ end
 local function build(root: string, env: {string:string}): string
   local output = root .. ".out"
   local fd = assert(Fs.open_write(output))
-  local started = this_program.program({ "test" }, {
+  local started = Test.cosmic({ "test" }, {
     cwd = root, env = env, stdout = fd, stderr = fd,
     process_group = true, timeout_ns = Clock.seconds(60),
   })
@@ -114,7 +113,7 @@ end
 --- The environment the builds of a case run in, sharing through a
 --- cache in `tmp`, and where that cache is.
 local function environment(tmp: string): {string:string}, string
-  local env = this_program.environment()
+  local env = Test.environment()
   local path = tmp .. "/cache/cache.db"
   env.COSMIC_BUILD_CACHE = path -- checked: map_field
   env.COSMIC_TEST_ALL = nil -- checked: map_field

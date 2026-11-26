@@ -20,7 +20,6 @@ local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local searchable = require("build.searchable")
-local this_program = require("build.this_program")
 
 Test.policy{
   profiles = { "cosmic" },
@@ -40,8 +39,8 @@ end
 --- asked for.
 local function cosmic(dir: string, words: {string}): Ran
   searchable.open(dir)
-  local started = this_program.program(words, {
-    cwd = dir, env = this_program.environment(), stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(120),
+  local started = Test.cosmic(words, {
+    cwd = dir, env = Test.environment(), stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(120),
   })
   local result = assert(Child.run(started.argv, started.options))
   local ran: Ran = { code = result.code or -1, out = result.stdout or "", err = result.stderr or "" }

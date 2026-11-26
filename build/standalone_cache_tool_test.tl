@@ -9,7 +9,6 @@ local Fs = require("cosmic.fs")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
-local this_program = require("build.this_program")
 
 --- The program itself, started with the projection as its store: a kept compile is keyed on the boot hash the
 --- projection records, and the closure store a test is otherwise given records none.
@@ -31,7 +30,7 @@ local function test_the_compile_cache_is_kept_only_where_others_cannot_write(tmp
   local script = tmp .. "/script.tl"
   assert(Fs.write(script, "return function(_argv: {string}): integer return 3 end\n"))
   local function run(env: {string:string}): integer
-    local started = this_program.program({ "--standalone", script }, {
+    local started = Test.cosmic({ "--standalone", script }, {
       env = env, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30),
     })
     local result = assert(Child.run(started.argv, started.options))
@@ -61,7 +60,7 @@ local function test_a_kept_compile_unused_for_thirty_days_is_removed(tmp: string
   local dir = tmp .. "/cache/cosmic/standalone"
   local function run(name: string, code: integer)
     assert(Fs.write(tmp .. "/" .. name, ("return function(_argv: {string}): integer return %d end\n"):format(code)))
-    local started = this_program.program({ "--standalone", name }, { env = { XDG_CACHE_HOME = tmp .. "/cache" },
+    local started = Test.cosmic({ "--standalone", name }, { env = { XDG_CACHE_HOME = tmp .. "/cache" },
       cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
     local r = assert(Child.run(started.argv, started.options))
     assert(r.code == code, tostring(r.code) .. tostring(r.stderr))
@@ -109,7 +108,7 @@ local function test_a_chunks_compile_is_kept_apart_from_a_files(tmp: string)
   assert(Fs.write(tmp .. "/same.tl", chunk))
   local env = { XDG_CACHE_HOME = tmp .. "/cache", COSMIC_TRACE_REQUIRE = "1" }
   local function run(words: {string}): Child.Result
-    local started = this_program.program(words, { env = env, cwd = tmp, stdout = "capture",
+    local started = Test.cosmic(words, { env = env, cwd = tmp, stdout = "capture",
       stderr = "capture", timeout_ns = Clock.seconds(30) })
     local r = assert(Child.run(started.argv, started.options))
     return r

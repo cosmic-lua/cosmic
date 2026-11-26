@@ -22,7 +22,6 @@ local Store = require("cosmic.store")
 local Sandbox = require("cosmic.sandbox")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
-local this_program = require("build.this_program")
 local ChildPolicy = require("build.child_policy_fixture")
 local fixture = require("build.child_policy_database_fixture")
 
@@ -397,9 +396,9 @@ end
 local function test_a_relay_that_will_not_serve_fails_the_start_and_ends_the_program(tmp: string)
   local script = tmp .. "/start.tl"
   assert(Fs.write(script, STARTER))
-  local env = this_program.environment()
+  local env = Test.environment()
   env["https_proxy"] = "https://proxy.test:3128"
-  local started = this_program.program({ "--standalone", script, sealed_client(tmp) },
+  local started = Test.cosmic({ "--standalone", script, sealed_client(tmp) },
     { env = env, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
   local result = assert(Child.run(started.argv, started.options))
   assert(result.ok, "exit " .. tostring(result.code) .. ": " .. tostring(result.stderr))
@@ -416,9 +415,9 @@ end
 local function test_an_upstream_whose_host_does_not_resolve_fails_the_start(tmp: string)
   local script = tmp .. "/start.tl"
   assert(Fs.write(script, STARTER))
-  local env = this_program.environment()
+  local env = Test.environment()
   env["https_proxy"] = "http://proxy.invalid:3128"
-  local started = this_program.program({ "--standalone", script, sealed_client(tmp) },
+  local started = Test.cosmic({ "--standalone", script, sealed_client(tmp) },
     { env = env, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
   local result = assert(Child.run(started.argv, started.options))
   assert(result.ok, "exit " .. tostring(result.code) .. ": " .. tostring(result.stderr))
@@ -457,8 +456,8 @@ local function test_the_relays_log_goes_where_the_start_says(tmp: string)
   local refusal: string? = nil
   serving(function(granted: integer, ungranted: integer)
     for _, log in ipairs({ "inherit", "null" }) do
-      local started = this_program.program({ "--standalone", script, database, tostring(granted),
-        tostring(ungranted), log }, { env = this_program.environment(), stdout = "capture",
+      local started = Test.cosmic({ "--standalone", script, database, tostring(granted),
+        tostring(ungranted), log }, { env = Test.environment(), stdout = "capture",
           stderr = "capture", timeout_ns = Clock.seconds(60) })
       local result = assert(Child.run(started.argv, started.options))
       if not result.ok and ChildPolicy.unsandboxable(result.stderr or "") then
@@ -646,9 +645,9 @@ local function test_the_upstream_proxy_is_reached_by_the_relay(tmp: string)
         end)
       end
     end)
-    local env = this_program.environment()
+    local env = Test.environment()
     env["https_proxy"] = "http://127.0.0.2:" .. tostring(assert(listener.address.port))
-    local started = this_program.program({ "--standalone", script, database, tostring(granted),
+    local started = Test.cosmic({ "--standalone", script, database, tostring(granted),
       tostring(ungranted), "null" }, { env = env, stdout = "capture", stderr = "capture",
         timeout_ns = Clock.seconds(60) })
     local result = assert(Child.run(started.argv, started.options))

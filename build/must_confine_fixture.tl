@@ -8,7 +8,7 @@ local Fake = require("cosmic.fake")
 -- Required, so the fake's main is of this test's closure.
 local _fake = require("build.confine_fake")
 local test_child = require("build.test_child")
-local this_program = require("build.this_program")
+local Test = require("cosmic.test")
 
 local record must_confine_fixture
   --- What a child ended with and printed.
@@ -43,10 +43,10 @@ end
 
 function must_confine_fixture.run_in(tmp: string, module: string, name: string, args: {string}, set?: {string:string}):
     must_confine_fixture.Said
-  local env = this_program.environment()
+  local env = Test.environment()
   env["COSMIC_SANDBOX"] = nil
   for key, value in pairs(set or {}) do env[key] = value end
-  local started = this_program.program(test_child.words(tmp, module, name, args),
+  local started = Test.cosmic(test_child.words(tmp, module, name, args),
     { env = env, cwd = tmp, stdout = "capture", stderr = "stdout", timeout_ns = Clock.seconds(60) })
   local result = assert(Child.run(started.argv, started.options))
   return { code = result.code or -1, text = result.stdout or "" }

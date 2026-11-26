@@ -18,7 +18,6 @@ local writer = require("build.writer")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local rebuild_lock = require("build.rebuild_lock")
-local this_program = require("build.this_program")
 local build_paths = require("build.paths")
 local reboot = require("build.reboot")
 local tree = require("build.tree")
@@ -49,10 +48,10 @@ end
 --- is one a host may refuse, so the run means the same everywhere.
 local function start_test(root: string, output: string): Child.Handle
   local fd = assert(Fs.open_write(output))
-  local env = this_program.environment()
+  local env = Test.environment()
   env.COSMIC_TEST_SANDBOX = "0" -- checked: map_field
   env.COSMIC_VERDICT_CACHE = "0" -- checked: map_field
-  local started = this_program.program({ "test" }, { timeout_ns = Child.FOREVER,
+  local started = Test.cosmic({ "test" }, { timeout_ns = Child.FOREVER,
     cwd = root, env = env, stdout = fd, stderr = fd, process_group = true,
   })
   local h = assert(Child.start(started.argv, started.options))
@@ -63,7 +62,7 @@ end
 --- The environment of a file run that builds its tree, as these do: COSMIC_STANDALONE=0, since the files they
 --- run require nothing and would run alone ([`build.standalone`]'s `runs_alone`).
 local function tree_run_environment(): {string:string}
-  local env = this_program.environment()
+  local env = Test.environment()
   env["COSMIC_STANDALONE"] = "0"
   return env
 end
@@ -88,8 +87,8 @@ local function test_a_named_holder_says_how_long_it_has_held_the_lock(tmp: strin
   project(root, 0)
   assert(support.build_dir(root))
   local file = support.build_dir(root) .. "/rebuild.lock.pid"
-  local started = this_program.program({ "-e", 'assert(require("cosmic.clock").sleep(60000000000))' },
-    { timeout_ns = Child.FOREVER, cwd = root, env = this_program.environment(), process_group = true })
+  local started = Test.cosmic({ "-e", 'assert(require("cosmic.clock").sleep(60000000000))' },
+    { timeout_ns = Child.FOREVER, cwd = root, env = Test.environment(), process_group = true })
   local sleeper <close> = assert(Child.start(started.argv, started.options))
   local now = Clock.now_ns() // Clock.seconds(1)
   assert(Fs.write(file, tostring(sleeper.pid) .. "\ntest\n"))
@@ -179,7 +178,7 @@ local function test_a_write_of_the_projection_waits_for_the_lock(tmp: string)
   assert(rebuild_lock.take(root, 0, "test") == "held")
   local output = tmp .. "/run.out"
   local fd = assert(Fs.open_write(output))
-  local started = this_program.program({ "hello.tl" }, { timeout_ns = Child.FOREVER,
+  local started = Test.cosmic({ "hello.tl" }, { timeout_ns = Child.FOREVER,
     cwd = root, env = tree_run_environment(), stdout = fd, stderr = fd,
     process_group = true,
   })
@@ -237,7 +236,7 @@ local function test_a_build_commits_its_row_before_it_waits_to_publish(tmp: stri
   assert(rebuild_lock.take(root, 0, "test") == "held")
   local output = tmp .. "/run.out"
   local fd = assert(Fs.open_write(output))
-  local started = this_program.program({ "hello.tl" }, { timeout_ns = Child.FOREVER,
+  local started = Test.cosmic({ "hello.tl" }, { timeout_ns = Child.FOREVER,
     cwd = root, env = tree_run_environment(), stdout = fd, stderr = fd,
     process_group = true,
   })
@@ -277,7 +276,7 @@ local function test_a_waiting_projection_keeps_its_compiled_snapshot(tmp: string
     assert(rebuild_lock.take(root, 0, "test") == "held")
     local output = root .. "/a.out"
     local fd = assert(Fs.open_write(output))
-    local started = this_program.program({ "main.tl" }, { timeout_ns = Child.FOREVER,
+    local started = Test.cosmic({ "main.tl" }, { timeout_ns = Child.FOREVER,
       cwd = root, env = tree_run_environment(), stdout = fd, stderr = fd,
       process_group = true,
     })
@@ -314,7 +313,7 @@ local function test_a_waiting_projection_keeps_its_compiled_snapshot(tmp: string
         assert(db:close())
       else
         assert(Fs.write(root .. "/main.tl", 'local broken: string = 42\nprint(broken)\n'))
-        local command = this_program.program({ "main.tl" }, { timeout_ns = Child.FOREVER,
+        local command = Test.cosmic({ "main.tl" }, { timeout_ns = Child.FOREVER,
           cwd = root, env = tree_run_environment(), stdout = "capture", stderr = "capture",
         })
         local failed = assert(Child.run(command.argv, command.options))
@@ -346,8 +345,8 @@ end
 --- A run of this program in `root`, `args` after it, its output captured
 --- and bounded by `limit_ns`, so a run that waits fails rather than hangs.
 local function bounded(root: string, args: {string}, limit_ns: integer): Child.Result
-  local started = this_program.program(args, {
-    cwd = root, env = this_program.environment(), stdout = "capture", stderr = "capture",
+  local started = Test.cosmic(args, {
+    cwd = root, env = Test.environment(), stdout = "capture", stderr = "capture",
     timeout_ns = limit_ns,
   })
   return (assert(Child.run(started.argv, started.options)))

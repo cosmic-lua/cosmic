@@ -612,7 +612,7 @@ end
 local FILE_NAMES: {string: boolean} = { zig = true }
 
 --- Whether `hit`, a `build.<name>` found in prose, names a module of the
---- tree (or a package under one): [`build.this_program`], not "the build."
+--- tree (or a package under one): [`build.confine`], not "the build."
 local function names_a_module(hit: string, modules: {string: boolean}): boolean
   local name = hit:match("^build%.([%w_.]*[%w_])")
   if name ~= nil and FILE_NAMES[name] == true then return false end

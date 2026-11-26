@@ -9,7 +9,6 @@ local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
-local this_program = require("build.this_program")
 local type Stream = require("cosmic.stream")
 
 --- The next chunk of `reader`: raises where it ended or failed.
@@ -29,7 +28,7 @@ Test.policy{
 }
 
 local function cosmic(dir: string, words: {string}): integer, string, string
-  local started = this_program.program(words, {
+  local started = Test.cosmic(words, {
     cwd = dir, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30),
   })
   local result = assert(Child.run(started.argv, started.options))
@@ -89,7 +88,7 @@ return function(argv: {string}): integer
   return 0
 end
 ]]))
-  local started = this_program.program({ "--standalone", fixture, tmp },
+  local started = Test.cosmic({ "--standalone", fixture, tmp },
     { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local result = assert(Child.run(started.argv, started.options))
   assert(result.signal == sys.SIGINT,
@@ -107,7 +106,7 @@ end
 local function test_a_fetch_interrupted_mid_body_leaves_no_file(tmp: string)
   local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(20) }))
   local url = "http://127.0.0.1:" .. tostring(assert(server.address.port)) .. "/big"
-  local started = this_program.program({ "fetch", "-o", tmp .. "/target", url },
+  local started = Test.cosmic({ "fetch", "-o", tmp .. "/target", url },
     { timeout_ns = Child.FOREVER, cwd = tmp, stdout = "null", stderr = "capture" })
   local child <close> = assert(Child.start(started.argv, started.options))
   local conn <close> = assert(server:accept())
