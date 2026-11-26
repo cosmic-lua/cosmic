@@ -83,7 +83,7 @@ function Check.paths(policy: Sandbox.Policy): Agent.Before
     for _, t in ipairs(call.paths) do
       local real, why = Sandbox.permits(policy, real_of[t.path] or t.path, t.action, call.cwd)
       if real == nil then
-        return "the agent may not " .. t.action .. " " .. t.path .. ": " .. why
+        return "the agent may not " .. t.action .. " " .. t.path .. ": " .. tostring(why)
       end
       real_of[t.path] = real
     end

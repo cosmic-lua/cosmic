@@ -16,7 +16,7 @@ local function allows(p: Sandbox.Policy, path: string, letters: string): boolean
   local actions: {string: string} = { r = "read", w = "write", c = "create" }
   for letter in letters:gmatch(".") do
     local real, why = Sandbox.permits(p, path, assert(actions[letter]))
-    if real == nil then return false, why end
+    if real == nil then return false, tostring(why) end
   end
   return true, ""
 end
