@@ -2075,7 +2075,8 @@ local function function_statement(ctx: Ctx, s: Ast.Function)
     local field_type: Type = owner
     for i = 2, #s.path do
       local part = s.path[i]
-      local base = readable(ctx, s.path[i - 1], field_type, "it has no member to define") -- checked: index_may_be_nil
+      -- No rewrite: a `function a.b()` names its path, and `!` is no part of a name.
+      local base = readable(ctx, s.path[i - 1], field_type, "it has no member to define", true) -- checked: index_may_be_nil
       if base == nil then
         field_type = ctx.invalid
         break

@@ -594,8 +594,10 @@ local function afterward(s: Agent.Session, call: Agent.Call, result: Tools.Resul
   if not ran then
     return { text = "The agent's after hook failed: " .. told(made), is_error = true, changes = result.changes }
   end
-  -- What the snippet changed is shown whatever the hook made of what the model reads.
+  -- What the snippet changed is shown whatever the hook made of what the model reads, and the answer it gave ends the
+  -- turn where the hook left the result one that ran.
   if made ~= nil and made.changes == nil then made.changes = result.changes end
+  if made ~= nil and made.answer == nil and not made.is_error then made.answer = result.answer end
   return made or result
 end
 
@@ -1168,6 +1170,8 @@ local function loop(s: Agent.Session): boolean, string
     -- Why the budget halted the turn, where it did rather than the user.
     local spent_reason: string? = nil
     local calls = false
+    -- What a snippet gave by Host.answer: the turn ends with it as the model's reply.
+    local reply_given: string? = nil
     for _, item in ipairs(content or {}) do
       local block, _ = Json.to_object(item)
       if block ~= nil and block["type"] == "tool_use" then calls = true end
@@ -1193,11 +1197,12 @@ local function loop(s: Agent.Session): boolean, string
         if #sent == 0 and not halted and failed == "" then
           for _, t in ipairs(steering(s)) do sent[#sent + 1] = t end
         end
-        if halted or failed ~= "" or #sent > 0 then
+        if halted or failed ~= "" or #sent > 0 or reply_given ~= nil then
           -- Given results all the same: the API takes no tool call left without its result.
           local why_not = if halted and spent_reason ~= nil then "Stopped: " .. spent_reason .. "."
             elseif halted then "Stopped: the user stopped the turn." elseif failed ~= "" then
-            "Not run: the agent could not keep what came before." else "Skipped: the user sent a message instead." end
+            "Not run: the agent could not keep what came before." elseif #sent > 0 then
+            "Skipped: the user sent a message instead." else "Skipped: a snippet before it gave the answer." end
           results[#results + 1] = { type = "tool_result", tool_use_id = call_id, content = why_not, is_error = true }
         else
           local called = if name is string then name else "?" end
@@ -1251,6 +1256,7 @@ local function loop(s: Agent.Session): boolean, string
               { text = Tools.unknown(s.tools, called), is_error = true } end
             if tool ~= nil then result = afterward(s, asked_call, result) end
           end
+          if result.answer ~= nil then reply_given = result.answer end
           local shown, record_why = record(s, call_id, called, given, result)
           if shown == nil then failed = record_why end
           tell(s, { kind = "result", name = called, result = result })
@@ -1282,6 +1288,14 @@ local function loop(s: Agent.Session): boolean, string
       return finish(s, false, spent_reason)
     end
     if halted then return stop(s) end
+    -- A snippet gave the answer (Host.answer): it is the reply, kept as the model's, and no request asks for one. Not
+    -- where the user wrote meanwhile: the model reads that next.
+    if reply_given ~= nil and #sent == 0 then
+      local added, add_why = add(s, { role = "assistant", content = Json.array({ { type = "text", text = reply_given } }) })
+      if not added then return false, add_why end
+      tell(s, { kind = "text", text = reply_given, calls = false })
+      return finish(s, true, "")
+    end
     local stop_reason = reply["stop_reason"]
     if stop_reason == "refusal" then return finish(s, false, "the model refused") end
     if stop_reason == "max_tokens" then return finish(s, false, "the reply ran past max_tokens") end
