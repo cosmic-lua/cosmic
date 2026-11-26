@@ -618,7 +618,7 @@ local function boot_of(root: string): string
 end
 
 --- `boot_hash` follows every module the tool carries, wherever it
---- sits: an edit to one under eval/ or test/portable, trees none of
+--- sits: an edit to one under lab/ or test/portable, trees none of
 --- the tool's C is in, moves it, and an edit to a test or testdata
 --- beside them, which the tool never carries, does not. A template's
 --- module is carried as a module is, so its edit moves it too.
@@ -626,12 +626,12 @@ local function test_a_carried_module_outside_the_tool_trees_moves_boot_hash(tmp:
   local root = tmp .. "/root"
   local files: {string:string} = {
     ["build/x.tl"] = "return {}\n",
-    ["eval/summarize.tl"] = "return {}\n",
+    ["lab/summarize.tl"] = "return {}\n",
     ["test/portable/init.tl"] = "return {}\n",
     ["test/portable/tool_test.tl"] = "local function test_x() end\n",
-    ["eval/testdata/case.tl"] = "return {}\n",
-    ["eval/page.tmpl"] = "{{type Page from eval.summarize}}{{mode text}}one",
-    ["eval/testdata/page.tmpl"] = "{{broken",
+    ["lab/testdata/case.tl"] = "return {}\n",
+    ["lab/page.tmpl"] = "{{type Page from lab.summarize}}{{mode text}}one",
+    ["lab/testdata/page.tmpl"] = "{{broken",
   }
   for path, data in pairs(files) do
     assert(Fs.mkdirs(root .. "/" .. assert(path:match("^(.*)/"), path .. " is in a directory")))
@@ -639,12 +639,12 @@ local function test_a_carried_module_outside_the_tool_trees_moves_boot_hash(tmp:
   end
   local before = boot_of(root)
   assert(boot_of(root) == before, "an unchanged tree keeps its boot_hash")
-  for _, path in ipairs({ "test/portable/tool_test.tl", "eval/testdata/case.tl",
-      "eval/testdata/page.tmpl" }) do
+  for _, path in ipairs({ "test/portable/tool_test.tl", "lab/testdata/case.tl",
+      "lab/testdata/page.tmpl" }) do
     assert(Fs.write(root .. "/" .. path, "return { edited = true }\n"))
     assert(boot_of(root) == before, path .. " is not carried, and moves nothing")
   end
-  for _, path in ipairs({ "eval/summarize.tl", "test/portable/init.tl", "eval/page.tmpl" }) do
+  for _, path in ipairs({ "lab/summarize.tl", "test/portable/init.tl", "lab/page.tmpl" }) do
     assert(Fs.write(root .. "/" .. path, "return { edited = true }\n"))
     local after = boot_of(root)
     assert(after ~= before, path .. " is carried, and moves boot_hash")
@@ -761,10 +761,10 @@ end
 --- Additions change discovery membership even when every known file stands.
 local function test_new_tool_inputs_invalidate_read_only_freshness(tmp: string)
   local paths = { "patch/curl/new.txt", "patch/newlib/new.txt", "core/new.h",
-    "eval/new.tl", "newmodules/new.tl" }
+    "lab/new.tl", "newmodules/new.tl" }
   assert(Fs.mkdirs(tmp .. "/patch/curl"))
   assert(Fs.mkdirs(tmp .. "/core"))
-  assert(Fs.mkdirs(tmp .. "/eval"))
+  assert(Fs.mkdirs(tmp .. "/lab"))
   assert(Fs.write(tmp .. "/core/old.h", "old\n"))
   local handle = assert(work.open(tmp))
   for _, path in ipairs(paths) do

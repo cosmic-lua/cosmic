@@ -1,7 +1,7 @@
---- [`eval/summarize.tl`] over transcripts built here: what each line of
+--- [`summarize.tl`] over transcripts built here: what each line of
 --- its report counts, and what it skips.
 local Json = require("cosmic.json")
-local Summarize = require("eval.summarize")
+local Summarize = require("summarize")
 
 local arena <const> = "/work/arena"
 local repo <const> = "/src/cosmic"
@@ -16,7 +16,7 @@ end
 local function answer(id: string, content: Json.Value, is_error?: boolean): string
   return (assert(Json.encode({ type = "user", message = { content = {
     { type = "tool_result", tool_use_id = id, content = content,
-      is_error = is_error or false }, -- checked: condition_type
+      is_error = is_error == true },
   } } })))
 end
 

@@ -542,6 +542,16 @@
           if: "matrix.leg == 'linux-x86_64' && (matrix.part == 'all' || matrix.part == 'format') && github.event_name != 'push'",
           run: "cosmic-driver cosmic_ci/driver.tl check-islands",
         },
+        # eval/ is a project of its own, built and tested on the pinned
+        # driver in place (eval/README.md), as cosmic's own build leaves it
+        # out: its format check and its tests. COSMIC_TREE holds the driver
+        # to eval/, not the checkout around it.
+        {
+          name: "check eval/ on the pinned driver",
+          if: "matrix.leg == 'linux-x86_64' && (matrix.part == 'all' || matrix.part == 'format') && github.event_name != 'push'",
+          env: {COSMIC_TREE: "."},
+          run: "cd ../eval && cosmic-driver fix --check . && cosmic-driver test",
+        },
         {
           name: "build release Cosmic",
           id: "boot",

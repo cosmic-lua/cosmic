@@ -1,4 +1,4 @@
---- The result.json of one eval run, built from what [`eval/solve`] and the
+--- The result.json of one eval run, built from what [`solve`] and the
 --- grader left in the arena: the transcript's `init` and final `result`
 --- events, the timestamps and exit status beside PROMPT.md, and the
 --- grade. The fields are eval/README.md's "reporting a run"; a value
@@ -7,8 +7,8 @@
 ---     cosmic --standalone eval/result.tl <arena> [--grade-exit N] [--model M]
 ---         [--commit C] [--max-turns N] [--timeout S]
 ---
---- It writes <arena>/result.json. [`eval/result`] runs this on the
---- bootstrap cosmic, as [`eval/solve`] runs eval/solve.tl: it requires
+--- It writes <arena>/result.json. [`result`] runs this on the
+--- bootstrap cosmic, as [`solve`] runs eval/solve.tl: it requires
 --- `cosmic.*` modules only.
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")

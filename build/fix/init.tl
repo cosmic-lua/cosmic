@@ -463,9 +463,15 @@ function fix.chosen(root: string, paths: {string}, standing: tree.Standing): fix
     if checked == nil then
       return nil, checked_trouble
     end
-    local templates, templates_trouble = template_sources(root)
-    if templates == nil then
+    local found_templates, templates_trouble = template_sources(root)
+    if found_templates == nil then
       return nil, templates_trouble
+    end
+    local templates: mut {string} = {}
+    for _, file in ipairs(found_templates) do
+      if not (own and identity.is_foreign_tree(identity.first_of(file))) then
+        templates[#templates + 1] = file
+      end
     end
     local c_files: {string} = {}
     local flow_files: {string} = {}
@@ -538,7 +544,12 @@ function fix.chosen(root: string, paths: {string}, standing: tree.Standing): fix
         return nil, templates_trouble
       end
       for _, file in ipairs(templates) do
-        templates_out[#templates_out + 1] = path .. "/" .. file
+        local named = path .. "/" .. file
+        -- A template of a tree of its own (eval/report.tmpl) is that tree's to check, as its Teal is.
+        local absolute, _ = Fs.absolute(named)
+        if not (own and absolute ~= nil and foreign_tree_in(root, absolute) ~= nil) then
+          templates_out[#templates_out + 1] = named
+        end
       end
       if own then
         local c_under, c_trouble = c_check.sources(path)

@@ -548,15 +548,18 @@ local function test_standalone_runs_only_the_files_the_list_names(tmp: string)
     out, ok = ran(tmp, wrapper, cosmic, argv)
     assert(not ok and out == "bin/cosmic-bootstrap: --standalone names no file\n", out)
   end
-  -- A file given as the first word builds the tree around it, which is how CI runs its own driver from ci/: allowed for a
-  -- file under the checkout's ci/ and outside the checkout, refused for any other file of the checkout, listed or not.
+  -- A file given as the first word builds the tree around it, which is how CI runs its own driver from ci/ and eval/agent
+  -- its evals from eval/: allowed for a file under the checkout's ci/ or eval/ and outside the checkout, refused for any
+  -- other file of the checkout, listed or not.
   assert(Fs.write(root .. "/ci/driver.tl", "return 1\n"))
+  assert(Fs.mkdirs(root .. "/eval"))
+  assert(Fs.write(root .. "/eval/agent.tl", "return 1\n"))
   for _, file in ipairs({ root .. "/build/unlisted.tl", root .. "/build/listed.tl" }) do
     out, ok = ran(tmp, wrapper, cosmic, { file })
-    assert(not ok and out:find("outside ci/, which runs on the pinned release only as `--standalone <file>`", 1, true) ~= nil,
+    assert(not ok and out:find("outside ci/ and eval/, which runs on the pinned release only as `--standalone <file>`", 1, true) ~= nil,
       file .. ": " .. out)
   end
-  for _, file in ipairs({ root .. "/ci/driver.tl", tmp .. "/outside/free.tl" }) do
+  for _, file in ipairs({ root .. "/ci/driver.tl", root .. "/eval/agent.tl", tmp .. "/outside/free.tl" }) do
     out, ok = ran(tmp, wrapper, cosmic, { file, "platform" })
     assert(ok and out == "ran\n" .. physical(tmp) .. "\n" .. file .. "\nplatform\n", file .. ": " .. out)
   end

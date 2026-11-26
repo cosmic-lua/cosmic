@@ -1,8 +1,8 @@
---- [`eval/arena.tl`] over an eval/ directory built here: what an arena
+--- [`arena.tl`] over an eval/ directory built here: what an arena
 --- holds, and where it refuses to lay one.
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
-local Arena = require("eval.arena")
+local Arena = require("arena")
 
 --- A repository at `root` whose eval/ has one task, `t`, and a
 --- journal; and an executable beside it.

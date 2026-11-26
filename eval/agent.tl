@@ -4,7 +4,7 @@
 --- tokens, cost, seconds and tool calls, read from each tool's own sessions.db. Two tools of one task compare, for
 --- example, the agent with code mode and the release before it.
 ---
----     bin/cosmic eval/agent.tl --tool NAME=PATH [--tool NAME=PATH ...] --fixture DIR --out DIR
+---     eval/agent --tool NAME=PATH [--tool NAME=PATH ...] --fixture DIR --out DIR
 ---         [--offer NAME=TOOL,...] [--effort [NAME=]LEVEL] [--tasks T,...|all] [--reps N] [--model M]
 ---         [--timeout S]
 ---
@@ -22,8 +22,8 @@
 --- once the run is graded (as is each other directory the evals make), with
 --- `HOME` and `XDG_DATA_HOME` the tool's own under <out>/<tool>. ANTHROPIC_API_KEY, or HARNESS_ANTHROPIC_API_KEY,
 --- is the key. <out>/report.md is the report, <out>/results.json each run's numbers, and each run's answer, the
---- agent's words, and the grade are in <out>/<tool>/<task>-<rep>.txt. [`eval/agent`] runs this on the checkout's
---- own cosmic, and the report is the text template eval/report.tmpl. [`Agent.execute`] works through an [`Agent.System`], which a test
+--- agent's words, and the grade are in <out>/<tool>/<task>-<rep>.txt. [`agent`] runs this on the pinned
+--- release, in eval/, and the report is the text template eval/report.tmpl. [`Agent.execute`] works through an [`Agent.System`], which a test
 --- replaces with a fake.
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
@@ -31,8 +31,8 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Proc = require("cosmic.proc")
-local Report = require("eval.report")
-local ReportData = require("eval.report_data")
+local Report = require("report")
+local ReportData = require("report_data")
 local Sqlite = require("cosmic.sqlite")
 
 local record Agent
@@ -767,7 +767,7 @@ function Agent.parse(argv: {string}): Agent.Options?, string
   end
   if #tools == 0 then return nil, "--tool is required; " .. USAGE end
   if fixture == "" or out == "" then return nil, "--fixture and --out are required; " .. USAGE end
-  -- The runs read and write them from other directories, and eval/agent runs from the checkout's root.
+  -- The runs read and write them from other directories, and eval/agent runs from eval/.
   if fixture:sub(1, 1) ~= "/" or out:sub(1, 1) ~= "/" then
     return nil, "--fixture and --out take absolute paths: " .. (if fixture:sub(1, 1) ~= "/" then fixture else out end)
   end

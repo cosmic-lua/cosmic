@@ -19,6 +19,7 @@ local type Database = work_schema.Database
 local CompileGrammar = require("build.compile_grammar")
 local MainLocals = require("build.main_locals")
 local Pipeline = require("build.pipeline")
+local identity = require("build.identity")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
@@ -397,16 +398,16 @@ function PipelineCheck.compare(
       end
     end
   end
-  -- The working database stages every module of the tree but the tree of `ci/`.
+  -- The working database stages every module of the tree but those of the trees of their own in it (`ci/`, `eval/`).
   local expected = 0
   for _, row in ipairs(rows) do
-    if row.file:find("^ci/") == nil then
+    if not identity.is_foreign_tree(identity.first_of(row.file)) then
       expected = expected + 1
     end
   end
   if compared ~= expected then
     out[#out + 1] = "the pipeline was compared on " .. String.counted(compared, "module") .. " where the tree has " ..
-      tostring(expected) .. " outside ci/: the staging and the tree differ"
+      tostring(expected) .. " outside the trees of their own: the staging and the tree differ"
   end
   logger.log:say("fix: pipeline: compared " .. String.counted(compared, "module") .. " of the tree's " ..
       tostring(expected) .. " the working database stages")

@@ -13,7 +13,7 @@
 -- (`checked-narrowing` in ci.yml) makes no check of that, so it must then make one. It is then also the one run that
 -- asks the declared-types tests (`*declared_types_test.tl`), so it must fail where one of them skips for want of a
 -- checked run. Then also give eval/ such a test again: its declarations (eval.round, eval.solve, eval.summarize) had one,
--- removed because eval/ is to be a project of its own, which cannot require this module; this module then belongs in the
+-- removed because eval/ is a project of its own, which cannot require this module; this module then belongs in the
 -- standard library.
 local Test = require("cosmic.test")
 local worker = require("build.test_worker")

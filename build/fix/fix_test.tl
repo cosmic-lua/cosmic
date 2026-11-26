@@ -697,6 +697,24 @@ local function test_a_path_in_a_tree_of_its_own_is_refused_not_passed_as_checked
   assert(#elsewhere.refused == 0 and #elsewhere.files == 1, table.concat(elsewhere.refused, " "))
 end
 
+--- A template of a tree of its own (`eval/`) is that tree's to check, as its Teal is: a run over cosmic's own tree, named or
+--- whole, leaves it out and keeps the tree's own templates.
+local function test_a_template_in_a_tree_of_its_own_is_left_out(tmp: string)
+  local own = tmp .. "/own"
+  assert(Fs.mkdirs(own .. "/core"))
+  assert(Fs.mkdirs(own .. "/build"))
+  assert(Fs.mkdirs(own .. "/eval"))
+  assert(Fs.write(own .. "/build/importer.tl", "return {}\n"))
+  assert(Fs.write(own .. "/build/page.tmpl", "{{mode text}}one"))
+  assert(Fs.write(own .. "/eval/report.tmpl", "{{mode text}}two"))
+  local none: {string} = {}
+  for _, paths in ipairs({ { own }, none }) do
+    local named = assert(chosen(own, paths, true))
+    local found = table.concat(named.templates, " ")
+    assert(#named.templates == 1 and found:find("build/page.tmpl", 1, true) ~= nil, found)
+  end
+end
+
 --- A Teal file of `source` in `tmp`, laid out by [`fix.lay_out_source`] (`checking`, `kept` and `layout` as it takes
 --- them), and what it did.
 local function laid_in(tmp: string, name: string, source: string, checking: boolean, kept?: laid.Kept,

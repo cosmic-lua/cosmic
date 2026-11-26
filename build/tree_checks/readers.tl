@@ -131,8 +131,6 @@ local spelled: {string: string} = {
   ["build/identity.tl"] = "skips a checkout-local o/ of a tree of its own (ci/o) from the " ..
     "input walk, by its name in the tree, which a stale one keeps wherever the build " ..
     "directory goes",
-  ["eval/check/grade.tl"] = "runs standalone on the cosmic.* modules alone, and grades a " ..
-    "project the arena's own cosmic built",
 }
 
 --- Whether `line`, code rather than a comment, joins a path to `/o`: a

@@ -1,6 +1,6 @@
---- [`eval/solve.tl`]'s pure parts: its command line, the arguments and
+--- [`solve.tl`]'s pure parts: its command line, the arguments and
 --- environment the solver is given, and what its sandbox unveils.
-local Solve = require("eval.solve")
+local Solve = require("solve")
 
 local function test_the_command_line_takes_an_arena_and_a_model()
   local options = assert(Solve.parse({ "/a", "--model", "m" }))
