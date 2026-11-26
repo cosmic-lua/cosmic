@@ -8,7 +8,9 @@
 --- exits 4, as a file that does not compile does. It reaches the
 --- library as a file does, `require("cosmic.json")`, by a literal
 --- name, and the tool's own
---- modules the same way; no module is bound for it, and it is Teal, not
+--- modules the same way. It requires a module of the working directory's tree as a file at the tree's
+--- root does, `require("util")` reading `util.tl` (or `util/init.tl`), and each such module it reaches is checked with it;
+--- no module is bound for it, and it is Teal, not
 --- Lua (`cosmic -e 'print(1 + "x")'` is refused). The words after the chunk are its `...`, each a
 --- `string?`; it prints only what it prints. What it returns is the
 --- exit code, as a built program's is: nothing is 0, a whole number

@@ -94,7 +94,7 @@ end
 local function rows(path: string, sql?: string): string
   local db = assert(Sqlite.open(path))
   local out: mut {string} = {}
-  for _, row in ipairs((assert(db:text_rows(sql or "SELECT key, origin FROM declared_v1 ORDER BY key")))) do
+  for _, row in ipairs((assert(db:rows(sql or "SELECT key, origin FROM declared_v1 ORDER BY key")))) do
     out[#out + 1] = table.concat(row:texts(), "=")
   end
   assert(db:close())

@@ -14,8 +14,10 @@ on and what the launcher would hand it, so the start needs no shell.
 library. No tree is built. The chunk is checked as a file is, and one
 the checker refuses does not run: its messages are printed and `-e`
 exits 4, the status of code that did not compile. It takes the library by `require("cosmic.json")`, with a
-literal name, as a file does, and the tool's own modules the same way;
-nothing is bound for it. The words after
+literal name, as a file does, and the tool's own modules the same way.
+It requires a module of the working directory as a file at the root of
+that tree does: `require("util")` reads `util.tl` (or `util/init.tl`),
+which is checked with the chunk. Nothing is bound for it. The words after
 the chunk are its `...`, each a `string?`, and an integer it returns is
 the exit code. A table it returns is printed as JSON, and it exits 0.
 A name the chunk never uses is let pass: a run is not a review, and
