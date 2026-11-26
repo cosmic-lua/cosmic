@@ -46,6 +46,13 @@ local record Request
   chunks: mut {string}
 end
 
+--- Why [`wire.check`] refuses `reply`, "" where it does not.
+local function trouble_of(reply: wire.Reply): string
+  local ok, why = wire.check(reply)
+  if ok then return "" end
+  return tostring(why)
+end
+
 --- Draws one request's fields onto `fields`, each a letter and its text.
 local function draw_request(src: Fuzz.Source, fields: mut {string})
   fields[#fields + 1] = "r"
@@ -427,7 +434,7 @@ local function test_a_reply_is_framed_as_its_status_and_method_say(tmp: string)
       end
       local bodiless = status < 200 or status == 204 or status == 304
       local sent_text = if kind == "none" then "" else text end
-      local why = wire.check(reply)
+      local why = trouble_of(reply)
       if bodiless and kind ~= "none" and not (kind == "string" and text == "") then
         if why == "" then return false, "a body for a " .. tostring(status) .. " was taken" end
         Fuzz.label("bodiless")

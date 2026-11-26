@@ -16,7 +16,8 @@ end
 
 --- Fails unless the server would send `res`.
 local function sendable(res: Types.Response, method?: string)
-  assert(Server.check(res, method) == "", Server.check(res, method))
+  local ok, why = Server.check(res, method)
+  assert(ok, tostring(why))
 end
 
 local function test_html_takes_safe_markup_and_sets_the_content_type()
