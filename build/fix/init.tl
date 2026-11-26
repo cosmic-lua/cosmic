@@ -1277,8 +1277,8 @@ local function choose_files(ctx: Fix): integer?
   end
   ctx.picked = picked
   if picked.whole then
-    log:say("fix: ci/ is a project of its own and is not checked here: run `cosmic fix --check` with ci/ as the working " ..
-        "directory (CI's format phase does)")
+    log:say("fix: ci/ and eval/ are projects of their own and are not checked here: run `cosmic fix --check` with each as " ..
+        "the working directory (CI does)")
   end
   -- What the checks spanning files cover: a run of `--changed` lays out
   -- only some of it.

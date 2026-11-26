@@ -86,8 +86,9 @@ end
 
 local function test_the_summary_decides_contamination()
   local clean = Result.build(nil, { summary = "turns=1\n" }, {})
-  local none, _ = Json.get(clean, { "contamination", 1 })
-  assert(none == nil)
+  local none, missing = Json.get(clean, { "contamination" })
+  assert(none ~= nil, tostring(missing))
+  assert(#Json.diff(Json.array(), none) == 0, "a clean summary is no contamination, an empty list")
   local dirty = Result.build(nil, { summary = "turns=1\nBREACH: /home/x\nsandbox-tmp: 2\n" }, {})
   local first, _ = Json.get(dirty, { "contamination", 1 })
   assert(first == "BREACH: /home/x")

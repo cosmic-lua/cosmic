@@ -613,9 +613,10 @@ local watched_trees: {string:boolean} = {
 
 --- Whether a walk of the root passes by `entry` (bare name `name`):
 --- anything hidden, `o`, the checkout-local build directory older tools
---- wrote, and `ci/`, a tree of its own the boot never stages.
+--- wrote, and `ci/` and `eval/`, trees of their own the boot never stages
+--- (build/identity.tl's `foreign_trees`, which this file, run standalone, cannot require).
 local function unwatched(entry: string, name: string, _kind: Fs.Kind): boolean
-  return name:sub(1, 1) == "." or entry == "o" or entry == "ci"
+  return name:sub(1, 1) == "." or entry == "o" or entry == "ci" or entry == "eval"
 end
 
 --- Whether a build reads the file at `path`, relative to the root:
