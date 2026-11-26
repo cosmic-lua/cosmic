@@ -991,9 +991,11 @@ end
 
 --- A body_ns that is no duration raises, naming the field.
 local function test_a_degenerate_body_ns_is_refused()
-  local ok, err = pcall(Server.serve, { -- checked: cast_refused
-    listeners = { Net.tcp("127.0.0.1", 0) }, handle = echo, body_ns = -1,
-  } as Server.ServeSpec)
+  local ok, err = pcall(function()
+    local _, _ = Server.serve({ -- checked: cast_refused
+      listeners = { Net.tcp("127.0.0.1", 0) }, handle = echo, body_ns = -1,
+    } as Server.ServeSpec)
+  end)
   assert(not ok and tostring(err):find("body_ns", 1, true) ~= nil, tostring(err))
 end
 
@@ -1478,7 +1480,7 @@ local function test_incompressible_bytes_stay_and_a_bad_spec_is_refused()
     handle = function(_req: Server.Request): Server.Reply return { status = 200 } end,
     listeners = { Net.tcp("127.0.0.1", 0) }, compress = { min_bytes = -1 },
   }
-  local ok, err = pcall(Server.serve, spec)
+  local ok, err = pcall(function() local _, _ = Server.serve(spec) end)
   assert(not ok and tostring(err):find("spec.compress.min_bytes", 1, true) ~= nil, tostring(err))
 end
 
