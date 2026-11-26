@@ -485,8 +485,9 @@ function tree_checks.named_plurals(prefix: string, named: {string: string}): {st
 end
 
 --- The checks of the tree that cost a run of some paths in cosmic's own tree at `root` a few seconds, over the files
---- `named` (each to its path under `root`): the plurals, public docs and rendered docs of those files, and the names the
---- docs and help refer to. The rest wait for a run of the whole tree. Each line is the whole tree's check's, so a line may
+--- `named` (each to its path under `root`): the plurals, public docs and rendered docs of those files, the names the
+--- docs and help refer to, and the scopes, declarations, checker and untyped calls of those files and of the files that
+--- reach one. The rest wait for a run of the whole tree. Each line is the whole tree's check's, so a line may
 --- name a file that was not named: a new module's name can break a reference in another.
 function tree_checks.named(root: string, standing: tree_standing.Standing, named: {string: string}): {string}
   local findings: mut {string} = {}
@@ -521,6 +522,25 @@ function tree_checks.named(root: string, standing: tree_standing.Standing, named
     local _, _ = carried:close()
   end
   local _, _ = db:close()
+  -- The checks of the files themselves, and of the files that reach one, from the memo the whole tree's run keeps
+  -- ([`build.check_memo`]): what a run of the whole tree would find in them, minutes before it. The pipeline's
+  -- comparison of the build's own compile waits for that run.
+  local memo, _ = Sqlite.open(built.translate_check, { writable = true })
+  for _, line in ipairs(tree_checked.scoped(root, memo, nil, paths)) do
+    findings[#findings + 1] = "scopes: " .. line
+  end
+  for _, line in ipairs(tree_checked.declared(root, memo, nil, paths)) do
+    findings[#findings + 1] = "declarations: " .. line
+  end
+  for _, line in ipairs(tree_checked.checked(root, memo, nil, nil, paths)) do
+    findings[#findings + 1] = "checker: " .. line
+  end
+  for _, line in ipairs(tree_checked.untyped(root, memo, nil, paths)) do
+    findings[#findings + 1] = "untyped: " .. line
+  end
+  if memo ~= nil then
+    local _, _ = memo:close()
+  end
   return findings
 end
 
