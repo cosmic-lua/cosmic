@@ -523,6 +523,7 @@ const core_sources = [_][]const u8{
     "main.c",
     "portable.c",
     "profile.c",
+    "hook.c",
     "promises.c",
     "rand.c",
     "startup.c",
