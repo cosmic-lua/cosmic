@@ -18,8 +18,8 @@ local function test_the_relays_policy_differs_by_platform_only_in_what_holds_it(
     end
     assert(#Sandbox.connects(policy) == 0 and #Sandbox.calls(policy) == 0)
   end
-  assert(table.concat(assert(linux.isolate), ",") == "proc" and linux.profiles == nil)
-  assert(table.concat(assert(macos.profiles), ",") == "system" and macos.isolate == nil)
+  assert(table.concat(assert(linux.isolate), ",") == "proc" and #Sandbox.profiles(linux) == 0)
+  assert(table.concat(Sandbox.profiles(macos), ",") == "system" and macos.isolate == nil)
 end
 
 local function test_a_numeric_upstream_is_its_own_address_in_canonical_text()

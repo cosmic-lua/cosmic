@@ -44,16 +44,16 @@ local REFUSED <const>: {Refusal} = {
   { policy = "{ isolate = { \"file\" } }", says = "isolate \"file\"" },
   { policy = "{ isolate = { \"proc\" } }", says = "isolate \"proc\"" },
   { policy = "{ grants = { { connect = \"example.com:443\" } } }", says = "connect \"example.com:443\"" },
-  { policy = "{ loopback = { \"127.0.0.2\" } }", says = "loopback \"127.0.0.2\"" },
+  { policy = "{ grants = { { loopback = \"127.0.0.2\" } } }", says = "loopback \"127.0.0.2\"" },
   { policy = "{ grants = { { calls = \"nest\" } } }", says = "calls \"nest\"" },
   { policy = "{ grants = { { path = \"/\", letters = \"ru\" } } }", says = "grant \"/\" has u" },
   { policy = "{ grants = { { path = \"/\", letters = \"r\", from = \"/srv\" } } }", says = "grant \"/\" has from" },
-  { policy = "{ env = { \"HOME\" } }", says = "env \"HOME\"" },
+  { policy = "{ grants = { { env = \"HOME\" } } }", says = "env \"HOME\"" },
   { policy = "{ setup = { set_env = { MODE = \"x\" } } }", says = "set_env \"MODE\"" },
   { policy = "{ setup = { tmp = true } }", says = "tmp is" },
   { policy = "{ limits = { processes = 4 } }", says = "limits.processes" },
   { policy = "{ setup = { user = 4294967000 } }", says = "user 4294967000" },
-  { policy = "{ profiles = { \"nonesuch\" } }", says = "nonesuch" },
+  { policy = "{ grants = { { profile = \"nonesuch\" } } }", says = "nonesuch" },
 }
 
 --- The child of a case that restricts nothing ends unrestricted, so it

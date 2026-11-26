@@ -184,7 +184,8 @@ local record McpServer
     argv: {string}
     --- What the program is held to ([`Child.Options.policy`]): what it does not grant, the program cannot reach,
     --- the server's own files, sockets and environment among them. Required: a tool that needs nothing gives `{}`
-    --- (this program starts with no grant of its own), or `profiles = { "system" }` for a host program.
+    --- (this program starts with no grant of its own), or `{ grants = { { profile = "system" } } }` for a host
+    --- program.
     policy: Sandbox.Policy
     --- How long one call may run (60 seconds); one that runs past it is ended and gets an error response.
     timeout_ns?: integer
@@ -2393,15 +2394,15 @@ end
 --- is an error result too, and so is one past `concurrency` calls at once. A program that does not start, or that
 --- the server is told to stop while it runs, is a raise: the client is told the server failed, and
 --- [`McpServer.Spec.on_error`] how. The program learns nothing of the request beyond its arguments: not the client,
---- and not an HTTP request's headers, where a token is; and of the server's environment only what `policy.env`
---- passes on. The policy is merged ([`Sandbox.union`]) once, here. A policy it refuses, a grant or `cwd` that is
+--- and not an HTTP request's headers, where a token is; and of the server's environment only what the policy's `env`
+--- grants pass on. The policy is merged ([`Sandbox.union`]) once, here. A policy it refuses, a grant or `cwd` that is
 --- not absolute, a `cwd` with a `..` step, a NUL byte in `argv` or `cwd`, an empty `argv`, or a limit below 1
 --- raises.
 ---
 ---     local tool = McpServer.command{
 ---       tool = { name = "word_count", inputSchema = Mcp.object_schema({ path = { type = "string" } }) },
 ---       argv = { "/usr/bin/wc", "-w" },
----       policy = { profiles = { "system" } },
+---       policy = { grants = { { profile = "system" } } },
 ---     }
 function McpServer.command(spec: McpServer.CommandSpec): McpServer.ToolSpec
   local name = spec.tool.name

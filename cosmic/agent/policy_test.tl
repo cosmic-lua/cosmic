@@ -251,6 +251,6 @@ local function test_a_file_is_made_only_where_its_directory_grants_c()
   local mapped: Sandbox.Policy = { grants = { { path = "/etc", letters = "r", from = inside } } }
   assert(not allows(mapped, "/etc/hostname", "r"))
   -- A policy that is none says so.
-  local unmerged, why = allows({ profiles = { "nosuch" } }, inside, "r")
+  local unmerged, why = allows({ grants = { { profile = "nosuch" } } }, inside, "r")
   assert(not unmerged and why:find("nosuch", 1, true) ~= nil, why)
 end

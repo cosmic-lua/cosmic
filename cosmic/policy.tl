@@ -46,8 +46,8 @@ local DATABASE <const> = FieldPath.field(FieldPath.field(FieldPath.root, "setup"
 --- changed; the core opens it by its path after that, so a file swapped in
 --- that instant is not caught.
 ---
----     local policy = assert(PolicyJson.decode('{"env":["HOME"],"setup":{"tmp":true}}'))
----     print(policy.env[1], assert(policy.setup).tmp) -- HOME  true
+---     local policy = assert(PolicyJson.decode('{"grants":[{"env":"HOME"}],"setup":{"tmp":true}}'))
+---     print(Sandbox.env(policy)[1], assert(policy.setup).tmp) -- HOME  true
 ---     local bad, why = PolicyJson.decode('{"grants":[{"path":"x","letters":"xr"}]}')
 ---     print(why) -- sandbox: $.grants[0].letters: "xr" is not in the order of "rwxcu", each letter once: "rx"
 function PolicyJson.decode(json: string): Sandbox.Policy?, string
@@ -73,7 +73,7 @@ function PolicyJson.decode(json: string): Sandbox.Policy?, string
 end
 
 --- A merged policy as canonical JSON: keys in byte order, lists sorted,
---- a field with nothing in it left out, `profiles` resolved away, and
+--- a field with nothing in it left out, profile grants resolved away, and
 --- `set_env`'s values written as `set_env_digests`, so the text names a
 --- variable and shows its value changed without showing it. The same
 --- policy is the same text, and [`PolicyJson.decode`] reads it back to a
@@ -88,14 +88,13 @@ end
 --- hashes to the digest, so encoding never rebases a checked database, or
 --- if it is unreadable. What a profile names is a path of this host, so an
 --- encoding that resolved one is one host's. Raises for a policy that
---- is not merged -- one with `profiles`, or [`Sandbox.union`] would refuse
+--- is not merged -- one with a profile grant, or [`Sandbox.union`] would refuse
 --- -- since text cannot say what was dropped.
 ---
 ---     local text = PolicyJson.encode(assert(Sandbox.union({ setup = { tmp = true, set_env = { MODE = "fast" } } })))
 ---     print(text) -- {"setup":{"set_env_digests":{"MODE":"..."},"tmp":true}}
 function PolicyJson.encode(p: Sandbox.Policy): string
-  local profiles = p.profiles
-  if profiles ~= nil and #profiles > 0 then
+  if #Sandbox.profiles(p) > 0 then
     error("sandbox: encode takes a merged policy: resolve profiles with Sandbox.union first", 2)
   end
   local made, why = Sandbox.union(p)
@@ -110,15 +109,17 @@ function PolicyJson.encode(p: Sandbox.Policy): string
     if #list > 0 then fields[name] = Json.array(list) end
   end
   put("isolate", merged.isolate or {})
-  put("loopback", merged.loopback or {})
-  put("env", merged.env or {})
   local grants: mut {Json.Value} = {}
   for _, grant in ipairs(merged.grants or {}) do
     if grant is Sandbox.Calls then
       grants[#grants + 1] = { calls = grant.calls }
     elseif grant is Sandbox.Connect then
       grants[#grants + 1] = { connect = grant.connect }
-    else
+    elseif grant is Sandbox.Env then
+      grants[#grants + 1] = { env = grant.env }
+    elseif grant is Sandbox.Loopback then
+      grants[#grants + 1] = { loopback = grant.loopback }
+    elseif grant is Sandbox.Path then
       local written: mut {string: Json.Value} = { path = grant.path, letters = grant.letters }
       local from = grant.from
       if from ~= nil then written["from"] = from end
