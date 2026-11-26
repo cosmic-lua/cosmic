@@ -312,7 +312,8 @@ local function closer_for(input: string, tree: {string}): string?
   for _, base in ipairs(MARKUP_CLOSERS) do
     for _, tail in ipairs(tails) do
       local closer = base .. tail
-      if Template.compile(HEAD .. input .. closer, "t.tmpl") ~= nil then
+      local compiled, _ = Template.compile(HEAD .. input .. closer, "t.tmpl")
+      if compiled ~= nil then
         return closer
       end
     end
@@ -326,7 +327,7 @@ local function try(input: string, closer: string, start: integer, length: intege
                    judge: function(kind: string, at: integer))
   for _, cut in ipairs(cuts(length)) do
     local at = start + cut
-    local out = Template.compile(HEAD .. input:sub(1, at) .. "{{.x}}" .. input:sub(at + 1) .. closer, "t.tmpl")
+    local out, _ = Template.compile(HEAD .. input:sub(1, at) .. "{{.x}}" .. input:sub(at + 1) .. closer, "t.tmpl")
     reach.positions = reach.positions + 1
     if out ~= nil then
       judge(kind_of(out), at)

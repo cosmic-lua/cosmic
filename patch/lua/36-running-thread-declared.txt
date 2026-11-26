@@ -1,0 +1,10 @@
+file: src/ldo.c
+note: The thread a resume is running, for core/profile.c's timer signal, which arms the hook of whichever coroutine is running when it lands (lua_sethook may be called from a signal handler). NULL while only the main thread runs. core/profile.c declares it itself, since the core's C is read against the unpatched tree, and must declare it as it is here. patch/lua/37-running-thread-resume.txt sets it.
+--- find
+#if !defined(luai_userstateresume)
+--- replace
+lua_State *volatile luaD_running = NULL;
+
+
+#if !defined(luai_userstateresume)
+--- end

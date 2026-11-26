@@ -10,6 +10,7 @@ local type PolicyRules = require("build.policy_rules")
 local type SyntaxReceivers = require("build.syntax_receivers")
 local AnalysisSchema = require("build.analysis_schema")
 local bind = require("build.bind")
+local ShapeKey = require("build.shape_key")
 local standard_text = require("build.standard_text")
 local type module = require("build.module")
 local type work_schema = require("build.work_schema")
@@ -133,6 +134,9 @@ local record Dependency
   kind: string
   source_hash: string
   requires: {string}
+  --- What a module that requires it reads of it ([`build.shape_key`]), where it is a Teal source of the tree; else
+  --- nil, and it is read by its `source_hash`.
+  shape?: string
 end
 
 --- The names the standard-library module `name` requires, from the
@@ -170,6 +174,45 @@ local function source_line(slot: string, dependency: Dependency): string
   return slot .. "\n" .. dependency.kind .. "\n" .. dependency.source_hash
 end
 
+--- One line of the graph a compile's key is a hash of, for the node `dependency` of `slot`: a module's own slot by its
+--- source ([`source_line`]), and a module it requires by what its compile reads of it, its shape. A compile reads of a
+--- module it requires only what lowering that module declared, which no function body adds to; so an edit to a body
+--- compiles that module again, and not every module above it. A test's verdict runs the bodies, so the graph key
+--- ([`identify_in`]'s `graph`) stays by the sources.
+local function shape_line(slot: string, dependency: Dependency): string
+  local shape = dependency.shape
+  if slot:sub(1, 1) == "\0" or shape == nil then return source_line(slot, dependency) end
+  return slot .. "\n" .. dependency.kind .. "\nshape\n" .. shape
+end
+
+--- The shape of each Teal source of `db` that is not a declaration, by its hash: from `shapes`, where it is kept, or
+--- made from its text and kept there. Nil where the database will not say; a compile is then keyed by the sources.
+local function shapes_of(db: Database): {string: string}?
+  local kept, _ = db:rows("SELECT source_hash, digest FROM shapes")
+  local rows, _ = db:rows("SELECT DISTINCT source_hash, kind, file FROM inputs WHERE kind <> 'vendor'")
+  if kept == nil or rows == nil then return nil end
+  local out: mut {string: string} = {}
+  for _, row in ipairs(kept) do out[row:text(1)] = row:text(2) end
+  local missing: mut {{string}} = {}
+  for _, row in ipairs(rows) do
+    local hash = row:text(1)
+    if out[hash] == nil and not AnalysisSchema.is_declaration(row:text(2)) and row:text(3):sub(-3) == ".tl" then
+      missing[#missing + 1] = { hash, row:text(3) }
+    end
+  end
+  for _, one in ipairs(missing) do
+    local hash, file = assert(one[1]), assert(one[2])
+    local texts, _ = db:rows("SELECT source FROM inputs WHERE source_hash = ?1 LIMIT 1", { text(hash) })
+    local first = if texts ~= nil then texts[1] else nil end
+    if first ~= nil and out[hash] == nil then
+      local digest = ShapeKey.digest(first:text(1), file)
+      out[hash] = digest
+      local _, _ = db:run("INSERT OR REPLACE INTO shapes (source_hash, digest) VALUES (?1, ?2)", { text(hash), text(digest) })
+    end
+  end
+  return out
+end
+
 --- What [`compute_keys`] reads of the tree and of the program's embedded
 --- standard library, as a graph walk needs it: each source the checker can
 --- load, by slot, and how a name is looked up in them.
@@ -183,6 +226,7 @@ local function dependency_graph(db: Database, modules: {Module}): Graph?, string
   if requires == nil then
     return nil, requires_trouble
   end
+  local shapes = shapes_of(db) or {}
   local dependencies: mut {string:Dependency} = {}
   local rows, rows_trouble = db:rows(
     "SELECT path, kind, source_hash FROM inputs WHERE kind <> 'vendor' " ..
@@ -195,6 +239,7 @@ local function dependency_graph(db: Database, modules: {Module}): Graph?, string
       dependencies[row:text(1)] = {
         kind = row:text(2), source_hash = row:text(3),
         requires = requires[row:text(3)] or {},
+        shape = if AnalysisSchema.is_declaration(row:text(2)) then nil else shapes[row:text(3)] end,
       }
     end
   end
@@ -325,7 +370,11 @@ local function compute_keys(db: Database, modules: {Module},
     if keys == nil then
       return nil, identify_trouble
     end
-    out[m.path] = keys
+    local shaped, shaped_trouble = identify_in(graph, m.path, m.file, tool, shape_line)
+    if shaped == nil then
+      return nil, shaped_trouble
+    end
+    out[m.path] = { key = shaped.key, graph = keys.graph }
   end
   return out, ""
 end
@@ -337,6 +386,8 @@ end
 --- [`identify_in`] joins them, with their digest, and the nodes it leads to.
 local record Fragment
   text: string
+  --- Its lines as a compile's key reads them ([`shape_line`]).
+  shaped: string
   digest: string
   children: {string}
 end
@@ -355,9 +406,9 @@ local function sorted(list: {string}): {string}
 end
 
 --- The [`Fragment`] of each slot of `known`, as [`identify_in`] walks them
---- (`line_of` is its way of spelling a node), made when first asked for and
+--- (each node spelled by [`source_line`], and by [`shape_line`] for a compile's key), made when first asked for and
 --- kept. Nil and why where a name cannot be resolved, "" for no node.
-local function fragments_in(known: Graph, line_of: function(string, Dependency): string):
+local function fragments_in(known: Graph):
     function(string): Fragment?, string
   local made: mut {string:Fragment} = {}
   return function(slot: string): Fragment?, string
@@ -368,22 +419,28 @@ local function fragments_in(known: Graph, line_of: function(string, Dependency):
     if slot:sub(1, 1) == "\0" then display = slot:sub(2) end
     local dependency, resolve_trouble = known.resolve(slot, display)
     if dependency == nil then return nil, resolve_trouble end
-    local lines: mut {string} = { line_of(slot, dependency) }
+    local lines: mut {string} = { source_line(slot, dependency) }
+    local shaped: mut {string} = { shape_line(slot, dependency) }
     local children: mut {string} = {}
     for _, required in ipairs(dependency.requires) do
       local child, child_trouble = known.resolve(required, required)
       if child == nil and child_trouble ~= "" then return nil, child_trouble end
       if child ~= nil then
         lines[#lines + 1] = slot .. "\nrequires\n" .. required
+        shaped[#shaped + 1] = slot .. "\nrequires\n" .. required
         children[#children + 1] = required
         if AnalysisSchema.is_declaration(child.kind) and known.dependencies["\0" .. required] ~= nil then
           lines[#lines + 1] = slot .. "\nloads\n" .. required
+          shaped[#shaped + 1] = slot .. "\nloads\n" .. required
           children[#children + 1] = "\0" .. required
         end
       end
     end
     local text_of = table.concat(sorted(lines), "\n\0\n")
-    local fragment: Fragment = { text = text_of, digest = Hash.hex_sha256(text_of), children = children }
+    local shaped_text = table.concat(sorted(shaped), "\n\0\n")
+    -- Its digest is of both: a change to either keys again the modules that reach it.
+    local fragment: Fragment = { text = text_of, shaped = shaped_text,
+      digest = Hash.hex_sha256(text_of .. "\n\0\0\n" .. shaped_text), children = children }
     made[slot] = fragment
     return fragment, ""
   end
@@ -464,7 +521,7 @@ end
 local function fast_keys(db: Database, modules: {Module}, tool: string): {string:Keys}?
   local graph, _ = dependency_graph(db, modules)
   if graph == nil then return nil end
-  local fragment_of = fragments_in(graph, source_line)
+  local fragment_of = fragments_in(graph)
   local made: mut {string:Fragment} = {}
   local pending: mut {string} = {}
   for _, m in ipairs(modules) do pending[#pending + 1] = "\0" .. m.path end
@@ -548,12 +605,17 @@ local function fast_keys(db: Database, modules: {Module}, tool: string): {string
         end
       end
       local texts: mut {string} = {}
+      local shaped: mut {string} = {}
       for _, slot in ipairs(ordered) do
         local fragment = made[slot]
-        if seen[slot] == true and fragment ~= nil then texts[#texts + 1] = fragment.text end
+        if seen[slot] == true and fragment ~= nil then
+          texts[#texts + 1] = fragment.text
+          shaped[#shaped + 1] = fragment.shaped
+        end
       end
       local sources = table.concat(texts, "\n\0\n")
-      out[m.path] = { key = Hash.hex_sha256(sources .. "\n\0\nfile\n" .. m.file .. "\n" .. tool),
+      local shapes = table.concat(shaped, "\n\0\n")
+      out[m.path] = { key = Hash.hex_sha256(shapes .. "\n\0\nfile\n" .. m.file .. "\n" .. tool),
         graph = Hash.hex_sha256(sources) }
     end
   end

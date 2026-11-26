@@ -102,8 +102,9 @@ local function test_the_smoke_policy_grants_the_tool_and_its_cache_alone()
       assert(encoded(policy["env"]) == '["PATH","HOME"]' and #env == 0, text)
       assert(encoded(policy["profiles"]) == '["system"]' and #profiles == 0, text)
     end
-    -- What the start sets up is a `setup` of its own, as cosmic writes it now.
-    local set_env = if in_setup then assert(Json.object_of(policy["setup"]))["set_env"] else policy["set_env"] end
+    -- What the start sets up is a `setup` of its own in both forms.
+    local set_env = assert(Json.object_of(policy["setup"]))["set_env"]
+    assert(policy["set_env"] == nil, text)
     assert(encoded(set_env) == '{"COSMIC_PORTABLE_CACHE":"/tmp/smoke-cache"}', text)
     assert(policy["isolate"] == nil and policy["connect"] == nil, text)
   end

@@ -77,7 +77,7 @@
 --- it takes back, decode with `null_value = Json.null`.
 ---
 --- To explore a document whose shape is not known, `Json.encode_any(v,
---- { pretty = true })` dumps a value, and [`Json.decode_object`] and
+--- { layout = "fractured" })` dumps a value, and [`Json.decode_object`] and
 --- [`Json.decode_array`] narrow the outermost value so a caller can `pairs`
 --- or `ipairs` it without a cast. [`Json.quote`] spells a key in a message
 --- of your own.
@@ -96,7 +96,7 @@
 ---
 --- Text can be handled as text, without building a value:
 --- [`Json.check`] says whether `decode` would read it, [`Json.format`]
---- writes it again compact or laid out, its members in their order and
+--- writes it again compact or laid out (any [`Json.TextLayout`]), its members in their order and
 --- its numbers as they were written, and [`Json.canonical`] writes the
 --- one text RFC 8785 makes of it, for a digest or a signature that two
 --- programs must agree on.
@@ -135,11 +135,54 @@ local Failure = require("cosmic.failure")
 local String = require("cosmic.string")
 
 local record Json
+  --- How [`Json.encode`] and [`Json.format`] lay their text out.
+  enum TextLayout
+    --- On one line, with no space (the default).
+    "compact"
+    --- Over lines, one member or element to a line, indented by two
+    --- spaces a level.
+    "expanded"
+    --- As FracturedJson lays it out (https://github.com/j-brooke/FracturedJson),
+    --- for people to read, by its default rules but for a two-space
+    --- indent:
+    ---
+    --- - A line holds at most `width` characters, indent included,
+    ---   where the values allow: a longer value is still written whole.
+    ---   A character is a UTF-8 code point, whatever a terminal draws
+    ---   it as.
+    --- - A value's complexity is how deep it nests: 0 for a scalar and
+    ---   an empty array or object, else 1 more than its most complex
+    ---   member.
+    --- - A value of complexity 2 or less is written on one line when it
+    ---   fits. Its brackets are padded inside when it nests:
+    ---   `[1, 2]`, but `[ [1, 2], [3] ]`.
+    --- - An array of complexity 2 or less, with 3 elements or more, is
+    ---   written several elements to a line when 3 fit on one, lined
+    ---   up in columns when that still fits.
+    --- - An array or object whose members (its rows) are all arrays or
+    ---   all objects (`null` among them too), each of complexity 2 or
+    ---   less, is a table when its rows fit: one member to a line,
+    ---   fields in aligned columns. An object row's fields go in the
+    ---   order they first appear in the rows, and a field a row lacks
+    ---   leaves its column blank. A table too wide drops its deepest
+    ---   columns from the alignment first. Rows where one holds an array
+    ---   or object and another a scalar in the same field are not a
+    ---   table, nor are rows that hold a key twice.
+    --- - A number column lines its numbers up by their decimal point.
+    --- - Anything else is written as `expanded` writes it, an object's
+    ---   values in one column when its longest key is at most 16
+    ---   characters longer than its shortest.
+    "fractured"
+  end
+
   --- What `encode` may be told. Every field is optional.
   record EncodeOptions
-    --- Lay the text out over lines, one member or element to a line,
-    --- indented by two spaces (default false).
-    pretty?: boolean
+    --- How to lay the text out (default `"compact"`).
+    layout?: Json.TextLayout
+    --- The most characters a line of `"fractured"` text holds, indent
+    --- included, where its values allow (default 120). A value longer
+    --- than that is still written whole. Raises when it is less than 1.
+    width?: integer
     --- How many arrays and objects may nest, 1 to [`Json.depth_limit`]
     --- (1000; default [`Json.default_depth`], 64); a value outside that
     --- raises. A table that contains itself fails here.
@@ -155,8 +198,13 @@ local record Json
   --- What [`Json.format`] may be told. Every field is optional, and those
   --- that say how to read the text mean what they mean to `decode`.
   record FormatOptions
-    --- Lay the text out as `encode`'s `pretty` does (default false).
-    pretty?: boolean
+    --- How to lay the text out, as `encode` takes it (default
+    --- `"compact"`).
+    layout?: Json.TextLayout
+    --- The most characters a line of `"fractured"` text holds, as
+    --- `encode` takes it. [`Json.canonical`] takes neither: its text is
+    --- always compact.
+    width?: integer
     --- How many arrays and objects may nest, as `decode` takes it.
     max_depth?: integer
     --- Read JSON5, as `decode` does; what is written is RFC 8259.
@@ -632,7 +680,7 @@ local function encode_any_text(value: any, opts?: Json.EncodeOptions): string?, 
   if opts == nil then
     text, err = raw.encode(value)
   else
-    text, err = raw.encode(value, opts.pretty, opts.max_depth, opts.ascii)
+    text, err = raw.encode(value, opts.layout, opts.max_depth, opts.ascii, opts.width)
   end
   if text == nil then return refuse(err) end
   return text, ""
@@ -693,13 +741,14 @@ end
 local function format_text(text: string, opts?: Json.FormatOptions): string?, string
   local o: Json.FormatOptions = opts or {}
   local out, err = raw.format(text, o.max_depth, o.json5, o.lone_surrogates, o.hash_comments,
-    o.duplicate_keys, o.pretty, false)
+    o.duplicate_keys, o.layout, false, o.width)
   if out == nil then return refuse(err) end
   return out, ""
 end
 
 --- The JSON value `text` holds, written again as RFC 8259 text:
---- with no space, or laid out as `encode`'s `pretty` lays a value out.
+--- with no space, or laid out as `layout` says, as `encode` lays a value
+--- out.
 --- What `decode` would refuse is refused, with its message. Nothing
 --- else changes: members keep their order, strings their characters
 --- (escaped only where JSON must escape them) and numbers their text,
@@ -718,7 +767,7 @@ end
 local function canonical_text(text: string, opts?: Json.CanonicalOptions): string?, string
   local o: Json.CanonicalOptions = opts or {}
   local out, err = raw.format(text, o.max_depth, o.json5, o.lone_surrogates, o.hash_comments,
-    false, false, true)
+    false, nil, true)
   if out == nil then return refuse(err) end
   return out, ""
 end

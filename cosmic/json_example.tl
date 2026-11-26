@@ -58,10 +58,29 @@ function Example.encode()
   assert(text == '{"name":"cosmic","tags":["lua","teal"]}')
 end
 
---- Laid out for a person to read.
-function Example.encode_pretty()
-  local text = assert(Json.encode({ b = { 1, 2 }, a = true }, { pretty = true }))
+--- Laid out one member to a line.
+function Example.encode_expanded()
+  local text = assert(Json.encode({ b = { 1, 2 }, a = true }, { layout = "expanded" }))
   print(text)
+end
+
+--- Laid out for a person to read, as FracturedJson lays it out: what fits
+--- on a line is on one, and rows that are alike line up in columns.
+function Example.encode_fractured()
+  local points = Json.array({
+    { name = "origin", x = 0, y = 0 },
+    { name = "far", x = 120.5, y = -3 },
+  })
+  local text = assert(Json.encode({ points = points, tags = { "a", "b" } }, { layout = "fractured", width = 50 }))
+  print(text)
+  assert(text == [[
+{
+  "points": [
+    {"name": "origin", "x":   0  , "y":  0},
+    {"name": "far",    "x": 120.5, "y": -3}
+  ],
+  "tags"  : ["a", "b"]
+}]])
 end
 
 --- ASCII only, for a place that cannot carry UTF-8, such as an HTTP
@@ -217,7 +236,7 @@ end
 function Example.text_as_text()
   local text = '{"b": 1.50, "a": [1, 2]}'
   assert(Json.check(text))
-  print(assert(Json.format(text, { pretty = true })))
+  print(assert(Json.format(text, { layout = "expanded" })))
   local canonical = assert(Json.canonical(text))
   assert(canonical == '{"a":[1,2],"b":1.5}')
   assert(assert(Json.canonical('{"a": [1.0, 2e0], "b": 15e-1}')) == canonical, "the same value, the same text")
