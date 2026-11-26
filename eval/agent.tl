@@ -747,6 +747,35 @@ Agent.tasks = {
       "sort -k1,1nr -k2,2",
     check = "$tool --standalone --check dirs.tl > /dev/null 2>&1 && $tool --standalone dirs.tl cosmic",
   },
+  {
+    name = "fix-bug",
+    prompt = "Ranges.merge in eval/plant/ranges.tl has a bug: ranges that touch or share an end must join (`1-3` and " ..
+      "`4-6` cover 1 to 6 with no gap, and `1-3` and `3-5` overlap), but it leaves them apart. Fix the bug and " ..
+      "change nothing else. Its tests, eval/plant/ranges_test.tl, run with `cosmic test eval/plant/ranges_test.tl`.",
+    truth = "echo pass",
+    check = [==[mkdir mini && cp eval/plant/ranges.tl mini/ranges.tl && cp eval/plant/ranges_test.tl mini/ranges_test.tl && sed -i 's/eval\.plant\.ranges/ranges/' mini/ranges_test.tl && cat > mini/hidden_test.tl <<'EOF'
+local Ranges = require("ranges")
+
+local function show(list: {Ranges.Range}): string
+  local parts: mut {string} = {}
+  for _, r in ipairs(list) do parts[#parts + 1] = tostring(r.first) .. "-" .. tostring(r.last) end
+  return table.concat(parts, ",")
+end
+
+local function test_touching_ranges_join()
+  assert(show(Ranges.merge({ { first = 1, last = 3 }, { first = 4, last = 6 } })) == "1-6")
+end
+
+local function test_a_shared_end_joins()
+  assert(show(Ranges.merge({ { first = 1, last = 3 }, { first = 3, last = 5 } })) == "1-5")
+end
+
+local function test_a_gap_stays()
+  assert(show(Ranges.merge({ { first = 1, last = 3 }, { first = 5, last = 6 } })) == "1-3,5-6")
+end
+EOF
+if (cd mini && $tool test > /dev/null 2>&1); then echo pass; else echo fail; fi]==],
+  },
 }
 
 local USAGE <const> = "usage: eval/agent --tool NAME=PATH [--tool NAME=PATH ...] --fixture DIR --out DIR " ..
