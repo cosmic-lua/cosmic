@@ -625,10 +625,19 @@ local function run(input: Tools.Object, context: Tools.Context): Tools.Result
   local answer, run_why = Worker.run(set, code, { cwd = context.cwd, policy = context.policy, commands = context.commands,
     seconds = seconds or RUN_SECONDS, stopped = context.stopped, serve = served(context) })
   if answer == nil then return fail(tostring(run_why)) end
+  -- The checker's rewrites of the snippet's errors ([`build.agent_worker`]): the model is told what they changed.
+  local fixed, _ = Json.to_array(answer["fixed"])
+  local rewrites: mut {string} = {}
+  for _, line in ipairs(fixed or {}) do rewrites[#rewrites + 1] = tostring(line) end
   local refused, _ = Json.to_array(answer["refused"])
   if refused ~= nil then
     local told: mut {string} = {}
     for _, line in ipairs(refused) do told[#told + 1] = tostring(line) end
+    if #rewrites > 0 then
+      return fail("The checker refused the snippet, so it did not run. It made these rewrites, which keep what it " ..
+          "meant; write them so in the next one:\n" .. table.concat(rewrites, "\n") .. "\nThe errors left, with columns " ..
+          "of the rewritten lines:\n" .. table.concat(told, "\n"))
+    end
     return fail("The checker refused the snippet, so it did not run:\n" .. table.concat(told, "\n"))
   end
   local trouble = answer["error"]
@@ -659,13 +668,9 @@ local function run(input: Tools.Object, context: Tools.Context): Tools.Result
     text = text .. (if text == "" or text:sub(-1) == "\n" then "" else "\n" end) .. "Returned: " .. shown
   end
   if text == "" then text = "(no output)" end
-  -- The checker's rewrites made the snippet one it passes ([`build.agent_worker`]): the model is told what they changed.
-  local fixed, _ = Json.to_array(answer["fixed"])
-  if fixed ~= nil and #fixed > 0 then
-    local told: mut {string} = {}
-    for _, line in ipairs(fixed) do told[#told + 1] = tostring(line) end
+  if #rewrites > 0 then
     text = "[The checker refused the snippet; it ran with these rewrites, which keep what it meant:\n" ..
-      table.concat(told, "\n") .. "]\n" .. text
+      table.concat(rewrites, "\n") .. "]\n" .. text
   end
   local r = if answer["ok"] == true then ok(text) else
     fail(text .. (if text:sub(-1) == "\n" then "" else "\n" end) .. "Error: " .. tostring(trouble)) end

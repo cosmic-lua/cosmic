@@ -128,7 +128,8 @@ local function test_a_refused_snippet_runs_with_the_checkers_rewrites_and_says_s
       both[2] == "run.tl:5:42: condition_type: `maybe(true)` -> `(maybe(true) == true)`", shown(tested))
   local left = run(w, "local n = 1\nprint(\"n=\" .. n)\nlocal s: string = n\n")
   local lines = assert(Json.to_array(left["refused"]))
-  assert(left["fixed"] == nil and #lines == 4 and tostring(lines[1]):find("concat_type", 1, true) ~= nil, shown(left))
+  local made = assert(Json.to_array(left["fixed"]))
+  assert(#made == 1 and #lines == 2 and tostring(lines[1]):find("not_assignable", 1, true) ~= nil, shown(left))
   worker_close(w)
 end
 
@@ -163,6 +164,10 @@ local function test_the_run_tool_shows_what_a_snippet_printed_returned_and_was_r
   local rewritten = tools_run("run", { code = "local n = 2\nprint(\"n=\" .. n)\n" }, context)
   assert(not rewritten.is_error and rewritten.text == "[The checker refused the snippet; it ran with these rewrites, " ..
       "which keep what it meant:\nrun.tl:2:15: concat_type: `n` -> `tostring(n)`]\nn=2\n", rewritten.text)
+  local partly = tools_run("run", { code = "local n = 2\nprint(\"n=\" .. n)\nlocal s: string = n\n" }, context)
+  assert(partly.is_error and partly.text:find("It made these rewrites", 1, true) ~= nil and
+      partly.text:find("run.tl:2:15: concat_type", 1, true) ~= nil and partly.text:find("not_assignable", 1, true) ~= nil,
+    partly.text)
   local raised = tools_run("run", { code = "error(\"boom\")\n" }, context)
   assert(raised.is_error and raised.text:find("Error: run.tl:1: boom", 1, true) ~= nil, raised.text)
   local long = tools_run("run", { code = "for i = 1, 4000 do print(\"line \" .. tostring(i)) end\n" }, context)

@@ -26,11 +26,17 @@ local function rewritten(source: string): string, {string}
   local edits, errors = edits_of(source)
   assert(errors > 0 and #edits == errors, source .. ": " .. tostring(#edits) .. " rewrites of " .. tostring(errors) ..
       " errors")
-  local applied = Rewrite.apply(source, edits)
-  local again = Programs.run(applied.text)
-  assert(#again.errors == 0 and #again.before == 0, applied.text .. ": " .. Programs.codes(again) .. " " ..
+  -- In rounds, as the agent's worker and `cosmic fix` make them: each round's text is checked again.
+  local applied = Rewrite.rounds(source, function(text: string): {Rewrite.Edit}
+    local found, count = edits_of(text)
+    assert(#found == count, text .. ": " .. tostring(#found) .. " rewrites of " .. tostring(count) .. " errors")
+    return found
+  end, 4)
+  local text = applied.text
+  local again = Programs.run(text)
+  assert(#again.errors == 0 and #again.before == 0, text .. ": " .. Programs.codes(again) .. " " ..
       table.concat(again.before, " "))
-  return applied.text, Rewrite.told("a.tl", applied.made)
+  return text, Rewrite.told("a.tl", applied.made)
 end
 
 local function test_a_number_or_boolean_in_concat_is_written_with_tostring()
@@ -51,6 +57,17 @@ local function test_an_optional_boolean_condition_is_tested_with_equals_true()
   assert(text == "local function f(): boolean? return nil end\nlocal function g(v: boolean?)\n" ..
       "  if v == true then print(1) end\n  while f() == true do end\n  if not (v == true) then print(2) end\n" ..
       "  assert(v == true)\n  local w = v or true\n  print(w)\nend\ng(f())\n", text)
+end
+
+--- A value that may be nil, read where Lua raises for nil (an operand of an ordering, arithmetic or `..`, or what is
+--- indexed), is taken with `!`, which raises there too.
+local function test_a_value_that_may_be_nil_where_lua_raises_is_taken_with_must()
+  local text = rewritten("local function g(m: {string: integer}, t: {string}, a: string, b: string): string\n" ..
+      "  if m[a] > m[b] then return t[1]:upper() end\n  return \"n\" .. t[2] .. tostring(m[a] + 1)\nend\n" ..
+      "print(g({}, {}, \"a\", \"b\"))\n")
+  assert(text == "local function g(m: {string: integer}, t: {string}, a: string, b: string): string\n" ..
+      "  if m[a]! > m[b]! then return t[1]!:upper() end\n  return \"n\" .. t[2]! .. tostring(m[a]! + 1)\nend\n" ..
+      "print(g({}, {}, \"a\", \"b\"))\n", text)
 end
 
 --- A union that holds a boolean and another type is no `boolean?`: `"a"` holds as a condition and is not `true`, so

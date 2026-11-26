@@ -939,8 +939,9 @@ function TableLiterals.literal_member(ctx: Ctx, e: Ast.Table, u: Union, written:
 end
 
 --- The type to read from when the value of `node` has type `t`: `t` without its nil, after reporting that it may
---- be nil. Nil where the access has nothing to read (an error already reported, or `invalid`).
-function TableLiterals.readable(ctx: Ctx, node: Ast.Node, t: Type, what: string): Type?
+--- be nil. Nil where the access has nothing to read (an error already reported, or `invalid`). `spread` says the access
+--- is a spread, which a nil value does not raise for as an index does, so the error has no rewrite to `node!`.
+function TableLiterals.readable(ctx: Ctx, node: Ast.Node, t: Type, what: string, spread?: boolean): Type?
   local tag = t.tag
   if tag == "invalid" or tag == "never" then
     return nil
@@ -953,8 +954,9 @@ function TableLiterals.readable(ctx: Ctx, node: Ast.Node, t: Type, what: string)
       "give it a value, or do not read it", { "nil" })
     return nil
   elseif nilable(t) then
+    -- Lua raises where it indexes nil: `node!` raises there too.
     report(ctx, "nil_not_allowed", node, subject(ctx, node) .. " is " .. tq(ctx, t) .. ", so it may be nil, and " .. what,
-      nil_fix(ctx, node, t), { show(ctx, t) })
+      nil_fix(ctx, node, t), { show(ctx, t) }, nil, if spread == true then nil else Naming.must(ctx, node) end)
     return ctx.store:non_nil(t)
   end
   return t
@@ -1010,7 +1012,7 @@ function TableLiterals.table_literal(ctx: Ctx, e: Ast.Table, expected: Type?): T
       return ctx.invalid
     end
     local got = ctx.walk.expr(ctx, source, nil)
-    local readable_type = readable(ctx, source, got, "its fields cannot be copied")
+    local readable_type = readable(ctx, source, got, "its fields cannot be copied", true)
     if readable_type == nil then
       items_after_first()
       return ctx.invalid
