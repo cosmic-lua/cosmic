@@ -193,6 +193,7 @@
 --- its own would earn (doc/roadmap.md), not a gap a stopgap here would
 --- close.
 
+local Failure = require("cosmic.failure")
 local codegen = require("cosmic.template.codegen")
 local context = require("cosmic.template.context")
 local dialect = require("cosmic.template.dialect")
@@ -219,8 +220,8 @@ end
 --- @param name string The template's name (its file), which heads each reason
 --- @param options? Template.Options Dialects other than the built-in ones
 --- @return string|nil The module source, with line N the template's line N
---- @return string The reason, as `name:line:col: ...`, when the template is refused
-function Template.compile(src: string, name: string, options?: Template.Options): string?, string
+--- @return Failure The reason, as `name:line:col: ...`, when the template is refused
+function Template.compile(src: string, name: string, options?: Template.Options): (string) | (nil, Failure)
   local registry = if options ~= nil and options.dialects ~= nil then options.dialects else dialect.registry end
   local template, why = parse.parse(src, name, registry)
   if template == nil then
@@ -228,13 +229,14 @@ function Template.compile(src: string, name: string, options?: Template.Options)
   end
   local attributes, conflict = dialect.resolve(template.dialects, registry)
   if attributes == nil then
-    return nil, name .. ":" .. tostring(template.line) .. ":1: " .. conflict
+    return nil, Failure.at(conflict.message, template.line, 1, name)
   end
   local placed, reason = context.annotate(template, name, attributes)
   if not placed then
-    return nil, reason
+    local refused = assert(reason, "a refused template says why")
+    return nil, refused
   end
-  return codegen.generate(template), ""
+  return codegen.generate(template)
 end
 
 return Template
