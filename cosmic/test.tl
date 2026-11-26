@@ -547,7 +547,8 @@ end
 --- the runner asks once before any worker starts; the build refuses a name
 --- the table does not have and one written twice,
 --- and a `path:` with no host grant of its path or a `program:`
---- without the profile "system" and `env = { "PATH" }`. Raises for a value no
+--- without the profile "system" and `env = { "PATH" }`, or an `env:` whose
+--- variable `env` does not pass. Raises for a value no
 --- [`Policy`] could be, for a second call in the process, naming where the
 --- first was -- so a test module never requires another that calls `policy` --
 --- and, under a runner, for a call once the module has loaded, as from

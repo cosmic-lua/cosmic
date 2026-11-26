@@ -621,7 +621,14 @@ only some of the time goes in a module of its own.
 What the worker sees is what its module grants, not what the runner
 found. A `path:` needs a `host` grant of the same path, or of /proc
 above it, or the profile `"proc"`. A `program:`
-needs the profile `"system"` and `env = { "PATH" }`.
+needs the profile `"system"` and `env = { "PATH" }`. An `env:<NAME>`
+needs `NAME` in `env`, and may not name a variable the runner sets in
+every worker itself, such as `PATH` or `TMPDIR`.
+
+A test of what another program's run prepares for it, and says where
+through variables, declares `requires = { "env:<NAME>" }` for each
+variable it reads. In any other run it is not applicable, and no worker
+starts.
 
 A test that writes a portable program (`cosmic build` without `--host`)
 declares `requires = { "all_cores" }`. A bare `bin/zig build boot` writes a

@@ -2195,6 +2195,9 @@ function test_key.ask_host(rec: Recording, modules: {Module},
           -- A sandboxed worker looks a program up on its own PATH, not
           -- the runner's: the probe finds the file the worker would.
           path = if sandboxed_workers then test_sandbox.path else nil end,
+          -- What a worker is given, not all the runner holds: an `env:`
+          -- of a variable no worker gets would stand on the runner's.
+          getenv = function(name: string): string? return worker_view()[name] end,
         })
       end
       local probed = assert(host)
