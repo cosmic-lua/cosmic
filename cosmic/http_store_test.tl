@@ -33,7 +33,7 @@ end
 local function carried_root(label: string): string
   local databases = Store.databases()
   -- The binary carries at least one database; the newest is last.
-  local rows = assert(Array.at(databases, #databases):text_rows(
+  local rows = assert(Array.at(databases, #databases):rows(
     "SELECT hex(der) FROM ca_roots WHERE label = ?1", { { text = label } }))
   assert(#rows == 1, label .. " is not among the binary's CA roots")
   return (assert(Codec.unhex(rows[1]:text(1))))
@@ -216,7 +216,7 @@ local function test_minimal_roots_are_carried()
     assert(hex:match("^%x+$") ~= nil and #hex == 64 and hex == hex:lower(), hex)
     assert(seen[hex] == nil, hex .. " is listed twice")
     seen[hex] = true
-    local rows = assert(own:text_rows(
+    local rows = assert(own:rows(
       "SELECT label FROM ca_roots WHERE sha256 = unhex(?1)", { { text = hex } }))
     assert(#rows == 1, hex .. " is not among the binary's CA roots")
   end

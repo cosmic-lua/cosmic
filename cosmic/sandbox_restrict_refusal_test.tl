@@ -20,6 +20,8 @@ local _store = require("cosmic.store")
 local Test = require("cosmic.test")
 local Fake = require("cosmic.fake")
 local Restrict = require("build.sandbox_restrict_fixture")
+-- Required, so the fake's main is of this test's closure.
+local _ = require("build.sandbox_restrict_fake")
 
 --- The program is this one, which a test starts only with `tool`; its
 --- temporary directory is the test's own; and /proc, which the checks read.
@@ -62,7 +64,7 @@ local REFUSED <const>: {Refusal} = {
 local function test_every_refusal_holds_nothing(tmp: string)
   assert(Fs.write(tmp .. "/free", "free"))
   assert(Fs.write(tmp .. "/held", "held"))
-  local probe = assert(Fake.build(tmp .. "/fake"))
+  local probe = assert(Fake.build(tmp .. "/fake", "build.sandbox_restrict_fake"))
   local lines: mut {string} = {}
   for i, case in ipairs(REFUSED) do
     lines[#lines + 1] = string.format("say(%q, Sandbox.restrict(%s))", "case" .. tostring(i), case.policy)

@@ -83,9 +83,10 @@ function Naming.on_nil(ctx: Ctx, name: string): string
 end
 
 --- Reports `code` on the tokens of `node`. A value that may be nil because an assignment dropped what a test had
---- shown is told that (`narrowing_dropped`), with the assignment as the second place.
+--- shown is told that (`narrowing_dropped`), with the assignment as the second place. `rewrite` is the one rewrite of
+--- `node` that puts it right ([`Codes.Rewrite`]), where there is one.
 function Naming.report(ctx: Ctx, code: Code, node: Ast.Node, msg: string, fix: string, shown?: {string},
-                       other?: Scopes.Place)
+                       other?: Scopes.Place, rewrite?: Codes.Rewrite)
   if ctx.quiet > 0 then
     return
   end
@@ -110,7 +111,7 @@ function Naming.report(ctx: Ctx, code: Code, node: Ast.Node, msg: string, fix: s
   table.insert(ctx.errors, {
     filename = ctx.filename, code = code, msg = msg, fix = fix, y = Lexer.y(tokens, first), x = Lexer.x(tokens, first),
     offset = Lexer.offset(tokens, first), length = math.max(0, Lexer.stop(tokens, last) - Lexer.offset(tokens, first)),
-    other = other, types = shown or {}, argument = ctx.argument,
+    other = other, types = shown or {}, argument = ctx.argument, rewrite = rewrite,
   })
 end
 

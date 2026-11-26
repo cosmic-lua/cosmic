@@ -142,7 +142,7 @@ local record Agent
     cwd: string
     --- The model, as the API names it; the latest Opus ([`Agent.MODELS`]) by default.
     model?: string
-    --- How hard it thinks: low, medium, high, xhigh or max; [`Agent.EFFORT`] by default.
+    --- How hard it thinks: low, medium, high, xhigh or max; the model's ([`Agent.effort`]) by default.
     effort?: string
     --- The API's root; https://api.anthropic.com by default.
     base_url?: string
@@ -473,8 +473,11 @@ local record Agent
   MODELS: Models
   --- The model, unless one is named.
   MODEL: string
-  --- The effort, unless one is named.
+  --- The effort, unless one is named, of a model [`Agent.effort`] names none for.
   EFFORT: string
+  --- The effort of `model`, as the API names it, unless one is named: low for Haiku, which at medium spent a
+  --- quarter more on the same evals and passed no more of them; [`Agent.EFFORT`] for the rest.
+  effort: function(model: string): string
   --- What a turn that spent its budget ends with, before a colon and
   --- the limit it reached.
   BUDGET_SPENT: string
@@ -483,6 +486,11 @@ end
 Agent.MODELS = { opus = "claude-opus-5-5", sonnet = "claude-sonnet-5-5", haiku = "claude-haiku-5-5" }
 Agent.MODEL = "opus"
 Agent.EFFORT = "medium"
+-- Haiku 5.5, eval/agent with run only, 12 tasks x3 in two rounds (2026-11-25): medium $0.0013-0.0014 a run, low
+-- $0.0010-0.0011, every run passed at both.
+local EFFORTS <const>: {string: string} = { ["claude-haiku-5-5"] = "low" }
+--- The effort of `model` unless one is named: low for Haiku, [`Agent.EFFORT`] for the rest.
+function Agent.effort(model: string): string return EFFORTS[model] or Agent.EFFORT end
 Agent.BUDGET_SPENT = "the turn's budget is spent"
 --- How often a turn is started again before resume gives up on it.
 local RESTARTS <const> = 5
@@ -1408,8 +1416,9 @@ function Agent.new(options: Agent.Options): Agent.Session
   for _, m in ipairs(options.messages or {}) do held[#held + 1] = m end
   local tools: mut {Tools.Tool} = {}
   for _, t in ipairs(options.tools or Tools.all()) do tools[#tools + 1] = t end
+  local model = options.model or Agent.MODELS.opus
   local agent: AgentSession = {
-    model = options.model or Agent.MODELS.opus, effort = options.effort or Agent.EFFORT, sign = options.sign, base_url = options.base_url,
+    model = model, effort = options.effort or Agent.effort(model), sign = options.sign, base_url = options.base_url,
     tools = tools,
     system = options.system or Prompt.build(options.cwd, Prompt.contexts(options.cwd),
       { tools = tools, commands = options.commands == true, loads = options.modules }),

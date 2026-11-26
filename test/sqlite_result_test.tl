@@ -58,8 +58,8 @@ local function test_bound_values_keep_kinds_and_invalid_lists_release_the_statem
   Test.raises(function()
     local _, _ = Sqlite.borrowed(db):rows("SELECT ?1", { { text = "a", blob = "b" } })
   end)
-  local texts = assert(Sqlite.borrowed(db):text_rows("SELECT ?1", { { integer = 42 } }))
-  assert(first_row(texts):text(1) == "42")
+  local texts = assert(Sqlite.borrowed(db):rows("SELECT ?1", { { integer = 42 } }))
+  assert(first_row(texts):integer(1) == 42)
   assert(db:close(), "invalid parameters retained a prepared statement")
 end
 
@@ -90,7 +90,7 @@ local function test_failed_rows_discard_partial_data_without_misclassifying_json
     "SELECT CASE WHEN n<3 THEN n ELSE json('not json') END FROM c"
   local cells, cells_why = Sqlite.borrowed(db):rows(sql)
   assert(cells == nil and cells_why.code == 1 and cells_why.message ~= "")
-  local texts, texts_why = Sqlite.borrowed(db):text_rows(sql)
+  local texts, texts_why = Sqlite.borrowed(db):rows(sql)
   assert(texts == nil and texts_why.code == 1 and texts_why.message ~= "")
   assert(Sqlite.borrowed(db):run("CREATE TABLE t (n)"))
   assert(Sqlite.borrowed(db):run("INSERT INTO t VALUES (?1)", { { integer = 3 } }))
@@ -110,7 +110,7 @@ local function test_corrupt_and_not_database_have_codes_independent_of_text(tmp:
   assert(db:close())
   assert(Fs.write(path, "not a database"))
   db = assert(open(path))
-  local read, foreign = Sqlite.borrowed(db):text_rows("SELECT * FROM sqlite_schema")
+  local read, foreign = Sqlite.borrowed(db):rows("SELECT * FROM sqlite_schema")
   assert(read == nil and foreign.code == Sqlite.NOTADB, tostring(foreign))
   assert(db:close())
 end

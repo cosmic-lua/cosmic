@@ -5,6 +5,8 @@
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fake = require("cosmic.fake")
+-- Required, so the fake's main is of this test's closure.
+local _fake = require("build.confine_fake")
 local test_child = require("build.test_child")
 local this_program = require("build.this_program")
 
@@ -29,8 +31,10 @@ local record must_confine_fixture
   field: function(said: must_confine_fixture.Said, name: string): string
 end
 
+--- A fake built under `tmp` from build/confine_fake.tl, which a confined
+--- process starts.
 function must_confine_fixture.probe(tmp: string): string
-  return (assert(Fake.build(tmp .. "/fake")))
+  return (assert(Fake.build(tmp .. "/fake", "build.confine_fake")))
 end
 
 function must_confine_fixture.run(tmp: string, name: string, args: {string}, set?: {string:string}): must_confine_fixture.Said

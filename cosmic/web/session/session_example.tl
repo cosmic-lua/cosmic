@@ -105,11 +105,11 @@ function Example.logout_everywhere()
   laptop.scheme, phone.scheme = "https", "https"
   laptop:post("/login")
   phone:post("/login")
-  print(SessionSqlite.destroy_subject(store, "ada"), laptop:get("/me"):text())
+  print(assert(SessionSqlite.destroy_subject(store, "ada")), laptop:get("/me"):text())
   assert(laptop:get("/me"):text() == "anonymous" and phone:get("/me"):text() == "anonymous")
   -- Rows past their expiry are swept by a save; a lifespan task can sweep on a timer.
-  print(SessionSqlite.sweep(store, 0))
-  assert(SessionSqlite.sweep(store, 0) == 0)
+  print(assert(SessionSqlite.sweep(store, 0)))
+  assert(assert(SessionSqlite.sweep(store, 0)) == 0)
 end
 
 --- A page of "your devices": [`SessionSqlite.list`] returns a user's
@@ -129,10 +129,10 @@ function Example.devices()
       end),
       Web.get("/devices", function(req: Web.Request): Web.Response
         local now = Clock.now_ns() // 1000000000
-        local mine = SessionSqlite.info(store, Session.of(req):id(), now)
+        local mine, _ = SessionSqlite.info(store, Session.of(req):id(), now)
         local lines: mut {string} = {}
         for _, device in ipairs((assert(SessionSqlite.list(store, now, { subject = "home" })))) do
-          local this = if mine ~= nil and mine.id == device.id then " (this one)" else "" end
+          local this = if mine ~= nil and mine ~= false and mine.id == device.id then " (this one)" else "" end
           lines[#lines + 1] = (device.label or device.id) .. this
         end
         return Web.text(table.concat(lines, "\n"))
@@ -148,8 +148,8 @@ function Example.devices()
   local listed = assert(SessionSqlite.list(store, Clock.now_ns() // 1000000000, { subject = "home" }))
   for _, device in ipairs(listed) do
     if device.label == "phone" then
-      assert(SessionSqlite.label(store, device.id, "old phone", "home") == 1)
-      assert(SessionSqlite.destroy_id(store, device.id, "home") == 1)
+      assert(assert(SessionSqlite.label(store, device.id, "old phone", "home")) == 1)
+      assert(assert(SessionSqlite.destroy_id(store, device.id, "home")) == 1)
     end
   end
   assert(ipad:get("/devices"):text() == "iPad (this one)")

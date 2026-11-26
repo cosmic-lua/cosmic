@@ -111,6 +111,27 @@ local function test_a_statements_semicolons_end_it_and_a_tables_are_refused()
   worker_close(w)
 end
 
+--- A snippet the checker refuses runs where its rewrites of the errors make one it passes ([`lang.rewrite`]): a number
+--- in `..` is written with `tostring`, a `boolean?` condition as `== true`. The answer tells what changed, at the
+--- snippet's own places, a prelude before it or not. Where a rewrite leaves it refused, it is refused as it was.
+local function test_a_refused_snippet_runs_with_the_checkers_rewrites_and_says_so()
+  local w = set_of_worker()
+  local ran = run(w, "local n = #Fs.basename(\"/a/b.tl\")\nprint(\"n=\" .. n)\n")
+  assert(ran["ok"] == true and ran["output"] == "n=4\n", shown(ran))
+  local fixed = assert(Json.to_array(ran["fixed"]))
+  assert(#fixed == 1 and fixed[1] == "run.tl:2:15: concat_type: `n` -> `tostring(n)`", shown(ran))
+  local tested = run(w, "local function maybe(b: boolean): boolean?\n  if b then return true end\n  return nil\nend\n" ..
+      "if maybe(false) then print(1) elseif not maybe(true) then print(2) else print(3) end\n")
+  assert(tested["ok"] == true and tested["output"] == "3\n", shown(tested))
+  local both = assert(Json.to_array(tested["fixed"]))
+  assert(#both == 2 and both[1] == "run.tl:5:4: condition_type: `maybe(false)` -> `maybe(false) == true`" and
+      both[2] == "run.tl:5:42: condition_type: `maybe(true)` -> `(maybe(true) == true)`", shown(tested))
+  local left = run(w, "local n = 1\nprint(\"n=\" .. n)\nlocal s: string = n\n")
+  local lines = assert(Json.to_array(left["refused"]))
+  assert(left["fixed"] == nil and #lines == 4 and tostring(lines[1]):find("concat_type", 1, true) ~= nil, shown(left))
+  worker_close(w)
+end
+
 local function test_a_snippet_that_raises_is_answered_with_its_output_and_why()
   local w = set_of_worker()
   local answer = run(w, "print(\"before\")\nerror(\"boom\")\n")
@@ -139,6 +160,9 @@ local function test_the_run_tool_shows_what_a_snippet_printed_returned_and_was_r
   local refused = tools_run("run", { code = "local n: string = 1\nreturn n\n" }, context)
   assert(refused.is_error and refused.text:find("did not run", 1, true) ~= nil and
       refused.text:find("run.tl:1:", 1, true) ~= nil, refused.text)
+  local rewritten = tools_run("run", { code = "local n = 2\nprint(\"n=\" .. n)\n" }, context)
+  assert(not rewritten.is_error and rewritten.text == "[The checker refused the snippet; it ran with these rewrites, " ..
+      "which keep what it meant:\nrun.tl:2:15: concat_type: `n` -> `tostring(n)`]\nn=2\n", rewritten.text)
   local raised = tools_run("run", { code = "error(\"boom\")\n" }, context)
   assert(raised.is_error and raised.text:find("Error: run.tl:1: boom", 1, true) ~= nil, raised.text)
   local long = tools_run("run", { code = "for i = 1, 4000 do print(\"line \" .. tostring(i)) end\n" }, context)

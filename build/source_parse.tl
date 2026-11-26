@@ -72,6 +72,8 @@ local record SourceParse
     --- The call whose argument the checker refused, for an error filed for a value given to a parameter ([`Codes.Argument`]); nil
     --- for any other problem.
     argument?: Codes.Argument
+    --- The checker's rewrite of the place that puts the error right ([`Codes.Rewrite`]), where it has one.
+    rewrite?: Codes.Rewrite
   end
 
   --- A source, read: its text lexed and parsed.

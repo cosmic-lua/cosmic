@@ -113,7 +113,7 @@ local function test_a_loaded_row_reads_back_through_json(tmp: string)
       if #made.columns ~= distinct + 1 then
         return false, #made.columns .. " columns for " .. tostring(distinct) .. " keys"
       end
-      local texts, trouble = db:text_rows("SELECT _json FROM t ORDER BY rowid")
+      local texts, trouble = db:rows("SELECT _json FROM t ORDER BY rowid")
       if texts == nil then return false, tostring(trouble) end
       for index, row in ipairs(rows) do
         local expected = assert(Json.encode_any(row))
@@ -280,12 +280,12 @@ local function cells_of(db: Sqlite.Handle, columns: {string}): string
   if #quoted == 0 then
     quoted[1] = "''"
   end
-  local rows = assert(db:text_rows("SELECT " .. table.concat(quoted, " || '|' || ") ..
+  local rows = assert(db:rows("SELECT " .. table.concat(quoted, " || '|' || ") ..
       ", (SELECT group_concat(key || ':' || type || ':' || quote(atom), ',') FROM json_each(t._json))" ..
       ", json_type(json_object('row', t._json), '$.row') FROM t ORDER BY rowid"))
   local out: mut {string} = {}
   for index, row in ipairs(rows) do
-    out[index] = table.concat(row:texts(), " ; ")
+    out[index] = table.concat(row:as_texts(), " ; ")
   end
   return table.concat(out, "\n")
 end

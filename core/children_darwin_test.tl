@@ -6,10 +6,12 @@
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local Fake = require("cosmic.fake")
+-- Required, so the fake's main is of this test's closure.
+local _fake = require("build.syscalls_proc_children_fake")
 local process = require("cosmic.internal.process")
 
 local function probe_in(tmp: string): string
-  return (assert(Fake.build(tmp .. "/probe")))
+  return (assert(Fake.build(tmp .. "/probe", "build.syscalls_proc_children_fake")))
 end
 
 Test.policy{ requires = { "os:darwin" } }

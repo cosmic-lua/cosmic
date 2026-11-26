@@ -78,8 +78,8 @@ local function test_keys_are_quoted_and_collisions_renamed()
   assert(by_name == '_,A,_JSON_2,_json_3,a_2,a b,a_2_2,select,x"y,_json', by_name)
   -- Each key's value is in the column named for it, or the renamed one.
   local function value(column: string): string
-    local rows = assert(db:text_rows('SELECT ' .. Sqlite.identifier(column) .. ' FROM t'))
-    return support.nth(rows, 1):text(1)
+    local rows = assert(db:rows('SELECT ' .. Sqlite.identifier(column) .. ' FROM t'))
+    return support.nth(rows, 1):as_text(1) or ""
   end
   assert(value("a b") == "1" and value('x"y') == "2" and value("select") == "3")
   assert(value("A") == "4" and value("_") == "6")
@@ -292,8 +292,8 @@ local function test_a_csv_table_follows_the_header_and_json_stays_sorted()
   local db = memory()
   local made = assert(dataset.load(db, "t", rows))
   assert(table.concat(made.columns, ",") == "z,a,m,_json", table.concat(made.columns, ","))
-  local star, _ = db:text_rows("SELECT * FROM t")
-  assert(star ~= nil and support.nth(star, 1):text(1) == "1" and support.nth(star, 1):text(2) == "2" and support.nth(star, 1):text(3) == "3")
+  local star, _ = db:rows("SELECT * FROM t")
+  assert(star ~= nil and support.nth(star, 1):integer(1) == 1 and support.nth(star, 1):integer(2) == 2 and support.nth(star, 1):integer(3) == 3)
   -- Rows with no order of their own are in byte order.
   local db2 = memory()
   assert(table.concat(assert(dataset.load(db2, "t", { { z = 1, a = 2 } })).columns, ",") == "a,z,_json")
@@ -331,10 +331,10 @@ local function test_a_csv_file_answers_a_sum_by_group()
   local db = memory()
   local made = assert(dataset.load(db, "accounts", rows))
   assert(table.concat(made.columns, ",") == "type,balance,_json")
-  local totals = assert(db:text_rows(
+  local totals = assert(db:rows(
     "SELECT type, sum(balance) FROM accounts GROUP BY type ORDER BY type"))
-  assert(support.nth(totals, 1):text(1) == "checking" and support.nth(totals, 1):text(2) == "5")
-  assert(support.nth(totals, 2):text(1) == "savings" and support.nth(totals, 2):text(2) == "12.5")
+  assert(support.nth(totals, 1):text(1) == "checking" and support.nth(totals, 1):integer(2) == 5)
+  assert(support.nth(totals, 2):text(1) == "savings" and support.nth(totals, 2):number(2) == 12.5)
 end
 
 --- JSON rows carry no column order, so a key one row lacks is NULL there

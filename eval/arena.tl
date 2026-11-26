@@ -29,7 +29,7 @@ end
 --- either cannot be read. It sits in the solver's project, whose
 --- `cosmic fix --check` the grader runs, so it is written for `fix` to
 --- link no span naming the task's own module, whatever that module
---- declares ([`eval/arena_test.tl`]).
+--- declares ([`build/eval_task_links_test.tl`]).
 function Arena.task_text(eval: string, task: string): string?, string
   if task:find("/", 1, true) then
     return nil, "no task eval/task/" .. task .. ".md"

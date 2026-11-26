@@ -662,6 +662,14 @@ local function run(input: Tools.Object, context: Tools.Context): Tools.Result
     text = text .. (if text == "" or text:sub(-1) == "\n" then "" else "\n" end) .. "Returned: " .. shown
   end
   if text == "" then text = "(no output)" end
+  -- The checker's rewrites made the snippet one it passes ([`build.agent_worker`]): the model is told what they changed.
+  local fixed, _ = Json.to_array(answer["fixed"])
+  if fixed ~= nil and #fixed > 0 then
+    local told: mut {string} = {}
+    for _, line in ipairs(fixed) do told[#told + 1] = tostring(line) end
+    text = "[The checker refused the snippet; it ran with these rewrites, which keep what it meant:\n" ..
+      table.concat(told, "\n") .. "]\n" .. text
+  end
   local r = if answer["ok"] == true then ok(text) else
     fail(text .. (if text:sub(-1) == "\n" then "" else "\n" end) .. "Error: " .. tostring(trouble)) end
   if cut then r.raw = said end

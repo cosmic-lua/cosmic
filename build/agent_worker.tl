@@ -18,6 +18,9 @@
 ---     "ok": false, "output", "error"   it raised `error`, after writing `output`
 ---     "error": "..."                   the request could not be read
 ---
+--- Where the checker refuses a snippet and its rewrites of the errors make one it passes ([`lang.rewrite`]), that one
+--- runs, and the response holds "fixed": `["run.tl:2:12: concat_type: `n` -> `tostring(n)`"]`.
+---
 --- A response of a snippet that ran may hold "changes", where it changed a file through Host.edit or Host.write:
 --- `[{"path":"a.md","edits":[{"old":"...","new":"..."}]}, {"path":"b.md","lines":2}, {"more":3}]`, each text the
 --- lines it changes with one of context, cut to 4KB, the whole at most 64KB, and "more" the count past that.
@@ -43,6 +46,7 @@ local Json = require("cosmic.json")
 local McpModule = require("cosmic.agent.mcp_module")
 local Nearby = require("build.nearby")
 local Pipeline = require("build.pipeline")
+local Rewrite = require("lang.rewrite")
 local Poll = require("cosmic.poll")
 local Worker = require("cosmic.agent.worker")
 local String = require("cosmic.string")
@@ -416,10 +420,23 @@ local function unshifted(lines: {string}, width: integer): {string}
   return out
 end
 
+--- The edits of `made`, a refusal of a text with `width` bytes of prelude before the snippet, as places of the snippet:
+--- an edit within the prelude is left out.
+local function edits_of(made: Pipeline.Alone, width: integer): {Rewrite.Edit}
+  local out: mut {Rewrite.Edit} = {}
+  for _, e in ipairs(made.edits or {}) do
+    if e.offset > width then
+      out[#out + 1] = { code = e.code, y = e.y, x = if e.y == 1 then e.x - width else e.x end, offset = e.offset - width,
+        length = e.length, before = e.before, after = e.after }
+    end
+  end
+  return out
+end
+
 --- What `kept` made of `code` and its prelude ([`prelude_of`]). Where the snippet binds a name of the prelude itself,
 --- the prelude without it, else the whole one, else the refusal of the first. Otherwise, where that is refused and the
 --- snippet alone is not, the snippet alone; where both are, the refusal of the one with the prelude, unless it tells
---- of a name the prelude declares (`declared at 1:C`, C within the prelude).
+--- of a name the prelude declares (`declared at 1:C`, C within the prelude). A refusal's edits are the snippet's.
 local function snippet_check(kept: Pipeline.Kept, code: string, cosmic: boolean): Pipeline.Alone
   local prelude = prelude_of(code, false, cosmic)
   local whole = prelude_of(code, true, cosmic)
@@ -430,7 +447,8 @@ local function snippet_check(kept: Pipeline.Kept, code: string, cosmic: boolean)
     if fewer.code ~= nil then return fewer end
     local all = kept:check(whole .. code)
     if all.code ~= nil then return all end
-    return { code = nil, lines = unshifted(fewer.lines, #prelude), stages = fewer.stages }
+    return { code = nil, lines = unshifted(fewer.lines, #prelude), stages = fewer.stages,
+      edits = edits_of(fewer, #prelude) }
   end
   if prelude == "" then return kept:check(code) end
   local made = kept:check(prelude .. code)
@@ -443,7 +461,19 @@ local function snippet_check(kept: Pipeline.Kept, code: string, cosmic: boolean)
       if at <= #prelude then return alone end
     end
   end
-  return { code = nil, lines = unshifted(made.lines, #prelude), stages = made.stages }
+  return { code = nil, lines = unshifted(made.lines, #prelude), stages = made.stages, edits = edits_of(made, #prelude) }
+end
+
+--- What `kept` made of `code` ([`snippet_check`]), and, where it refused the snippet and the checker's rewrites of
+--- its errors ([`lang.rewrite`]) make one it passes, what that one made and the lines that tell what they changed. The
+--- model is told them, so that it writes the next snippet so; a snippet the rewrites leave refused is told as it was.
+local function checked_fixed(kept: Pipeline.Kept, code: string, cosmic: boolean): Pipeline.Alone, {string}
+  local made = snippet_check(kept, code, cosmic)
+  if made.code ~= nil or made.edits == nil or #made.edits == 0 then return made, {} end
+  local rewritten = Rewrite.apply(code, made.edits)
+  local again = snippet_check(kept, rewritten.text, cosmic)
+  if again.code == nil then return made, {} end
+  return again, Rewrite.told(SNIPPET, rewritten.made)
 end
 
 --- Whether `line` is a reply to a call, not a request: an object with a `call_id` and no `code` at its top. A reply
@@ -555,7 +585,7 @@ local function answer_to(loading: Loading, modules: Modules, capture: Capture, c
   local refusals = unloadable(loading, code)
   if #refusals > 0 then return { id = id, refused = Json.array(refusals) } end
   refresh(loading, code)
-  local made = snippet_check(loading.kept, code, loading.cosmic)
+  local made, fixed = checked_fixed(loading.kept, code, loading.cosmic)
   local lua = made.code
   if lua == nil then return { id = id, refused = Json.array(made.lines) } end
   -- Each snippet gets tables of its own, so one that sets a function changes it for none after.
@@ -584,6 +614,7 @@ local function answer_to(loading: Loading, modules: Modules, capture: Capture, c
   end)
   for k, v in pairs(answer) do ran[k] = v end
   ran["id"] = id
+  if #fixed > 0 then ran["fixed"] = Json.array(fixed) end
   if #channel.changes > 0 then ran["changes"] = changes_of(channel.changes) end
   return ran
 end

@@ -46,19 +46,20 @@ local function test_no_target_raises_and_an_accepted_one_reads_as_itself(tmp: st
     requires = { "accepted", "refused", "name", "address", "any" },
     shares = { accepted = 0.05, refused = 0.1, name = 0.02, address = 0.01, any = 0.001 },
     check = function(text: string): boolean, string
-      local ok, target, why = pcall(Grant.parse, text)
-      if not ok then return false, "parse raised: " .. tostring(target) end
-      if target == nil then
+      -- A parse is pure: one that does not raise in a closure reads the same again.
+      local ok, raised = pcall(function() local _, _ = Grant.parse(text) end)
+      if not ok then return false, "parse raised: " .. tostring(raised) end
+      local read, why = Grant.parse(text)
+      if read == nil then
         Fuzz.label("refused")
-        if why == "" then return false, "a refusal with no reason" end
+        if tostring(why) == "" then return false, "a refusal with no reason" end
         return true, ""
       end
-      local read = target as Grant.Target -- checked: cast_refused
       Fuzz.label("accepted")
       Fuzz.label(if read.kind == "any" then "any" elseif read.kind == "name" then "name" else "address" end)
       local again, why_again = Grant.parse(read.text)
       if again == nil then
-        return false, "its own text " .. read.text .. " is refused: " .. why_again
+        return false, "its own text " .. read.text .. " is refused: " .. tostring(why_again)
       end
       if again.text ~= read.text or again.host ~= read.host or again.port ~= read.port or
           again.kind ~= read.kind then
@@ -77,10 +78,10 @@ local function test_every_accepted_host_is_carried_by_both_request_readers(tmp: 
     requires = { "name", "ipv4", "ipv6" },
     shares = { name = 0.01, ipv4 = 0.005, ipv6 = 0.005 },
     check = function(text: string): boolean, string
-      local ok, target = pcall(Grant.parse, text)
-      if not ok then return false, "parse raised: " .. tostring(target) end
-      if target == nil then return true, "" end
-      local read = target as Grant.Target -- checked: cast_refused
+      local ok, raised = pcall(function() local _, _ = Grant.parse(text) end)
+      if not ok then return false, "parse raised: " .. tostring(raised) end
+      local read, _ = Grant.parse(text)
+      if read == nil then return true, "" end
       if read.kind == "any" then return true, "" end
       Fuzz.label(read.kind)
       local port = if read.port == 0 then 443 else read.port end

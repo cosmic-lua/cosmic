@@ -432,10 +432,12 @@ function Fixture.call_with_environment(label: string, argv: {string},
     error(label .. ": could not start: " .. tostring(outcome.trouble) ..
         "; stdout=" .. out .. "; stderr=" .. err)
   end
+  local remains = finished.remains
   assert(Fs.put(Fs.stderr, "fixture: " .. label .. ": DONE (" ..
       tostring(outcome.elapsed_ns // 1000000) .. " ms; code=" ..
       tostring(finished.code) .. "; signal=" .. tostring(finished.signal) ..
-      "; timed_out=" .. tostring(finished.timed_out) .. ")\n"))
+      "; timed_out=" .. tostring(finished.timed_out) ..
+      (if remains ~= nil then "; remains=" .. remains else "" end) .. ")\n"))
   return { result = finished, out = out, err = err }
 end
 
@@ -473,13 +475,16 @@ function Fixture.call(label: string, argv: {string}, directory: string,
 end
 
 --- The streams of a call that succeeded; one that did not raises, naming
---- how it ended and showing the start of what it wrote.
+--- how it ended and showing the start of what it wrote. A call whose
+--- settle left `remains` did not succeed, as [`Runner.execute`] judges it.
 function Fixture.succeeded(label: string, outcome: Fixture.Outcome): Fixture.Capture
   local finished = outcome.result
-  if not finished.ok then
+  local remains = finished.remains
+  if not finished.ok or remains ~= nil then
     error(label .. ": failed code=" .. tostring(finished.code) ..
         " signal=" .. tostring(finished.signal) ..
         " timed_out=" .. tostring(finished.timed_out) ..
+        (if remains ~= nil then " remains=" .. remains else "" end) ..
         "; stdout=" .. outcome.out .. "; stderr=" .. outcome.err ..
         "; output preview:\n" .. preview(outcome.out) .. preview(outcome.err))
   end

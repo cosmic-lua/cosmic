@@ -80,17 +80,17 @@ local function test_project_keeps_uses_of_bundled_symbols()
   assert(#result.refused == 0, table.concat(result.refused, "\n"))
   assert(writer.write_result(handle, support.build_dir(root) .. "/cosmic.db", result))
   local shipped = assert(Sqlite.open(support.build_dir(root) .. "/cosmic.db"))
-  local rows = assert(shipped:text_rows(
+  local rows = assert(shipped:rows(
     "SELECT module, symbol, from_module, line FROM uses ORDER BY module, symbol"))
   local status_use = false
   for _, row in ipairs(rows) do
     if row:text(1) == "cosmic.fs" and row:text(2) == "status" then
-      assert(row:text(3) == "main" and row:text(4) == "7", row:text(4))
+      assert(row:text(3) == "main" and row:integer(4) == 7, tostring(row:integer(4)))
       status_use = true
     end
   end
   assert(status_use, tostring(#rows))
-  local guidance = assert(shipped:text_rows(
+  local guidance = assert(shipped:rows(
     "SELECT coalesce(c.text, (SELECT d.text FROM docs d " ..
       "WHERE d.module = c.module AND d.source_symbol = c.symbol)) " ..
       "FROM catalog c WHERE c.module = 'main' AND c.symbol = 'Main.check'"))
@@ -267,7 +267,7 @@ end
 local function test_a_closure_leaves_out_the_names_only_a_declaration_requires()
   local databases = Store.databases()
   local binary = assert(databases[#databases])
-  local only = assert(binary:text_rows(
+  local only = assert(binary:rows(
     "SELECT DISTINCT d.requires FROM decl_imports d WHERE d.requires <> '' " ..
       "AND NOT EXISTS (SELECT 1 FROM imports i WHERE i.requires = d.requires) " ..
       "AND NOT EXISTS (SELECT 1 FROM modules m WHERE m.path = d.requires)"))
@@ -286,7 +286,7 @@ end
 local function test_stored_edges_equal_the_parsed_ones()
   local databases = Store.databases()
   local binary = assert(databases[#databases])
-  local paths = assert(binary:text_rows(
+  local paths = assert(binary:rows(
     "SELECT path, 'decl' FROM decls WHERE path LIKE 'cosmic.%' " ..
       "UNION SELECT path, 'tl' FROM modules WHERE path LIKE 'cosmic.%' AND path NOT IN (SELECT path FROM decls) " ..
       "ORDER BY path"))
@@ -304,7 +304,7 @@ local function test_stored_edges_equal_the_parsed_ones()
     local wanted: mut {string} = {}
     for required in pairs(set) do wanted[#wanted + 1] = required end
     table.sort(wanted)
-    local stored = assert(binary:text_rows(
+    local stored = assert(binary:rows(
       "SELECT requires FROM decl_imports WHERE path = ?1 AND requires <> '' " ..
         "ORDER BY requires",
       { { text = name } }))

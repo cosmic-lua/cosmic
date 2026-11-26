@@ -25,7 +25,7 @@ end
 function Lines.executable_cached(db: Sqlite.Handle, source_hash: string, source: string,
                                  name: string): {integer: boolean}?, string
   local key = source_hash
-  local cached, select_trouble = db:text_rows(
+  local cached, select_trouble = db:rows(
     "SELECT lines FROM executable WHERE source_hash = ?1", { text(key) })
   if cached == nil then
     return nil, tostring(select_trouble)

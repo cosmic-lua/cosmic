@@ -1494,7 +1494,7 @@ end
 local function paired(dir: string, files: {string: string}): {string: string}
   local db = built(dir, files)
   local out: mut {string: string} = {}
-  for _, row in ipairs((assert(db:text_rows("SELECT file, module FROM examples")))) do
+  for _, row in ipairs((assert(db:rows("SELECT file, module FROM examples")))) do
     out[row:text(1)] = row:text(2)
   end
   return out
@@ -1938,7 +1938,7 @@ local function test_a_public_source_answers_only_for_the_standard_library(dir: s
 
   -- A module's own row, whose source spelling is empty, is among what
   -- its name matches.
-  local own = assert(db:text_rows("SELECT d.kind FROM docs d WHERE " ..
+  local own = assert(db:rows("SELECT d.kind FROM docs d WHERE " ..
       symbols.named_where("d"), { { text = "cosmic.fs" } }))
   assert(#own == 1 and own[1]:text(1) == "module", tostring(#own))
   local public = assert(docs.view({ db }, { true }))
@@ -2743,7 +2743,7 @@ local function test_a_lookup_answers_alike_with_the_indexes_or_without(dir: stri
       "",
       "return Box"),
   }))
-  local plan = assert(db:text_rows("EXPLAIN QUERY PLAN SELECT d.symbol FROM docs d WHERE " ..
+  local plan = assert(db:rows("EXPLAIN QUERY PLAN SELECT d.symbol FROM docs d WHERE " ..
       symbols.named_where("d"), { { text = "grow" } }))
   local steps: mut {string} = {}
   for _, row in ipairs(plan) do steps[#steps + 1] = row:text(row:count()) end
@@ -2766,7 +2766,7 @@ local function test_a_lookup_answers_alike_with_the_indexes_or_without(dir: stri
   local page = assert(Doc.lookup(public, "cosmic.fs"))
   assert(page.exact and #page == 1 and support.nth(page, 1).kind == "module", listed(page))
   local indexed_public, indexed_private = every(true), every(false)
-  local names = assert(db:text_rows(
+  local names = assert(db:rows(
     "SELECT name FROM sqlite_schema WHERE type = 'index' AND tbl_name = 'docs' AND sql IS NOT NULL"))
   local present: mut {string: boolean} = {}
   for _, row in ipairs(names) do present[row:text(1)] = true end

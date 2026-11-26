@@ -303,7 +303,7 @@ print(passed or out)
 test: 9 tests passed
 ```
 
-[`cosmic.child`]: ../../cosmic/child.tl
+[`cosmic.child`]: ../../cosmic/child/init.tl
 [`cosmic.shape`]: ../../cosmic/shape.tl
 [`cosmic.web`]: ../../cosmic/web/init.tl
 [`Input.errors_by_field`]: ../../cosmic/web/input.tl
