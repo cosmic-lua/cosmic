@@ -1583,9 +1583,15 @@
     # the provenance join too, proving the legs attested identical bytes:
     # the queue's, a push's and a branch's manual run's three, the
     # scheduled run's and a manual run of main's or with `macos` four.
+    # A pull request's cancelled run (most often one a newer push replaced,
+    # through the concurrency group above) skips the gate, so its check
+    # reads as passed, not failed: the merge queue's run, whose gate fails
+    # on a cancelled job, is what lets a change reach main. Every other
+    # run's gate fails on a cancelled job, since a skipped required check
+    # passes.
     ci: {
       needs: ["queue-ref", "platform", "checked", "narrowing", "driver"],
-      if: "always()",
+      if: "always() && !(cancelled() && github.event_name == 'pull_request')",
       "runs-on": "ubuntu-24.04",
       # actions: to list the merge-queue ref's caches again.
       permissions: {contents: "read", actions: "read"},
