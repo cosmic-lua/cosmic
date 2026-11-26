@@ -68,13 +68,13 @@ elseif arg[1] == "inherited" then
   local program = { "/bin/sh", "-c", "exit 0" }
   local case = arg[2]
   local streams: {integer} = { 1 }
-  local opts: Child.Options = { timeout_ns = Child.FOREVER, policy = { profiles = { "system" } } }
+  local opts: Child.Options = { timeout_ns = Child.FOREVER, policy = { grants = { { profile = "system" } } } }
   local slot = "stdio[0]"
   if case == "stderr" then
     streams, slot = { 0, 1 }, "stdio[2]"
   elseif case == "alias" then
     -- stderr is stdout's, which is the terminal this process holds.
-    streams, slot, opts = { 0 }, "stdio[1]", { timeout_ns = Child.FOREVER, policy = { profiles = { "system" } }, stderr = "stdout" }
+    streams, slot, opts = { 0 }, "stdio[1]", { timeout_ns = Child.FOREVER, policy = { grants = { { profile = "system" } } }, stderr = "stdout" }
   end
   local child, refusal = Child.start_on_pty(program, opts, { streams = streams })
   assert(child == nil, "a terminal this process holds reached a policy child")
@@ -103,7 +103,7 @@ else
 
     pty = assert(sys.openpty())
     for number = 0, 2 do
-      local options: Child.Options = { timeout_ns = Child.FOREVER, policy = { profiles = { "system" } },
+      local options: Child.Options = { timeout_ns = Child.FOREVER, policy = { grants = { { profile = "system" } } },
         stdin = if number == 0 then pty.slave else "null" end,
         stdout = if number == 1 then pty.slave else "null" end,
         stderr = if number == 2 then pty.slave else "null" end }
@@ -111,7 +111,7 @@ else
       assert_terminal_refusal(child, tostring(trouble), "stdio[" .. tostring(number) .. "]")
     end
     local child, trouble = Child.start({ "/bin/sh", "-c", "exit 0" }, { timeout_ns = Child.FOREVER,
-      policy = { profiles = { "system" } },
+      policy = { grants = { { profile = "system" } } },
       stdin = "null", stdout = "null", stderr = "null", fds = { [3] = pty.slave } })
     assert_terminal_refusal(child, tostring(trouble), "fds[3]")
     assert(sys.close(pty.slave))
@@ -125,7 +125,7 @@ else
     local program = { "/bin/sh", "-c", "test -t 0 && test -t 1 && test -t 2 && printf held-terminal" }
     -- Started in the root, which the profile lets a program read: a shell in
     -- a directory it does not grant prints a getcwd error on macOS.
-    local held_policy: Child.Options = { timeout_ns = Child.FOREVER, policy = { profiles = { "system" } }, cwd = "/" }
+    local held_policy: Child.Options = { timeout_ns = Child.FOREVER, policy = { grants = { { profile = "system" } } }, cwd = "/" }
     local function refused_on_pty(opts: Child.Options, streams: {integer}, slot: string)
       local held: Child.Options = { env = opts.env, stdin = opts.stdin, input = opts.input, stdout = opts.stdout,
         stderr = opts.stderr, fds = opts.fds, capture_limit = opts.capture_limit, process_group = opts.process_group,
@@ -178,7 +178,7 @@ else
     -- controlling terminal), stderr a pipe of its own.
     local mixed = assert(Child.start_on_pty({ "/bin/sh", "-c",
       "test -t 1 && ! test -t 0 && ! test -t 2 && printf out && printf err >&2" },
-      { timeout_ns = Child.FOREVER, policy = { profiles = { "system" } }, cwd = "/", stdin = "null", stderr = "capture" }, { streams = { 1 }, keep_slave = true }))
+      { timeout_ns = Child.FOREVER, policy = { grants = { { profile = "system" } } }, cwd = "/", stdin = "null", stderr = "capture" }, { streams = { 1 }, keep_slave = true }))
     assert(Poll.readable(mixed.master, Clock.seconds(5)))
     assert((assert(sys.read(mixed.master, 100))) == "out")
     local done = assert(mixed.child:wait())

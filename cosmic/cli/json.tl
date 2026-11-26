@@ -56,6 +56,23 @@
 ---   `cosmic json --flat export.json | grep -i email` finds a leaf, and
 ---   you can paste its path into `cosmic json '$.users[1].email' export.json`.
 ---
+--- JSON Lines:
+---
+--- With `--lines`, the text is JSON Lines (NDJSON): one JSON value to a
+--- line, as [`Json.decode_lines`] reads it, blank lines skipped. The
+--- path is looked up in each line, and what it finds prints in the
+--- lines' order: the value at a path as compact JSON, one to a line (a
+--- string as its text with `-r`), and each match of a query that can
+--- match many as that query prints it alone. A line where the path is
+--- not prints nothing, where jq prints `null`; a `null` that is there
+--- prints as `null`. What was found before a line that is not JSON
+--- prints before the complaint. `cosmic json --lines -r '$.user.screen_name'
+--- tweets.ndjson` prints each tweet's user name. `--lines` takes
+--- `--exists` (0 when some line holds the path), and no other mode. It
+--- exits 0 when some line holds the path, and 1 when none does, with
+--- `<query>: no match in any line`. It exits 5 when a line is not JSON,
+--- naming that line.
+---
 --- It prints no summary: its output is the data that a pipe reads. It
 --- exits 0 when the path is found (for a many-value query, when something
 --- matches). It exits 1 when the path is not found, with a message on
@@ -75,6 +92,7 @@ local command: Flags.Command = {
     { line = "'$.users[0].name' export.json", about = "print one value" },
     { line = "--flat export.json", about = "print every value with its path" },
     { line = "--keys export.json", about = "list the top-level keys" },
+    { line = "--lines -r '$.user.name' events.ndjson", about = "print one field of each line" },
   },
   spec = {
     ["--compact"] = { about = "print the value on one line" },
@@ -82,6 +100,7 @@ local command: Flags.Command = {
     ["--raw"] = { about = "print a string as its text, without quotes; a query's matches as bare values" },
     ["--flat"] = { about = "print every leaf under the path as a `path = value` line" },
     ["--exists"] = { about = "print nothing; exit 0 when the path exists, 1 when not" },
+    ["--lines"] = { about = "read JSON Lines: look the path up in each line, and print what each holds" },
     ["--keys"] = { about = "list an object's keys, sorted, or an array's length" },
     ["--type"] = { about = "print a summary of the value's type, not the value" },
     ["--shape"] = { moved = "--type prints the value's type" },

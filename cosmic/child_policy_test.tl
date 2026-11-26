@@ -147,7 +147,7 @@ local function test_the_environment_is_the_policys_alone(tmp: string)
     if name ~= "TMPDIR" and hidden == nil then hidden = name end
   end
   local script = { "env", "TMPDIR", "SET", "ABSENT", hidden or "NOT_THERE" }
-  local policy: Sandbox.Policy = { grants = itself(probe), env = { "TMPDIR", "ABSENT" },
+  local policy: Sandbox.Policy = { grants = itself(probe, { { env = "TMPDIR" }, { env = "ABSENT" } }),
     setup = { set_env = { SET = "value with spaces" } } }
   local out = under(probe, policy, script)
   assert(out.code == 0, out.said)
@@ -155,7 +155,7 @@ local function test_the_environment_is_the_policys_alone(tmp: string)
     (hidden or "NOT_THERE") .. " unset\n"
   assert(out.said == want, out.said)
   -- Set beats passed through, a name a start was given or not.
-  local both = under(probe, { grants = itself(probe), env = { "TMPDIR" }, setup = { set_env = { TMPDIR = "mine" } } },
+  local both = under(probe, { grants = itself(probe, { { env = "TMPDIR" } }), setup = { set_env = { TMPDIR = "mine" } } },
     { "env", "TMPDIR" })
   assert(both.said == "TMPDIR=mine\n", both.said)
   -- With no env and no set_env the child has none at all.

@@ -335,7 +335,7 @@ local record Options
   --- A [`cosmic.sandbox`] policy the child is held to, met or the start
   --- fails (nil, and a message naming what is missing and how to give it).
   --- The policy is merged ([`Sandbox.union`], which resolves its
-  --- `profiles`), and then:
+  --- profile grants), and then:
   ---
   --- - `grants` are the only paths the child reaches, by Landlock (by the
   ---   root alone under the `nest` promise), a relative one from `cwd`; the child's program, found on this
@@ -2749,7 +2749,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
     local reached, reach_trouble = reached_by(merged, here, file, user)
     if reached == nil then return nil, "sandbox: " .. reach_trouble end
     idmap = reached
-    if file or proc or #(merged.loopback or {}) > 0 or relayed or isolated_unix(merged) then
+    if file or proc or #Rules.loopback(merged) > 0 or relayed or isolated_unix(merged) then
       proc = true
       -- The namespace is mapped from outside with this process's own group
       -- beside the program's, which may not be one id twice.
@@ -2850,13 +2850,13 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
     end
   end
   local env: mut {string:string} = {}
-  for _, name in ipairs(merged.env or {}) do
+  for _, name in ipairs(Rules.env(merged)) do
     local value = sys.getenv(name)
     if value ~= nil then env[name] = value end
   end
   for name, value in pairs(setup_of(merged).set_env or {}) do env[name] = value end
   if relayed then
-    for name, value in pairs(RelayConfig.proxy_env(assert(merged.loopback), nil, nil, Rules.connects(merged))) do
+    for name, value in pairs(RelayConfig.proxy_env(Rules.loopback(merged), nil, nil, Rules.connects(merged))) do
       env[name] = value
     end
   end
@@ -2884,7 +2884,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
   -- unix socket to reach: the filter then lets it make inet sockets (the
   -- namespace is their hold) when it declared a loopback or `connect`, and
   -- unix ones when it was granted `u`.
-  local inet = #(merged.loopback or {}) > 0 or relayed
+  local inet = #Rules.loopback(merged) > 0 or relayed
   -- The relay's own start (`online`) makes inet sockets in this process's
   -- network instead: it connects and resolves itself, and holds no
   -- loopback, `connect` or `u` grant of its own.
@@ -3053,7 +3053,7 @@ local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Pol
   for name in pairs(setup_of(merged).set_env or {}) do
     if name:sub(1, 5) == "DYLD_" then booted = false end
   end
-  for _, name in ipairs(merged.env or {}) do
+  for _, name in ipairs(Rules.env(merged)) do
     if name:sub(1, 5) == "DYLD_" and sys.getenv(name) ~= nil then booted = false end
   end
   options.booted = booted
@@ -3066,7 +3066,7 @@ local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Pol
   local missing = ungranted(files, Rules.paths(merged), opts.cwd)
   if missing ~= "" then return nil, "sandbox: " .. missing end
   local env: mut {string:string} = {}
-  for _, name in ipairs(merged.env or {}) do
+  for _, name in ipairs(Rules.env(merged)) do
     local value = sys.getenv(name)
     if value ~= nil then env[name] = value end
   end
@@ -3844,7 +3844,7 @@ function Child.layers(argv: {string}, opts: Options): Rules.Layers?, string
   return {
     landlock = landlock, boot = boot, calls = calls, exec_refused = not runs,
     sockets = sockets, namespaces = namespaces, root = sandbox.unveil ~= nil, relay = held.relay or {},
-    loopback = merged.loopback or {}, rlimits = rlimits,
+    loopback = Rules.loopback(merged), rlimits = rlimits,
   }, ""
 end
 

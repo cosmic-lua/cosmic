@@ -123,7 +123,7 @@ local sites: {string:dispatch_sites.Site} = {
   -- test starts asks the processor for its key, so any module that runs
   -- the tool hits the function, and holding them would put all of those
   -- under a processor key.
-  ["core/syscalls.c"] = { lines = "bff51bb98ddaffd2", reads = {} },
+  ["core/syscalls.c"] = { lines = "ca81dc6e0278af50", reads = {} },
   ["core/syscalls.h"] = { lines = "297b223c6bbcbc65", reads = {} },
   ["core/cpu_features_test.tl"] = { lines = "3532478522195952", reads = {} },
   -- The int8 dot product of [`Vector.corpus`]: VNNI in its AVX-512 (256-bit
@@ -136,6 +136,9 @@ local sites: {string:dispatch_sites.Site} = {
     answers = { "vector_kernel" } },
   -- The processor count on Apple (sysctlbyname("hw.ncpu")): no feature.
   ["vendor/sqlite/sqlite3.c"] = { lines = "7b27815aae63deac", reads = {} },
+  ["vendor/simdutf/simdutf.h"] = { lines = "5b13bdd26894de2a",
+    reads = { x86_64 = { "avx2", "avx512_vbmi2", "avx512_vpopcntdq", "avx512bw", "avx512cd",
+      "avx512vl", "bmi1", "bmi2" } } },
 }
 
 dispatch_sites.sites = sites

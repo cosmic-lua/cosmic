@@ -279,7 +279,7 @@ local record Web
   --- [`Passkeys.middleware`].
   passkeys: function(opts: Passkeys.Options): Types.Middleware
   --- A store of passkeys in SQLite: see [`Passkeys.sqlite_store`].
-  passkey_store: function(db: Sqlite.Handle, opts?: Passkeys.StoreOptions): Passkeys.Store?, string
+  passkey_store: function(db: Sqlite.Handle, opts?: Passkeys.StoreOptions): (Passkeys.Store) | (nil, Failure)
 
   --- Compiles routes and middleware into an app: see [`App.new`].
   app: function(spec: Types.AppSpec): Types.App
@@ -346,7 +346,7 @@ Web.who = Identity.who
 Web.passkeys = function(opts: Passkeys.Options): Types.Middleware
   return require("cosmic.web.passkeys").middleware(opts)
 end
-Web.passkey_store = function(db: Sqlite.Handle, opts?: Passkeys.StoreOptions): Passkeys.Store?, string
+Web.passkey_store = function(db: Sqlite.Handle, opts?: Passkeys.StoreOptions): (Passkeys.Store) | (nil, Failure)
   return require("cosmic.web.passkeys").sqlite_store(db, opts)
 end
 Web.serve = App.serve

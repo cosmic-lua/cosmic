@@ -780,7 +780,7 @@ function Hold.reserved_by_relay(merged: Rules.Policy): string
   local setup = merged.setup or {}
   if #Rules.connects(merged) == 0 then return "" end
   local variables: mut {string} = {}
-  for _, name in ipairs(merged.env or {}) do variables[#variables + 1] = name end
+  for _, name in ipairs(Rules.env(merged)) do variables[#variables + 1] = name end
   for name, _ in pairs(setup.set_env or {}) do variables[#variables + 1] = name end
   table.sort(variables)
   local reserved = RelayConfig.reserved(variables)
@@ -808,8 +808,7 @@ end
 --- no copy that keeps its type, so a field [`Sandbox.Policy`] gains is
 --- copied here too.
 function Hold.grants_replaced(p: Rules.Policy, grants: {Rules.Grant}): Rules.Policy
-  return { profiles = p.profiles, grants = grants, isolate = p.isolate, loopback = p.loopback, env = p.env,
-    setup = p.setup, limits = p.limits }
+  return { grants = grants, isolate = p.isolate, setup = p.setup, limits = p.limits }
 end
 
 --- `p` with `extra` grants beside its own, every other field as it is:

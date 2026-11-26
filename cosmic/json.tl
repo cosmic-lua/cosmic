@@ -306,6 +306,20 @@ local record Json
     null_value?: Json.Null
   end
 
+  --- A JSON Lines text read some lines at a time, from
+  --- [`Json.line_reader`], so a large text is not held as values all at
+  --- once.
+  interface LineReader
+    --- The values of the next lines, `most` of them at most, as
+    --- [`Json.decode_lines`] reads them: a marked array, which holds
+    --- fewer than `most` only at the end of the text. false once every
+    --- line has been read. nil and a [`Failure`] naming the line when
+    --- one is not JSON, and the same again on every later read. A
+    --- `null` line leaves a hole unless `null_value` is given, so give
+    --- it to count the values with `#`.
+    read: function(LineReader, most: integer): ({Json.Value} | false) | (nil, Failure)
+  end
+
   --- A reader of JSON text a token at a time, from [`Json.reader`]. A
   --- failure, the stream's or the text's, is returned again, the same
   --- [`Failure`], on every later call.
@@ -728,33 +742,46 @@ function Json.canonical(text: string, opts?: Json.CanonicalOptions): (string) | 
   return got
 end
 
+-- The selection `opts.only` makes, or nil when it is none, and why it
+-- is refused, or "".
+local function lines_selection(opts: Json.DecodeOptions): Selection?, string
+  if opts.only == nil then return nil, "" end
+  return selection(opts.only)
+end
+
+-- Some lines' values, and the byte and line the next read starts at
+-- (nil where the text is done).
+local record Batch
+  values: {Json.Value}
+  at: integer?
+  line: integer?
+end
+
+-- The values of `text` from byte `at`, which begins line `line`, `most`
+-- of them at most; nil and why one line does not decode.
+local function lines_from(text: string, opts: Json.DecodeOptions, chosen: Selection?, at: integer,
+                          line: integer, most?: integer): Batch?, string
+  -- One C call cuts the lines and decodes each, with no Lua call a line.
+  -- The record's own number names a failure's line: the decoder would
+  -- otherwise count a lone \r (or, in JSON5, U+2028 or U+2029) inside
+  -- it as a line end, which no record boundary is.
+  local values, err, next_at, next_line = raw.decode_lines(text, opts.null_value, opts.max_depth,
+    opts.json5, opts.big_numbers_as_strings, opts.lone_surrogates, opts.hash_comments,
+    opts.duplicate_keys, chosen, at, line, most)
+  -- What [`decode_lines`] built is an array of what `decode` builds.
+  local items = items_of(values)
+  if items == nil then return refuse(err) end
+  return { values = items, at = next_at, line = next_line }, ""
+end
+
 -- Json.decode_lines, its failure in words.
 local function decode_lines_text(text: string, opts?: Json.DecodeOptions): {Json.Value}?, string
-  local values: mut {integer: Json.Value} = {}
-  local number = 0
-  local count = 0
   local line_opts: Json.DecodeOptions = opts or {}
-  local chosen: Selection? = nil
-  if line_opts.only ~= nil then
-    local why: string
-    chosen, why = selection(line_opts.only)
-    if why ~= "" then return refuse(why) end
-  end
-  for line in String.lines(text) do
-    number = number + 1
-    if line:find("%S") then
-      count = count + 1
-      -- The record's own number names a failure's line: the decoder
-      -- would otherwise count a lone \r (or, in JSON5, U+2028 or
-      -- U+2029) inside it as a line end, which no record boundary is.
-      local value, err = decode_with(line, line_opts, number, nil, chosen)
-      if err ~= "" then
-        return nil, err
-      end
-      if value ~= nil then values[count] = value end
-    end
-  end
-  return raw.array(values), ""
+  local chosen, why = lines_selection(line_opts)
+  if why ~= "" then return refuse(why) end
+  local batch, err = lines_from(text, line_opts, chosen, 1, 1)
+  if batch == nil then return nil, err end
+  return batch.values, ""
 end
 
 --- The values of JSON Lines text (NDJSON): one JSON value to a line,
@@ -766,6 +793,53 @@ function Json.decode_lines(text: string, opts?: Json.DecodeOptions): ({Json.Valu
   local got, why = decode_lines_text(text, opts)
   if got == nil then return nil, Failure.new(why) end
   return got
+end
+
+local class LinesOfText is Json.LineReader
+  text: string
+  opts: Json.DecodeOptions
+  chosen: Selection?
+  -- The byte the next read starts at, and its line; nil once the text is read.
+  mut at?: integer
+  mut line: integer
+  -- Why a read failed, which every later one returns too.
+  mut failed?: Failure
+
+  function read(self, most: integer): ({Json.Value} | false) | (nil, Failure)
+    if most < 1 then error(("json: read(%d): read at least one value"):format(most), 2) end
+    local failed = self.failed
+    if failed ~= nil then return nil, failed end
+    local at = self.at
+    if at == nil then return false end
+    local batch, why = lines_from(self.text, self.opts, self.chosen, at, self.line, most)
+    if batch == nil then
+      local failure = Failure.new(why)
+      self.failed = failure
+      return nil, failure
+    end
+    self.at = batch.at
+    local next_line = batch.line
+    if next_line ~= nil then self.line = next_line end
+    return batch.values
+  end
+end
+
+--- A reader of the JSON Lines text `text`, which decodes as
+--- [`Json.decode_lines`] does, some lines at each read: a filter over a
+--- large text holds only the values of the lines it reads, and stops
+--- at the first line it wants without reading the rest. nil and a
+--- [`Failure`] when `opts` is refused.
+---
+---     local lines = assert(Json.line_reader('{"n": 1}\n{"n": 2}\n'))
+---     local values = assert(lines:read(100))
+---     assert(values ~= false and #values == 2 and lines:read(100) == false)
+function Json.line_reader(text: string, opts?: Json.DecodeOptions): (Json.LineReader) | (nil, Failure)
+  local line_opts: Json.DecodeOptions = opts or {}
+  local chosen, why = lines_selection(line_opts)
+  if why ~= "" then return nil, Failure.new("json: " .. why) end
+  local reader: LinesOfText = { text = text, opts = line_opts, chosen = chosen, at = 1, line = 1,
+    failed = nil }
+  return reader
 end
 
 -- TODO: give [`Json.array`] a type parameter (`{T}` in, `{T}` out), so that an array of records or of decoded values is marked

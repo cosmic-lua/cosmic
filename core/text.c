@@ -4,7 +4,9 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "bytes.h"
 #include "lauxlib.h"
+#include "simd_base64.h"
 
 /* `lines(text, bare)`: the lines of `text` as a new list, each without its
  * newline. A last line with no newline is one too; none follows a last
@@ -16,7 +18,7 @@ static int text_lines (lua_State *L) {
   /* A first pass counts the lines, so the list is made at its size. */
   size_t count = 0;
   for (const char *at = text, *end = text + len; at < end; count++) {
-    const char *nl = memchr(at, '\n', (size_t)(end - at));
+    const char *nl = cosmic_find_byte(at, '\n', (size_t)(end - at));
     if (nl == NULL) break;
     at = nl + 1;
   }
@@ -26,7 +28,7 @@ static int text_lines (lua_State *L) {
   const char *at = text, *end = text + len;
   lua_Integer i = 0;
   while (at < end) {
-    const char *nl = memchr(at, '\n', (size_t)(end - at));
+    const char *nl = cosmic_find_byte(at, '\n', (size_t)(end - at));
     const char *stop = nl != NULL ? nl : end;
     size_t n = (size_t)(stop - at);
     if (bare && n > 0 && at[n - 1] == '\r') n--;
@@ -51,7 +53,7 @@ static int text_newlines (lua_State *L) {
   if (i <= j) {
     const char *at = text + i - 1, *end = text + j;
     const char *nl;
-    while (at < end && (nl = memchr(at, '\n', (size_t)(end - at))) != NULL) {
+    while (at < end && (nl = cosmic_find_byte(at, '\n', (size_t)(end - at))) != NULL) {
       count++;
       last = (lua_Integer)(nl - text) + 1;
       at = nl + 1;
@@ -155,14 +157,158 @@ static int text_sort (lua_State *L) {
   return 1;
 }
 
+/* The 6-bit value of each byte in base64's standard alphabet (`url` 0) and
+ * its URL- and filename-safe one (`url` 1), or -1 for a byte outside it.
+ * `=` is outside both: padding is found by place, not by value. Filled
+ * when the table opens, so no decode tests whether they are. */
+static int8_t base64_values[2][256];
+
+static void base64_tables (void) {
+  static const char *alphabets[2] = {
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_",
+  };
+  for (int a = 0; a < 2; a++) {
+    memset(base64_values[a], -1, sizeof base64_values[a]);
+    for (int i = 0; i < 64; i++) base64_values[a][(unsigned char)alphabets[a][i]] = (int8_t)i;
+  }
+}
+
+/* Where a refused text went wrong, for [`text_unbase64`] to name: the
+ * 1-based place in `text`, and the kind, as cosmic.codec words it. */
+static int base64_refuse (lua_State *L, const char *kind, size_t at) {
+  lua_pushnil(L);
+  lua_pushinteger(L, (lua_Integer)at);
+  lua_pushstring(L, kind);
+  return 3;
+}
+
+/* How many bytes of `text` are `\r` or `\n`: a loop the compiler can
+ * vectorize, where a memchr per line break would cost a call each. */
+static size_t base64_breaks (const unsigned char *text, size_t len) {
+  size_t count = 0;
+  for (size_t i = 0; i < len; i++) count += (size_t)(text[i] == '\r') + (size_t)(text[i] == '\n');
+  return count;
+}
+
+static int base64_break (unsigned char c) {
+  return c == '\r' || c == '\n';
+}
+
+/* `unbase64(text, url, padded, lines)`: the bytes `text` spells in base64's
+ * standard alphabet, or the URL-safe one where `url`. Strict as
+ * cosmic.codec documents: `padded` says the text must carry `=` padding to a
+ * multiple of four characters, or must carry none; any byte outside the
+ * alphabet, misplaced `=`, or nonzero bits in the last character refuse it.
+ * Where `lines`, every `\r` and `\n` is skipped, as MIME and PEM break a
+ * body into lines: in one pass, where four characters in the alphabet
+ * decode at once and anything else goes a character at a time. Returns the
+ * bytes, or nil, the 1-based place in `text` a refusal names (for `length`,
+ * `over` and `bits`, the length with line breaks taken out) and its kind:
+ * `length`, `over`, `padding`, `byte` or `bits`. */
+static int text_unbase64 (lua_State *L) {
+  size_t len = 0;
+  const char *text = luaL_checklstring(L, 1, &len);
+  int url = lua_toboolean(L, 2);
+  int padded = lua_toboolean(L, 3);
+  int lines = lua_toboolean(L, 4);
+  const int8_t *value = base64_values[url ? 1 : 0];
+  const unsigned char *s = (const unsigned char *)text;
+  /* `total` counts the characters with line breaks taken out; `end` is
+   * where the last of them that is not padding ends in `text`. */
+  size_t total = lines ? len - base64_breaks(s, len) : len;
+  size_t end = len;
+  size_t n = total;
+  if (padded) {
+    if (total % 4 != 0) return base64_refuse(L, "length", total);
+    for (int pad = 0; pad < 2 && end > 0;) {
+      if (lines && base64_break(s[end - 1])) {
+        end--;
+      } else if (s[end - 1] == '=') {
+        end--;
+        n--;
+        pad++;
+      } else {
+        break;
+      }
+    }
+  } else if (total % 4 == 1) {
+    return base64_refuse(L, "over", total);
+  }
+  size_t whole = n - n % 4;
+  luaL_Buffer b;
+  unsigned char *out = (unsigned char *)luaL_buffinitsize(L, &b, whole / 4 * 3 + 2);
+  /* simdutf first: it skips every ASCII space, where this decoder takes
+   * only line breaks and only where `lines`, so its bytes stand only when
+   * there are as many as the `n` characters counted above spell. Each
+   * character it skipped would leave fewer, so an equal count means it
+   * decoded exactly the characters this loop would have. Anything it
+   * refuses is decoded again below, which names the refusal. */
+  size_t left = n - whole;
+  size_t want = whole / 4 * 3 + (left == 0 ? 0 : left - 1);
+  size_t got = want;
+  if (cosmic_simdutf_unbase64(text, len, (char *)out, &got, url, padded) && got == want) {
+    luaL_pushresultsize(&b, got);
+    return 1;
+  }
+  size_t o = 0;
+  size_t taken = 0; /* characters decoded so far, line breaks not counted */
+  uint32_t v = 0;
+  size_t i = 0;
+  while (i < end) {
+    if ((taken & 3) == 0 && i + 4 <= end && taken + 4 <= whole) {
+      int v1 = value[s[i]], v2 = value[s[i + 1]], v3 = value[s[i + 2]], v4 = value[s[i + 3]];
+      if ((v1 | v2 | v3 | v4) >= 0) {
+        uint32_t q = ((uint32_t)v1 << 18) | ((uint32_t)v2 << 12) | ((uint32_t)v3 << 6) | (uint32_t)v4;
+        out[o] = (unsigned char)(q >> 16);
+        out[o + 1] = (unsigned char)(q >> 8);
+        out[o + 2] = (unsigned char)q;
+        o += 3;
+        taken += 4;
+        i += 4;
+        continue;
+      }
+    }
+    unsigned char c = s[i];
+    if (lines && base64_break(c)) {
+      i++;
+      continue;
+    }
+    int x = value[c];
+    if (x < 0) return base64_refuse(L, c == '=' ? "padding" : "byte", i + 1);
+    v = (v << 6) | (uint32_t)x;
+    taken++;
+    i++;
+    if ((taken & 3) == 0) {
+      out[o] = (unsigned char)(v >> 16);
+      out[o + 1] = (unsigned char)(v >> 8);
+      out[o + 2] = (unsigned char)v;
+      o += 3;
+      v = 0;
+    }
+  }
+  if (left == 2) {
+    if ((v & 15) != 0) return base64_refuse(L, "bits", total);
+    out[o++] = (unsigned char)(v >> 4);
+  } else if (left == 3) {
+    if ((v & 3) != 0) return base64_refuse(L, "bits", total);
+    out[o++] = (unsigned char)(v >> 10);
+    out[o++] = (unsigned char)(v >> 2);
+  }
+  luaL_pushresultsize(&b, o);
+  return 1;
+}
+
 static const luaL_Reg module[] = {
   {"lines", text_lines},
   {"newlines", text_newlines},
   {"sort", text_sort},
+  {"unbase64", text_unbase64},
   {NULL, NULL},
 };
 
 int cosmic_open_text (lua_State *L) {
+  base64_tables();
   luaL_newlib(L, module);
   return 1;
 }
