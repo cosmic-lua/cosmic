@@ -3,6 +3,9 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local ArtifactRow = require("cosmic_ci.artifact_row")
 local Fixture = require("cosmic_ci.fixture")
+local Test = require("cosmic.test")
+
+Test.policy{ profiles = { "system" } }
 
 -- The bound leaves the shell time to print on a slow or loaded runner;
 -- the elapsed check, well short of the `sleep` and of the 30 s a test
