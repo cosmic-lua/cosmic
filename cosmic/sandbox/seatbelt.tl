@@ -109,6 +109,7 @@ end
 --- lost in a profile. Environment and credentials are a child's setup,
 --- not Seatbelt operations; their handling remains the caller's.
 local function unsupported(policy: rules.Policy): string
+  local setup = policy.setup or {}
   if #(policy.isolate or {}) > 0 then return "isolate needs namespaces, which macOS has none of" end
   if #(policy.loopback or {}) > 0 then return "loopback needs a network namespace of its own" end
   -- A promise the profile has no rule for would be dropped from it, not
@@ -125,8 +126,8 @@ local function unsupported(policy: rules.Policy): string
   if limits ~= nil and limits.processes ~= nil then
     return "limits.processes needs a user namespace of its own"
   end
-  for name in pairs(policy.set_env_digests or {}) do
-    local set_env = policy.set_env
+  for name in pairs(setup.set_env_digests or {}) do
+    local set_env = setup.set_env
     if set_env == nil or set_env[name] == nil then
       return "set_env_digests holds a digest, not a value to set"
     end
@@ -183,6 +184,7 @@ end
 --- cosmic child's core applies its profile itself at boot), and
 --- [`Sandbox.restrict`] in the process that calls it.
 function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Seatbelt.Profile?, string
+  local setup = policy.setup or {}
   local valid, why = rules.check(policy)
   if not valid then return nil, why end
   local trouble = unsupported(policy)
@@ -226,7 +228,7 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
       end
     end
   end
-  local database = policy.database
+  local database = setup.database
   local options_core = options and options.core
   local options_database = options and options.database
   -- A policy's own `database` is the file its core runs on, which a start
@@ -255,8 +257,7 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
   end
   for _, promise in ipairs(rules.calls(policy)) do grants[#grants + 1] = { calls = promise } end
   local merged, failure = rules.merge({ grants = grants,
-    limits = policy.limits, env = policy.env, set_env = policy.set_env,
-    set_env_digests = policy.set_env_digests, user = policy.user, group = policy.group })
+    limits = policy.limits, env = policy.env, setup = { set_env = setup.set_env, set_env_digests = setup.set_env_digests, user = setup.user, group = setup.group } })
   if merged == nil then return nil, failure end
   local fattr = false
   -- What every program needs to start, whatever it is granted. Contents
@@ -304,7 +305,7 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
         ' (param "' .. name .. '"))', serves ~= nil and grant.path ~= runs)
   end
   local tmp: string?
-  if policy.tmp == true then
+  if setup.tmp == true then
     tmp = TMP_PARAMETER
     allow(text, fattr, "rwc", '(subpath (param "' .. tmp .. '"))')
   end
@@ -357,16 +358,17 @@ end
 --- must be those or left out, and the caller must not be root, whose program
 --- a policy says is never root. Names only what differs.
 function Seatbelt.credentials_unmet(merged: rules.Policy, user: integer, group: integer): string
+  local setup = merged.setup or {}
   if user == 0 then
     return "this process is root, and a program of a policy never runs as root, which " ..
       "Seatbelt cannot change the user to: start as another user"
   end
   local differs: mut {string} = {}
-  local merged_user = merged.user
+  local merged_user = setup.user
   if merged_user ~= nil and merged_user ~= user then
     differs[#differs + 1] = "user " .. tostring(merged_user)
   end
-  local merged_group = merged.group
+  local merged_group = setup.group
   if merged_group ~= nil and merged_group ~= group then
     differs[#differs + 1] = "group " .. tostring(merged_group)
   end
@@ -403,6 +405,7 @@ end
 --- [`Seatbelt.Options.terminal`]. Nil and why where a grant's path is not there.
 function Seatbelt.resolve(policy: rules.Policy, base?: string, core?: string, database?: string,
                           terminal?: string): Seatbelt.Options?, string
+  local setup = policy.setup or {}
   local paths: mut {string:Seatbelt.Path} = {}
   -- "" where `at` was resolved, or why not.
   local function look(name: string, at: string): string
@@ -430,7 +433,7 @@ function Seatbelt.resolve(policy: rules.Policy, base?: string, core?: string, da
       return refuse("grant " .. string.format("%q", grant.path) .. ": " .. trouble)
     end
   end
-  local policy_database = policy.database
+  local policy_database = setup.database
   for _, name in ipairs({ core or "", database or "", policy_database and policy_database.path or "" }) do
     if name ~= "" then
       local trouble = look(name, name)

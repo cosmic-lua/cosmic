@@ -2948,7 +2948,7 @@ function test_key.prepare(rec: Recording, job: Job, forks?: {string}): Prepared
       return cannot(made_trouble, true, nil)
     end
     policy = made
-    policy.database = if sealed ~= nil then { path = sealed } else nil end -- checked: field_fixed
+    policy.setup = { tmp = (policy.setup or {}).tmp, database = if sealed ~= nil then { path = sealed } else nil end } -- checked: field_fixed
     if hold == "forbid" then
       local ran, ran_trouble = test_policy.runs(policy)
       if ran == nil then

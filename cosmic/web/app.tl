@@ -226,7 +226,7 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
     -- tailscaled.
     local Tailnet = require("cosmic.web.tailnet")
     local reached, why = Tailnet.serving(if tailnet is boolean then {} else tailnet end)
-    if reached == nil then return false, why end
+    if reached == nil then return false, tostring(why) end
     for _, address in ipairs(reached.listeners) do listeners[#listeners + 1] = address end
     tls = reached.certs
     put_up, unplace, socket, forwarded = reached.put_up, reached.cleanup, reached.socket, reached.caps

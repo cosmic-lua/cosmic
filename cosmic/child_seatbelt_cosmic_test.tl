@@ -78,7 +78,7 @@ end
 local function test_tmp_is_a_directory_it_may_write()
   SeatbeltFixture.macos_only()
   local result = ran(FS .. 'local dir = assert(require("cosmic.sys").getenv("TMPDIR")) local path = dir .. "/made" ' ..
-      'local wrote, _ = Fs.write(path, "x") local read, _ = Fs.read(path) print(dir, wrote, read)', { profiles = { "system" }, tmp = true })
+      'local wrote, _ = Fs.write(path, "x") local read, _ = Fs.read(path) print(dir, wrote, read)', { profiles = { "system" }, setup = { tmp = true } })
   expect(result.ok, result)
   local dir = (result.stdout or ""):match("^([^\t]+)\ttrue\tx\n$")
   assert(dir ~= nil, "the child's tmp was not writable: " .. string.format("%q", result.stdout or ""))
@@ -95,7 +95,7 @@ local function test_tmp_leaves_its_parent_and_a_read_granted_file_unwritable(tmp
   local result = ran(FS .. 'local sys = require("cosmic.sys") local granted = assert((...)) ' ..
       'local dir = assert(sys.getenv("TMPDIR")) local parent = Fs.dirname(dir) ' ..
       'local inside, _ = Fs.write(dir .. "/in", "x") local beside, _ = Fs.write(parent .. "/beside", "x") ' ..
-      'local changed, _ = Fs.write(granted, "changed") print(inside, beside, changed)', { profiles = { "system" }, tmp = true,
+      'local changed, _ = Fs.write(granted, "changed") print(inside, beside, changed)', { profiles = { "system" }, setup = { tmp = true },
         grants = { { path = granted, letters = "r" } } }, { granted })
   expect(result.ok and result.stdout == "true\tfalse\tfalse\n", result)
   assert(assert(Fs.read(granted)) == "granted-bytes", "the read-granted file was written")

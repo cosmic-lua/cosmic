@@ -194,8 +194,7 @@ local function started(set: Worker.Set, opts: Worker.Options): (Stream.Lines) | 
       grants[#grants + 1] = { connect = target }
     end
     policy = { grants = grants, isolate = merged.isolate,
-      loopback = merged.loopback, env = merged.env, set_env = merged.set_env, set_env_digests = merged.set_env_digests,
-      tmp = merged.tmp, limits = merged.limits, user = merged.user, group = merged.group, database = merged.database }
+      loopback = merged.loopback, env = merged.env, setup = merged.setup, limits = merged.limits }
   end
   local base = set.base
   local argv: mut {string} = {}
