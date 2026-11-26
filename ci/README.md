@@ -506,6 +506,12 @@ branch's push runs nothing.
   failure the queue would meet on those legs shows on the pull request
   first, before the change takes a queue slot: a macOS-only test, for one,
   or a test of the built binary's verbs. It saves nothing.
+  A batch's pull request (a branch of this repository named
+  `claude/batch-*`, stacked by `build/batch.tl` from members whose newest
+  `ci` passed) runs no leg and no driver check, and its gate passes: the
+  merge queue tests the batch on every leg. The skip goes by the
+  branch's name alone. The run it skips takes 22 min (p50) of each
+  batch's way to main.
 - **the merge queue** (`merge_group`) runs what a push to main runs:
   every Linux leg and the checked and narrowing jobs. Each leg is two jobs
   at once, each booting the tree: `<leg>` (part `suite`) runs the native
