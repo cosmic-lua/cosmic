@@ -1,0 +1,8 @@
+version 9.5.0
+url https://github.com/simdutf/simdutf/releases/download/v9.5.0/singleheader.zip
+sha256 8f18779b5605ab3ce2f8e4a1abb409c64253f22403207732365e305d0d6e8025
+keep simdutf.cpp
+keep simdutf.h
+keep simdutf_c.h
+license (Apache-2.0 OR MIT) AND BSD-3-Clause
+notice simdutf.h:1039-1082

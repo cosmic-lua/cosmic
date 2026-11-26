@@ -147,6 +147,30 @@ local function test_unbase64_lines_refuses_as_unbase64_does_at_the_place_in_the_
   end
 end
 
+--- simdutf, which decodes first, skips every ASCII space; a long text
+--- holding a space, tab, form feed or a line break where only
+--- `unbase64_lines` takes one is refused all the same, at its place.
+local function test_white_space_simdutf_skips_is_refused_in_long_texts()
+  local flat = Codec.base64(("cosmic"):rep(400))
+  for _, space in ipairs({ " ", "\t", "\f", "\r", "\n", "    " }) do
+    local text = flat:sub(1, 1000) .. space .. flat:sub(1001)
+    local out, why = Codec.unbase64(text)
+    assert(out == nil, "unbase64 took " .. string.format("%q", space))
+    assert(tostring(why):find("at 1001", 1, true) or tostring(why):find("length", 1, true), tostring(why))
+    if space ~= "\r" and space ~= "\n" then
+      local lines_out, lines_why = Codec.unbase64_lines(text)
+      assert(lines_out == nil, "unbase64_lines took " .. string.format("%q", space))
+      assert(tostring(lines_why):find("at 1001", 1, true) or tostring(lines_why):find("length", 1, true),
+        tostring(lines_why))
+    end
+  end
+  local url = Codec.base64url(("cosmic"):rep(400))
+  local out, _ = Codec.unbase64url(url:sub(1, 500) .. " " .. url:sub(501))
+  assert(out == nil, "unbase64url took a space")
+  assert(Codec.unbase64(flat)! == ("cosmic"):rep(400))
+  assert(Codec.unbase64url(url)! == ("cosmic"):rep(400))
+end
+
 local function test_a_megabyte_round_trips()
   local parts: mut {string} = {}
   for i = 1, 4096 do
