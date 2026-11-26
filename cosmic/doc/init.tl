@@ -23,191 +23,27 @@ local Distance = require("cosmic.internal.distance")
 local link_text = require("cosmic.internal.link_text")
 local source_run = require("cosmic.internal.source_run")
 local symbols = require("cosmic.internal.symbols")
+local Types = require("cosmic.doc.types")
+local type Command = Types.Command
+local type View = Types.View
+local type Example = Types.Example
+local type Entry = Types.Entry
+local type Lookup = Types.Lookup
+local type Answer = Types.Answer
+local type Summary = Types.Summary
+local type Taking = Types.Taking
+local type Use = Types.Use
 
 local record Doc
-  --- A command of the view's program, which a row of `docs` describes: `cosmic test`, documented by the
-  --- overview of [`cosmic.cli.test`]. A lookup of `name` that also names a module points to the command,
-  --- its row's page shows its `usage`, `about`, `options` and `examples` under it, and a search reads them with
-  --- the row's own text.
-  record Command
-    --- The word that runs it.
-    name: string
-    --- The row that documents it, by its `module` and `symbol` as `docs` holds them.
-    module: string
-    --- That row's `symbol`: a field's own name where the module returns the record that declares it, "" for the
-    --- module's own row.
-    symbol: string
-    --- Its options as its help prints them, nil for a command that takes none.
-    options?: string
-    --- Its one line on what it does, as its help prints it; nil for none.
-    about?: string
-    --- The line it is typed as, as its help's usage line has it ("prog pair [options] <device>"); nil for none.
-    usage?: string
-    --- Its examples as its help prints them, a line each; nil for none.
-    examples?: string
-  end
-  --- One ordered database view and the owner of every module in it.
-  record View
-    --- The databases, in the order they are read.
-    databases: {Sqlite.Handle}
-    --- Which databases are public sources, by index: one covers only
-    --- the modules it records as public ([`symbols.public_modules`]),
-    --- the standard library's in the binary a project builds with, which
-    --- is what the project sees of it. A project's own database, and
-    --- every database inside cosmic's own tree, cover everything.
-    public: {integer: boolean}
-    --- The index of the database that covers each module: the first that holds it.
-    owners: {string: integer}
-    --- How many places refer to a module/symbol pair, keyed by
-    --- [`use_key`] -- computed on demand, once per command, by
-    --- [`effective_counts`], and cached here so several entries or
-    --- renders naming the same symbol query `uses` only once.
-    use_counts: mut {string: integer}
-    --- How many links name a module/symbol pair, as `use_counts`.
-    link_counts: mut {string: integer}
-    --- The record each module's value is typed as (`""` for none), by
-    --- module, as [`value_record`] reads it, cached as `use_counts` is.
-    value_records: mut {string: string}
-    --- The modules each database records as public, by the database's
-    --- index ([`symbols.public_modules`]), cached as `use_counts` is.
-    public_modules: mut {integer: {string: boolean}}
-    --- The module each module binds each name to, by module and name,
-    --- as [`symbols.add_bound`] reads them: nil until a type's
-    --- reference asks, then cached as `use_counts` is.
-    mut bound?: {string: string}
-    --- The commands of the documented program, none unless the caller sets them.
-    mut commands: {Command}
-    --- The documented program, as its user types it, where it is not the tool ([`Doc.program`]): a page's
-    --- hints name its `docs` command, and no page counts the uses and links of a symbol, a program having no
-    --- command that lists them. Nil for the tool.
-    mut program?: string
-    --- Who alone may require each module of a database of the tree's own, by module, as [`Doc.Summary`]'s
-    --- `closed` says it: what the list of every module marks. Nil marks none.
-    mut marks?: function(db: Sqlite.Handle): {string: string}
-  end
-
-  --- One worked example, matched to a symbol by content rather than by
-  --- name -- see [`examples_for`].
-  record Example
-    --- The example function's name.
-    name: string
-    --- Its doc comment.
-    text: string
-    --- The file that holds it, from the root.
-    file: string
-    --- The line of `file` it starts on.
-    line: integer
-    --- Its source.
-    source: string
-  end
-
-  --- One row of `docs`, with where it came from.
-  record Entry is alias_members.Declared
-    --- The module that declares it.
-    mut module: string
-    --- Its name as a caller of the module writes it; "" for the module's own row.
-    mut symbol: string
-    --- Its name as its file declares it.
-    mut source_symbol: string
-    --- Whether the module's value offers it.
-    mut exported: boolean
-    --- What it is: "module", "function", "record", "field" and the like.
-    kind: string
-    --- Its declaration, as its page shows it.
-    signature: string
-    --- Its doc comment.
-    text: string
-    --- The file that declares it, from the root; "" where none is recorded.
-    file: string
-    --- The line of `file` it is declared on; 0 where none is recorded.
-    line: integer
-    --- How many places in shipped modules refer to it.
-    mut uses: integer
-    --- How many links in their comments name it (`links`).
-    mut links: integer
-    --- How many worked examples match it -- see [`examples_for`]. A
-    --- listing count, not the examples themselves: `render` fetches
-    --- those separately, only for the one entry it is showing.
-    examples: integer
-    --- Examples whose comments or checked source matched a free-text
-    --- search. Kept on the result only; the database remains unchanged.
-    related: {Example}
-  end
-
-  record Lookup is {Entry}
-    --- Whether the query names its entries, which a search's entries only relate to.
-    exact: boolean
-    --- How many entries, from the first, are named by the query; any
-    --- after them stand in for a raw binding it named (see [`stand_ins`]).
-    named: integer
-    --- Whether no entry carries every word of the query, and these carry
-    --- some of them (see `closest`).
-    closest: boolean
-    --- The query as it was looked up, where a word of it that no documentation holds was taken for the
-    --- nearest word one does; nil where the query was looked up as given.
-    mut respelled?: string
-    --- The verb `cosmic <query>` when the query names a library module of
-    --- the same name: [`page`] ends the module's entries with a line
-    --- pointing to it, and it is not one of the entries. Nil otherwise.
-    mut verb?: Entry
-    --- How many entries, from the first, are the modules the query names;
-    --- the line for `verb` follows them. 0 when there are none.
-    mut modules: integer
-  end
-
-  --- What `cosmic docs` prints for its words, short of its summary:
-  --- see [`Doc.answer`].
-  record Answer
-    --- The page, a line each.
-    lines: {string}
-    --- Whether every word found something: the run's pass.
-    found: boolean
-    --- What the summary counts ("2 named", "7 found"), led, when a
-    --- word found nothing, by the words that found nothing.
-    said: string
-  end
-
-  --- One module as the index lists it.
-  record Summary
-    --- The module's name.
-    module: string
-    --- The first sentence of its documentation; "" when it has none.
-    text: string
-    --- Who alone may require it: "private to rules/returns/" for a module of a closed directory, "internal to
-    --- app/" for one an `internal` directory scopes, "" for one any module may. [`Doc.index`] leaves it "": only
-    --- the list of every module judges it, by the view's `marks`.
-    closed: string
-  end
-
-  --- An exported function with a parameter of a given name ([`Doc.taking`]).
-  record Taking
-    --- The module that exports it.
-    module: string
-    --- Its name as a caller of the module writes it ([`Fs.basename`]).
-    symbol: string
-  end
-
-  --- One row of `uses`, or of `links` (`link`): a link names the
-  --- symbol `module` and `symbol` name, or the file at `path` and, when
-  --- it is not "", the heading `anchor` of it.
-  record Use
-    --- The module that declares what is referred to; "" for a link to a file.
-    module: string
-    --- The symbol referred to; "" for the module itself.
-    symbol: string
-    --- The module that refers to it; "" for a file that is no module.
-    from_module: string
-    --- The file that refers to it, from the root.
-    from_file: string
-    --- The line of `from_file` that does.
-    line: integer
-    --- Whether a link in a comment or a document refers to it, not code.
-    link: boolean
-    --- The file a link names, from the root; "" for a link to a symbol.
-    path: string
-    --- The heading of `path` a link names; "" for none.
-    anchor: string
-  end
+  type Command = Types.Command
+  type View = Types.View
+  type Example = Types.Example
+  type Entry = Types.Entry
+  type Lookup = Types.Lookup
+  type Answer = Types.Answer
+  type Summary = Types.Summary
+  type Taking = Types.Taking
+  type Use = Types.Use
 end
 
 --- `value` as a statement's text parameter.
@@ -248,7 +84,7 @@ local EXAMPLE_BOUNDARY_SQL =
 -- overwrites it on every path that renders `entry.uses` -- see
 -- [`entries_of`] -- so this column is a placeholder, not a correlated
 -- `uses` subquery run for every row of every listing or search.
-local columns =
+local columns: string =
   "d.module, d.symbol, d.source_symbol, d.exported, d.kind, d.signature, " ..
   "d.text, d.file, d.line, " ..
   "0, " ..
@@ -258,8 +94,8 @@ local columns =
   "('\"' || replace(replace(d.source_symbol, '.', ' '), ':', ' ') || '\"') " ..
   "AND " .. EXAMPLE_BOUNDARY_SQL .. ") END"
 
-local function entries_of(rows: Sqlite.Rows): mut {Doc.Entry}
-  local out: mut {Doc.Entry} = {}
+local function entries_of(rows: Sqlite.Rows): mut {Entry}
+  local out: mut {Entry} = {}
   for _, row in ipairs(rows) do
     out[#out + 1] = {
       module = row:text(1), symbol = row:text(2), source_symbol = row:text(3),
@@ -280,7 +116,7 @@ end
 --- ranking. `""` finds nothing, since a module's own row has no code of
 --- its own to match.
 local function examples_for(db: Sqlite.Handle, public: boolean, module: string,
-                            symbol: string): {Doc.Example}?, string
+                            symbol: string): {Example}?, string
   if symbol == "" then
     return {}, ""
   end
@@ -295,7 +131,7 @@ local function examples_for(db: Sqlite.Handle, public: boolean, module: string,
   if rows == nil then
     return nil, tostring(trouble)
   end
-  local out: mut {Doc.Example} = {}
+  local out: mut {Example} = {}
   for _, row in ipairs(rows) do
     out[#out + 1] = { name = row:text(1), text = row:text(2), file = row:text(3),
       line = row:integer(4), source = row:text(5) }
@@ -467,17 +303,17 @@ end
 --- then by file and line. An example is attached to a symbol by what
 --- it calls, so one built around `truncate` also matches [`Fs.read`] and
 --- must not lead its page.
-local function ranked_examples(found: {Doc.Example}, symbol: string): {Doc.Example}
+local function ranked_examples(found: {Example}, symbol: string): {Example}
   local last = symbol:match("([%w_]+)$") or symbol
-  local keys: mut {Doc.Example: Rank} = {}
+  local keys: mut {Example: Rank} = {}
   for _, ex in ipairs(found) do
     local body = example_body(ex.source)
     local calls, first = calls_of(body, symbol)
     keys[ex] = { named = if ex.name == last then 0 else 1 end, calls = -calls, first = first, size = #body }
   end
-  local out: mut {Doc.Example} = {}
+  local out: mut {Example} = {}
   for _, ex in ipairs(found) do out[#out + 1] = ex end
-  table.sort(out, function(a: Doc.Example, b: Doc.Example): boolean
+  table.sort(out, function(a: Example, b: Example): boolean
     local ka = assert(keys[a], "every example sorted was ranked")
     local kb = assert(keys[b], "every example sorted was ranked")
     if ka.named ~= kb.named then return ka.named < kb.named end
@@ -497,7 +333,7 @@ end
 --- under `cosmic.internal`, a test module and an example module are
 --- never one, whatever database is read, as in [`Doc.index`], so a bare
 --- name means what a user of a library means by it.
-local function modules_ending(db: Sqlite.Handle, query: string): {Doc.Entry}?, string
+local function modules_ending(db: Sqlite.Handle, query: string): {Entry}?, string
   local rows, trouble = db:rows(
     "SELECT " .. columns .. " FROM docs d WHERE " .. symbols.module_ending_where("d") ..
       " ORDER BY d.module LIKE 'cosmic.%', d.module, d.id",
@@ -513,7 +349,7 @@ end
 --- comment (a `cmd/<name>/main.tl` that returns a function has no
 --- record to hold it). `module` is the module's whole name.
 local function module_symbol(db: Sqlite.Handle, public: boolean,
-                             module: string): {Doc.Entry}?, string
+                             module: string): {Entry}?, string
   local rows, trouble = db:rows(
     "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 AND " ..
       symbols.shown_in(db, "d", public) .. " ORDER BY d.exported DESC, d.id LIMIT 1",
@@ -527,7 +363,7 @@ end
 --- The rows named `query` exactly: a symbol as declared ([`Fs.read`]), a
 --- symbol's last name alone (`read`, matching every `X.read` and
 --- `X:read`), or a module's own row ([`cosmic.fs`]).
-local function named(db: Sqlite.Handle, public: boolean, query: string): {Doc.Entry}?, string
+local function named(db: Sqlite.Handle, public: boolean, query: string): {Entry}?, string
   -- TODO: a function a record declares as a field and its file defines has two rows of one source symbol (`years` and
   -- `RunDb.years`), so `cosmic docs` shows it twice. Fix: the build writes one row for it, and this
   -- returns it once, as a link to it resolves once; nothing blocks it.
@@ -546,7 +382,7 @@ end
 --- Unlike `named`, it matches only the symbol as declared, never a last
 --- name: a caller passing several names already knows what each one is.
 local function named_all(db: Sqlite.Handle, public: boolean,
-                         names: {string}): {Doc.Entry}?, string
+                         names: {string}): {Entry}?, string
   local placeholders: mut {string} = {}
   local args: mut {Sqlite.Value} = {}
   for index, name in ipairs(names) do
@@ -584,7 +420,7 @@ end
 --- module that is itself callable) is listed too, by its signature; one
 --- of a nested record (its `__close`) is that record's, as its other
 --- fields are.
-local function declared_in(db: Sqlite.Handle, public: boolean, module: string): {Doc.Entry}?, string
+local function declared_in(db: Sqlite.Handle, public: boolean, module: string): {Entry}?, string
   local rows, trouble = db:rows(
     "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 " ..
       "AND d.symbol <> '' AND (d.kind NOT IN ('field', 'value', 'metamethod') OR " ..
@@ -606,7 +442,7 @@ end
 --- A field of a `local` record, or one named `_...`, is left out of a
 --- public source, as it is from every other view of it.
 local function members_of(db: Sqlite.Handle, public: boolean,
-                          module: string): {Doc.Entry}?, string
+                          module: string): {Entry}?, string
   local rows, trouble = db:rows(
     "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 AND " ..
       "d.kind IN ('field', 'value') AND " .. symbols.shown_in(db, "d", public) ..
@@ -621,7 +457,7 @@ end
 --- Every module's own documentation row, and every documented record
 --- a module declares at its top: one of them says what a module is for
 --- when its opening comment sits on it rather than above it.
-local function modules_of(db: Sqlite.Handle, public: boolean): {Doc.Entry}?, string
+local function modules_of(db: Sqlite.Handle, public: boolean): {Entry}?, string
   local rows, trouble = db:rows(
     "SELECT " .. columns .. " FROM docs d WHERE (d.symbol = '' OR " ..
       "(d.kind = 'record' AND d.symbol NOT LIKE '%.%' AND d.text <> '')) AND " ..
@@ -700,7 +536,7 @@ end
 --- `name` as code: what a reader who looked up a raw binding
 --- ("unlink", "getpid") most likely wanted instead.
 local function stand_ins(db: Sqlite.Handle, public: boolean,
-                         name: string): {Doc.Entry}?, string
+                         name: string): {Entry}?, string
   local rows, trouble = db:rows(
     "SELECT " .. columns .. " FROM docs d WHERE d.module <> 'cosmic.sys' " ..
       "AND d.kind IN ('function', 'method') AND d.exported = 1 AND lower(d.text) GLOB ?1 AND " ..
@@ -719,7 +555,7 @@ end
 --- name wrong sees the name they wanted among its neighbours, rather
 --- than whatever elsewhere happens to use the word.
 local function scoped(db: Sqlite.Handle, public: boolean, qualifier: string,
-                      name: string): {Doc.Entry}?, string
+                      name: string): {Entry}?, string
   -- The build keeps a member's own name in `symbol` (`find`) and the
   -- name it was written as in `source_symbol` ([`Proc.find`]).
   local member = qualifier .. "[.:]*"
@@ -850,7 +686,7 @@ end
 --- as code, where it is not a parameter of theirs, then by relevance,
 --- weighing a word in the name above one in the prose.
 local function searched_docs(db: Sqlite.Handle, public: boolean,
-                             query: string): {Doc.Entry}?, string
+                             query: string): {Entry}?, string
   local lead = lead_word(query)
   local words = query_words(query)
   -- What a function stands in for is a question about one word: with
@@ -921,7 +757,7 @@ end
 --- The rows carrying some words of `query` when none carries them all,
 --- at most `CLOSEST`; nothing when it has fewer than two words to carry.
 local function closest(db: Sqlite.Handle, public: boolean,
-                       query: string): {Doc.Entry}?, string
+                       query: string): {Entry}?, string
   local words = query_words(query)
   if #words < 2 then
     return {}, ""
@@ -937,7 +773,7 @@ end
 --- every word of `query`. An example is returned as itself, not as one of
 --- the symbols it calls: its source cannot say which of several calls is
 --- its subject.
-local function searched_examples(db: Sqlite.Handle, public: boolean, fts: string): {Doc.Entry}?, string
+local function searched_examples(db: Sqlite.Handle, public: boolean, fts: string): {Entry}?, string
   local rows, trouble = db:rows(
     "SELECT e.module, e.name, e.text, e.file, e.line, e.source FROM examples_fts " ..
       "JOIN examples e ON e.id = examples_fts.rowid " ..
@@ -948,7 +784,7 @@ local function searched_examples(db: Sqlite.Handle, public: boolean, fts: string
   if rows == nil then
     return nil, tostring(trouble)
   end
-  local out: mut {Doc.Entry} = {}
+  local out: mut {Entry} = {}
   for _, row in ipairs(rows) do
     out[#out + 1] = { module = row:text(1), symbol = "Example." .. row:text(2),
       source_symbol = "Example." .. row:text(2), exported = true, kind = "example",
@@ -1035,7 +871,7 @@ local function occurrences(written: string, word: string, whole: boolean): integ
 end
 
 local record Scored
-  entry: Doc.Entry
+  entry: Entry
   score: integer
 end
 
@@ -1086,7 +922,7 @@ end
 --- Each guide is split here rather than indexed, since the index holds
 --- one row for a whole page, which its length buries and a hit shows
 --- only the opening of.
-local function guide_sections(db: Sqlite.Handle, public: boolean, query: string): {Doc.Entry}?, string
+local function guide_sections(db: Sqlite.Handle, public: boolean, query: string): {Entry}?, string
   local words: mut {string} = {}
   for _, word in ipairs(query_words(query)) do
     words[#words + 1] = stem(word)
@@ -1131,7 +967,7 @@ local function guide_sections(db: Sqlite.Handle, public: boolean, query: string)
     if a.score ~= b.score then return a.score > b.score end
     return a.entry.source_symbol < b.entry.source_symbol
   end)
-  local out: mut {Doc.Entry} = {}
+  local out: mut {Entry} = {}
   for index, item in ipairs(scored) do
     if index > SECTIONS then break end
     out[index] = item.entry
@@ -1141,7 +977,7 @@ end
 
 --- [`searched_docs`] and [`searched_examples`] together. Each example is kept once
 --- as itself; documentation rows retain their real symbol identity.
-local function searched(db: Sqlite.Handle, public: boolean, query: string): {Doc.Entry}?, string
+local function searched(db: Sqlite.Handle, public: boolean, query: string): {Entry}?, string
   local fts = fts_query(query)
   if fts == "" then
     return {}, ""
@@ -1166,7 +1002,7 @@ local function searched(db: Sqlite.Handle, public: boolean, query: string): {Doc
   for _, entry in ipairs(from_guides) do
     sectioned[entry.module] = true
   end
-  local out: mut {Doc.Entry} = {}
+  local out: mut {Entry} = {}
   local kept = 0
   local offered = false
   local function offer_sections()
@@ -1204,8 +1040,8 @@ end
 --- that holds any: the rule behind a code of the checker, its reason and its fix, in the text of the row. None in a
 --- program's own view ([`Doc.program`]): its users are asked about the program, not the checker the tool documents,
 --- so it finds no code, built or run from its source.
-local function coded_entries(view: Doc.View, join: string, where: string, binds: {Sqlite.Value},
-                             limit: integer): mut {Doc.Entry}?, string
+local function coded_entries(view: View, join: string, where: string, binds: {Sqlite.Value},
+                             limit: integer): mut {Entry}?, string
   if view.program ~= nil then
     return {}, ""
   end
@@ -1232,7 +1068,7 @@ local function coded_entries(view: Doc.View, join: string, where: string, binds:
 end
 
 --- The code `query` names exactly (`not_assignable`): its row of the catalog.
-local function coded(view: Doc.View, query: string): {Doc.Entry}?, string
+local function coded(view: View, query: string): {Entry}?, string
   if query:match("^[%l_]+$") == nil then
     return {}, ""
   end
@@ -1240,7 +1076,7 @@ local function coded(view: Doc.View, query: string): {Doc.Entry}?, string
 end
 
 --- The rows of codes whose rule, reason or fix carries every word of `query`, best match first.
-local function coded_words(view: Doc.View, query: string): mut {Doc.Entry}?, string
+local function coded_words(view: View, query: string): mut {Entry}?, string
   local fts = fts_query(query)
   if fts == "" then
     return {}, ""
@@ -1256,7 +1092,7 @@ end
 --- name the links to each module it is the last name of, as
 --- [`Doc.exact`] reads one (`fs` for [`cosmic.fs`]). A public source
 --- has no link to a file of its own tree.
-local function uses_of(db: Sqlite.Handle, public: boolean, query: string): {Doc.Use}?, string
+local function uses_of(db: Sqlite.Handle, public: boolean, query: string): {Use}?, string
   local rows, trouble = db:rows(
     "SELECT module, symbol, from_module, from_file, line FROM uses u WHERE " ..
       symbols.used_where("u") .. " AND " ..
@@ -1266,7 +1102,7 @@ local function uses_of(db: Sqlite.Handle, public: boolean, query: string): {Doc.
   if rows == nil then
     return nil, tostring(trouble)
   end
-  local out: mut {Doc.Use} = {}
+  local out: mut {Use} = {}
   for _, row in ipairs(rows) do
     out[#out + 1] = { module = row:text(1), symbol = row:text(2), from_module = row:text(3),
       from_file = row:text(4), line = row:integer(5),
@@ -1312,7 +1148,7 @@ end
 --- which names no module -- the first that is not
 --- a public source, the tree's own projection, as only a tree's own
 --- build indexes its files.
-local function answers_for(view: Doc.View, index: integer, module: string): boolean
+local function answers_for(view: View, index: integer, module: string): boolean
   if module == "" then
     for at = 1, #view.databases do
       if view.public[at] ~= true then return at == index end
@@ -1325,7 +1161,7 @@ end
 --- One lookup over `databases`, in order, with a module found in an
 --- earlier database hiding it in every later one.
 --- @param look what to read from each database
-local function across<T>(view: Doc.View,
+local function across<T>(view: View,
                          look: function(Sqlite.Handle, boolean): {T}?, string,
                          module_of: function(T): string): mut {T}?, string
   local out: mut {T} = {}
@@ -1349,24 +1185,24 @@ local function across<T>(view: Doc.View,
   return out, ""
 end
 
-local function entry_module(entry: Doc.Entry): string
+local function entry_module(entry: Entry): string
   return entry.module
 end
 
-local function calling_module(use: Doc.Use): string
+local function calling_module(use: Use): string
   return use.from_module
 end
 
 --- The database `owner` stands for: an owner is the index of a database
 --- [`Doc.view`] listed, so it always has one.
-local function database_of(view: Doc.View, owner: integer): Sqlite.Handle
+local function database_of(view: View, owner: integer): Sqlite.Handle
   return (assert(view.databases[owner], "an owner is the index of one of the view's databases"))
 end
 
 --- Whether `module` is one the database that owns it records as public
 --- ([`symbols.public_modules`]): what a public source covers. A
 --- database that cannot say records none.
-local function is_public(view: Doc.View, module: string): boolean
+local function is_public(view: View, module: string): boolean
   local owner = view.owners[module]
   if owner == nil then
     return false
@@ -1384,7 +1220,7 @@ end
 --- `cosmic.*` namespace, which no project may define, that the database
 --- that owns it records as public. A project's own public modules are
 --- not the library's.
-local function is_library(view: Doc.View, module: string): boolean
+local function is_library(view: View, module: string): boolean
   return symbols.is_library_module(module) and is_public(view, module)
 end
 
@@ -1409,7 +1245,7 @@ end
 --- differs from its symbol: `order` for cosmic.cli's `Module.order`,
 --- a member of the record the module's value is typed as. Nil when the
 --- two are one, or nil and why when the owning database cannot be read.
-local function used_as(view: Doc.View, entry: Doc.Entry): string?, string
+local function used_as(view: View, entry: Entry): string?, string
   local owner = view.owners[entry.module]
   if owner == nil or entry.symbol == "" then
     return nil, ""
@@ -1439,7 +1275,7 @@ end
 --- public modules, and only when that database owns the calling module; see
 --- `across`. Each pair is computed once and cached on `view`, since both a
 --- module listing and symbol rendering can request it in one command.
-local function count_uses(view: Doc.View, module: string,
+local function count_uses(view: View, module: string,
                           symbol: string): integer?, string
   local key = use_key(module, symbol)
   local cached = view.use_counts[key]
@@ -1483,7 +1319,7 @@ end
 --- How many links name `module`/`symbol`, across `view.databases`,
 --- counted as [`count_uses`] counts uses, and cached on `view` the same
 --- way.
-local function count_links(view: Doc.View, module: string,
+local function count_links(view: View, module: string,
                            symbol: string): integer?, string
   local key = use_key(module, symbol)
   local cached = view.link_counts[key]
@@ -1522,7 +1358,7 @@ local function count_links(view: Doc.View, module: string,
   return total, ""
 end
 
-local function effective_counts(view: Doc.View, entries: {Doc.Entry}): boolean, string
+local function effective_counts(view: View, entries: {Entry}): boolean, string
   for _, entry in ipairs(entries) do
     if view.program ~= nil then
       -- A program's user has no `uses` to follow a count with, so its pages give none.
@@ -1552,7 +1388,7 @@ local function effective_counts(view: Doc.View, entries: {Doc.Entry}): boolean, 
 end
 
 -- Doc.view, its failure in words.
-local function view_text(databases: {Sqlite.Handle}, public?: {boolean}): Doc.View?, string
+local function view_text(databases: {Sqlite.Handle}, public?: {boolean}): View?, string
   local scope: mut {integer: boolean} = {}
   for index, flag in ipairs(public or {}) do
     scope[index] = flag
@@ -1581,7 +1417,7 @@ end
 --- declaration without its documentation must not hide the one that
 --- documents it.
 --- @param public which databases, by index, are public sources
-function Doc.view(databases: {Sqlite.Handle}, public?: {boolean}): (Doc.View) | (nil, Failure)
+function Doc.view(databases: {Sqlite.Handle}, public?: {boolean}): (View) | (nil, Failure)
   local value, why = view_text(databases, public)
   if value == nil then return nil, Failure.new(why) end
   return value
@@ -1732,8 +1568,8 @@ local function scope_to_program(db: Sqlite.Handle, pages?: string): Sqlite.Handl
 end
 
 -- Doc.program, its failure in words.
-local function program_text(databases: {Sqlite.Handle}, program: string, commands?: {Doc.Command},
-                            pages?: string): Doc.View?, string
+local function program_text(databases: {Sqlite.Handle}, program: string, commands?: {Command},
+                            pages?: string): View?, string
   local documented: mut {Sqlite.Handle} = {}
   local public: mut {boolean} = {}
   for _, db in ipairs(databases) do
@@ -1801,19 +1637,19 @@ end
 --- program reads what `cosmic build` put in it, and the same program run from its source by the tool
 --- reads the project's last build, which the tool's store holds beside its own. A database that
 --- holds no documentation is left out. `program` is what its user types to run it, which the hints of a page
---- name, and `commands` are its commands, as [`Doc.Command`] says. Nil and a [`Failure`] when a database cannot be read;
+--- name, and `commands` are its commands, as [`Command`] says. Nil and a [`Failure`] when a database cannot be read;
 --- raises on a test's store that withholds the documentation, naming `store_text`. A `cmd/<name>/main.tl` run
 --- from its source finds what it would find built ([`scope_to_program`]), `pages` the module its commands' pages are
 --- read from ([`Flags.Documented`]), which a build carries for being named.
-function Doc.program(databases: {Sqlite.Handle}, program: string, commands?: {Doc.Command},
-                     pages?: string): (Doc.View) | (nil, Failure)
+function Doc.program(databases: {Sqlite.Handle}, program: string, commands?: {Command},
+                     pages?: string): (View) | (nil, Failure)
   local value, why = program_text(databases, program, commands, pages)
   if value == nil then return nil, Failure.new(why) end
   return value
 end
 
 -- Doc.guide, its failure in words.
-local function guide_text(view: Doc.View, name: string): string?, string
+local function guide_text(view: View, name: string): string?, string
   local module = "doc.guides." .. name
   local owner = view.owners[module]
   if owner == nil or not symbols.is_public_guide(module) then
@@ -1835,7 +1671,7 @@ end
 --- ([`Doc.shown`]): what follows its title. A guide under `doc/guides/internal/`, or one the view does not cover
 --- (the tool's, in [`Doc.program`]'s view), is none. False where there is none; nil and a [`Failure`]
 --- when a database cannot be read.
-function Doc.guide(view: Doc.View, name: string): (string | false) | (nil, Failure)
+function Doc.guide(view: View, name: string): (string | false) | (nil, Failure)
   local value, why = guide_text(view, name)
   if value == nil then
     if why == "" then return false end
@@ -1845,12 +1681,12 @@ function Doc.guide(view: Doc.View, name: string): (string | false) | (nil, Failu
 end
 
 --- What a reader types to ask `view`'s documentation: the tool's `cosmic docs`, or the program's own.
-local function docs_command(view: Doc.View): string
+local function docs_command(view: View): string
   return (view.program or "cosmic") .. " docs"
 end
 
 --- The command of `view` that `entry` documents, or nil.
-local function command_of(view: Doc.View, entry: Doc.Entry): Doc.Command?
+local function command_of(view: View, entry: Entry): Command?
   for _, command in ipairs(view.commands) do
     if command.module == entry.module and command.symbol == entry.symbol then
       return command
@@ -1860,13 +1696,13 @@ local function command_of(view: Doc.View, entry: Doc.Entry): Doc.Command?
 end
 
 --- `entries` as a lookup's result, with the entries of `ahead` standing before them.
-local function lookup(entries: {Doc.Entry}, exact: boolean, count: integer,
-                      partial?: boolean, ahead?: {Doc.Entry}): Doc.Lookup
-  local items: mut {Doc.Entry} = {}
+local function lookup(entries: {Entry}, exact: boolean, count: integer,
+                      partial?: boolean, ahead?: {Entry}): Lookup
+  local items: mut {Entry} = {}
   for _, entry in ipairs(ahead or {}) do items[#items + 1] = entry end
   for _, entry in ipairs(entries) do items[#items + 1] = entry end
   -- A record that is also an array takes its items where it is made and nowhere after.
-  local out: Doc.Lookup = { exact = exact, named = count, closest = partial == true, modules = 0,
+  local out: Lookup = { exact = exact, named = count, closest = partial == true, modules = 0,
     table.unpack(items) }
   return out
 end
@@ -1882,7 +1718,7 @@ end
 
 --- The commands whose symbol, prose and help together carry every word of `query`, as the entries that document
 --- them (`cosmic.cli.<verb>` for the tool's): the search reads doc comments, and what a command's help says -- its
---- `about`, `usage`, `options` and `examples` ([`Doc.Command`]) -- is data, so it is matched here instead, as the
+--- `about`, `usage`, `options` and `examples` ([`Command`]) -- is data, so it is matched here instead, as the
 --- documented binary has it and `render` shows it. Each word is a phrase, as [`fts_query`] quotes it:
 --- `COSMIC_TEST_TIMEOUT` must be those three tokens in a row. They come after what the index found, as the lesser
 --- match: most of what a verb's options say is said again, closer, by the code they drive. Those whose row,
@@ -1890,8 +1726,8 @@ end
 --- order of the rows; where no command says more than its options, as the tool's verbs do, all are in the order
 --- of the rows. A usage or example line is matched without the program's name it opens with, which every one
 --- holds. A command `found` already holds is not repeated.
-local function by_help(view: Doc.View, query: string,
-                       found: {Doc.Entry}): {Doc.Entry}?, string
+local function by_help(view: View, query: string,
+                       found: {Entry}): {Entry}?, string
   local wanted: mut {string} = {}
   for quoted in (fts_query(query) .. " "):gmatch('"([^"]*)" ') do
     local phrase = tokens_of(quoted)
@@ -1900,7 +1736,7 @@ local function by_help(view: Doc.View, query: string,
   if #wanted == 0 then
     return {}, ""
   end
-  local commands: mut {string: Doc.Command} = {}
+  local commands: mut {string: Command} = {}
   local names: mut {string} = {}
   for _, command in ipairs(view.commands) do
     if command.options ~= nil or command.about ~= nil or command.usage ~= nil or command.examples ~= nil then
@@ -1910,7 +1746,7 @@ local function by_help(view: Doc.View, query: string,
   end
   table.sort(names)
   local fields, trouble = across(view,
-    function(db: Sqlite.Handle, public: boolean): {Doc.Entry}?, string
+    function(db: Sqlite.Handle, public: boolean): {Entry}?, string
       return named_all(db, public, names)
     end, entry_module)
   if fields == nil then
@@ -1950,8 +1786,8 @@ local function by_help(view: Doc.View, query: string,
       ranked = true
     end
   end
-  local first: mut {Doc.Entry} = {}
-  local after: mut {Doc.Entry} = {}
+  local first: mut {Entry} = {}
+  local after: mut {Entry} = {}
   for _, entry in ipairs(fields) do
     -- A row of the name that documents no command has no help to speak of.
     local key = entry.module .. "\n" .. entry.symbol
@@ -1972,7 +1808,7 @@ local function by_help(view: Doc.View, query: string,
 end
 
 --- Whether some database of `view` documents `word`, in any form the index stems alike ("reads" for "reading").
-local function documented_word(view: Doc.View, word: string): boolean?, string
+local function documented_word(view: View, word: string): boolean?, string
   for _, db in ipairs(view.databases) do
     local documented, documented_trouble = has_docs(db)
     if documented == nil then
@@ -1999,7 +1835,7 @@ end
 --- requires ([`STOP_WORDS`]) is never returned, and a database written before it listed its words offers none. The
 --- words are those of every row, a public source's private rows among them: a word only those hold is searched
 --- for and finds nothing, and none of them is shown.
-local function nearest_word(view: Doc.View, word: string): string?, string
+local function nearest_word(view: View, word: string): string?, string
   local lower = word:lower()
   local reach = Distance.reach(lower)
   -- A word of three letters is one edit from too many others for the nearest to be the one meant.
@@ -2042,7 +1878,7 @@ end
 --- `query` with each word no documentation holds taken for the nearest word one does ([`nearest_word`]), or ""
 --- when no word of it changes. Only a word of letters is respelled: a name with a digit or an underscore is
 --- code, which is looked up as written.
-local function respelled(view: Doc.View, query: string): string?, string
+local function respelled(view: View, query: string): string?, string
   local words: mut {string} = {}
   local changed = false
   for _, word in ipairs(query_words(query)) do
@@ -2091,15 +1927,15 @@ end
 --- - Where nothing carries them, what the words a misspelling of them meant
 ---   name or are documented by (see [`respelled`]), then the rows that carry
 ---   some of them.
-local function lookup_names(view: Doc.View, query: string, as_respelled?: boolean): Doc.Lookup?, string
+local function lookup_names(view: View, query: string, as_respelled?: boolean): Lookup?, string
   -- A bare lowercase name that ends a public module's name is that
   -- module (`json` is `cosmic.json`, not the internal record `json`);
   -- the symbols it names exactly follow the module (`string` is
   -- [`cosmic.string`], then [`Shape.string`]).
-  local modules: {Doc.Entry} = {}
+  local modules: {Entry} = {}
   if query:match("^%l[%w_]*$") ~= nil then
     local found_modules, modules_trouble = across(view,
-      function(db: Sqlite.Handle, _: boolean): {Doc.Entry}?, string
+      function(db: Sqlite.Handle, _: boolean): {Entry}?, string
         return modules_ending(db, query)
       end, entry_module)
     if found_modules == nil then
@@ -2108,7 +1944,7 @@ local function lookup_names(view: Doc.View, query: string, as_respelled?: boolea
     modules = found_modules
   end
   local exact, exact_trouble = across(view,
-    function(db: Sqlite.Handle, public: boolean): {Doc.Entry}?, string
+    function(db: Sqlite.Handle, public: boolean): {Entry}?, string
       return named(db, public, query)
     end, entry_module)
   if exact == nil then
@@ -2126,12 +1962,12 @@ local function lookup_names(view: Doc.View, query: string, as_respelled?: boolea
     -- see-also line after the modules. Otherwise (a tool's or a
     -- project's own module of the name) the verb comes first, as
     -- `cosmic docs sql` says it does.
-    local answers: mut {Doc.Entry} = {}
-    local rest: mut {Doc.Entry} = {}
-    local verb: Doc.Entry? = nil
+    local answers: mut {Entry} = {}
+    local rest: mut {Entry} = {}
+    local verb: Entry? = nil
     -- A command a module documents (`cosmic.cli.json` for `cosmic json`) is the verb, not one of the modules.
-    local named_modules: mut {Doc.Entry} = {}
-    local commands: mut {Doc.Entry} = {}
+    local named_modules: mut {Entry} = {}
+    local commands: mut {Entry} = {}
     for _, entry in ipairs(modules) do
       local command = command_of(view, entry)
       if command ~= nil and command.name == query then
@@ -2183,7 +2019,7 @@ local function lookup_names(view: Doc.View, query: string, as_respelled?: boolea
     end
     if raw then
       local wrapping, wrapping_trouble = across(view,
-        function(db: Sqlite.Handle, public: boolean): {Doc.Entry}?, string
+        function(db: Sqlite.Handle, public: boolean): {Entry}?, string
           return stand_ins(db, public, query)
         end, entry_module)
       if wrapping == nil then
@@ -2196,7 +2032,7 @@ local function lookup_names(view: Doc.View, query: string, as_respelled?: boolea
     -- An environment variable's declaration ([`Env.Name.COSMIC_TEST_TIMEOUT`])
     -- is not all there is to say of it: the verbs whose options carry it
     -- follow, as for a search.
-    local answers: mut {Doc.Entry} = {}
+    local answers: mut {Entry} = {}
     for _, entry in ipairs(exact) do answers[#answers + 1] = entry end
     if query:match("^%u[%u%d_]*$") ~= nil then
       local verbs, verbs_trouble = by_help(view, query, exact)
@@ -2250,11 +2086,11 @@ local function lookup_names(view: Doc.View, query: string, as_respelled?: boolea
     end
     return lookup(through, true, #through), ""
   end
-  local found: mut {Doc.Entry} = {}
+  local found: mut {Entry} = {}
   local qualifier, name = query:match("^([%w_]+)[.:]([%w_]+)$")
   if qualifier ~= nil and name ~= nil then
     local near, near_trouble = across(view,
-      function(db: Sqlite.Handle, public: boolean): {Doc.Entry}?, string
+      function(db: Sqlite.Handle, public: boolean): {Entry}?, string
         return scoped(db, public, qualifier, name)
       end, entry_module)
     if near == nil then
@@ -2264,7 +2100,7 @@ local function lookup_names(view: Doc.View, query: string, as_respelled?: boolea
   end
   if #found == 0 then
     local searched_found, search_trouble = across(view,
-      function(db: Sqlite.Handle, public: boolean): {Doc.Entry}?, string
+      function(db: Sqlite.Handle, public: boolean): {Entry}?, string
         return searched(db, public, query)
       end, entry_module)
     if searched_found == nil then
@@ -2307,13 +2143,13 @@ local function lookup_names(view: Doc.View, query: string, as_respelled?: boolea
     end
     if #found == 0 then
       local near, near_trouble = across(view,
-        function(db: Sqlite.Handle, public: boolean): {Doc.Entry}?, string
+        function(db: Sqlite.Handle, public: boolean): {Entry}?, string
           return closest(db, public, query)
         end, entry_module)
       if near == nil then
         return nil, near_trouble
       end
-      local nearest: mut {Doc.Entry} = {}
+      local nearest: mut {Entry} = {}
       for position, entry in ipairs(near) do
         if position > CLOSEST then break end
         nearest[position] = entry
@@ -2333,7 +2169,7 @@ local function lookup_names(view: Doc.View, query: string, as_respelled?: boolea
 end
 
 -- Doc.lookup, its failure in words.
-local function lookup_text(view: Doc.View, query: string): Doc.Lookup?, string
+local function lookup_text(view: View, query: string): Lookup?, string
   local rule, rule_trouble = coded(view, query)
   if rule == nil then
     return nil, rule_trouble
@@ -2358,7 +2194,7 @@ end
 --- one (`not_assignable`): the rule behind the code, then the symbols that share its name (the enum member of [`Codes.Code`]),
 --- which stay reachable. A query that only searches (nothing is named exactly) finds the code's row alone. A program's
 --- own view ([`Doc.program`]) finds no code.
-function Doc.lookup(view: Doc.View, query: string): (Doc.Lookup) | (nil, Failure)
+function Doc.lookup(view: View, query: string): (Lookup) | (nil, Failure)
   local value, why = lookup_text(view, query)
   if value == nil then return nil, Failure.new(why) end
   return value
@@ -2390,7 +2226,7 @@ local function first_sentence(documented: string): string
 end
 
 -- Doc.index, its failure in words.
-local function index_text(view: Doc.View): {Doc.Summary}?, string
+local function index_text(view: View): {Summary}?, string
   local found, trouble = across(view, modules_of, entry_module)
   if found == nil then
     return nil, trouble
@@ -2401,7 +2237,7 @@ local function index_text(view: Doc.View): {Doc.Summary}?, string
       said[entry.module] = first_sentence(entry.text)
     end
   end
-  local out: mut {Doc.Summary} = {}
+  local out: mut {Summary} = {}
   for module, owner in pairs(view.owners) do
     local listed = module:sub(-5) ~= "_test" and module:sub(-8) ~= "_example" and
       (view.public[owner] ~= true or is_public(view, module) or
@@ -2410,7 +2246,7 @@ local function index_text(view: Doc.View): {Doc.Summary}?, string
       out[#out + 1] = { module = module, text = said[module] or "", closed = "" }
     end
   end
-  table.sort(out, function(a: Doc.Summary, b: Doc.Summary): boolean
+  table.sort(out, function(a: Summary, b: Summary): boolean
     return a.module < b.module
   end)
   return out, ""
@@ -2421,19 +2257,19 @@ end
 --- example, which a reader never calls: what `cosmic docs` lists when
 --- asked nothing. Each `closed` is "": the list `cosmic docs` prints
 --- judges it ([`marked`]), which no other reader of the index pays for.
-function Doc.index(view: Doc.View): ({Doc.Summary}) | (nil, Failure)
+function Doc.index(view: View): ({Summary}) | (nil, Failure)
   local value, why = index_text(view)
   if value == nil then return nil, Failure.new(why) end
   return value
 end
 
 -- Doc.named_all, its failure in words.
-local function named_all_text(view: Doc.View, names: {string}): {Doc.Entry}?, string
+local function named_all_text(view: View, names: {string}): {Entry}?, string
   if #names == 0 then
     return {}, ""
   end
   local found, trouble = across(view,
-    function(db: Sqlite.Handle, public: boolean): {Doc.Entry}?, string
+    function(db: Sqlite.Handle, public: boolean): {Entry}?, string
       return named_all(db, public, names)
     end, entry_module)
   if found == nil then
@@ -2452,17 +2288,17 @@ end
 --- command, such as `cosmic help` reading every verb's module. `#names == 0` finds nothing without
 --- querying. A name absent from the result was not found; this never
 --- fails for that, only for real trouble reading a database.
-function Doc.named_all(view: Doc.View, names: {string}): ({Doc.Entry}) | (nil, Failure)
+function Doc.named_all(view: View, names: {string}): ({Entry}) | (nil, Failure)
   local value, why = named_all_text(view, names)
   if value == nil then return nil, Failure.new(why) end
   return value
 end
 
 -- Doc.exact, its failure in words.
-local function exact_text(view: Doc.View, query: string): {Doc.Entry}?, string
+local function exact_text(view: View, query: string): {Entry}?, string
   if query:match("^%l[%w_]*$") ~= nil then
     local modules, modules_trouble = across(view,
-      function(db: Sqlite.Handle, _: boolean): {Doc.Entry}?, string
+      function(db: Sqlite.Handle, _: boolean): {Entry}?, string
         return modules_ending(db, query)
       end, entry_module)
     if modules == nil then
@@ -2473,7 +2309,7 @@ local function exact_text(view: Doc.View, query: string): {Doc.Entry}?, string
     end
   end
   local found, trouble = across(view,
-    function(db: Sqlite.Handle, public: boolean): {Doc.Entry}?, string
+    function(db: Sqlite.Handle, public: boolean): {Entry}?, string
       return named(db, public, query)
     end, entry_module)
   if found == nil then
@@ -2503,7 +2339,7 @@ end
 --- row is the aliased record's), else a module's member written in
 --- full ([`cosmic.fs.read`]). It neither searches nor counts uses, so it
 --- is cheap to ask once per name.
-function Doc.exact(view: Doc.View, query: string): ({Doc.Entry}) | (nil, Failure)
+function Doc.exact(view: View, query: string): ({Entry}) | (nil, Failure)
   local value, why = exact_text(view, query)
   if value == nil then return nil, Failure.new(why) end
   return value
@@ -2517,7 +2353,7 @@ end
 --- [`Doc.exact`] does, the member of a type an alias of the module
 --- stands for (`Handle.close` of [`cosmic.sqlite`]). None when the view
 --- holds no such module. The database that owns the module is read.
-local function member_of(view: Doc.View, module: string, name: string): {Doc.Entry}?, string
+local function member_of(view: View, module: string, name: string): {Entry}?, string
   local owner = view.owners[module]
   if owner == nil then
     return {}, ""
@@ -2566,7 +2402,7 @@ end
 --- What a dotted query names through a type alias, else as a module's
 --- member written in full ([`cosmic.fs.read`], [`cosmic.cli.order`]),
 --- as a link names one.
-function Members.in_full(view: Doc.View, query: string): {Doc.Entry}?, string
+function Members.in_full(view: View, query: string): {Entry}?, string
   local through, through_trouble = Members.through_alias(view, query)
   if through == nil then
     return nil, through_trouble
@@ -2574,7 +2410,7 @@ function Members.in_full(view: Doc.View, query: string): {Doc.Entry}?, string
   if #through > 0 then
     return through, ""
   end
-  local out: mut {Doc.Entry} = {}
+  local out: mut {Entry} = {}
   local at = 1
   while true do
     local dot = query:find(".", at, true)
@@ -2595,8 +2431,8 @@ end
 --- What `Q.name` names when `Q` is the last name of a module, either
 --- case (`Cli.order`, `fs.read`): that module's member `name`, as a
 --- caller that requires it under that name reads it.
-function Members.by_last_name(view: Doc.View, query: string): {Doc.Entry}?, string
-  local out: mut {Doc.Entry} = {}
+function Members.by_last_name(view: View, query: string): {Entry}?, string
+  local out: mut {Entry} = {}
   local qualifier, name = query:match("^([%w_]+)%.(.+)$")
   if qualifier == nil or name == nil then
     return out, ""
@@ -2624,7 +2460,7 @@ end
 --- What a name [`cosmic.removed`] lists as withheld resolves to: one entry of kind `removed` saying what to write
 --- instead, for a field of a withheld global (`os.getenv`) or a withheld field of `package` (`package.path`), with
 --- the words a refusal at run time raises with; none for any other name.
-function Members.removed_by(query: string): Doc.Entry?
+function Members.removed_by(query: string): Entry?
   local qualifier, name = query:match("^([%w_]+)%.([%w_]+)$")
   if qualifier == nil or (Removed.names[qualifier] == nil and Removed.replacements[query] == nil) then
     return nil
@@ -2640,8 +2476,8 @@ end
 --- The uses of `module`'s member recorded as `used`, and the links to
 --- its row `symbol`, in `db`.
 local function member_uses(db: Sqlite.Handle, public: boolean, module: string, symbol: string,
-                           used: string): {Doc.Use}?, string
-  local out: mut {Doc.Use} = {}
+                           used: string): {Use}?, string
+  local out: mut {Use} = {}
   local rows, trouble = db:rows(
     "SELECT from_module, from_file, line FROM uses WHERE module = ?1 AND symbol = ?2 AND " ..
       symbols.public_only("module", public) .. " AND " ..
@@ -2676,15 +2512,15 @@ local function member_uses(db: Sqlite.Handle, public: boolean, module: string, s
 end
 
 -- Doc.uses, its failure in words.
-local function uses_text(view: Doc.View, query: string): {Doc.Use}?, string
+local function uses_text(view: View, query: string): {Use}?, string
   local found, trouble = across(view,
-    function(db: Sqlite.Handle, public: boolean): {Doc.Use}?, string
+    function(db: Sqlite.Handle, public: boolean): {Use}?, string
       return uses_of(db, public, query)
     end, calling_module)
   if found == nil then
     return nil, trouble
   end
-  local members: mut {Doc.Entry} = {}
+  local members: mut {Entry} = {}
   for _, look in ipairs({ Members.in_full, Members.by_last_name }) do
     local answered, answered_trouble = look(view, query)
     if answered == nil then
@@ -2698,7 +2534,7 @@ local function uses_text(view: Doc.View, query: string): {Doc.Use}?, string
       return nil, used_trouble
     end
     local more, more_trouble = across(view,
-      function(db: Sqlite.Handle, public: boolean): {Doc.Use}?, string
+      function(db: Sqlite.Handle, public: boolean): {Use}?, string
         return member_uses(db, public, entry.module, entry.symbol, used or entry.symbol)
       end, calling_module)
     if more == nil then
@@ -2706,7 +2542,7 @@ local function uses_text(view: Doc.View, query: string): {Doc.Use}?, string
     end
     for _, use in ipairs(more) do found[#found + 1] = use end
   end
-  local out: mut {Doc.Use} = {}
+  local out: mut {Use} = {}
   local seen: mut {string: boolean} = {}
   for _, use in ipairs(found) do
     local key = use.module .. "\n" .. use.symbol .. "\n" .. use.from_module ..
@@ -2719,7 +2555,7 @@ local function uses_text(view: Doc.View, query: string): {Doc.Use}?, string
   end
   -- Uses and links together, by where they are; at one place, a use
   -- before a link.
-  table.sort(out, function(a: Doc.Use, b: Doc.Use): boolean
+  table.sort(out, function(a: Use, b: Use): boolean
     if a.from_file ~= b.from_file then return a.from_file < b.from_file end
     if a.line ~= b.line then return a.line < b.line end
     if a.link ~= b.link then return b.link end
@@ -2736,7 +2572,7 @@ end
 --- A module's member, written in full ([`cosmic.cli.order`]) or from the
 --- module's last name (`Cli.order`), is found as [`Doc.lookup`] finds
 --- it, and its uses and links are those of that module's member alone.
-function Doc.uses(view: Doc.View, query: string): ({Doc.Use}) | (nil, Failure)
+function Doc.uses(view: View, query: string): ({Use}) | (nil, Failure)
   local value, why = uses_text(view, query)
   if value == nil then return nil, Failure.new(why) end
   return value
@@ -2766,7 +2602,7 @@ local function takes_name(signature: string, word: string): boolean
 end
 
 --- The exported functions of `db` whose signature names a parameter `word` (`path` of `Fs.basename(path: string)`).
-local function taking_of(db: Sqlite.Handle, public: boolean, word: string): {Doc.Taking}?, string
+local function taking_of(db: Sqlite.Handle, public: boolean, word: string): {Taking}?, string
   local rows, trouble = db:rows(
     "SELECT module, symbol, signature FROM docs WHERE kind = 'function' AND exported = 1 AND " ..
       symbols.public_only("module", public) .. " AND (" ..
@@ -2776,7 +2612,7 @@ local function taking_of(db: Sqlite.Handle, public: boolean, word: string): {Doc
   if rows == nil then
     return nil, tostring(trouble)
   end
-  local out: mut {Doc.Taking} = {}
+  local out: mut {Taking} = {}
   for _, row in ipairs(rows) do
     if takes_name(row:text(3), word) then
       out[#out + 1] = { module = row:text(1), symbol = row:text(2) }
@@ -2787,10 +2623,10 @@ end
 
 --- The exported functions that take a parameter named `word`, as their signatures write it: what a module named for a
 --- word (`cosmic.path`) may have meant is the module most of them are in ([`Fs.basename`] takes a `path`).
-function Doc.taking(view: Doc.View, word: string): ({Doc.Taking}) | (nil, Failure)
-  local found, trouble = across(view, function(db: Sqlite.Handle, public: boolean): {Doc.Taking}?, string
+function Doc.taking(view: View, word: string): ({Taking}) | (nil, Failure)
+  local found, trouble = across(view, function(db: Sqlite.Handle, public: boolean): {Taking}?, string
     return taking_of(db, public, word)
-  end, function(t: Doc.Taking): string return t.module end)
+  end, function(t: Taking): string return t.module end)
   if found == nil then return nil, Failure.new(trouble) end
   return found
 end
@@ -2817,7 +2653,7 @@ end
 
 --- A record's field, or an enum's value, on one line: as declared, then
 --- the first sentence of what it says.
-local function member_line(member: Doc.Entry, limit?: integer): string
+local function member_line(member: Entry, limit?: integer): string
   local note = first_sentence(member.text)
   if limit ~= nil then
     note = clipped(note, limit)
@@ -2831,7 +2667,7 @@ local NOTE_LIMIT <const> = 100
 
 --- Whether a declared symbol is a call: a function, method or
 --- metamethod, or a function-typed field.
-local function is_call(item: Doc.Entry): boolean
+local function is_call(item: Entry): boolean
   return item.kind == "function" or item.kind == "method" or item.kind == "metamethod" or
     (item.kind == "field" and item.signature:match("^[%w_]+: function%(") ~= nil)
 end
@@ -2842,7 +2678,7 @@ end
 --- results) and the first sentence of what it says, anything else (a
 --- record's signature spans lines, and its fields follow it) by kind
 --- and name, then its uses and examples.
-local function listed(item: Doc.Entry): string
+local function listed(item: Entry): string
   local marks: mut {string} = {}
   if item.uses > 0 then
     marks[#marks + 1] = String.counted(item.uses, "use")
@@ -2872,7 +2708,7 @@ end
 --- Whether a module's page names call `a` rather than `b` as the way
 --- to a member's own page: one with an example over one without, then
 --- the more used.
-local function points_better(a: Doc.Entry, b: Doc.Entry): boolean
+local function points_better(a: Entry, b: Entry): boolean
   if (a.examples > 0) ~= (b.examples > 0) then
     return a.examples > 0
   end
@@ -2883,8 +2719,8 @@ end
 --- are read whole, whatever they are public for, because a name a public
 --- page hands out (an alias, a base) stands for the record it points at
 --- even when that record is not itself a public symbol.
-local function first_declared(view: Doc.View, sql: string,
-                              args: {Sqlite.Value}): Doc.Entry?, string
+local function first_declared(view: View, sql: string,
+                              args: {Sqlite.Value}): Entry?, string
   for _, db in ipairs(view.databases) do
     local documented, documented_trouble = has_docs(db)
     if documented == nil then
@@ -2906,8 +2742,8 @@ end
 --- The fields, methods or values declared directly under `target`, as
 --- its own module documents them, less any named `_...`: what a type
 --- alias or a base record hands to its users.
-local function members_under(view: Doc.View, target: Doc.Entry): {Doc.Entry}?, string
-  local out: mut {Doc.Entry} = {}
+local function members_under(view: View, target: Entry): {Entry}?, string
+  local out: mut {Entry} = {}
   for _, db in ipairs(view.databases) do
     local documented, documented_trouble = has_docs(db)
     if documented == nil then
@@ -2943,16 +2779,16 @@ end
 
 --- The rows of `view` that [`cosmic.internal.alias_members`] follows a
 --- declaration through, each read from whichever database holds it.
-local function type_source(view: Doc.View): alias_members.Source<Doc.Entry>
+local function type_source(view: View): alias_members.Source<Entry>
   local types = "(d.kind IN ('record', 'interface', 'enum') OR d.signature GLOB 'type * = *') "
   return {
-    declared = function(module: string, name: string): Doc.Entry?, string
+    declared = function(module: string, name: string): Entry?, string
       return first_declared(view,
         "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 AND d.source_symbol = ?2 " ..
           "AND " .. types .. "ORDER BY d.id LIMIT 1",
         { text(module), text(name) })
     end,
-    exported = function(module: string, name: string): Doc.Entry?, string
+    exported = function(module: string, name: string): Entry?, string
       return first_declared(view,
         "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 AND d.symbol = ?2 " ..
           "AND d.exported = 1 AND " .. types .. "ORDER BY d.id LIMIT 1",
@@ -2973,10 +2809,10 @@ local function type_source(view: Doc.View): alias_members.Source<Doc.Entry>
       view.bound = bound
       return bound[module .. "\n" .. name], ""
     end,
-    under = function(target: Doc.Entry): {Doc.Entry}?, string
+    under = function(target: Entry): {Entry}?, string
       return members_under(view, target)
     end,
-    as_member = function(owner: Doc.Entry, member: Doc.Entry, name: string): Doc.Entry
+    as_member = function(owner: Entry, member: Entry, name: string): Entry
       member.module = owner.module
       member.symbol = owner.symbol .. "." .. name
       member.source_symbol = owner.source_symbol .. "." .. name
@@ -2992,7 +2828,7 @@ end
 --- they list what their target does; [`Http.GetOptions`] extends one, so it
 --- lists what it inherits after its own. Empty for a declaration that
 --- stands for nothing.
-local function inherited_lines(view: Doc.View, entry: Doc.Entry): {string}?, string
+local function inherited_lines(view: View, entry: Entry): {string}?, string
   local lines: mut {string} = {}
   local references: {string} = {}
   if entry.symbol ~= "" then references = alias_members.references(entry) end
@@ -3057,20 +2893,20 @@ end
 --- The members named `name` of the types `owners` stand for, each as
 --- the owner's own member (`Handle.close` of [`cosmic.sqlite`] for the
 --- `close` of the record its `Handle` aliases).
-function Members.aliased_members(view: Doc.View, owners: {Doc.Entry},
-                                 name: string): {Doc.Entry}?, string
+function Members.aliased_members(view: View, owners: {Entry},
+                                 name: string): {Entry}?, string
   return alias_members.named(type_source(view), owners, name)
 end
 
 --- What a dotted query names through a type alias or an inherited
 --- record: [`Child.Options.fds`], [`Sqlite.Handle.exec`].
-function Members.through_alias(view: Doc.View, query: string): {Doc.Entry}?, string
+function Members.through_alias(view: View, query: string): {Entry}?, string
   local prefix, name = query:match("^([%w_]+%.[%w_%.]+)%.([%w_]+)$")
   if prefix == nil or name == nil then
     return {}, ""
   end
   local owners, owners_trouble = across(view,
-    function(db: Sqlite.Handle, public: boolean): {Doc.Entry}?, string
+    function(db: Sqlite.Handle, public: boolean): {Entry}?, string
       return named(db, public, prefix)
     end, entry_module)
   if owners == nil then
@@ -3080,13 +2916,13 @@ function Members.through_alias(view: Doc.View, query: string): {Doc.Entry}?, str
 end
 
 --- The example an entry of kind "example" stands for.
-local function example_of(entry: Doc.Entry): Doc.Example
+local function example_of(entry: Entry): Example
   return (assert(entry.related[1], "an entry of kind example carries its example"))
 end
 
 --- An entry's first line as [`Doc.render`] prints it: what it is and
 --- where.
-local function heading(entry: Doc.Entry): string
+local function heading(entry: Entry): string
   if entry.kind == "example" then
     local ex = example_of(entry)
     return entry.module .. " example " .. ex.name .. " (" .. ex.file .. ":" .. tostring(ex.line) .. ")"
@@ -3108,7 +2944,7 @@ local function heading(entry: Doc.Entry): string
 end
 
 -- Doc.render, its failure in words.
-local function render_text(view: Doc.View, entry: Doc.Entry): {string}?, string
+local function render_text(view: View, entry: Entry): {string}?, string
   local first_line = heading(entry)
   local lines: mut {string} = { first_line }
   if entry.kind == "example" then
@@ -3172,7 +3008,7 @@ local function render_text(view: Doc.View, entry: Doc.Entry): {string}?, string
   local pointed: string?
   if entry.symbol == "" then
     local declared, declared_trouble = across(view,
-      function(db: Sqlite.Handle, public: boolean): {Doc.Entry}?, string
+      function(db: Sqlite.Handle, public: boolean): {Entry}?, string
         return declared_in(db, public, entry.module)
       end, entry_module)
     if declared == nil then
@@ -3183,16 +3019,16 @@ local function render_text(view: Doc.View, entry: Doc.Entry): {string}?, string
       return nil, count_trouble
     end
     local members, members_trouble = across(view,
-      function(db: Sqlite.Handle, public: boolean): {Doc.Entry}?, string
+      function(db: Sqlite.Handle, public: boolean): {Entry}?, string
         return members_of(db, public, entry.module)
       end, entry_module)
     if members == nil then
       return nil, members_trouble
     end
-    local under: mut {string: mut {Doc.Entry}} = {}
+    local under: mut {string: mut {Entry}} = {}
     for _, member in ipairs(members) do
       local parent = parent_of(member.source_symbol)
-      local held: mut {Doc.Entry} = under[parent] or {}
+      local held: mut {Entry} = under[parent] or {}
       under[parent] = held
       held[#held + 1] = member
     end
@@ -3202,7 +3038,7 @@ local function render_text(view: Doc.View, entry: Doc.Entry): {string}?, string
     for _, item in ipairs(declared) do
       listed_symbols[item.symbol] = true
     end
-    local best: Doc.Entry?
+    local best: Entry?
     for _, item in ipairs(declared) do
       if is_call(item) and (best == nil or points_better(item, best)) then best = item end
       if view.program ~= nil then
@@ -3256,7 +3092,7 @@ local function render_text(view: Doc.View, entry: Doc.Entry): {string}?, string
   if entry.symbol ~= "" and (entry.kind == "record" or entry.kind == "interface" or
       entry.kind == "enum") then
     local members, members_trouble = across(view,
-      function(db: Sqlite.Handle, public: boolean): {Doc.Entry}?, string
+      function(db: Sqlite.Handle, public: boolean): {Entry}?, string
         return members_of(db, public, entry.module)
       end, entry_module)
     if members == nil then
@@ -3282,7 +3118,7 @@ local function render_text(view: Doc.View, entry: Doc.Entry): {string}?, string
   end
   if #inherited > 0 and lines[#lines] ~= "" then lines[#lines + 1] = "" end
   for _, line in ipairs(inherited) do lines[#lines + 1] = line end
-  -- What a command's help says is data ([`Doc.Command`]), not prose: shown under its field in the order its help
+  -- What a command's help says is data ([`Command`]), not prose: shown under its field in the order its help
   -- shows it, and searched by [`by_help`].
   local command = command_of(view, entry)
   if command ~= nil then
@@ -3338,9 +3174,9 @@ local function render_text(view: Doc.View, entry: Doc.Entry): {string}?, string
         (if used ~= nil then entry.module .. "." .. used else entry.source_symbol end)
     end
     local examples, examples_trouble = across(view,
-      function(db: Sqlite.Handle, public: boolean): {Doc.Example}?, string
+      function(db: Sqlite.Handle, public: boolean): {Example}?, string
         return examples_for(db, public, entry.module, entry.source_symbol)
-      end, function(_: Doc.Example): string return entry.module end)
+      end, function(_: Example): string return entry.module end)
     if examples == nil then
       return nil, examples_trouble
     end
@@ -3371,7 +3207,7 @@ end
 --- its documentation indented under that, and how many places use it.
 --- A module's row lists the symbols it declares instead of a signature.
 --- Nil and a [`Failure`] when a database cannot be read.
-function Doc.render(view: Doc.View, entry: Doc.Entry): ({string}) | (nil, Failure)
+function Doc.render(view: View, entry: Entry): ({string}) | (nil, Failure)
   local value, why = render_text(view, entry)
   if value == nil then return nil, Failure.new(why) end
   return value
@@ -3400,7 +3236,7 @@ end
 --- The lines `found`, what `query` looked up, prints as: every entry
 --- whole when the query names it; else a line saying they only relate,
 --- the first [`SHOWN_WHOLE`] whole, and the rest a line each.
-local function page(view: Doc.View, found: Doc.Lookup,
+local function page(view: View, found: Lookup,
                     query: string): {string}?, string
   local lines: mut {string} = {}
   local meant = found.respelled
@@ -3450,7 +3286,7 @@ end
 
 --- The modules of `index` a line each, aligned, with the first sentence
 --- of each, cut to `limit` bytes when there is one.
-local function index_lines(index: {Doc.Summary}, limit?: integer): mut {string}
+local function index_lines(index: {Summary}, limit?: integer): mut {string}
   local width = 0
   for _, summary in ipairs(index) do
     width = math.max(width, #summary.module)
@@ -3492,7 +3328,7 @@ end
 
 --- The queries `words` ask of `view`, as [`Doc.asked`] names them; a program's view has no list of the standard
 --- library, so `cosmic` is a word to it like any other.
-local function asked_of(view: Doc.View, words: {string}): {string}?
+local function asked_of(view: View, words: {string}): {string}?
   local asked = Doc.asked(words)
   local query = table.concat(words, " ")
   if asked == nil and view.program ~= nil and query ~= "" then
@@ -3504,9 +3340,9 @@ end
 --- `index` with each `closed` judged (the view's `marks`), for a module of a database of the tree's own only: a public
 --- source's module (the standard library a project builds with) is no module of the tree, and the rule refuses no
 --- require of it.
-local function marked(view: Doc.View, index: {Doc.Summary}): {Doc.Summary}
+local function marked(view: View, index: {Summary}): {Summary}
   local by_owner: mut {integer: {string: string}} = {}
-  local out: mut {Doc.Summary} = {}
+  local out: mut {Summary} = {}
   for _, summary in ipairs(index) do
     local owner = view.owners[summary.module]
     local closed = ""
@@ -3528,7 +3364,7 @@ end
 --- query: every module for no words, the standard library's modules and
 --- guides for `cosmic`. Nil and why when a database cannot be read; a mark that cannot be judged
 --- is left off.
-local function modules_asked(view: Doc.View, words: {string}): {Doc.Summary}?, string
+local function modules_asked(view: View, words: {string}): {Summary}?, string
   local index, trouble = index_text(view)
   if index == nil then
     return nil, trouble
@@ -3538,7 +3374,7 @@ local function modules_asked(view: Doc.View, words: {string}): {Doc.Summary}?, s
   if table.concat(words, " ") == "" then
     return marked(view, index), ""
   end
-  local library: mut {Doc.Summary} = {}
+  local library: mut {Summary} = {}
   for _, summary in ipairs(index) do
     if is_library(view, summary.module) or
         symbols.is_public_guide(summary.module) then
@@ -3549,7 +3385,7 @@ local function modules_asked(view: Doc.View, words: {string}): {Doc.Summary}?, s
 end
 
 -- Doc.answer, its failure in words.
-local function answer_text(view: Doc.View, words: {string}): Doc.Answer?, string
+local function answer_text(view: View, words: {string}): Answer?, string
   local query = table.concat(words, " ")
   local asked = asked_of(view, words)
   if asked == nil then
@@ -3622,14 +3458,14 @@ end
 ---   symbol, a module or words to search for. A search names at most
 ---   [`SHOWN_WHOLE`] entries whole.
 --- Nil and a [`Failure`] when a database cannot be read.
-function Doc.answer(view: Doc.View, words: {string}): (Doc.Answer) | (nil, Failure)
+function Doc.answer(view: View, words: {string}): (Answer) | (nil, Failure)
   local value, why = answer_text(view, words)
   if value == nil then return nil, Failure.new(why) end
   return value
 end
 
 -- Doc.records, its failure in words.
-local function records_text(view: Doc.View, words: {string}, stale?: boolean): Doc.Answer?, string
+local function records_text(view: View, words: {string}, stale?: boolean): Answer?, string
   local lines: mut {string} = {}
   local all = true
   local asked = asked_of(view, words)
@@ -3710,20 +3546,20 @@ end
 ---   nearest the documentation holds;
 --- - no words, or `cosmic`, name no query: each module the page lists, as
 ---   `kind` "module", with its `text` the first sentence, and `closed`
----   ([`Doc.Summary`]) where not every module may require it.
+---   ([`Summary`]) where not every module may require it.
 --- A query that finds nothing has no line. Each object carries `stale`, true,
 --- where `stale` is set: the lookup reads the last build, the tree not
 --- building as it stands. Nil and a [`Failure`] when a database
 --- cannot be read; `found` is false when a query found nothing, and `said`
 --- is empty.
-function Doc.records(view: Doc.View, words: {string}, stale?: boolean): (Doc.Answer) | (nil, Failure)
+function Doc.records(view: View, words: {string}, stale?: boolean): (Answer) | (nil, Failure)
   local value, why = records_text(view, words, stale)
   if value == nil then return nil, Failure.new(why) end
   return value
 end
 
 -- Doc.member, its failure in words.
-local function member_text(view: Doc.View, module: string, name: string): Doc.Entry?, string
+local function member_text(view: View, module: string, name: string): Entry?, string
   local found, trouble = member_of(view, module, name)
   if found == nil then
     return nil, trouble
@@ -3732,7 +3568,7 @@ local function member_text(view: Doc.View, module: string, name: string): Doc.En
     return found[1], ""
   end
   local declared, declared_trouble = across(view,
-    function(db: Sqlite.Handle, public: boolean): {Doc.Entry}?, string
+    function(db: Sqlite.Handle, public: boolean): {Entry}?, string
       local rows, rows_trouble = db:rows(
         "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 AND " ..
           "(d.symbol = ?2 OR d.source_symbol GLOB '*.' || ?2) AND " .. symbols.shown_in(db, "d", public) ..
@@ -3753,7 +3589,7 @@ end
 --- offers; else, where the module's own row does not say what it returns (a module with no doc comment of its
 --- own has none), the field or function of that name its file declares, the least nested first. False
 --- where the view holds no such member; nil and a [`Failure`] when a database cannot be read.
-function Doc.member(view: Doc.View, module: string, name: string): (Doc.Entry | false) | (nil, Failure)
+function Doc.member(view: View, module: string, name: string): (Entry | false) | (nil, Failure)
   local value, why = member_text(view, module, name)
   if value == nil then
     if why == "" then return false end
