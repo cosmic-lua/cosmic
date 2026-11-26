@@ -42,9 +42,9 @@ local function absent(name: string)
   assert(bytecode == nil, name .. ": its bytecode is in the program")
   assert(#assert(Store.requires(name)) == 0, name .. ": its imports are in the program")
   for _, db in ipairs(Store.databases()) do
-    local rows = assert(db:text_rows(
+    local rows = assert(db:rows(
       "SELECT count(*) FROM modules WHERE path = ?1", { { text = name } }))
-    assert(Array.at(rows, 1):text(1) == "0", name .. ": a database holds its row")
+    assert(Array.at(rows, 1):integer(1) == 0, name .. ": a database holds its row")
   end
   -- The searchers behind the runner's own hold on `require`, which stands
   -- first only while the test runs.

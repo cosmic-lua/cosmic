@@ -682,7 +682,7 @@ end
   local moved = run(root, tmp .. "/moved.out", env)
   assert(moved:find("1 ran, 1 stood", 1, true), moved)
   local db = assert(Sqlite.open(support.build_dir(root) .. "/build.db"))
-  local rows = assert(db:text_rows(
+  local rows = assert(db:rows(
     "SELECT group_concat(path, ' ') FROM (SELECT path FROM runs " ..
       "WHERE run_at_ns = (SELECT max(run_at_ns) FROM runs) ORDER BY path)"))
   assert(db:close())
@@ -726,7 +726,7 @@ local function test_a_seal_hands_the_marker_on(tmp: string)
   assert(lib.value == 1)
   assert(Store.seal({ "suite.lib" }, tmp .. "/sealed.db"))
   local db = assert(Sqlite.open(tmp .. "/sealed.db"))
-  local rows = assert(db:text_rows("SELECT key || '=' || CAST(value AS TEXT) FROM meta ORDER BY key"))
+  local rows = assert(db:rows("SELECT key || '=' || CAST(value AS TEXT) FROM meta ORDER BY key"))
   assert(db:close())
   local seen: mut {string} = {}
   for _, row in ipairs(rows) do seen[#seen + 1] = row:text(1) end
@@ -802,7 +802,7 @@ end
   local elsewhere = run(root, tmp .. "/elsewhere.out", other)
   assert(elsewhere:find("1 ran, 1 stood", 1, true), "the processor moved the wrong keys: " .. elsewhere)
   local db = assert(Sqlite.open(support.build_dir(root) .. "/build.db"))
-  local rows = assert(db:text_rows(
+  local rows = assert(db:rows(
     "SELECT group_concat(path, ' ') FROM (SELECT path FROM runs " ..
       "WHERE run_at_ns = (SELECT max(run_at_ns) FROM runs) ORDER BY path)"))
   assert(db:close())
@@ -924,7 +924,7 @@ end
   assert(checked:find("2 ran, 0 stood", 1, true), checked)
   local function ran_last(): string
     local db = assert(Sqlite.open(support.build_dir(root) .. "/build.db"))
-    local rows = assert(db:text_rows(
+    local rows = assert(db:rows(
       "SELECT group_concat(path, ' ') FROM (SELECT path FROM runs " ..
         "WHERE run_at_ns = (SELECT max(run_at_ns) FROM runs) ORDER BY path)"))
     assert(db:close())
@@ -1166,16 +1166,16 @@ local function test_a_pure_store_run_credits_an_imports_lines_where_a_comment_mo
   local _, said, root = seeded(tmp)
   local function lib_lines(): {string}
     local db = assert(Sqlite.open(support.build_dir(root) .. "/build.db"))
-    local rows = assert(db:text_rows("SELECT line FROM coverage WHERE path = 'suite.lib' AND hit > 0 " ..
+    local rows = assert(db:rows("SELECT line FROM coverage WHERE path = 'suite.lib' AND hit > 0 " ..
         "AND ran_at_ns = (SELECT max(ran_at_ns) FROM coverage) ORDER BY line"))
-    local all = assert(db:text_rows("SELECT count(*) FROM coverage WHERE path = 'suite.lib' " ..
+    local all = assert(db:rows("SELECT count(*) FROM coverage WHERE path = 'suite.lib' " ..
         "AND ran_at_ns = (SELECT max(ran_at_ns) FROM coverage)"))
     assert(db:close())
     local out: mut {string} = {}
-    for _, row in ipairs(rows) do out[#out + 1] = row:text(1) end
-    assert(#out > 0 and tostring(#out) == support.nth(all, 1):text(1),
+    for _, row in ipairs(rows) do out[#out + 1] = (row:as_text(1) or "") end
+    assert(#out > 0 and #out == support.nth(all, 1):integer(1),
       "the import's lines the test ran are not all credited: " .. table.concat(out, ",") .. " of " ..
-        support.nth(all, 1):text(1))
+        tostring(support.nth(all, 1):integer(1)))
     return out
   end
   local first = lib_lines()

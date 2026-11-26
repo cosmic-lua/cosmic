@@ -113,7 +113,7 @@ local function test_a_closure_store_moves_only_with_its_closure(tmp: string)
   assert(required ~= edited,
     "an edit to a declaration one the closure holds requires left its address")
   local held_db = assert(Sqlite.open(tmp .. "/required.db"))
-  local held_rows = assert(held_db:text_rows(
+  local held_rows = assert(held_db:rows(
     "SELECT group_concat(path, ' ') FROM (SELECT path FROM decls ORDER BY path)"))
   assert(held_db:close())
   assert(support.nth(held_rows, 1):text(1) == "base extra", support.nth(held_rows, 1):text(1))
@@ -128,7 +128,7 @@ local function test_a_closure_store_moves_only_with_its_closure(tmp: string)
     "an edit inside the closure left its store")
 
   local db = assert(Sqlite.open(tmp .. "/first.db"))
-  local rows = assert(db:text_rows(
+  local rows = assert(db:rows(
     "SELECT (SELECT group_concat(path, ' ') FROM (SELECT path FROM modules ORDER BY path)), " ..
       "(SELECT count(*) FROM docs WHERE module = 'other'), " ..
       "(SELECT count(*) FROM meta WHERE key IN ('boot_hash', 'projected', 'writer')), " ..
@@ -136,10 +136,10 @@ local function test_a_closure_store_moves_only_with_its_closure(tmp: string)
   assert(db:close())
   local row = support.nth(rows, 1)
   assert(row:text(1) == "greet greet_test", row:text(1))
-  assert(row:text(2) == "0", "a doc of a module outside the closure is in its store")
-  assert(row:text(3) == "0", "a meta row that moves with the whole tree is in the store")
-  assert(row:text(4) == "0", "the store names its address, which a key would then hold")
-  assert(row:text(5) == "0", "a declaration outside the closure is in its store")
+  assert(row:integer(2) == 0, "a doc of a module outside the closure is in its store")
+  assert(row:integer(3) == 0, "a meta row that moves with the whole tree is in the store")
+  assert(row:integer(4) == 0, "the store names its address, which a key would then hold")
+  assert(row:integer(5) == 0, "a declaration outside the closure is in its store")
 end
 
 --- The store of an import closure holds what the compiler made of it,
@@ -345,7 +345,7 @@ local function test_a_closure_store_records_which_of_its_modules_are_public(tmp:
   local basis = assert(closure_store.basis(tmp .. "/whole.db"))
   assert(closure_store.write(tmp .. "/whole.db", tmp .. "/store.db", { "greet", "greet_test" }, basis))
   local db = assert(Sqlite.open(tmp .. "/store.db"))
-  local recorded = assert(db:text_rows("SELECT group_concat(path, ' ' ORDER BY path) FROM public_modules"))
+  local recorded = assert(db:rows("SELECT group_concat(path, ' ' ORDER BY path) FROM public_modules"))
   assert(assert(recorded[1]):text(1) == "greet", assert(recorded[1]):text(1))
   local view = assert(docs.view({ db }, { true }))
   local listed: mut {string} = {}
@@ -403,7 +403,7 @@ local function test_a_declaration_moves_only_the_stores_that_hold_it(tmp: string
     local by_path: mut {string:importer.Module} = {}
     for _, m in ipairs(result.modules) do by_path[m.path] = m end
     local declarations: mut {string:string} = {}
-    local rows = assert(handle.db:text_rows(
+    local rows = assert(handle.db:rows(
       "SELECT path, file FROM inputs WHERE " .. analysis_schema.declaration("kind")))
     for _, row in ipairs(rows) do
       declarations[row:text(1)] = row:text(2)
@@ -480,12 +480,12 @@ local function test_a_closure_store_is_the_same_bytes_each_time_it_is_written(tm
   assert(assert(Fs.read(tmp .. "/four.db")) == one,
     "a write from the uses keyed by source module moved the store's bytes")
   local db = assert(Sqlite.open(tmp .. "/one.db"))
-  local counts = assert(db:text_rows("SELECT (SELECT count(*) FROM docs_fts " ..
+  local counts = assert(db:rows("SELECT (SELECT count(*) FROM docs_fts " ..
       "WHERE docs_fts MATCH 'waves'), (SELECT count(*) FROM catalog_fts WHERE catalog_fts " ..
       "MATCH 'world'), (SELECT count(*) FROM examples_fts WHERE examples_fts MATCH 'greets'), " ..
       "(SELECT count(*) FROM uses)"))
   assert(db:close())
-  assert(table.concat(support.nth(counts, 1):texts(), " ") == "1 1 1 2", table.concat(support.nth(counts, 1):texts(), " "))
+  assert(table.concat(support.nth(counts, 1):as_texts(), " ") == "1 1 1 2", table.concat(support.nth(counts, 1):as_texts(), " "))
 end
 
 --- The key of a test given a closure store holds the store by its bytes,
@@ -600,7 +600,7 @@ end
 --- The row `key` of the closure store at `path`, or nil.
 local function meta_of(path: string, key: string): string?
   local db = assert(Sqlite.open(path))
-  local rows = assert(db:text_rows("SELECT CAST(value AS TEXT) FROM meta WHERE key = ?1",
+  local rows = assert(db:rows("SELECT CAST(value AS TEXT) FROM meta WHERE key = ?1",
     { { text = key } }))
   assert(db:close())
   local row = rows[1]

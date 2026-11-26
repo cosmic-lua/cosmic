@@ -55,7 +55,7 @@ local function test_a_withheld_source_is_said_so_and_not_taken_for_absent(tmp: s
     show("flag_absent", flag_absent)
     local databases = sealed_store.databases()
     local binary = assert(databases[#databases])
-    local found, found_why = binary:text_rows("SELECT inflate(source) FROM modules WHERE path = 'cosmic.json'")
+    local found, found_why = binary:rows("SELECT inflate(source) FROM modules WHERE path = 'cosmic.json'")
     show("query", found, found_why)
     local decl_source, decl_why = sealed_store.source("cosmic.decl_only")
     show("decl", decl_source, decl_why)

@@ -17,11 +17,11 @@ end
 --- The one row `sql` yields, each value as SQLite's text.
 local function row(sql: string): {string}
   local handle = assert(Sqlite.memory())
-  local rows, trouble = handle:text_rows(sql)
+  local rows, trouble = handle:rows(sql)
   local _, _ = handle:close()
   assert(rows ~= nil, trouble)
   assert(#rows == 1, sql .. ": expected one row, got " .. tostring(#rows))
-  return first_row(rows):texts()
+  return first_row(rows):as_texts()
 end
 
 local function test_math_functions_are_built_in()
@@ -122,10 +122,10 @@ local function test_uncompress_bounds_a_claimed_length_by_deflates_ratio()
   local prefix = #length_prefix(size)
   local stream = packed:sub(prefix + 1)
   local function read(claim: integer): string
-    local rows = assert(handle:text_rows(
+    local rows = assert(handle:rows(
       "SELECT ifnull(length(uncompress(?1)), 'NULL')",
       { { blob = length_prefix(claim) .. stream } }))
-    return first_row(rows):text(1)
+    return first_row(rows):as_text(1) or ""
   end
   assert(read(size) == tostring(size), "a stream at deflate's ratio must read back")
   assert(read(#stream * 1032) == tostring(size), "a claim at the bound must be read")
@@ -231,19 +231,19 @@ end
 local function test_tables_used_and_bytecode_read_a_statement_without_running_it()
   local handle = assert(Sqlite.memory())
   assert(handle:exec("CREATE TABLE t (a); CREATE TABLE u (b); CREATE INDEX ub ON u (b)"))
-  local rows = assert(handle:text_rows(
+  local rows = assert(handle:rows(
     "SELECT type, name, wr FROM tables_used('INSERT INTO t SELECT b FROM u WHERE b > 1') " ..
       "ORDER BY name"))
   local got: mut {string} = {}
-  for _, r in ipairs(rows) do got[#got + 1] = table.concat(r:texts(), " ") end
+  for _, r in ipairs(rows) do got[#got + 1] = table.concat(r:as_texts(), " ") end
   -- The index covers the query, so SQLite reads it in place of u.
   assert(table.concat(got, ", ") == "table t 1, index ub 0", table.concat(got, ", "))
   assert(handle:exec("INSERT INTO t VALUES (1)"))
-  rows = assert(handle:text_rows(
+  rows = assert(handle:rows(
     "SELECT opcode FROM bytecode('DELETE FROM t') WHERE addr = 0"))
   assert(first_row(rows):text(1) == "Init", first_row(rows):text(1))
-  rows = assert(handle:text_rows("SELECT count(*) FROM t"))
-  assert(first_row(rows):text(1) == "1", "compiling a statement must not run it")
+  rows = assert(handle:rows("SELECT count(*) FROM t"))
+  assert(first_row(rows):integer(1) == 1, "compiling a statement must not run it")
   local _, _ = handle:close()
 end
 
@@ -259,15 +259,15 @@ local function test_bytecode_and_tables_used_refuse_a_view_and_a_trigger()
     assert(not ok, sql .. " must be refused")
     assert(tostring(trouble):find("unsafe use of virtual table", 1, true) ~= nil, trouble)
   end
-  local rows = assert(handle:text_rows("PRAGMA query_only"))
-  assert(first_row(rows):text(1) == "0", "a view or trigger set query_only")
+  local rows = assert(handle:rows("PRAGMA query_only"))
+  assert(first_row(rows):integer(1) == 0, "a view or trigger set query_only")
   local _, _ = handle:close()
 end
 
 local function test_a_database_s_own_schema_is_not_trusted()
   local handle = assert(Sqlite.memory())
-  local rows = assert(handle:text_rows("PRAGMA trusted_schema"))
-  assert(first_row(rows):text(1) == "0", "trusted_schema must be off")
+  local rows = assert(handle:rows("PRAGMA trusted_schema"))
+  assert(first_row(rows):integer(1) == 0, "trusted_schema must be off")
   assert(handle:exec([[CREATE TABLE todos (id INTEGER PRIMARY KEY, text TEXT);
     CREATE VIRTUAL TABLE todos_fts USING fts5(text, content=todos, content_rowid=id);
     CREATE TRIGGER todos_inserted AFTER INSERT ON todos BEGIN
@@ -284,28 +284,28 @@ local function test_a_database_s_own_schema_is_not_trusted()
   -- A trigger still writes to an FTS5 table, as build/work.tl's do, and a
   -- view still uses the built-in functions.
   assert(handle:exec("INSERT INTO todos (text) VALUES ('fix the thing')"))
-  rows = assert(handle:text_rows(
+  rows = assert(handle:rows(
     "SELECT rowid FROM todos_fts WHERE todos_fts MATCH 'thing'"))
-  assert(first_row(rows):text(1) == "1", "the insert trigger must have indexed the row")
+  assert(first_row(rows):integer(1) == 1, "the insert trigger must have indexed the row")
   assert(handle:exec("UPDATE todos SET text = 'mend the other'"))
-  rows = assert(handle:text_rows("SELECT " ..
+  rows = assert(handle:rows("SELECT " ..
       "(SELECT count(*) FROM todos_fts WHERE todos_fts MATCH 'thing'), " ..
       "(SELECT count(*) FROM todos_fts WHERE todos_fts MATCH 'other')"))
-  assert(first_row(rows):text(1) == "0" and first_row(rows):text(2) == "1", "the update trigger must have reindexed the row")
+  assert(first_row(rows):integer(1) == 0 and first_row(rows):integer(2) == 1, "the update trigger must have reindexed the row")
   assert(handle:exec("DELETE FROM todos; INSERT INTO todos (text) VALUES ('fix the thing')"))
-  rows = assert(handle:text_rows("SELECT * FROM plain"))
+  rows = assert(handle:rows("SELECT * FROM plain"))
   assert(first_row(rows):text(1) == "FIX", first_row(rows):text(1))
   -- A pragma_* table and a function SQLite does not mark innocuous are
   -- refused from a view.
-  local _, why = handle:text_rows("SELECT * FROM pragmas")
+  local _, why = handle:rows("SELECT * FROM pragmas")
   assert(tostring(why):find("unsafe use of virtual table", 1, true) ~= nil, why)
-  _, why = handle:text_rows("SELECT * FROM middle")
+  _, why = handle:rows("SELECT * FROM middle")
   assert(tostring(why):find("unsafe use of median()", 1, true) ~= nil, why)
-  _, why = handle:text_rows("SELECT * FROM listed")
+  _, why = handle:rows("SELECT * FROM listed")
   assert(tostring(why):find('unsafe use of virtual table "carray"', 1, true) ~= nil, why)
   -- The caller's own SQL may use both.
-  rows = assert(handle:text_rows("SELECT count(*) FROM pragma_table_info('todos')"))
-  assert(first_row(rows):text(1) == "2", first_row(rows):text(1))
+  rows = assert(handle:rows("SELECT count(*) FROM pragma_table_info('todos')"))
+  assert(first_row(rows):integer(1) == 2, tostring(first_row(rows):integer(1)))
   local _, _ = handle:close()
 end
 
@@ -315,23 +315,23 @@ local function test_rtree_finds_the_boxes_a_box_overlaps()
     INSERT INTO boxes VALUES (1, 0, 10, 0, 10), (2, 5, 15, 5, 15), (3, 20, 30, 20, 30);
     CREATE VIRTUAL TABLE spans USING rtree_i32(id, start, stop);
     INSERT INTO spans VALUES (1, 100, 200), (2, 150, 300);]]))
-  local rows = assert(handle:text_rows("SELECT group_concat(id) FROM " ..
+  local rows = assert(handle:rows("SELECT group_concat(id) FROM " ..
       "(SELECT id FROM boxes WHERE x1 >= 8 AND x0 <= 12 AND y1 >= 8 AND y0 <= 12 ORDER BY id)"))
   assert(first_row(rows):text(1) == "1,2", first_row(rows):text(1))
-  rows = assert(handle:text_rows("SELECT group_concat(id) FROM " ..
+  rows = assert(handle:rows("SELECT group_concat(id) FROM " ..
       "(SELECT id FROM spans WHERE start <= 250 AND stop >= 250 ORDER BY id)"))
   assert(first_row(rows):text(1) == "2", first_row(rows):text(1))
   -- A coordinate a 32-bit real cannot hold is rounded outward.
   assert(handle:exec("INSERT INTO boxes VALUES (4, 0.1, 0.1, 0.1, 0.1)"))
-  rows = assert(handle:text_rows(
+  rows = assert(handle:rows(
     "SELECT x0 <= 0.1, x1 >= 0.1, x0 < x1 FROM boxes WHERE id = 4"))
-  assert(table.concat(first_row(rows):texts(), " ") == "1 1 1", table.concat(first_row(rows):texts(), " "))
-  rows = assert(handle:text_rows("SELECT rtreecheck('boxes'), rtreecheck('spans')"))
+  assert(table.concat(first_row(rows):as_texts(), " ") == "1 1 1", table.concat(first_row(rows):as_texts(), " "))
+  rows = assert(handle:rows("SELECT rtreecheck('boxes'), rtreecheck('spans')"))
   assert(first_row(rows):text(1) == "ok" and first_row(rows):text(2) == "ok", first_row(rows):text(1) .. " " .. first_row(rows):text(2))
-  rows = assert(handle:text_rows("SELECT rtreedepth(data) FROM boxes_node WHERE nodeno = 1"))
-  assert(first_row(rows):text(1) == "0", first_row(rows):text(1))
+  rows = assert(handle:rows("SELECT rtreedepth(data) FROM boxes_node WHERE nodeno = 1"))
+  assert(first_row(rows):integer(1) == 0, tostring(first_row(rows):integer(1)))
   for _, b in ipairs({ "x'01'", "'text'" }) do
-    local depth, _ = handle:text_rows("SELECT rtreedepth(" .. b .. ")")
+    local depth, _ = handle:rows("SELECT rtreedepth(" .. b .. ")")
     assert(depth == nil, b)
   end
   local _, _ = handle:close()
@@ -350,8 +350,8 @@ local function test_rtree_checks_a_lying_depth_in_bounded_time()
   assert(handle:run("UPDATE b_node SET data = ?1 || substr(data, length(?1) + 1) " ..
       "WHERE nodeno = 1", { { blob = string.pack(">I2", 40) } }))
   for _, sql in ipairs({ "SELECT rtreecheck('b')", "PRAGMA integrity_check" }) do
-    local rows = assert(handle:text_rows(sql))
-    local report = table.concat(first_row(rows):texts(), " ")
+    local rows = assert(handle:rows(sql))
+    local report = table.concat(first_row(rows):as_texts(), " ")
     assert(report:find("Node 1 is reached a second time", 1, true) ~= nil,
       sql .. ": " .. report:sub(1, 400))
   end

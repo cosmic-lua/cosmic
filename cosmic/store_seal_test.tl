@@ -119,7 +119,7 @@ end
 
 local function modules_of(path: string): string
   local db = assert(Sqlite.open(path))
-  local rows = assert(db:text_rows("SELECT path FROM modules ORDER BY path"))
+  local rows = assert(db:rows("SELECT path FROM modules ORDER BY path"))
   assert(db:close())
   local names: mut {string} = {}
   for _, row in ipairs(rows) do
@@ -130,9 +130,9 @@ end
 
 local function count_of(path: string, table_name: string): integer
   local db = assert(Sqlite.open(path))
-  local rows = assert(db:text_rows("SELECT count(*) FROM " .. table_name))
+  local rows = assert(db:rows("SELECT count(*) FROM " .. table_name))
   assert(db:close())
-  return math.tointeger(Array.at(rows, 1):text(1)) as integer -- checked: cast_refused
+  return Array.at(rows, 1):integer(1)
 end
 
 --- Two seals of one set, even in another order or with a name twice,
@@ -156,7 +156,7 @@ local function test_seal_holds_exactly_the_named_modules(tmp: string)
   assert(modules_of(path) == "fixture.leaf fixture.lib")
   assert(count_of(path, "imports") == 1)
   local db = assert(Sqlite.open(path))
-  local rows = assert(db:text_rows("SELECT key, value FROM meta ORDER BY key"))
+  local rows = assert(db:rows("SELECT key, value FROM meta ORDER BY key"))
   assert(db:close())
   local meta: mut {string:string} = {}
   for _, row in ipairs(rows) do
@@ -165,7 +165,7 @@ local function test_seal_holds_exactly_the_named_modules(tmp: string)
   assert(meta.main == "fixture.lib") -- checked: map_field
   assert(meta.runtime_basis ~= nil and meta.runtime_basis == Store.meta("runtime_basis")) -- checked: map_field*2
   assert(count_of(path, "zoneinfo") == 0 and count_of(path, "ca_roots") == 0)
-  local keys = assert(assert(Sqlite.open(path)):text_rows("SELECT hex(key) FROM modules"))
+  local keys = assert(assert(Sqlite.open(path)):rows("SELECT hex(key) FROM modules"))
   assert(Array.at(keys, 1):text(1) == "", "a module's compile key is not carried")
 end
 
@@ -182,9 +182,9 @@ local function test_seal_takes_a_reserved_name_from_the_binary(tmp: string)
   local path = tmp .. "/binary.db"
   assert(Store.seal({ "cosmic.codec" }, path))
   local db = assert(Sqlite.open(path))
-  local rows = assert(db:text_rows("SELECT chunk(bytecode) FROM modules"))
+  local rows = assert(db:rows("SELECT chunk(bytecode) FROM modules"))
   assert(db:close())
-  assert(Array.at(rows, 1):text(1) == assert(Store.bytecode("cosmic.codec")), "the binary's own bytecode")
+  assert(Array.at(rows, 1):blob(1) == assert(Store.bytecode("cosmic.codec")), "the binary's own bytecode")
 end
 
 --- A sealed module's bytecode is stored as it is loaded, so that a start
@@ -241,7 +241,7 @@ local function test_seal_carries_the_web_assets_only_for_cosmic_web_htmx(tmp: st
   assert(Store.seal({ "cosmic.web.htmx" }, path))
   assert(count_of(path, "web_assets") == 2 and count_of(path, "zoneinfo") == 0)
   local db = assert(Sqlite.open(path))
-  local rows = assert(db:text_rows(
+  local rows = assert(db:rows(
     "SELECT name, sha256, sha384, version FROM web_assets ORDER BY name"))
   assert(db:close())
   assert(Array.at(rows, 2):text(1) == "htmx.min.js")
@@ -290,11 +290,11 @@ local function test_seal_carries_an_extra_module_as_the_main(tmp: string)
   assert(modules_of(path) == "fixture.leaf main")
   assert(count_of(path, "imports") == 1, "its edge to a name left out is no row")
   local db = assert(Sqlite.open(path))
-  local rows = assert(db:text_rows(
+  local rows = assert(db:rows(
     "SELECT kind, chunk(bytecode) = ?1, inflate(source) FROM modules WHERE path = 'main' " ..
       "UNION ALL SELECT value, '', '' FROM meta WHERE key = 'main'", { { blob = extra.bytecode } }))
   assert(db:close())
-  assert(Array.at(rows, 1):text(1) == "main" and Array.at(rows, 1):text(2) == "1" and Array.at(rows, 1):text(3) == "return 1\n")
+  assert(Array.at(rows, 1):text(1) == "main" and Array.at(rows, 1):integer(2) == 1 and Array.at(rows, 1):bytes(3) == "return 1\n")
   assert(Array.at(rows, 2):text(1) == "main", "the extra module is the database's main")
   assert(digest == (assert(Store.seal({ "fixture.leaf" }, tmp .. "/again.db", { extra = extra, unchecked_bytecode = true }))))
   -- A script that requires nothing is a program of no sealed names.
@@ -371,9 +371,9 @@ local function test_seal_carries_the_checkers_edges(tmp: string)
   assert(Store.seal({ "cosmic.time" }, path))
   local query = "SELECT requires FROM decl_imports WHERE path = 'cosmic.time' ORDER BY requires"
   local databases = Store.databases()
-  local want = assert(Array.at(databases, #databases):text_rows(query))
+  local want = assert(Array.at(databases, #databases):rows(query))
   local sealed = assert(Sqlite.open(path))
-  local got = assert(sealed:text_rows(query))
+  local got = assert(sealed:rows(query))
   assert(sealed:close())
   assert(#want > 1, "cosmic.time requires nothing")
   assert(#got == #want, "the sealed database holds " .. tostring(#got) .. " edges, not " .. tostring(#want))
@@ -391,17 +391,17 @@ local function test_seal_schema_is_the_builds(tmp: string)
   for _, name in ipairs({ "meta", "modules", "imports", "decl_imports", "decls", "zoneinfo",
       "ca_roots", "ca_revoked", "web_assets" }) do
     local query = "SELECT name, type, \"notnull\", pk FROM pragma_table_info('" .. name .. "')"
-    local want = assert(reference:text_rows(query))
-    local got = assert(sealed:text_rows(query))
+    local want = assert(reference:rows(query))
+    local got = assert(sealed:rows(query))
     assert(#want > 0, name .. " is not a table of the schema")
     assert(#want == #got, name .. ": columns differ")
     for index, row in ipairs(want) do
-      assert(table.concat(row:texts(), " ") == table.concat(Array.at(got, index):texts(), " "), name .. ": " .. row:text(1))
+      assert(table.concat(row:as_texts(), " ") == table.concat(Array.at(got, index):as_texts(), " "), name .. ": " .. row:text(1))
     end
   end
   for _, pragma in ipairs({ "page_size", "auto_vacuum" }) do
-    assert(Array.at(assert(reference:text_rows("SELECT * FROM pragma_" .. pragma)), 1):text(1) ==
-        Array.at(assert(sealed:text_rows("SELECT * FROM pragma_" .. pragma)), 1):text(1), pragma)
+    assert(Array.at(assert(reference:rows("SELECT * FROM pragma_" .. pragma)), 1):integer(1) ==
+        Array.at(assert(sealed:rows("SELECT * FROM pragma_" .. pragma)), 1):integer(1), pragma)
   end
   assert(sealed:close())
   assert(reference:close())

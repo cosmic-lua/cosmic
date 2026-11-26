@@ -29,8 +29,8 @@ local function test_the_fake_carries_its_main_and_little_else(tmp: string)
   assert(Fs.write(path, parts.database))
   local db = assert(Sqlite.open(path))
   local function one(sql: string): string
-    local rows = assert(db:text_rows(sql))
-    return rows[1] and rows[1]:text(1) or ""
+    local rows = assert(db:rows(sql))
+    return rows[1] and rows[1]:as_text(1) or ""
   end
   assert(one("SELECT value FROM meta WHERE key = 'main'") == Fake.REPLY)
   assert(one("SELECT count(*) FROM modules WHERE path LIKE 'build.%'") == "0")

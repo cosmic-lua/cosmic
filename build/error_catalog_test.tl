@@ -194,7 +194,7 @@ end
 
 --- The rows `sql` finds in `db`.
 local function rows_of(db: Sqlite.Handle, sql: string): {Sqlite.Row}
-  local rows, trouble = db:text_rows(sql)
+  local rows, trouble = db:rows(sql)
   assert(rows ~= nil, trouble)
   return rows
 end
@@ -211,13 +211,13 @@ local function test_a_row_per_code_is_written_to_the_catalog_with_its_rule_why_a
   local db, count = written()
   assert(count == #emitted_codes())
   local totals = first(rows_of(db, "SELECT count(*), count(DISTINCT symbol) FROM catalog WHERE kind = 'code'"))
-  assert(totals:text(1) == tostring(count) and totals:text(2) == tostring(count))
+  assert(totals:integer(1) == count and totals:integer(2) == count)
   local one = first(rows_of(db,
     "SELECT module, symbol, message, text, file, line FROM catalog WHERE symbol = 'nil_not_allowed'"))
   assert(one:text(1) == "lang.check" and one:text(5) == "lang/check_codes.tl")
   -- the message is NULL, which the guidance of an uncaught error would otherwise match
   local messages = first(rows_of(db, "SELECT count(*) FROM catalog WHERE kind = 'code' AND message IS NOT NULL"))
-  assert(messages:text(1) == "0", messages:text(1))
+  assert(messages:integer(1) == 0, tostring(messages:integer(1)))
   local text = one:text(4)
   assert(text:find("^type error of lang.check\nrule: nil is its own type\nwhy: ") ~= nil, text)
   assert(text:find("\nfix: test it %(", 1) ~= nil, text)
@@ -230,7 +230,7 @@ end
 
 local function test_the_words_of_a_rule_are_found_by_the_full_text_index()
   local db = written()
-  local found = assert(db:text_rows(
+  local found = assert(db:rows(
     "SELECT c.symbol FROM catalog_fts JOIN catalog c ON c.id = catalog_fts.rowid " ..
       "WHERE catalog_fts MATCH '\"array\" \"dense\"' AND c.kind = 'code' ORDER BY c.symbol"))
   local symbols: mut {string} = {}

@@ -308,10 +308,10 @@ end
 --- How many rows the cache file holds, of the kind `where` names (all where none).
 local function rows(cache: string, where?: string): integer
   local db = assert(Sqlite.open(cache))
-  local found = assert(db:text_rows("SELECT count(*) FROM bridge_v2 " .. (where or "")))
+  local found = assert(db:rows("SELECT count(*) FROM bridge_v2 " .. (where or "")))
   assert(db:close())
   local first = assert(found[1])
-  return math.tointeger(tonumber(first:text(1))) or 0
+  return first:integer(1)
 end
 
 --- Rows become code that runs, so a file or directory that anyone else could write is neither read nor written, and a link
@@ -359,7 +359,7 @@ local function test_the_bridge_makes_the_table_the_formats_name(tmp: string)
   local cache = tmp .. "/cache.db"
   boot(tmp, tree_of(tmp, ENTRY), cache)
   local function schema(db: Sqlite.Handle): string
-    local found = assert(db:text_rows(
+    local found = assert(db:rows(
       "SELECT sql FROM sqlite_schema WHERE name LIKE 'bridge_v%' ORDER BY name"))
     local out: mut {string} = {}
     for _, row in ipairs(found) do out[#out + 1] = row:text(1):gsub("%s+", "") end

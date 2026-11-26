@@ -52,10 +52,10 @@ local function test_reset_clears_the_runs_and_keeps_the_rest(dir: string)
   local evidence = assert(Grader.evidence(path))
   assert(evidence.tests == 0 and evidence.examples == 0)
   local db = assert(Sqlite.open(path))
-  local rows = assert(db:text_rows("select count(*) from inputs", {}))
+  local rows = assert(db:rows("select count(*) from inputs", {}))
   local _, _ = db:close()
   local counted = assert(rows[1], "expected the count row")
-  assert(counted:text(1) == "1")
+  assert(counted:integer(1) == 1)
 end
 
 local function test_a_missing_database_resets_but_is_no_evidence(dir: string)
