@@ -516,15 +516,12 @@ local text_read_allowed <const>: {string:string} = {
 -- TODO: see a table named at run time (`"FROM " .. name`), which a scan of literals cannot, once the checker tells
 -- the value a string expression holds.
 
---- Whether `excused` names `path` or a module `path` is a part of: cosmic.doc.search, of the directory of
---- cosmic.doc, reads as cosmic.doc does and is excused with it.
+--- Whether `excused` names `path`, or the module whose directory holds it: cosmic.doc.search, a part in
+--- cosmic/doc/ beside cosmic.doc's init.tl, reads as cosmic.doc does and is excused with it. One level only, so a
+--- module further down says why on its own.
 local function excused_by(excused: {string:string}, path: string): boolean
-  local name = path
-  while name ~= "" do
-    if excused[name] ~= nil then return true end
-    name = name:match("^(.*)%.[^.]*$") or ""
-  end
-  return false
+  local parent = path:match("^(.*)%.[^.]*$")
+  return excused[path] ~= nil or (parent ~= nil and excused[parent] ~= nil)
 end
 
 --- Each module of `db` that is no test and reads module text without declaring it, as `<module> reads text (<how>) and

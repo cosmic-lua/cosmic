@@ -30,6 +30,7 @@ local record Examples
   EXAMPLES_SHOWN: integer
 end
 
+--- `value` as a statement's text parameter.
 function Examples.text(value: string): Sqlite.Value
   return { text = value }
 end

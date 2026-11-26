@@ -23,13 +23,11 @@ local symbols = require("cosmic.internal.symbols")
 local Types = require("cosmic.doc.types")
 local type Command = Types.Command
 local type View = Types.View
-local type Example = Types.Example
 local type Entry = Types.Entry
 local type Lookup = Types.Lookup
 local type Answer = Types.Answer
 local type Summary = Types.Summary
 local type Taking = Types.Taking
-local type Use = Types.Use
 
 local Examples = require("cosmic.doc.examples")
 local Search = require("cosmic.doc.search")
@@ -69,18 +67,16 @@ local text = Examples.text
 local uses_text = Members.uses_text
 
 local record Doc
-  type Command = Command
-  type View = View
-  type Example = Example
-  type Entry = Entry
-  type Lookup = Lookup
-  type Answer = Answer
-  type Summary = Summary
-  type Taking = Taking
-  type Use = Use
+  type Command = Types.Command
+  type View = Types.View
+  type Example = Types.Example
+  type Entry = Types.Entry
+  type Lookup = Types.Lookup
+  type Answer = Types.Answer
+  type Summary = Types.Summary
+  type Taking = Types.Taking
+  type Use = Types.Use
 end
-
---- `value` as a statement's text parameter.
 
 --- Whether `db` holds documentation at all: what a caller asks of a database before it lists it among a view's,
 --- one that holds none finds nothing. Nil and a [`Failure`] when it cannot be read.

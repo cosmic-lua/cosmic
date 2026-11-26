@@ -62,7 +62,9 @@ end
 local function member_type(source: string, record: string?, body: string?,
                            name: string): boolean
   for line in (body or source):gmatch("[^\n]+") do
+    -- `type View = View`, or `type View = Types.View`: an alias of a sibling's record of that name.
     if line:find("^%s+type [%w_]+%s*=%s*" .. name .. "%f[^%w_]") ~= nil or
+        line:find("^%s+type " .. name .. "%s*=%s*[%w_]+%." .. name .. "%f[^%w_]") ~= nil or
         line:find("^%s+record " .. name .. "%f[^%w_]") ~= nil or
         line:find("^%s+enum " .. name .. "%f[^%w_]") ~= nil or
         line:find("^%s+interface " .. name .. "%f[^%w_]") ~= nil then
