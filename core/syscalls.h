@@ -700,7 +700,7 @@ COSMIC_SYSCALL(getifaddrs, 0);
 COSMIC_SYSCALL(clock_gettime, 1);
 
 /*
- * --- Opens a span of the profile COSMIC_PROFILE takes (core/profile.h): until it closes, each sample stands under it, and its close adds its wall and CPU time to its total. A span opened while another is open stands under that one.
+ * --- Opens a span of the profile COSMIC_PROFILE takes: until it closes, each sample stands under it, and its close adds its wall and CPU time to its total. A span opened while another is open stands under that one.
  * ---@param name string the span's name
  * ---@return integer token what `profile_span_close` takes: 0 where no profile is taken
  */

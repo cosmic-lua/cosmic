@@ -77,6 +77,11 @@ void cosmic_profile_install (lua_State *L);
  * profile is prepared; never freed. */
 size_t cosmic_profile_entries (char *const **entries);
 
+/* In the child of a fork that goes on running Lua: starts a profile of
+ * its own, a new file in the same directory, and the timer, which a
+ * fork does not keep. Nothing where no profile is taken. */
+void cosmic_profile_forked (void);
+
 /* Writes the profile, once, in the process that took it; nothing where
  * none is taken. atexit calls it; a path that leaves by _exit or exec
  * (core/syscalls.c) calls it first. It stops the timer. */

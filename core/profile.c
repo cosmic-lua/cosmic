@@ -119,6 +119,8 @@ static int timer_signal;
 static int hz = DEFAULT_HZ;
 static const char *clock_name = "cpu";
 static char *command;
+/* The directory, absolute, for a fork's own file. */
+static char *profile_dir;
 /* The profile's variables for a child, `NAME=value` each. */
 static char *child_entries[3];
 static size_t child_entry_count;
@@ -386,7 +388,8 @@ void cosmic_profile_sample (lua_State *L) {
 static void total_span (const struct open_span *span, uint32_t depth) {
   int64_t wall = now_ns(CLOCK_MONOTONIC) - span->wall_ns;
   int64_t cpu = now_ns(CLOCK_THREAD_CPUTIME_ID) - span->cpu_ns;
-  uint32_t ids[SPAN_DEPTH];
+  uint32_t ids[SPAN_DEPTH] = {0};
+  if (depth > SPAN_DEPTH) depth = SPAN_DEPTH;
   for (uint32_t i = 0; i < depth; i++) ids[i] = open_spans[i].id;
   uint64_t h = fnv(1469598103934665603u, ids, depth * sizeof *ids);
   size_t at = (size_t)h & (SPAN_SLOTS - 1);
@@ -511,6 +514,20 @@ static void stop_timer (void) {
   timer_signal = 0;
 }
 
+/* A new file for this process's profile in `dir`, or -1. */
+static int open_profile (const char *dir) {
+  char path[4096];
+  long pid = (long)getpid();
+  for (int n = 0; n < 100; n++) {
+    int made = n == 0 ? snprintf(path, sizeof path, "%s/%ld.prof", dir, pid)
+                      : snprintf(path, sizeof path, "%s/%ld-%d.prof", dir, pid, n);
+    if (made < 0 || made >= (int)sizeof path) return -1;
+    int fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
+    if (fd >= 0 || errno != EEXIST) return fd;
+  }
+  return -1;
+}
+
 void cosmic_profile_prepare (int argc, char **argv) {
   const char *dir = getenv("COSMIC_PROFILE");
   if (dir == NULL || dir[0] == '\0' || out_fd >= 0) return;
@@ -530,15 +547,7 @@ void cosmic_profile_prepare (int argc, char **argv) {
    * the pid, so its profile takes the next free name. Opened here, before
    * a sandbox layer holds the process, so a sandboxed process writes its
    * profile too. */
-  char path[4096];
-  long pid = (long)getpid();
-  for (int n = 0; n < 100 && out_fd < 0; n++) {
-    int made = n == 0 ? snprintf(path, sizeof path, "%s/%ld.prof", dir, pid)
-                      : snprintf(path, sizeof path, "%s/%ld-%d.prof", dir, pid, n);
-    if (made < 0 || made >= (int)sizeof path) return;
-    out_fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
-    if (out_fd < 0 && errno != EEXIST) return;
-  }
+  out_fd = open_profile(dir);
   if (out_fd < 0) return;
   /* Absolute, since a child may start in another directory. */
   char absolute[4096];
@@ -548,6 +557,9 @@ void cosmic_profile_prepare (int argc, char **argv) {
     int made = snprintf(absolute, sizeof absolute, "%s/%s", here, dir);
     if (made > 0 && made < (int)sizeof absolute) named = absolute;
   }
+  size_t dir_size = strlen(named) + 1;
+  profile_dir = cosmic_malloc(dir_size);
+  if (profile_dir != NULL) memcpy(profile_dir, named, dir_size);
   const char *values[3][2] = {{"COSMIC_PROFILE", named}, {"COSMIC_PROFILE_CLOCK", clock_name},
     {"COSMIC_PROFILE_HZ", NULL}};
   char rate[32];
@@ -623,6 +635,18 @@ void cosmic_profile_report (void) {
   fclose(f);
 }
 
+/* Starts the timer `timer_which`, which sends `timer_signal`. */
+static void start_timer (void) {
+  long period_us = 1000000L / hz;
+  if (period_us < 1) period_us = 1;
+  struct itimerval every = {{period_us / 1000000, period_us % 1000000},
+    {period_us / 1000000, period_us % 1000000}};
+  if (setitimer(timer_which, &every, NULL) != 0) {
+    signal(timer_signal, SIG_DFL);
+    timer_signal = 0;
+  }
+}
+
 void cosmic_profile_install (lua_State *L) {
   if (out_fd < 0 || stacks != NULL) return;
   texts = cosmic_calloc(TEXT_SLOTS, sizeof *texts);
@@ -652,14 +676,47 @@ void cosmic_profile_install (lua_State *L) {
   action.sa_flags = SA_RESTART;
   sigemptyset(&action.sa_mask);
   if (sigaction(signal_number, &action, NULL) != 0) return;
-  long period_us = 1000000L / hz;
-  if (period_us < 1) period_us = 1;
-  struct itimerval every = {{period_us / 1000000, period_us % 1000000},
-    {period_us / 1000000, period_us % 1000000}};
   timer_which = which;
   timer_signal = signal_number;
-  if (setitimer(which, &every, NULL) != 0) {
-    timer_signal = 0;
-    signal(signal_number, SIG_DFL);
+  start_timer();
+}
+
+void cosmic_profile_forked (void) {
+  if (stacks == NULL || profile_dir == NULL || profiled == getpid()) return;
+  /* The parent's file and totals are the parent's: this process writes
+   * a file of its own, of what it does from here. */
+  if (out_fd >= 0) close(out_fd);
+  out_fd = open_profile(profile_dir);
+  if (out_fd < 0) return;
+  /* Fresh tables, not cleared ones: clearing would copy every page of
+   * the parent's. The texts and names stay, as their indexes do. */
+  struct stack *fresh = cosmic_calloc(STACK_SLOTS, sizeof *stacks);
+  struct span_total *fresh_spans = cosmic_calloc(SPAN_SLOTS, sizeof *span_totals);
+  if (fresh == NULL || fresh_spans == NULL) {
+    cosmic_free(fresh);
+    cosmic_free(fresh_spans);
+    close(out_fd);
+    out_fd = -1;
+    return;
   }
+  stacks = fresh;
+  span_totals = fresh_spans;
+  stacks_used = 0;
+  dropped = 0;
+  other_total = 0;
+  ticks_lua = 0;
+  ticks_c = 0;
+  ticks_other = 0;
+  ticked_c = NULL;
+  profiled = getpid();
+  started_wall_ns = now_ns(CLOCK_MONOTONIC);
+  started_cpu_ns = now_ns(CLOCK_PROCESS_CPUTIME_ID);
+  int64_t cpu_now = now_ns(CLOCK_THREAD_CPUTIME_ID);
+  for (int i = 0; i < open_depth && i < SPAN_DEPTH; i++) {
+    open_spans[i].wall_ns = started_wall_ns;
+    open_spans[i].cpu_ns = cpu_now;
+  }
+  last_tick_ns = now_ns(tick_clock);
+  /* A fork starts with no timer of its own. */
+  if (timer_signal != 0) start_timer();
 }
