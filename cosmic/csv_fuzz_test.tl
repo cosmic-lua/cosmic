@@ -7,10 +7,10 @@ local Array = require("cosmic.array")
 --- the line each row was written to begin on; `records` refuses what `parse`
 --- refuses, reads its records, and puts each at the line `table` gives its row;
 --- and `load`, reading through SQLite's CSV table, copies what `table` reads.
---- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
+--- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (cosmic/fuzz.tl).
 
 local Csv = require("cosmic.csv")
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 
 local DELIMITERS <const> = { ",", "\t", ";", "|", "\xa7" }
 

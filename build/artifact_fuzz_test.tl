@@ -3,9 +3,9 @@
 --- refused by name -- never a raise, nor a head and database that are
 --- not the file's own bytes. Each input edits a small program's
 --- trailer and manifest fields, cuts it or adds junk.
---- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
+--- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (cosmic/fuzz.tl).
 
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Hash = require("cosmic.hash")
 local artifact = require("build.artifact")
 local String = require("cosmic.string")

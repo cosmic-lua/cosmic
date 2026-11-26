@@ -4,10 +4,10 @@
 --- a reference nothing defines -- and [`link_text.without_code`] keeps
 --- every line of the text, and every byte of a line it does not empty
 --- but those of an HTML comment, which it blanks.
---- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
+--- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (cosmic/fuzz.tl).
 
 local Array = require("cosmic.array")
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local link_text = require("cosmic.internal.link_text")
 local String = require("cosmic.string")
 

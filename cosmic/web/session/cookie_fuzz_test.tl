@@ -2,7 +2,7 @@
 --- browser chose: no token that the store did not sign loads, none makes it
 --- raise, and a token it signed loads back what it held.
 
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Session = require("cosmic.web.session")
 local SessionCookie = require("cosmic.web.session.cookie")
 

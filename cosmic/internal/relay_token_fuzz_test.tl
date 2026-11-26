@@ -2,12 +2,12 @@
 --- bytes a program sends on a connection to either listener, none of them
 --- the right credential, the relay never carries a connection to the
 --- upstream, replies to no request, and counts no connection as served.
---- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
+--- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (cosmic/fuzz.tl).
 
 local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
 local Fixture = require("build.relay_wire_fixture")
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Relay = require("cosmic.internal.relay_server")

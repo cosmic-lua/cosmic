@@ -3,7 +3,7 @@
 --- so does a check that a starved run broke.
 
 local Fs = require("cosmic.fs")
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Test = require("cosmic.test")
 
 Test.policy{ requires = { "checked" } }

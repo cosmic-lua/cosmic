@@ -29,7 +29,7 @@ void cosmic_coverage_install (lua_State *L);
 /* Pushes the instruction budget's table, declared by
  * cosmic/internal/budget.d.tl. The budget shares the one hook with
  * collection, and neither disturbs the other. It is the raw value
- * behind [`build.fuzz`] (core/store.c), and nothing else's. */
+ * behind [`cosmic.fuzz`] (core/store.c), and nothing else's. */
 int cosmic_open_budget (lua_State *L);
 
 /* `envp`, or, once processes this one starts are to report their C to a

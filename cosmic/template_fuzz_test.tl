@@ -5,9 +5,9 @@ local Array = require("cosmic.array")
 --- module that renders its text byte for byte; the two modes agree on what
 --- is syntax, and `text` takes whatever `html` does; and the module has
 --- the template's lines. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
---- (build/fuzz/init.tl).
+--- (cosmic/fuzz.tl).
 
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Html = require("cosmic.html")
 local Json = require("cosmic.json")
 local String = require("cosmic.string")

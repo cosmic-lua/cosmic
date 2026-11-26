@@ -2,7 +2,7 @@
 --- takes from users: whatever the fields hold, the output is one event at
 --- most, carrying the fields given and none that were not.
 
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Sse = require("cosmic.web.sse")
 
 --- Pieces that make a line ending, a field name or a blank line out of a field.
