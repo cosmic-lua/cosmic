@@ -10,7 +10,7 @@
 local Array = require("cosmic.array")
 local Fuzz = require("cosmic.fuzz")
 local Json = require("cosmic.json")
-local ChunkedReader = require("build.chunked_reader_fixture")
+local Stream = require("cosmic.stream")
 
 --- `r`'s next token, and ""; nil and "" at the end; nil and the text of the failure.
 local function next_text(r: Json.Reader): Json.Token?, string
@@ -133,7 +133,7 @@ local function token_lines(text: string, size: integer, opts: Json.ReaderOptions
   local lines = ""
   local failure = ""
   local ok, raised = pcall(function()
-    local r = Json.reader(ChunkedReader.chunked(text, size), opts)
+    local r = Json.reader(Stream.from_string(text, size), opts)
     local out: mut {string} = {}
     while true do
       -- A caller that peeks before it reads gets the same tokens.
@@ -153,7 +153,7 @@ end
 --- The values the tokens of `text` build, each with the null stand-in;
 --- nil and the failure that ended them.
 local function token_values(text: string, size: integer, opts: Json.ReaderOptions): {any}?, string
-  local r = Json.reader(ChunkedReader.chunked(text, size), opts)
+  local r = Json.reader(Stream.from_string(text, size), opts)
   local values: mut {any} = {}
   local stack: mut {{any: any}} = {} -- declared: key_type
   local keys: mut {integer: string} = {}
@@ -240,14 +240,14 @@ local function placed_after(text: string, size: integer, opts: Json.ReaderOption
   local stray = text .. "\n@"
   local line, column = line_and_column(stray, #stray, opts.json5 == true)
   local want = ("json: a byte no JSON token starts with at line %d, column %d (pointer \"\")"):format(line, column)
-  local r = Json.reader(ChunkedReader.chunked(stray, size), opts)
+  local r = Json.reader(Stream.from_string(stray, size), opts)
   local why: string
   repeat
     local t, err = next_text(r)
     why = err
   until t == nil
   if why ~= want then return false, "by tokens: " .. why .. ", not " .. want end
-  local v = Json.reader(ChunkedReader.chunked(stray, size), opts)
+  local v = Json.reader(Stream.from_string(stray, size), opts)
   local _, verr = value_text(v)
   if verr ~= "" then return false, "value: " .. verr end
   local _, after = next_text(v)
@@ -289,7 +289,7 @@ local function holds(input: string): boolean, string
     if #values ~= 1 or not same(values[1], decoded) then
       return false, "the tokens built another value"
     end
-    local r = Json.reader(ChunkedReader.chunked(text, size), opts)
+    local r = Json.reader(Stream.from_string(text, size), opts)
     local value, verr = value_text(r)
     if verr ~= "" then return false, "value refused what decode read: " .. verr end
     if not same(value, decoded) then return false, "value read another value" end

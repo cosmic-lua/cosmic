@@ -7,7 +7,6 @@ local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local Patch = require("build.patch")
 local ZigFetch = require("build.zig_fetch")
-local this_program = require("build.this_program")
 
 --- The next line of `lines`: raises where they ended or failed.
 local function line_of(lines: Stream.Lines): string
@@ -28,7 +27,7 @@ assert(sys.flock(fd, "exclusive", 0))
 print("held")
 local _, _ = Fs.take(Fs.stdin, 1)
 ]]
-  local command = this_program.program({ "-e", script:format(path) },
+  local command = Test.cosmic({ "-e", script:format(path) },
     { timeout_ns = Child.FOREVER, stdin = "stream", stdout = "stream", stderr = "capture" })
   local child = assert(Child.start(command.argv, command.options))
   assert(line_of(Stream.lines(assert(child.stdout_stream))) == "held")
@@ -99,7 +98,7 @@ require("build.zig_fetch").install(cache, cache .. "/install", "v", "host", nil)
 ]] end
     local body = if patch then script:format(root, cache) else script:format(cache) end
     body = 'print("started")\n' .. body .. '\nprint("finished")'
-    local command = this_program.program({ "-e", body }, { timeout_ns = Child.FOREVER, stdout = "stream", stderr = "capture" })
+    local command = Test.cosmic({ "-e", body }, { timeout_ns = Child.FOREVER, stdout = "stream", stderr = "capture" })
     local child = assert(Child.start(command.argv, command.options))
     local lines = Stream.lines(assert(child.stdout_stream))
     assert(line_of(lines) == "started")
@@ -131,7 +130,7 @@ print(path)
 ]]
   local children: mut {Child.Handle} = {}
   for _ = 1, 4 do
-    local command = this_program.program({ "-e", script:format(tmp, cache) },
+    local command = Test.cosmic({ "-e", script:format(tmp, cache) },
       { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })
     children[#children + 1] = assert(Child.start(command.argv, command.options))
   end

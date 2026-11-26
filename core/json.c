@@ -1106,11 +1106,38 @@ static int put_break (struct encoding *e, int depth) {
   return 0;
 }
 
+/* Sixteen bytes, as the compiler's vector extension holds them: one
+ * SSE2 or NEON register, which every target cosmic ships has, so the
+ * scans below take sixteen bytes a step with no runtime dispatch. */
+typedef unsigned char bytes16 __attribute__((vector_size(16)));
+
+/* Whether any of the sixteen bytes at `s` is 0x80 or above. */
+static bool any_high (const unsigned char *s) {
+  bytes16 v;
+  memcpy(&v, s, sizeof v);
+  return __builtin_reduce_or(v >= 0x80) != 0;
+}
+
+/* Whether any of the sixteen bytes at `s` must be escaped in a JSON
+ * string: a control byte, `"` or `\`, or, when `ascii`, one 0x80 or
+ * above. */
+static bool any_special (const unsigned char *s, bool ascii) {
+  bytes16 v;
+  memcpy(&v, s, sizeof v);
+  bytes16 hit = (bytes16)((v < 0x20) | (v == '"') | (v == '\\'));
+  if (ascii) hit |= (bytes16)(v >= 0x80);
+  return __builtin_reduce_or(hit) != 0;
+}
+
 /* Whether s[0..n) is UTF-8: no overlong form, no surrogate, nothing
  * past U+10FFFF. */
 static int is_utf8 (const unsigned char *s, size_t n) {
   size_t i = 0;
   while (i < n) {
+    if (n - i >= 16 && !any_high(s + i)) {
+      i += 16;
+      continue;
+    }
     unsigned char c = s[i];
     if (c < 0x80) {
       i++;
@@ -1144,25 +1171,32 @@ static int is_utf8 (const unsigned char *s, size_t n) {
 
 static const char hex[] = "0123456789abcdef";
 
-static int put_string (struct encoding *e, const char *s, size_t n) {
-  if (!is_utf8((const unsigned char *)s, n)) {
-    return refuse(e, "cannot encode a string that is not UTF-8");
-  }
+/* s[0..n), which is UTF-8, as a JSON string: quoted, with what JSON must
+ * escape escaped, and every byte from 0x80 up too when `e->ascii`. The
+ * bytes between two escapes are copied in one step, found sixteen at a
+ * time. */
+static int put_utf8_string (struct encoding *e, const char *s, size_t n) {
+  const unsigned char *u = (const unsigned char *)s;
   if (PUT_LITERAL(e, "\"") < 0) return -1;
   size_t start = 0;
-  for (size_t i = 0; i < n; i++) {
-    unsigned char c = (unsigned char)s[i];
+  size_t i = 0;
+  while (i < n) {
+    if (n - i >= 16 && !any_special(u + i, e->ascii)) {
+      i += 16;
+      continue;
+    }
+    unsigned char c = u[i];
     if (e->ascii && c >= 0x80) {
-      /* [`is_utf8`] accepted the string, so the sequence is whole. */
+      /* The string is UTF-8, so the sequence is whole. */
       if (put(e, s + start, i - start) < 0) return -1;
       uint32_t code;
       size_t extra = c >= 0xf0 ? 3 : c >= 0xe0 ? 2 : 1;
       code = c & (0x3f >> extra);
       for (size_t k = 1; k <= extra; k++) {
-        code = code << 6 | ((unsigned char)s[i + k] & 0x3f);
+        code = code << 6 | (u[i + k] & 0x3f);
       }
-      i += extra;
-      start = i + 1;
+      i += extra + 1;
+      start = i;
       char escape[12];
       enum { escape_length = 6 };
       if (code >= 0x10000) {
@@ -1175,9 +1209,13 @@ static int put_string (struct encoding *e, const char *s, size_t n) {
       if (put(e, escape, escape_length) < 0) return -1;
       continue;
     }
-    if (c >= 0x20 && c != '"' && c != '\\') continue;
+    if (c >= 0x20 && c != '"' && c != '\\') {
+      i++;
+      continue;
+    }
     if (put(e, s + start, i - start) < 0) return -1;
-    start = i + 1;
+    i++;
+    start = i;
     char escape[6] = {'\\', 0, 0, 0, 0, 0};
     size_t length = 2;
     switch (c) {
@@ -1201,6 +1239,14 @@ static int put_string (struct encoding *e, const char *s, size_t n) {
   }
   if (put(e, s + start, n - start) < 0) return -1;
   return PUT_LITERAL(e, "\"");
+}
+
+/* s[0..n) as a JSON string, refused when it is not UTF-8. */
+static int put_string (struct encoding *e, const char *s, size_t n) {
+  if (!is_utf8((const unsigned char *)s, n)) {
+    return refuse(e, "cannot encode a string that is not UTF-8");
+  }
+  return put_utf8_string(e, s, n);
 }
 
 static int put_number (struct encoding *e, int idx) {
@@ -1747,7 +1793,9 @@ static int put_text_member (struct encoding *e, yyjson_val *key,
                             bool canonical) {
   if (!first && PUT_LITERAL(e, ",") < 0) return -1;
   if (put_break(e, depth + 1) < 0) return -1;
-  if (put_string(e, yyjson_get_str(key), yyjson_get_len(key)) < 0) return -1;
+  if (put_utf8_string(e, yyjson_get_str(key), yyjson_get_len(key)) < 0) {
+    return -1;
+  }
   if (PUT_LITERAL(e, ":") < 0) return -1;
   if (e->pretty && PUT_LITERAL(e, " ") < 0) return -1;
   if (put_text_value(e, value, depth + 1, canonical) < 0) {
@@ -1821,7 +1869,9 @@ static int put_text_value (struct encoding *e, yyjson_val *val, int depth,
       return put_canonical_number(e, f);
     }
     case YYJSON_TYPE_STR:
-    return put_string(e, yyjson_get_str(val), yyjson_get_len(val));
+    /* yyjson reads only UTF-8: it is not given
+     * YYJSON_READ_ALLOW_INVALID_UNICODE. */
+    return put_utf8_string(e, yyjson_get_str(val), yyjson_get_len(val));
     case YYJSON_TYPE_ARR:
     if (yyjson_arr_size(val) == 0) return PUT_LITERAL(e, "[]");
     if (PUT_LITERAL(e, "[") < 0) return -1;
@@ -1876,6 +1926,15 @@ static int json_format (lua_State *L) {
     if (doc == NULL) return refused(L);
   }
   e.guard = cosmic_guard_push(L, cosmic_free);
+  /* The text written again is about as long as the text read, so its
+   * room is made once rather than grown by doubling. A failed allocation
+   * leaves the room to `put`, which grows it or refuses for want of
+   * memory. */
+  e.p = cosmic_malloc(r.len + 16);
+  if (e.p != NULL) {
+    e.cap = r.len + 16;
+    e.guard->resource = e.p;
+  }
   if (put_text_value(&e, yyjson_doc_get_root(doc), 0, canonical) < 0) {
     lua_pushnil(L);
     if (e.path.len == 0 || e.out_of_memory) {

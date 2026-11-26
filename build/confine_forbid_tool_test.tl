@@ -10,7 +10,6 @@ local confine = require("build.confine")
 local Fake = require("cosmic.fake")
 -- Required, so the fake's main is of this test's closure.
 local _fake = require("build.confine_fake")
-local this_program = require("build.this_program")
 
 --- /proc, where the fake program a test starts finds itself; `nests`,
 --- since the process it holds has a root of its own; and the program
@@ -52,7 +51,7 @@ local out = {
 local _, _ = require("cosmic.fs").put(1, table.concat(out, "\n"))
 ]=], "{ " .. string.format("%q, %q, %q", within[1], within[2], within[3]) .. " }",
     program, tmp .. "/links/program", sibling)
-  local started = this_program.program({ "-e", chunk }, { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "stdout" })
+  local started = Test.cosmic({ "-e", chunk }, { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "stdout" })
   local result = assert(Child.run(started.argv, started.options))
   local said = assert(result.stdout)
   assert(said:find("program child: start: Permission denied", 1, true), said)

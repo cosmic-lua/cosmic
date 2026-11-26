@@ -6,7 +6,6 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
-local this_program = require("build.this_program")
 local support = require("build.test_support_fixture")
 
 Test.policy{
@@ -41,7 +40,7 @@ local function test_fixed()
   assert(assert(Fs.read("]] .. answer .. [[")) == "pass\n", "not fixed yet")
 end
 ]]))
-  local env = this_program.environment()
+  local env = Test.environment()
   env["COSMIC_TEST_SANDBOX"] = "0"
   env["COSMIC_SANDBOX"] = nil
   env["COSMIC_TEST_ALL"] = nil
@@ -49,7 +48,7 @@ end
   local function run(name: string, passes: boolean)
     local output = tmp .. "/" .. name .. ".out"
     local fd = assert(Fs.open_write(output))
-    local start = this_program.program({ "test", "--jobs", "1" },
+    local start = Test.cosmic({ "test", "--jobs", "1" },
       { timeout_ns = Child.FOREVER, cwd = root, env = env, stdout = fd, stderr = fd })
     local result = assert(Child.run(start.argv, start.options))
     assert(Fs.close(fd))

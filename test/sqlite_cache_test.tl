@@ -105,8 +105,7 @@ local function test_a_statement_kept_after_a_failure_runs_again()
   assert(db:close())
 end
 
---- A row the core builds keeps each column's kind and value, NULL, an empty blob and an empty text included, and a
---- text row holds every column's bytes as text.
+--- A row the core builds keeps each column's kind and value, NULL, an empty blob and an empty text included.
 local function test_rows_keep_each_kind()
   local db = fresh()
   local rows = assert(db:rows("SELECT 1, 2.5, 'x', x'00ff', NULL, x'', ''"))

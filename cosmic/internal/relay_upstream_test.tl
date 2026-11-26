@@ -13,7 +13,6 @@ local Test = require("cosmic.test")
 local Udp = require("build.udp_fixture")
 local _ = require("build.relay_children_test")
 local test_child = require("build.test_child")
-local this_program = require("build.this_program")
 
 --- The program itself, which runs a relay; only a loopback is reachable.
 Test.policy{ profiles = { "cosmic" }, loopback = { "127.0.0.1" }, grants = { { calls = "fork" } } }
@@ -62,7 +61,7 @@ local function test_the_upstream_is_resolved_once_and_an_ungranted_name_never(tm
         end
       end
     end)
-    local started = this_program.program(test_child.words(tmp, "build.relay_children_test", "serve", { tostring(port) }),
+    local started = Test.cosmic(test_child.words(tmp, "build.relay_children_test", "serve", { tostring(port) }),
       { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
     local child <close> = assert(Child.start(started.argv, started.options))
     local result: Child.Result?

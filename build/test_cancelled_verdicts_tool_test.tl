@@ -7,7 +7,6 @@ local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
-local this_program = require("build.this_program")
 local cache_formats = require("build.cache_formats")
 local build_paths = require("build.paths")
 local support = require("build.test_support_fixture")
@@ -51,7 +50,7 @@ local function test_c_unfinished()
 end
 local function test_d_unstarted() assert(true) end
 ]]))
-  local env = this_program.environment()
+  local env = Test.environment()
   env["COSMIC_TEST_SANDBOX"] = "0"
   env["COSMIC_SANDBOX"] = nil
   env["COSMIC_TEST_ALL"] = nil
@@ -61,7 +60,7 @@ local function test_d_unstarted() assert(true) end
     local fd = assert(Fs.open_write(output))
     local args: mut {string} = { "test", "--jobs", "1" }
     for _, word in ipairs(words) do args[#args + 1] = word end
-    local start = this_program.program(args, { timeout_ns = Child.FOREVER, cwd = root, env = env, stdout = fd, stderr = fd })
+    local start = Test.cosmic(args, { timeout_ns = Child.FOREVER, cwd = root, env = env, stdout = fd, stderr = fd })
     local result = assert(Child.run(start.argv, start.options))
     assert(Fs.close(fd))
     local text = assert(Fs.read(output))
@@ -82,7 +81,7 @@ local function test_d_unstarted() assert(true) end
   assert(Fs.set_mtime(flag, 1600000000))
   local output = tmp .. "/cancelled.out"
   local fd = assert(Fs.open_write(output))
-  local start = this_program.program({ "test", "--all", "--jobs", "1" },
+  local start = Test.cosmic({ "test", "--all", "--jobs", "1" },
     { timeout_ns = Child.FOREVER, cwd = root, env = env, stdout = fd, stderr = fd })
   local handle <close> = assert(Child.start(start.argv, start.options))
   assert(Fs.close(fd))

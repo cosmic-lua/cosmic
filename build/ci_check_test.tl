@@ -9,7 +9,6 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
-local this_program = require("build.this_program")
 
 --- The program itself, which builds the project around its working directory.
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
@@ -19,9 +18,9 @@ local USER <const> = 'local A = require("cosmic_ci.a")\nlocal a: A = { n = 1 }\n
 
 --- `cosmic fix --check` with `root` as the working directory.
 local function check_in(root: string): Child.Result
-  local env = this_program.environment()
+  local env = Test.environment()
   env["COSMIC_BUILD_CACHE"] = "0"
-  local started = this_program.program({ "fix", "--check" }, { cwd = root, env = env, stdout = "capture",
+  local started = Test.cosmic({ "fix", "--check" }, { cwd = root, env = env, stdout = "capture",
     stderr = "capture", timeout_ns = Clock.seconds(60) })
   return (assert(Child.run(started.argv, started.options)))
 end

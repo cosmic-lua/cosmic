@@ -7,7 +7,6 @@
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Test = require("cosmic.test")
-local this_program = require("build.this_program")
 
 --- The program itself, which its tests start.
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
@@ -19,9 +18,9 @@ local record Ran
 end
 
 local function cosmic(dir: string, words: {string}, tz?: string): Ran
-  local env = this_program.environment()
+  local env = Test.environment()
   env.TZ = tz or "Asia/Tokyo" -- checked: map_field
-  local started = this_program.program(words, {
+  local started = Test.cosmic(words, {
     cwd = dir, env = env, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30),
   })
   local result = assert(Child.run(started.argv, started.options))
@@ -76,9 +75,9 @@ end
 --- `time` reads no standard input, so a run of it loads no [`cosmic.stream`], which [`build.bare`] requires only for a
 --- verb that does: a command line pays at its start for every module it loads.
 local function test_time_loads_no_stream(tmp: string)
-  local env = this_program.environment()
+  local env = Test.environment()
   env["COSMIC_TRACE_REQUIRE"] = "1"
-  local started = this_program.program({ "time", "now" }, { env = env, cwd = tmp, stdout = "capture", stderr = "capture",
+  local started = Test.cosmic({ "time", "now" }, { env = env, cwd = tmp, stdout = "capture", stderr = "capture",
     timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   local traced = r.stderr or ""

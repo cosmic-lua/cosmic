@@ -17,7 +17,6 @@ local Fs = require("cosmic.fs")
 local Clock = require("cosmic.clock")
 local Test = require("cosmic.test")
 local confine = require("build.confine")
-local this_program = require("build.this_program")
 
 --- The program it runs, roots of
 --- their own for the workers it starts (`nests`), and the variables the
@@ -58,7 +57,7 @@ local function run(root: string, output: string, env: {string:string},
   local fd = assert(Fs.open_write(output))
   local argv: mut {string} = { "test" }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
-  local started = this_program.program(argv, {
+  local started = Test.cosmic(argv, {
     cwd = root, env = env, stdout = fd, stderr = fd, process_group = true,
     timeout_ns = Clock.seconds(90),
   })
@@ -72,7 +71,7 @@ end
 --- The environment of a run on a tree of its own: this program's, with no
 --- shared verdicts, and nothing of this run's choice of sandbox.
 local function environment(): mut {string:string}
-  local env = this_program.environment()
+  local env = Test.environment()
   -- The seccomp filters this worker has, which each worker of a run it
   -- starts inherits.
   local status = assert(Fs.read("/proc/self/status"))

@@ -5,7 +5,6 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
-local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
 
@@ -16,7 +15,7 @@ local function fix(root: string, check: boolean, paths?: {string}): string
   local args: mut {string} = { "fix" }
   if check then args[#args + 1] = "--check" end
   for _, path in ipairs(paths or {}) do args[#args + 1] = path end
-  local started = this_program.program(args, { cwd = root,
+  local started = Test.cosmic(args, { cwd = root,
     stdout = "capture", stderr = "stdout", timeout_ns = Clock.seconds(60) })
   return assert((assert(Child.run(started.argv, started.options))).stdout)
 end
@@ -87,7 +86,7 @@ end
 local function fix_status(root: string, paths: {string}): string, boolean
   local args: mut {string} = { "fix", "--check" }
   for _, path in ipairs(paths) do args[#args + 1] = path end
-  local started = this_program.program(args, { cwd = root,
+  local started = Test.cosmic(args, { cwd = root,
     stdout = "capture", stderr = "stdout", timeout_ns = Clock.seconds(60) })
   local ran = assert(Child.run(started.argv, started.options))
   return assert(ran.stdout), ran.ok

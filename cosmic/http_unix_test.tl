@@ -11,7 +11,6 @@ local Net = require("cosmic.net")
 local Server = require("cosmic.http.server")
 local Test = require("cosmic.test")
 local _ = require("build.standalone")
-local this_program = require("build.this_program")
 
 --- The program itself, started to run a script `--standalone`
 --- ([`build.standalone`]), and a socket file in the test's directory.
@@ -46,7 +45,7 @@ local function across(tmp: string, client: string): string, string
       return { status = 200, body = "body of " .. req.path }
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      local started = this_program.program({ "--standalone", script, assert(Array.at(addresses, 1).path) },
+      local started = Test.cosmic({ "--standalone", script, assert(Array.at(addresses, 1).path) },
         { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
       ran.value = assert(Child.run(started.argv, started.options))
       server:stop()

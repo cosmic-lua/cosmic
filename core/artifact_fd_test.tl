@@ -196,7 +196,7 @@ end
 --- sandboxed worker whose module does not declare `tool`, as this one
 --- does not, is held from running it (build/confine.tl's
 --- `forbid_running`), and refused it even so. That a relaunch's own map
---- is taken, every start of this program through [`build.this_program`]
+--- is taken, every start of this program through [`Test.cosmic`]
 --- shows -- core/syscalls_test.tl hands one to [`process.spawn`] itself,
 --- a `#!` line and `setsid` among them -- and every worker `cosmic test`
 --- starts.
