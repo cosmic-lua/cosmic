@@ -5,6 +5,7 @@
 
 local Cbor = require("cosmic.cbor")
 local Codec = require("cosmic.codec")
+local Failure = require("cosmic.failure")
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
 local Rand = require("cosmic.rand")
@@ -36,6 +37,13 @@ local function browser(app: Web.App): Web.TestClient
   local client = Web.test_client(app)
   client.scheme = "https"
   return client
+end
+
+--- The JSON of a response, which a test takes as a value.
+local function json_of(call: function(): (Json.Value) | (nil, Failure)): Json.Value
+  local body, why = call()
+  assert(body ~= nil, tostring(why))
+  return body
 end
 
 local function key_new(): Key
@@ -157,7 +165,7 @@ end
 --- The challenge of a begin's response.
 local function challenge_of(res: Web.TestResponse): string
   assert(res.status == 200, res.body)
-  local options = assert(Json.to_object((res:json())))
+  local options = assert(Json.to_object(json_of(function() return res:json() end)))
   local challenge = options["challenge"]
   assert(challenge is string)
   return (assert(Codec.unbase64url(challenge)))
@@ -181,7 +189,7 @@ local function test_a_passkey_registers_and_logs_in()
   local first = browser(rig.app)
   local made = register(first, key, "ada")
   assert(made.status == 201, made.body)
-  assert(assert(Json.to_object((made:json())))["id"] == Codec.base64url(key.id))
+  assert(assert(Json.to_object(json_of(function() return made:json() end)))["id"] == Codec.base64url(key.id))
   assert(first:get("/"):text() == "handle-ada verified")
   local kept = assert(assert(rig.store:list("handle-ada"))[1])
   assert(kept.id == key.id and kept.user_handle == "handle-ada" and kept.transports[1] == "internal")
@@ -190,7 +198,7 @@ local function test_a_passkey_registers_and_logs_in()
   assert(second:get("/"):text() == "nobody")
   local res = log_in(second, key, "handle-ada", "/admin")
   assert(res.status == 200, res.body)
-  assert(assert(Json.to_object((res:json())))["next"] == "/admin")
+  assert(assert(Json.to_object(json_of(function() return res:json() end)))["next"] == "/admin")
   assert(second:get("/"):text() == "handle-ada verified")
 end
 
@@ -224,7 +232,9 @@ local function test_begin_excludes_the_user_s_passkeys()
   local key = key_new()
   local client = browser(rig.app)
   assert(register(client, key, "ada").status == 201)
-  local options = assert(Json.to_object((post(client, "/register/begin", nil, { ["X-User"] = "ada" }):json())))
+  local options = assert(Json.to_object(json_of(function()
+    return post(client, "/register/begin", nil, { ["X-User"] = "ada" }):json()
+  end)))
   local excluded = assert(Json.to_array(options["excludeCredentials"]))
   assert(#excluded == 1 and assert(Json.to_object(excluded[1]))["id"] == Codec.base64url(key.id))
   local user = assert(Json.to_object(options["user"]))
@@ -581,7 +591,7 @@ local function test_next_stays_on_the_app()
     local asked, want = assert(case[1]), assert(case[2])
     local res = log_in(browser(rig.app), key, "handle-ada", Url.escape(asked))
     assert(res.status == 200, res.body)
-    local next_path = assert(Json.to_object((res:json())))["next"]
+    local next_path = assert(Json.to_object(json_of(function() return res:json() end)))["next"]
     assert(next_path == want, asked .. " went to " .. tostring(next_path))
   end
 end
@@ -637,7 +647,9 @@ local function test_verification_can_be_required()
   local rig = rig_of({ require_verification = true })
   local key = key_new()
   local client = browser(rig.app)
-  local options = assert(Json.to_object((post(client, "/register/begin", nil, { ["X-User"] = "ada" }):json())))
+  local options = assert(Json.to_object(json_of(function()
+    return post(client, "/register/begin", nil, { ["X-User"] = "ada" }):json()
+  end)))
   local selection = assert(Json.to_object(options["authenticatorSelection"]))
   assert(selection["userVerification"] == "required")
   local challenge = challenge_of(post(client, "/register/begin", nil, { ["X-User"] = "ada" }))

@@ -6,6 +6,7 @@
 
 local Clock = require("cosmic.clock")
 local Cookies = require("cosmic.web.cookies")
+local Failure = require("cosmic.failure")
 local Json = require("cosmic.json")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
@@ -101,19 +102,19 @@ local record Testing
     --- One request over the connection; nil and why when the server's reply
     --- cannot be read.
     request: function(self: Loopback, method: string, path: string,
-        opts?: Types.TestOptions): Types.TestResponse?, string
+        opts?: Types.TestOptions): (Types.TestResponse) | (nil, Failure)
     --- A GET.
     get: function(self: Loopback, path: string,
-        opts?: Types.TestOptions): Types.TestResponse?, string
+        opts?: Types.TestOptions): (Types.TestResponse) | (nil, Failure)
     --- A POST.
     post: function(self: Loopback, path: string,
-        opts?: Types.TestOptions): Types.TestResponse?, string
+        opts?: Types.TestOptions): (Types.TestResponse) | (nil, Failure)
     --- A HEAD.
     head: function(self: Loopback, path: string,
-        opts?: Types.TestOptions): Types.TestResponse?, string
+        opts?: Types.TestOptions): (Types.TestResponse) | (nil, Failure)
     --- Sends `bytes` as they are and reads the reply: for a request no
     --- well-formed client would send.
-    raw: function(self: Loopback, bytes: string, method?: string): Types.TestResponse?, string
+    raw: function(self: Loopback, bytes: string, method?: string): (Types.TestResponse) | (nil, Failure)
   end
 end
 
@@ -219,10 +220,8 @@ local class Answered is Types.TestResponse
     return self.body
   end
 
-  function json(self): Json.Value?, string
-    local value, why = Json.decode(self.body)
-    if value == nil then return nil, tostring(why) end
-    return value, ""
+  function json(self): (Json.Value) | (nil, Failure)
+    return Json.decode(self.body)
   end
 end
 
@@ -535,47 +534,50 @@ end
 local IO_TIMEOUT_NS <const> = Clock.seconds(5)
 
 --- Reads more of the connection into the buffer.
-local function fill(lb: Testing.Loopback): boolean, string
+--- True; false where the connection ended; nil and a Failure where it failed.
+local function fill(lb: Testing.Loopback): (boolean) | (nil, Failure)
   local piece, why = lb.conn:read()
-  if piece == nil then return false, tostring(why) end
-  if piece == false then return false, "" end
+  if piece == nil then return nil, why end
+  if piece == false then return false end
   lb.buf = lb.buf .. piece
-  return true, ""
+  return true
 end
 
---- The next line, without its CRLF; nil and why where the connection ends.
-local function next_line(lb: Testing.Loopback): string?, string
+--- The next line, without its CRLF; nil and a Failure where the connection ends.
+local function next_line(lb: Testing.Loopback): (string) | (nil, Failure)
   while true do
     local at = lb.buf:find("\r\n", 1, true)
     if at ~= nil then
       local found = lb.buf:sub(1, at - 1)
       lb.buf = lb.buf:sub(at + 2)
-      return found, ""
+      return found
     end
     local ok, why = fill(lb)
-    if not ok then return nil, why ~= "" and why or "the connection ended within a head" end -- checked: and_ternary
+    if ok == nil then return nil, why end
+    if not ok then return nil, Failure.new("the connection ended within a head") end
   end
 end
 
 --- The next `n` bytes.
-local function take(lb: Testing.Loopback, n: integer): string?, string
+local function take(lb: Testing.Loopback, n: integer): (string) | (nil, Failure)
   while #lb.buf < n do
     local ok, why = fill(lb)
-    if not ok then return nil, why ~= "" and why or "the connection ended within a body" end -- checked: and_ternary
+    if ok == nil then return nil, why end
+    if not ok then return nil, Failure.new("the connection ended within a body") end
   end
   local out = lb.buf:sub(1, n)
   lb.buf = lb.buf:sub(n + 1)
-  return out, ""
+  return out
 end
 
 --- The reply to a request of `method`, read off the connection.
-local function read_reply(lb: Testing.Loopback, method: string): Response?, string
+local function read_reply(lb: Testing.Loopback, method: string): (Response) | (nil, Failure)
   local status_line, why = next_line(lb)
   if status_line == nil then return nil, why end
   local code = status_line:match("^HTTP/1%.[01] (%d%d%d)")
-  if code == nil then return nil, "not a status line: " .. status_line end
+  if code == nil then return nil, Failure.new("not a status line: " .. status_line) end
   local status = math.tointeger(tonumber(code))
-  if status == nil then return nil, "not a status line: " .. status_line end
+  if status == nil then return nil, Failure.new("not a status line: " .. status_line) end
   local lines: mut {HeaderLine} = {}
   local headers: mut {string:string} = {}
   while true do
@@ -583,7 +585,7 @@ local function read_reply(lb: Testing.Loopback, method: string): Response?, stri
     if line == nil then return nil, line_why end
     if line == "" then break end
     local name, rest = line:match("^([^:]+):(.*)$")
-    if name == nil or rest == nil then return nil, "not a header line: " .. line end
+    if name == nil or rest == nil then return nil, Failure.new("not a header line: " .. line) end
     local value = String.trim(rest)
     lines[#lines + 1] = { name = name, value = value }
     headers[name:lower()] = value
@@ -596,9 +598,9 @@ local function read_reply(lb: Testing.Loopback, method: string): Response?, stri
         local size_line, size_why = next_line(lb)
         if size_line == nil then return nil, size_why end
         local digits = size_line:match("^(%x+)$") or size_line:match("^(%x+);")
-        if digits == nil then return nil, "not a chunk size: " .. size_line end
+        if digits == nil then return nil, Failure.new("not a chunk size: " .. size_line) end
         local size = tonumber(digits, 16)
-        if size == nil then return nil, "not a chunk size: " .. size_line end
+        if size == nil then return nil, Failure.new("not a chunk size: " .. size_line) end
         if size == 0 then
           repeat
             local trailer, trailer_why = next_line(lb)
@@ -607,7 +609,7 @@ local function read_reply(lb: Testing.Loopback, method: string): Response?, stri
           break
         end
         local count = math.tointeger(size)
-        if count == nil then return nil, "not a chunk size: " .. size_line end
+        if count == nil then return nil, Failure.new("not a chunk size: " .. size_line) end
         local data, data_why = take(lb, count)
         if data == nil then return nil, data_why end
         pieces[#pieces + 1] = data
@@ -622,16 +624,14 @@ local function read_reply(lb: Testing.Loopback, method: string): Response?, stri
     else
       while true do
         local ok, fill_why = fill(lb)
-        if not ok then
-          if fill_why ~= "" then return nil, fill_why end
-          break
-        end
+        if ok == nil then return nil, fill_why end
+        if not ok then break end
       end
       body = lb.buf
       lb.buf = ""
     end
   end
-  return response_of(status, lines, body), ""
+  return response_of(status, lines, body)
 end
 
 --- Whether `buf`, the reply read so far, holds the start of a final reply:
@@ -650,7 +650,7 @@ end
 local SEND_SLICE <const> = 64 * 1024
 
 --- Writes `bytes`, stopping where the server has responded already, and
---- says why a write failed ("" where none did). A server refusing a body
+--- answers false and why where a write failed. A server refusing a body
 --- (413) responds at once, reads a bounded amount more and closes, and a
 --- close with bytes unread resets the connection, which on BSD discards
 --- the reply from the client's buffer. So the reply is looked for between
@@ -661,11 +661,11 @@ local SEND_SLICE <const> = 64 * 1024
 -- (cosmic/http/server.tl's `linger`), or one whose reset meets the first
 -- slice's write, can still be lost on BSD; reading the reply before the
 -- first write, or half-closing instead of resetting, would close that.
-local function send_until_answered(lb: Testing.Loopback, bytes: string): string
+local function send_until_answered(lb: Testing.Loopback, bytes: string): (true) | (false, Failure)
   local from = 1
   while from <= #bytes do
     local sent, why = lb.conn:write(bytes:sub(from, from + SEND_SLICE - 1))
-    if not sent then return tostring(why) end
+    if not sent then return false, why end
     from = from + SEND_SLICE
     if from <= #bytes then
       -- A wait of none still yields the run, so the server's task reads.
@@ -674,27 +674,27 @@ local function send_until_answered(lb: Testing.Loopback, bytes: string): string
       lb.conn:set_timeout(lb.timeout_ns)
       if piece is string then
         lb.buf = lb.buf .. piece
-        if final_begun(lb.buf) then return "" end
+        if final_begun(lb.buf) then return true end
       elseif piece == false or read_why == nil or read_why.kind ~= "timeout" then
-        return ""
+        return true
       end
     end
   end
-  return ""
+  return true
 end
 
-local function loopback_raw(self: Testing.Loopback, bytes: string, method?: string): Response?, string
-  local write_why = send_until_answered(self, bytes)
+local function loopback_raw(self: Testing.Loopback, bytes: string, method?: string): (Response) | (nil, Failure)
+  local written, write_why = send_until_answered(self, bytes)
   -- A write that timed out met a server that stopped reading: waiting as
   -- long again for a reply would only double the failure's time.
-  if write_why == Poll.TIMEOUT then return nil, write_why end
+  if not written and write_why.kind == "timeout" then return nil, write_why end
   local reply, why = read_reply(self, method or "GET")
-  if reply == nil then return nil, (if write_why ~= "" then write_why else why end) end
-  return reply, ""
+  if reply == nil then return nil, (if not written then write_why else why end) end
+  return reply
 end
 
 local function loopback_request(self: Testing.Loopback, method: string, path: string,
-                                opts?: Options): Response?, string
+                                opts?: Options): (Response) | (nil, Failure)
   local prepared = prepare(method, path, opts or {})
   prepared.headers["host"] = self.host
   local head: mut {string} = { ("%s %s HTTP/1.1"):format(method, prepared.target) }
@@ -705,8 +705,8 @@ local function loopback_request(self: Testing.Loopback, method: string, path: st
   return loopback_raw(self, table.concat(head, "\r\n") .. "\r\n\r\n" .. prepared.body, method)
 end
 
-local function loopback_verb(method: string): function(Testing.Loopback, string, p3?: Options): Response?, string
-  return function(self: Testing.Loopback, path: string, opts?: Options): Response?, string
+local function loopback_verb(method: string): function(Testing.Loopback, string, p3?: Options): (Response) | (nil, Failure)
+  return function(self: Testing.Loopback, path: string, opts?: Options): (Response) | (nil, Failure)
     return self:request(method, path, opts)
   end
 end
