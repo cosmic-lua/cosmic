@@ -1963,7 +1963,7 @@ in [roadmap.md](roadmap.md).
 [`cosmic.compress`]: ../cosmic/compress.tl
 [`cosmic.coverage`]: ../cosmic/coverage.tl
 [`cosmic.dns`]: ../cosmic/dns.tl
-[`cosmic.doc`]: ../cosmic/doc.tl
+[`cosmic.doc`]: ../cosmic/doc/init.tl
 [`cosmic.errno`]: ../cosmic/errno.tl
 [`cosmic.failure`]: ../cosmic/failure.tl
 [`cosmic.flags`]: ../cosmic/flags.tl

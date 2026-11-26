@@ -36,6 +36,10 @@ local record Prompt
     --- The cosmic.* modules a snippet may require, a line each, which the prompt lists where run is offered;
     --- [`Host.modules`]' from this binary's docs where nil, "" for none.
     modules?: string
+    --- What a snippet loads code from, as the agent's `modules` ([`Worker.Options`]); [`Worker.MODULES`] where nil.
+    --- Without `cosmic` the prompt lists no `cosmic.*` module; with `.` it says a snippet may require the working
+    --- directory's own.
+    loads?: {string}
   end
 end
 
@@ -111,8 +115,14 @@ function Prompt.build(cwd: string, contexts: {Prompt.Context}, options?: Prompt.
     end
   end
   local run = Tools.find(for_model, "run") ~= nil
+  local given = if options ~= nil then options.loads else nil end
+  local loads = given or require("cosmic.agent.worker").MODULES
+  local cosmic, tree = false, false
+  for _, word in ipairs(loads) do
+    if word == "cosmic" then cosmic = true elseif word == "." then tree = true end
+  end
   local modules: string? = nil
-  if run then
+  if run and cosmic then
     -- Read only where run is offered: the docs take a few tens of milliseconds to list.
     if options ~= nil and options.modules ~= nil then
       modules = options.modules
@@ -130,6 +140,8 @@ function Prompt.build(cwd: string, contexts: {Prompt.Context}, options?: Prompt.
     code_tools = if #for_code > 0 and run then for_code else nil end,
     commands = run and options ~= nil and options.commands == true,
     run = run,
+    tree = run and tree,
+    cosmic = cosmic,
     instructions = if #instructions > 0 then instructions else nil end,
     modules = modules,
   })

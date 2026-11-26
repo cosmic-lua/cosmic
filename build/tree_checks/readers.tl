@@ -509,12 +509,20 @@ local text_read_allowed <const>: {string:string} = {
   ["build.perf"] = "a standalone script a release program runs; its SQL is the argument of a `cosmic sql` it starts and times against a project's own store, not a read of the store a test is given, and it cannot require a module of the tree it benchmarks",
   ["build.writer"] = "writes the projection from the working database it is handed, whose tables a test's store never holds",
   ["cosmic.internal.symbols"] = "words a hint of a refusal from the docs and examples of the databases it is handed; in a pure store those tables are absent and it raises ([`cosmic.internal.symbols`]'s `refuse_withheld`)",
-  ["cosmic.doc"] = "answers a caller from the docs, uses, links and examples of the databases it is handed; in a pure store those tables are absent and it raises, naming `store_lookups`; a standard-library module, which cannot require a module of the build",
+  ["cosmic.doc"] = "with its parts in cosmic/doc/, answers a caller from the docs, uses, links and examples of the databases it is handed; in a pure store those tables are absent and it raises, naming `store_lookups`; a standard-library module, which cannot require a module of the build",
   ["cosmic.errors"] = "asks the catalog for the guidance on an error; a pure store has no catalog and the lookup raises there ([`Errors.guidance_in`]); a standard-library module, which cannot require a module of the build",
 }
 
 -- TODO: see a table named at run time (`"FROM " .. name`), which a scan of literals cannot, once the checker tells
 -- the value a string expression holds.
+
+--- Whether `excused` names `path`, or the module whose directory holds it: cosmic.doc.search, a part in
+--- cosmic/doc/ beside cosmic.doc's init.tl, reads as cosmic.doc does and is excused with it. One level only, so a
+--- module further down says why on its own.
+local function excused_by(excused: {string:string}, path: string): boolean
+  local parent = path:match("^(.*)%.[^.]*$")
+  return excused[path] ~= nil or (parent ~= nil and excused[parent] ~= nil)
+end
 
 --- Each module of `db` that is no test and reads module text without declaring it, as `<module> reads text (<how>) and
 --- requires none of build.reads.*`.
@@ -555,7 +563,7 @@ function tree_readers.text_readers(db: Build, excusing?: {string:string}): {stri
   end
   local out: mut {string} = {}
   for path, symbol in pairs(how) do
-    local declared = CodeWalk.markers[path] ~= nil or excused[path] ~= nil
+    local declared = CodeWalk.markers[path] ~= nil or excused_by(excused, path)
     for _, row in ipairs(imported) do
       local required = row:text(2)
       -- A `local type` require is erased, and a test's closure leaves the edge out.
