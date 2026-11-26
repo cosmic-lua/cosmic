@@ -1009,6 +1009,9 @@ local function test_json_leaves_nothing_whenever_an_allocation_fails()
     assert(assert(Json.encode_any(wide, { pretty = true })):sub(1, 1) == "{")
     local picked, pick_trouble = Json.decode(text, { only = { { "a", "c" }, { "b", 3 } } })
     assert(picked ~= nil, pick_trouble)
+    local rows, rows_trouble = Json.decode_lines(text .. "\n\n" .. text .. '\n["\\ud83d"]\n' .. text,
+      { lone_surrogates = true, only = { { "b", 3 } } })
+    assert(rows ~= nil and #rows == 4, rows_trouble)
     local lone_value, lone_trouble = Json.decode('["\\ud83d"]', { lone_surrogates = true })
     assert(lone_value ~= nil, lone_trouble)
     local lone = lone_value as {string} -- checked: cast_refused
