@@ -2,7 +2,7 @@
 --- [`cosmic.fake`] main under each sandbox the test checks. Its first
 --- argument names the case and the rest are that case's words.
 
-local Steps = require("build.fake_steps")
+local Steps = require("cosmic.fake.steps")
 
 local int = Steps.int
 
