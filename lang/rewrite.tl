@@ -64,6 +64,23 @@ function Rewrite.apply(text: string, edits: {Rewrite.Edit}): Rewrite.Applied
   return { text = table.concat(parts), made = made }
 end
 
+--- `text` with the rewrites `edits_of` finds in it made, round after round, until it finds none or `most` rounds are
+--- made: a checker tells one error of an expression at a time (the right operand of `a > b` once the left is put
+--- right), so the text a round makes is checked again. What each round made is in the order of the rounds.
+function Rewrite.rounds(text: string, edits_of: function(text: string): {Rewrite.Edit}, most: integer): Rewrite.Applied
+  local made: mut {Rewrite.Made} = {}
+  local now = text
+  for _ = 1, most do
+    local edits = edits_of(now)
+    if #edits == 0 then break end
+    local applied = Rewrite.apply(now, edits)
+    if applied.text == now then break end
+    for _, m in ipairs(applied.made) do made[#made + 1] = m end
+    now = applied.text
+  end
+  return { text = now, made = made }
+end
+
 --- What `made` changed in the file `file`, a line for each: `file:y:x: code: `was` -> `now``.
 function Rewrite.told(file: string, made: {Rewrite.Made}): {string}
   local out: mut {string} = {}
