@@ -49,7 +49,7 @@ return function(argv: {string}): integer
     },
   }
   local ok, why = Web.serve(app, { tailnet = { via = "funnel", client = ts, caps = { "example.com/cap/admin" } } })
-  print("served " .. tostring(ok) .. " " .. why)
+  print("served " .. tostring(ok) .. " " .. (if ok then "" else tostring(why) end))
   return 0
 end
 ]]

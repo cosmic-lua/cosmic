@@ -170,7 +170,7 @@ return function(argv: {string}): integer
     end,
   }
   if not ok then
-    local _, _ = Fs.put(Fs.stderr, why)
+    local _, _ = Fs.put(Fs.stderr, tostring(why))
     return 1
   end
   return 0

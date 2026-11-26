@@ -148,7 +148,7 @@ local function test_a_source_that_fails_fails_the_serve()
     handle = settled,
     on_ready = function(_: {Net.Address}, server: Net.Server) server:stop() end,
   }
-  assert(not ok and why == "no certificate yet", why)
+  assert(not ok and tostring(why) == "no certificate yet", tostring(why))
 end
 
 --- [`Web.serve`] with `tls` serves the app over HTTPS, and a request's

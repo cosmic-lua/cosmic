@@ -25,7 +25,7 @@ Test.policy{ loopback = { "127.0.0.1" } }
 local function test_a_handler_that_answers_nothing_is_a_500_the_server_declares()
   local answered: string = ""
   local found = TypeWatch.during(function()
-    Server.serve({
+    local _, _ = Server.serve({
       listeners = { Net.tcp("127.0.0.1", 0) },
       handle = function(_req: Server.Request): Server.Reply
         -- The handler's lie, which the server must survive: its own
