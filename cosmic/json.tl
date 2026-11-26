@@ -279,12 +279,7 @@ local record Json
   end
 
   --- How a Lua table encodes: see [`Json.layout`].
-  enum TableLayout
-    "array"
-    "object"
-    "hole"
-    "mixed"
-  end
+  type TableLayout = raw.TableLayout
 
   --- What a walk over a table visits: see [`Json.members`].
   record Members
@@ -949,10 +944,12 @@ function Json.with_holes<T>(items: {integer: T}): {integer: T}?, string
 end
 
 --- Classifies `t` as [`Json.layout`] says and, when `members` is true,
---- lists them as [`Json.members`] says; else the keys are empty and the
---- extent 0, and a marked array is classified with no scan of it.
---- `gaps` asks for a marked array's integer keys when it has a gap.
-local function classify(t: {any:any}, members: boolean, gaps: boolean): Json.TableLayout, {string | integer}, integer -- declared: key_type
+--- lists them as [`Json.members`] says, by the walk `pairs` makes of it,
+--- for a table with a `__pairs` that the core's raw scan leaves to it;
+--- else the keys are empty and the extent 0, and a marked array is
+--- classified with no scan of it. `gaps` asks for a marked array's
+--- integer keys when it has a gap.
+local function classify_by_pairs(t: {any:any}, members: boolean, gaps: boolean): Json.TableLayout, {string | integer}, integer -- declared: key_type
   if raw.is_array(t) then
     local extent = 0
     local keys: mut {string | integer} = {}
@@ -1015,7 +1012,8 @@ end
 ---     assert(Json.layout({ [1] = 1, [3] = 3 }) == "hole")
 ---     assert(Json.layout({ 1, a = 2 }) == "mixed")
 function Json.layout(t: {any:any}): Json.TableLayout -- declared: key_type
-  local layout = classify(t, false, false)
+  local layout = raw.classify(t)
+  if layout == nil then layout = classify_by_pairs(t, false, false) end
   return layout
 end
 
@@ -1030,7 +1028,8 @@ end
 --- find that extent and to report "mixed" for one that holds a key
 --- other than a positive integer.
 function Json.members(t: {any:any}, gaps?: boolean): Json.Members -- declared: key_type
-  local layout, keys, extent = classify(t, true, gaps == true)
+  local layout, keys, extent = raw.classify(t, true, gaps == true)
+  if layout == nil then layout, keys, extent = classify_by_pairs(t, true, gaps == true) end
   return { layout = layout, keys = keys, extent = extent }
 end
 

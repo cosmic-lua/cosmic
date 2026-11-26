@@ -107,6 +107,22 @@ local record json
   with_holes: function<T>(t: {integer: T}, holey: boolean): {integer: T}
   -- Whether `v` is a table carrying either array mark.
   is_array: function(v: any): boolean
+  -- How a table encodes: see cosmic/json.tl's [`Json.layout`].
+  enum TableLayout
+    "array"
+    "object"
+    "hole"
+    "mixed"
+  end
+  -- How the table `t` encodes, by the rules `encode` applies, by a raw
+  -- scan; a marked array is not scanned. nil for an unmarked table
+  -- with a `__pairs`, which the caller classifies by that walk.
+  classify: function<K is Key, V>(t: {K: V}): TableLayout?
+  -- The same, with the keys and the extent cosmic/json.tl's
+  -- [`Json.members`] names: a marked array is scanned, and `gaps` asks
+  -- for its integer keys when it has a gap. The keys are a new table;
+  -- empty, and the extent 0, when the layout is nil.
+  classify: function<K is Key, V>(t: {K: V}, members: boolean, gaps: boolean): TableLayout?, {string | integer}, integer
   -- The stand-in for JSON `null`: a userdata that encodes as `null`.
   null: Null
   -- How many arrays and objects may nest when the caller names no
