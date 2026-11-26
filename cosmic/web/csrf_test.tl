@@ -24,15 +24,15 @@ local function memory_store(): Session.Store
   local count: integer = 0
   local store: Session.Store = {
     revocable = true,
-    load = function(_self: Session.Store, token: string, now: integer, _cookie: string): Session.Data?, string
+    load = function(_self: Session.Store, token: string, now: integer, _cookie: string): (Session.Data | false) | (nil, Failure)
       local row = rows[token]
-      if row == nil or row.expires <= now then return nil, "" end
+      if row == nil or row.expires <= now then return false end
       local values: mut {string: Json.Value} = {}
       for k, v in pairs(row.values) do values[k] = v end
-      return { values = values, created = row.created, expires = row.expires }, ""
+      return { values = values, created = row.created, expires = row.expires }
     end,
     save = function(_self: Session.Store, previous: string, data: Session.Data, changes: Session.Changes,
-                    _now: integer, _cookie: string): string?, string
+                    _now: integer, _cookie: string): (string) | (nil, Failure)
       local id = previous
       if id == "" or changes.regenerated == true then
         count = count + 1
@@ -42,11 +42,11 @@ local function memory_store(): Session.Store
       local values: mut {string: Json.Value} = {}
       for k, v in pairs(data.values) do values[k] = v end
       rows[id] = { values = values, created = data.created, expires = data.expires }
-      return id, ""
+      return id
     end,
-    destroy = function(_self: Session.Store, token: string): boolean, string
+    destroy = function(_self: Session.Store, token: string): (true) | (false, Failure)
       rows[token] = nil
-      return true, ""
+      return true
     end,
   }
   return store
