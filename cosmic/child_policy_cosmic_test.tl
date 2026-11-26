@@ -111,8 +111,8 @@ local function test_a_policy_may_build_the_tree_around_the_file(tmp: string)
   searchable.share(work .. "/helper.tl")
   local home = assert(Fs.absolute(tmp)) .. "/builds"
   assert(Fs.mkdirs(home))
-  local built = ran({ work .. "/run.tl", "beside" }, { set_env = {
-    COSMIC_STANDALONE = "0", COSMIC_BUILD_HOME = home }, grants = {
+  local built = ran({ work .. "/run.tl", "beside" }, { setup = { set_env = {
+    COSMIC_STANDALONE = "0", COSMIC_BUILD_HOME = home } }, grants = {
       { path = work, letters = "rwc" }, { path = home, letters = "rwc" } } }, work)
   assert(built.code == 0 and built.stdout == "from beside\n", tostring(built.code) .. ": " ..
       tostring(built.stdout) .. tostring(built.stderr))
@@ -171,7 +171,7 @@ local function test_a_cosmic_child_under_isolate_file_cannot_run_its_own_core_ag
     'print("proc: " .. tostring(status ~= nil))',
   }, "\n") .. "\n")
   local held = ran({ work .. "/run.tl" },
-    { isolate = { "file" }, tmp = true, grants = { { path = work, letters = "r" }, { calls = "fork" } } }, work)
+    { isolate = { "file" }, setup = { tmp = true }, grants = { { path = work, letters = "r" }, { calls = "fork" } } }, work)
   local out = held.stdout or ""
   local _, refusals = out:gsub("refused: [^\n]*not permitted", "")
   assert(held.code == 0 and refusals == 2, tostring(held.code) .. ": " .. out .. tostring(held.stderr))

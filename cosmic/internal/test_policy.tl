@@ -41,8 +41,8 @@ local record test_policy
   end
 
   --- What the tests of one module are held to: the fields of
-  --- [`cosmic.sandbox`]'s [`Policy`], which a test module writes in place
-  --- of [`Test.Needs`]. Every field is optional. This module cannot require
+  --- [`cosmic.sandbox`]'s [`Policy`] but `setup`, which the harness
+  --- chooses, written by a test module in place of [`Test.Needs`]. Every field is optional. This module cannot require
   --- cosmic.sandbox -- every worker would load it -- so the record is
   --- written out here, and a test holds it to the same fields.
   record Policy
@@ -60,23 +60,8 @@ local record test_policy
     mut loopback?: {string}
     --- The variables passed through: `env` of [`Test.Needs`].
     mut env?: {string}
-    --- The variables set, by name. Not yet taken.
-    mut set_env?: {string:string}
-    --- Digests of values set. Refused: a digest holds no value to set.
-    mut set_env_digests?: {string:string}
-    --- Whether the tests have a temporary directory of their own, as
-    --- every test has: `false` is not yet taken.
-    mut tmp?: boolean
     --- The resources the tests may spend. Not yet taken.
     mut limits?: Limits
-    --- The user the tests run as. Refused: the harness chooses a worker's.
-    mut user?: integer
-    --- The group the tests run as. Refused, as `user` is.
-    mut group?: integer
-    --- The database the tests' program runs on. Refused: the harness
-    --- chooses it (a sealed one of the closure, or the program's whole for
-    --- `store` and `tool`).
-    mut database?: string
     --- What the tests need of the host that no other field says, by name
     --- from a closed table: `portable`, `root`, `unix_socket` (Unix stream
     --- socket creation), `loopback` (a TCP listener and a UDP socket bound
@@ -133,15 +118,18 @@ local record test_policy
 end
 
 --- The fields of [`Policy`] and what each takes: a list of strings
---- ("list"), a table of names to strings ("map"), a boolean ("flag"), a
---- list of grants ("grants"), the limits ("limits"), an integer ("id"), whole
---- seconds ("seconds") or a path ("string").
+--- ("list"), a boolean ("flag"), a list of grants ("grants"), the limits
+--- ("limits") or whole seconds ("seconds").
 local KINDS <const>: {string:string} = {
   profiles = "list", grants = "grants", isolate = "list",
-  loopback = "list", env = "list", set_env = "map",
-  set_env_digests = "map", tmp = "flag", limits = "limits", user = "id", group = "id",
-  database = "string", requires = "list", timeout = "seconds", cpu_features = "flag",
-  store_text = "flag",
+  loopback = "list", env = "list", limits = "limits",
+  requires = "list", timeout = "seconds", cpu_features = "flag", store_text = "flag",
+}
+
+--- The fields of [`cosmic.sandbox`]'s [`Policy`] a test does not declare:
+--- its `setup`, and what that holds.
+local SETUP <const>: {string:boolean} = {
+  setup = true, set_env = true, set_env_digests = true, tmp = true, user = true, group = true, database = true,
 }
 
 local names: mut {string} = {}
@@ -167,6 +155,10 @@ function test_policy.no_field(name: string): string
   if name == "connect" then
     return "has no field connect: a host is a grant now, `{ connect = \"host:port\" }`, which a test is refused " ..
       "(no test reaches a host but loopback)"
+  end
+  if SETUP[name] == true then
+    return "has no field " .. name .. ": what a worker's start sets up (its variables, its temporary " ..
+      "directory, its user and group, the database it runs on) is the harness's to choose"
   end
   return "has no field " .. name .. "; it has " .. NAMES
 end
@@ -243,9 +235,9 @@ local PROMISES <const>: {string:boolean} = { nest = true, fork = true, jit = tru
 --- o/bin, `tool`), the system (profile "system"), /proc (profile
 --- "proc", in `host`) and nesting (the grant `{ calls = "nest" }`). What it cannot say is
 --- refused rather than accepted as a declaration that moves no key:
---- `isolate`, `set_env`, `limits`, a grant of more than "r" or from
---- another path, `tmp = false`. A `connect` grant, `set_env_digests`, `database`,
---- `user` and `group` are refused outright. `cache_fault`, where given,
+--- `isolate`, `limits`, and a grant of more than "r" or from another path.
+--- A `connect` grant is refused outright, and a field of the sandbox's
+--- `setup` is no field here. `cache_fault`, where given,
 --- says why a cache's name is none (the build knows the names; a worker
 --- does not), or "".
 --- @param policy Policy The policy
@@ -329,26 +321,6 @@ function test_policy.declared(policy: test_policy.Policy,
   if limits ~= nil and (limits.open_files ~= nil or limits.file_bytes ~= nil or
       limits.cpu_seconds ~= nil or limits.processes ~= nil) then
     return nil, "limits " .. NOT_YET
-  end
-  if next(policy.set_env or {}) ~= nil then return nil, "set_env " .. NOT_YET end
-  if next(policy.set_env_digests or {}) ~= nil then
-    return nil, "set_env_digests is refused: a digest holds no value to set; " ..
-      "a test names the value in set_env"
-  end
-  -- A module's own `database` is a limit decided for good: no test needs
-  -- one, and the only coherent meaning is an overlay on the sealed database
-  -- the harness gives every worker, which the core's `--database` cannot
-  -- layer (doc/roadmap.md holds the shape, should one be wanted).
-  if policy.database ~= nil then
-    return nil, "database is refused: the harness chooses the database a worker runs on " ..
-      "(a sealed one of its closure, or the whole program's for `store` and `tool`)"
-  end
-  if policy.tmp == false then
-    return nil, "tmp = false " .. NOT_YET .. "; every test has a temporary directory today"
-  end
-  if policy.user ~= nil or policy.group ~= nil then
-    return nil, (if policy.user ~= nil then "user" else "group" end) .. " is refused: the harness " ..
-      "chooses the user a worker runs as"
   end
   for _, name in ipairs(policy.env or {}) do
     if name == "*" then

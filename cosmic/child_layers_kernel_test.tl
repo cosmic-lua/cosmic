@@ -180,8 +180,8 @@ local function test_layers_with_different_setup_are_refused(tmp: string)
   local base = assert(Fs.absolute(searchable.open(tmp)))
   local result, why = Child.run({ (assert(Proc.executable())), "-e", "return 0" },
     { timeout_ns = Child.FOREVER, cwd = base,
-      policy = { grants = { { path = base, letters = "r" } }, set_env = { A = "1" } },
-      layers = { { grants = { { path = base, letters = "r" } }, set_env = { A = "2" } } } })
+      policy = { grants = { { path = base, letters = "r" } }, setup = { set_env = { A = "1" } } },
+      layers = { { grants = { { path = base, letters = "r" } }, setup = { set_env = { A = "2" } } } } })
   assert(result == nil and why.message:find("layers", 1, true) ~= nil, tostring(why))
 end
 

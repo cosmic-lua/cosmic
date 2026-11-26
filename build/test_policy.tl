@@ -176,7 +176,7 @@ function test_policy.worker(plan: test_sandbox.Plan, effective: test_inputs.Effe
   -- directory in the sandbox's own /tmp, which `tmp` makes, granted
   -- `rwxc` as the host's directory is: its test may run what it writes.
   if plan.own_scratch then
-    policy.tmp = true -- checked: field_fixed
+    policy.setup = { tmp = true } -- checked: field_fixed
     grants[#grants + 1] = { path = "/tmp", letters = "rwxc" }
   end
   policy.grants = grants -- checked: field_fixed

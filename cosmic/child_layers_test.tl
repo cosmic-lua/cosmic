@@ -114,7 +114,7 @@ end
 local function test_tmp_is_granted_where_the_start_grants_it(tmp: string)
   skip_on_macos()
   local own = assert(Proc.executable())
-  local made = layers_of({ own, "print hi" }, { tmp = true, grants = { { path = tmp, letters = "r" } } })
+  local made = layers_of({ own, "print hi" }, { setup = { tmp = true }, grants = { { path = tmp, letters = "r" } } })
   local function written(paths: {Sandbox.Path}): boolean
     for _, grant in ipairs(paths) do
       if grant.letters == "rwc" and grant.path:find("TMPDIR", 1, true) ~= nil then return true end
@@ -122,7 +122,7 @@ local function test_tmp_is_granted_where_the_start_grants_it(tmp: string)
     return false
   end
   assert(written(made.landlock) and written(made.boot), "the directory tmp makes is not granted")
-  local rooted = layers_of({ own, "print hi" }, { isolate = { "file" }, tmp = true,
+  local rooted = layers_of({ own, "print hi" }, { isolate = { "file" }, setup = { tmp = true },
     grants = { { path = tmp, letters = "r" }, { path = "/tmp", letters = "rwxc" } } }, "/")
   assert(holds(rooted.landlock, "/tmp", "rwxc") and holds(rooted.landlock, "/proc", "r"))
 end
