@@ -45,6 +45,7 @@
 --- error as `cosmic: acme: ...`. Its `spec` (build/verb_spec.tl) is
 --- `bare`.
 
+local Failure = require("cosmic.failure")
 local Acme = require("cosmic.acme")
 local Child = require("cosmic.child")
 local Verb = require("cosmic.cli.acme")
@@ -85,7 +86,7 @@ local record verb
     --- Sends a request to the ACME server: [`Http.request`].
     request: Acme.Request
     --- Pauses between polls, for nanoseconds: [`Clock.sleep`] when nil.
-    pause?: function(ns: integer): boolean, string
+    pause?: function(ns: integer): (true) | (false, Failure)
   end
 end
 
@@ -284,7 +285,7 @@ local function issue(to: verb.Io, complain: function(line: string), parsed: Flag
     return bare.refused
   end
   local request, invalid = Acme.csr(key, names)
-  if request == nil then return refuse((invalid:gsub("^acme: ", ""))) end
+  if request == nil then return refuse((tostring(invalid):gsub("^acme: ", ""))) end
   local client = Acme.client({
     directory = directory or (if staging then Acme.LETS_ENCRYPT_STAGING else Acme.LETS_ENCRYPT end),
     key = account_key,
@@ -292,8 +293,9 @@ local function issue(to: verb.Io, complain: function(line: string), parsed: Flag
     pause = to.pause,
   })
   local agreed = parsed.set["--agree-tos"] == true
-  local made, why = client:account({ contact = parsed.all["--contact"], terms_agreed = agreed })
+  local made, refusal = client:account({ contact = parsed.all["--contact"], terms_agreed = agreed })
   if made == nil then
+    local why = tostring(refusal)
     local listed, _ = client:directory()
     local terms = if listed == nil then nil else listed["terms"] end
     if not agreed and terms ~= nil then
@@ -302,16 +304,18 @@ local function issue(to: verb.Io, complain: function(line: string), parsed: Flag
     complain((why:gsub("^acme: ", "")))
     return bare.failed
   end
-  local present: function(c: Acme.Challenge): boolean, string
+  local present: function(c: Acme.Challenge): (true) | (false, Failure)
   local cleanup: function(c: Acme.Challenge)
   local challenge: Acme.ChallengeType = "http-01"
   if webroot ~= nil then
-    present = function(c: Acme.Challenge): boolean, string
+    present = function(c: Acme.Challenge): (true) | (false, Failure)
       local path = webroot .. c.path
       local dir = path:match("^(.*)/[^/]*$") or webroot
       local ok, trouble = to.mkdirs(dir)
-      if not ok then return false, trouble end
-      return to.write(path, c.key_authorization, READABLE)
+      if not ok then return false, Failure.new(trouble) end
+      local written, write_trouble = to.write(path, c.key_authorization, READABLE)
+      if not written then return false, Failure.new(write_trouble) end
+      return true
     end
     cleanup = function(c: Acme.Challenge)
       local _, _ = to.remove(webroot .. c.path)
@@ -319,8 +323,10 @@ local function issue(to: verb.Io, complain: function(line: string), parsed: Flag
   else
     local program = assert(hook)
     challenge = "dns-01"
-    present = function(c: Acme.Challenge): boolean, string
-      return to.run({ program, "present", c.dns_name, c.dns_value })
+    present = function(c: Acme.Challenge): (true) | (false, Failure)
+      local ran, trouble = to.run({ program, "present", c.dns_name, c.dns_value })
+      if not ran then return false, Failure.new(trouble) end
+      return true
     end
     cleanup = function(c: Acme.Challenge)
       local _, _ = to.run({ program, "cleanup", c.dns_name, c.dns_value })
@@ -330,7 +336,7 @@ local function issue(to: verb.Io, complain: function(line: string), parsed: Flag
     key = key, challenge = challenge, present = present, cleanup = cleanup,
   })
   if chain == nil then
-    complain((trouble:gsub("^acme: ", "")))
+    complain((tostring(trouble):gsub("^acme: ", "")))
     return bare.failed
   end
   if out == nil then return bare.written(complain, to.out(chain)) end
