@@ -20,14 +20,14 @@ request, the checks a change needs, the pin), [`doc/testing.md`] (tests),
   `bin/cosmic test build/workflows_test.tl`. A script longer than a line or
   two lives under `.github/scripts/`; a job gets the pinned CI driver with
   `uses: ./.github/actions/cosmic-driver`.
-- `ci/` is a tree of its own: after editing it, run `../bin/cosmic fix
-  --check` and `../bin/cosmic-bootstrap fix --check .` (the pinned
-  release's older checker, COSMIC_BOOTSTRAP unset) from `ci/`.
-- A change to a module that a file of [`ci/bootstrap-files.txt`] requires,
-  or to one of those files: run `../bin/cosmic-bootstrap
-  cosmic_ci/driver.tl check-islands` from `ci/` (COSMIC_BOOTSTRAP unset).
-  Only it type-checks them on the pinned release; pull request CI fails
-  on it.
+- `ci/` is a tree of its own, run by this tool and by the pinned release.
+  `bin/cosmic fix --check .` (and `--changed`) at the root checks it with
+  both, as CI does ([`build/fix/ci_project.tl`]): a stdlib change can break
+  it without editing it. To check `ci/` alone, run `../bin/cosmic fix
+  --check` and `../bin/cosmic-bootstrap cosmic_ci/driver.tl check-islands`
+  (COSMIC_BOOTSTRAP unset) from `ci/`. Its tests run on the pinned release,
+  as the queue runs them: `../bin/cosmic-bootstrap test cosmic_ci` from
+  `ci/` (about 80 s). `fixtures/` runs only under the CI driver.
 - Run the tool only as [`bin/cosmic`], from any directory; never by its
   path in the build directory. Where there is no tool, it boots first
   (`COSMIC_AUTO_BOOT=0`, which CI sets, refuses, exit 3). A moved or copied checkout is
@@ -115,10 +115,10 @@ change that moves the pin takes up the TODOs it unblocks: `bin/cosmic todos
 [`bin/vendor`]: bin/vendor
 [`bin/verify-codesign`]: bin/verify-codesign
 [`bin/zig`]: bin/zig
+[`build/fix/ci_project.tl`]: build/fix/ci_project.tl
 [`build/flow.tl`]: build/flow.tl
 [`build/paths.tl`]: build/paths.tl
 [`build/tree_checks/`]: build/tree_checks/init.tl
-[`ci/bootstrap-files.txt`]: ci/bootstrap-files.txt
 [`ci/cosmic-driver.pin`]: ci/cosmic-driver.pin
 [`doc/c.md`]: doc/c.md
 [`doc/contributing.md`]: doc/contributing.md

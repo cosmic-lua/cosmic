@@ -926,13 +926,13 @@ local function test_the_format_check_runs_unless_the_leg_skips_it(tmp: string)
     assert((ran ~= nil) == case.ran, case.name .. ": the check ran: " .. tostring(ran))
     if case.ran then assert(ran == "fix --check .", ran) end
     local got, _ = Fs.read(fake .. "/o/bin/cosmic.ci")
-    assert(got == nil, case.name .. ": ci/ was checked after a tree that failed")
+    assert(got == nil, case.name .. ": ci/ was checked apart from the tree's check")
   end
 end
 
---- `ci/` is checked as a project of its own after the tree: the same tool, `fix --check` with `ci/` as the working
---- directory, and its refusal fails the phase though the tree's check passed.
-local function test_the_format_check_checks_ci_from_its_own_directory(tmp: string)
+--- `ci/` is not checked apart: the tree's `fix --check` checks it (build/fix/ci_project.tl), so a passing tree check
+--- passes the phase with no run of the tool in `ci/`.
+local function test_the_format_check_leaves_ci_to_the_trees_check(tmp: string)
   local base, project = command(tmp)
   local fake = tmp .. "/format-ci"
   local runner_temp = fake .. "-runner-temp"
@@ -943,9 +943,10 @@ local function test_the_format_check_checks_ci_from_its_own_directory(tmp: strin
   Fixture.write(fake .. "/o/bin/cosmic", FAKE_TOOL .. 'case "$PWD" in */ci) exit 9;; esac\nexit 0\n', 493)
   local outcome = Fixture.call("format-ci", append(base, { "platform", "format" }), project, tmp .. "/logs",
     context(fake, runner_temp, { TARGET = "x86_64-linux-musl", COSMIC_CI_FORMAT = "run" }))
-  assert(not outcome.result.ok, "the format phase passed though ci/ failed its own check")
+  assert(outcome.result.ok, "the format phase failed though the tree's check passed")
   assert(assert(Fs.read(fake .. "/o/bin/cosmic.ran")) == "fix --check .")
-  assert(assert(Fs.read(fake .. "/o/bin/cosmic.ci")) == "fix --check")
+  local got, _ = Fs.read(fake .. "/o/bin/cosmic.ci")
+  assert(got == nil, "ci/ was checked apart: " .. tostring(got))
 end
 
 --- The format check keeps a native suite's boundary: where the suite
@@ -2253,7 +2254,8 @@ local function test_the_format_check_lays_out_only_the_paths_changed(tmp: string
     assert(outcome.result.ok, assert(case["name"]) .. ": the format phase failed")
     local ran, _ = Fs.read(fake .. "/o/bin/cosmic.ran")
     assert(ran == case["ran"], assert(case["name"]) .. ": the check ran " .. tostring(ran))
-    assert(assert(Fs.read(fake .. "/o/bin/cosmic.ci")) == "fix --check", assert(case["name"]) .. ": ci/ was not checked as its own project")
+    local apart, _ = Fs.read(fake .. "/o/bin/cosmic.ci")
+    assert(apart == nil, assert(case["name"]) .. ": ci/ was checked apart from the tree's check")
   end
 end
 

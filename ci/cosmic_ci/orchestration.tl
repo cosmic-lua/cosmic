@@ -1782,15 +1782,11 @@ local function format_command(root: string): {string}
   command[#command + 1] = "--changed"
   command[#command + 1] = "--"
   for line in text:gmatch("[^\n]+") do
-    -- `ci/` is checked as the project it is ([`ci_command`]), which the tree's run refuses a path of.
+    -- The tree's run refuses a path of `ci/`, which it checks as the project it is, with the tree's tool and the pinned
+    -- release (build/fix/ci_project.tl).
     if line ~= "ci" and not String.starts_with(line, "ci/") then command[#command + 1] = line end
   end
   return command
-end
-
---- The check of `ci/` as a project of its own: `fix --check` of the tree's tool, run with `ci/` as the working directory.
-local function ci_command(root: string): {string}
-  return { BuildPaths.directory(root) .. "/bin/cosmic", "fix", "--check" }
 end
 
 --- The tree's format check (`fix --check .`, which also builds and
@@ -1812,9 +1808,7 @@ local function format_check(p: PlatformContext): integer
         "(COSMIC_CI_FORMAT=skip)\n")
     return 0
   end
-  local status = checked(p.operation, "format check", format_command(p.root))
-  if status ~= 0 then return status end
-  return checked(p.operation, "ci check", ci_command(p.root), nil, p.root .. "/ci")
+  return checked(p.operation, "format check", format_command(p.root))
 end
 
 local function phase_assemble(p: PlatformContext): integer
