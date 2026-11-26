@@ -47,6 +47,7 @@
 --- ([`Seatbelt.compile`]); the module that writes it, [`cosmic.sandbox.seatbelt`],
 --- is required by its own name.
 
+local Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local rules = require("cosmic.sandbox.policy")
@@ -141,8 +142,8 @@ end
 
 --- What a function returns for a failure of this module: nil and `why`
 --- under its name.
-local function refuse(why: string): nil, string
-  return nil, "sandbox: " .. why
+local function refuse(why: string): nil, Failure
+  return nil, Failure.new("sandbox: " .. why)
 end
 
 --- Whether the values of `p` are ones a policy may hold: `true`, or
@@ -153,6 +154,9 @@ end
 --- ".." in a path. With `exact`, a grant's `letters` must also be in the
 --- order of "rwxcu", each once, as the text [`PolicyJson.decode`] reads is;
 --- [`Sandbox.union`] takes any order and writes this one.
+---
+--- A verdict, not a failure: the reason says why a policy is not valid, as
+--- text, so `false` here is an answer and not an error.
 ---
 ---     local ok, why = Sandbox.check({ grants = { { path = "x", letters = "xr" } } }, true)
 ---     print(ok, why) -- false  sandbox: $.grants[0].letters: "xr" is not in the order of "rwxcu", each letter once: "rx"
@@ -234,25 +238,25 @@ end
 --- names it reads the same on both. That is every process's entries
 --- there, not this one's alone; `isolate` "proc" is the other thing, a
 --- /proc of the sandbox's own.
---- Nil and why for a name it has not, or one this host cannot give.
+--- Nil and a Failure for a name it has not, or one this host cannot give.
 ---
 ---     local system = assert(Sandbox.profile("system"))
 ---     print(system.grants[1].path, system.grants[1].letters) -- /usr  r (Linux and macOS)
 ---     local proc = assert(Sandbox.profile("proc"))
 ---     print(proc.grants and proc.grants[1].path) -- /proc (nil on macOS)
-function Sandbox.profile(name: string): Sandbox.Policy?, string
+function Sandbox.profile(name: string): (Sandbox.Policy) | (nil, Failure)
   return rules.profile(name)
 end
 
 --- The database at `path` with the SHA-256 of its bytes, taken now: a
 --- [`Sandbox.Database`] that [`Child.start`] runs a program on only while
---- the file hashes to that. Nil and why where the file cannot be read. A
+--- the file hashes to that. Nil and a Failure where the file cannot be read. A
 --- database named by its path alone (`{ path = ... }`) is held to no
 --- digest; this is where a path acquires one.
 ---
 ---     local db = assert(Sandbox.database("/etc/hostname"))
 ---     print(#db.sha256) -- 64
-function Sandbox.database(path: string): Sandbox.Database?, string
+function Sandbox.database(path: string): (Sandbox.Database) | (nil, Failure)
   return rules.database(path)
 end
 
@@ -279,7 +283,7 @@ end
 ---     local b = { grants = { { path = "/srv", letters = "r" }, { calls = "fork" }, { calls = "jit" } } }
 ---     local merged = assert(Sandbox.union(a, b))
 ---     print(Sandbox.paths(merged)[1].letters, table.concat(Sandbox.calls(merged), ",")) -- rx  fork,jit
-function Sandbox.union(...: Sandbox.Policy): Sandbox.Policy?, string
+function Sandbox.union(...: Sandbox.Policy): (Sandbox.Policy) | (nil, Failure)
   return rules.merge(...)
 end
 
@@ -296,7 +300,7 @@ end
 --- right, which the start sets up, joins as a union joins it: `set_env`,
 --- and one `user`, `group` and `database`, refused where layers
 --- disagree. A grant with `from` meets only a grant of its own path and
---- source. Nil and why for no layer, or one [`Sandbox.union`] refuses.
+--- source. Nil and a Failure for no layer, or one [`Sandbox.union`] refuses.
 ---
 --- Paths are met as written, cleaned, while the kernel meets the files
 --- they name: a link (`/lib` to `/usr/lib`) or a relative path read from
@@ -309,7 +313,7 @@ end
 ---     local both = assert(Sandbox.intersect(a, b))
 ---     local path = Sandbox.paths(both)[1]
 ---     print(path.path, path.letters, Sandbox.connects(both)[1]) -- /srv/data  r  api.github.com:443
-function Sandbox.intersect(...: Sandbox.Policy): Sandbox.Policy?, string
+function Sandbox.intersect(...: Sandbox.Policy): (Sandbox.Policy) | (nil, Failure)
   return rules.intersect(...)
 end
 
@@ -326,24 +330,28 @@ end
 --- "rwxcu", or none, are refused. A second layer for code that runs in a
 --- process no kernel layer holds, never the only one.
 ---
+--- A verdict, not a failure: `false` and why is the answer "no", not an error.
+---
 ---     local p = { grants = { { path = "/srv", letters = "rw" } } }
 ---     print((Sandbox.allows(p, "/srv/a/b", "r")), (Sandbox.allows(p, "/etc", "r"))) -- true  false
 function Sandbox.allows(policy: Sandbox.Policy, path: string, letters: string): boolean, string
   local merged, why = rules.merge(policy)
-  if merged == nil then return false, why end
+  if merged == nil then return false, tostring(why) end
   return rules.allows(merged, path, letters)
 end
 
 --- The real name of the absolute `path`, links followed: the real name
 --- of the nearest directory above it that is there, and the rest, where
---- it is not there yet. Nil and why for a path that is not absolute, a
+--- it is not there yet. Nil and a Failure for a path that is not absolute, a
 --- `.` or `..` in what is not there, or a name in it that is there but
 --- does not resolve (a dangling link, which a create would follow out of
 --- a grant).
 ---
 ---     print(Sandbox.real("/tmp/not-yet/file")) -- /private/tmp/not-yet/file on macOS
-function Sandbox.real(path: string): string?, string
-  if path:sub(1, 1) ~= "/" then return nil, "sandbox: " .. path .. " is not an absolute path" end
+function Sandbox.real(path: string): (string) | (nil, Failure)
+  if path:sub(1, 1) ~= "/" then
+    return nil, Failure.new("sandbox: " .. path .. " is not an absolute path")
+  end
   local real: string? = nil
   local rest, at = "", path
   while real == nil do
@@ -352,20 +360,20 @@ function Sandbox.real(path: string): string?, string
     if real == nil then
       local name = Fs.basename(at)
       if name == ".." or name == "." then
-        return nil, "sandbox: " .. path .. ": a " .. name .. " below the files that are there names no real path"
+        return nil, Failure.new("sandbox: " .. path .. ": a " .. name .. " below the files that are there names no real path")
       end
       if at == Fs.dirname(at) then
-        return nil, "sandbox: " .. path .. ": no directory above it resolves"
+        return nil, Failure.new("sandbox: " .. path .. ": no directory above it resolves")
       end
       local there, _ = sys.lstat(at)
       if there ~= nil then
-        return nil, "sandbox: " .. at .. " is there and does not resolve, as a dangling link does"
+        return nil, Failure.new("sandbox: " .. at .. " is there and does not resolve, as a dangling link does")
       end
       rest = "/" .. name .. rest
       at = Fs.dirname(at)
     end
   end
-  return (if real == "/" then "" else real end) .. rest, ""
+  return (if real == "/" then "" else real end) .. rest
 end
 
 --- The letter [`Sandbox.permits`] asks for each of its actions, and
@@ -377,7 +385,7 @@ local ACTIONS <const>: {string:{letter: string, directory: boolean}} = {
 }
 
 --- Whether `policy` lets a program held by it do `action` at the absolute
---- `path`: the real name it checked, or nil and why.
+--- `path`: the real name it checked, or nil and a Failure.
 --- `action` is "read", "write", "run", "create" or "remove". "create" and
 --- "remove" ask `c` of the directory that holds the name, as Landlock
 --- grants it, and do not follow a link that is the last name, as unlink
@@ -408,10 +416,10 @@ local ACTIONS <const>: {string:{letter: string, directory: boolean}} = {
 ---     local policy = { grants = { { path = "/srv/data", letters = "rwc" } } }
 ---     print(Sandbox.permits(policy, "/srv/data/new.txt", "create")) -- /srv/data/new.txt
 ---     print(Sandbox.permits(policy, "/srv/other", "read")) -- nil  sandbox: ...
-function Sandbox.permits(policy: Sandbox.Policy, path: string, action: string, cwd?: string): string?, string
+function Sandbox.permits(policy: Sandbox.Policy, path: string, action: string, cwd?: string): (string) | (nil, Failure)
   local asked = ACTIONS[action]
   if asked == nil then
-    return nil, string.format("sandbox: %q is no action: read, write, run, create or remove", action)
+    return nil, Failure.new(string.format("sandbox: %q is no action: read, write, run, create or remove", action))
   end
   local merged, why = rules.merge(policy)
   if merged == nil then return nil, why end
@@ -424,7 +432,7 @@ function Sandbox.permits(policy: Sandbox.Policy, path: string, action: string, c
     local holder, holder_why = Sandbox.real(Fs.dirname(path))
     if holder == nil then return nil, holder_why end
     if name == "." or name == ".." or name == "" or name == "/" then
-      return nil, "sandbox: " .. path .. " names no file in a directory"
+      return nil, Failure.new("sandbox: " .. path .. " names no file in a directory")
     end
     real = holder .. "/" .. name
     if action == "write" then
@@ -444,7 +452,7 @@ function Sandbox.permits(policy: Sandbox.Policy, path: string, action: string, c
   end
   local named = if real == "" then "/" else real end
   if named == "/proc" or named:sub(1, 6) == "/proc/" then
-    return nil, "sandbox: " .. named .. ": /proc is this process's own outside a sandbox's pid namespace"
+    return nil, Failure.new("sandbox: " .. named .. ": /proc is this process's own outside a sandbox's pid namespace")
   end
   local isolated_tmp = false
   for _, kind in ipairs(merged.isolate or {}) do
@@ -491,9 +499,9 @@ function Sandbox.permits(policy: Sandbox.Policy, path: string, action: string, c
     if #skipped > 0 then
       note = " (" .. table.concat(skipped, ", ") .. ", so names other files inside the sandbox)"
     end
-    return nil, string.format("sandbox: the policy does not permit %s %s: %s%s", action, named, allow_why, note)
+    return nil, Failure.new(string.format("sandbox: the policy does not permit %s %s: %s%s", action, named, allow_why, note))
   end
-  return named, ""
+  return named
 end
 
 --- The directory a program's `action` on the absolute `path` acts in,
@@ -510,13 +518,13 @@ end
 --- `action` is "read", "write" or "create", the acts a [`Fs.Dir`] has.
 --- A write through it makes a new file and renames it over the name, so
 --- "write" asks `c` of the directory beside `w`, as Landlock would of
---- that write. Nil and why where `policy` does not permit it, for "/",
+--- that write. Nil and a Failure where `policy` does not permit it, for "/",
 --- and where a link is met on the way (a name changed since the check).
 ---
 ---     local policy = { grants = { { path = "/srv/data", letters = "rwc" } } }
 ---     local dir <close>, name = Sandbox.dir(policy, "/srv/data/note.txt", "write")
 ---     assert(dir, name):write(name, "kept")
-function Sandbox.dir(policy: Sandbox.Policy, path: string, action: string, cwd?: string): (Fs.Dir, string) | (nil, string)
+function Sandbox.dir(policy: Sandbox.Policy, path: string, action: string, cwd?: string): (Fs.Dir, string) | (nil, Failure)
   if action ~= "read" and action ~= "write" and action ~= "create" then
     return refuse("dir: " .. string.format("%q", action) .. " is no act of a directory held: read, write or create")
   end
@@ -527,11 +535,11 @@ function Sandbox.dir(policy: Sandbox.Policy, path: string, action: string, cwd?:
   if action == "write" then
     local made, made_why = Sandbox.permits(policy, real, "create", cwd)
     if made == nil then
-      return nil, made_why .. " (a write through a directory makes a file and renames it over the name)"
+      return nil, Failure.new(tostring(made_why) .. " (a write through a directory makes a file and renames it over the name)")
     end
   end
   local opened, failure = Fs.dir(Fs.dirname(real))
-  if opened == nil then return nil, "sandbox: " .. tostring(failure) end
+  if opened == nil then return nil, Failure.new("sandbox: " .. tostring(failure)) end
   return opened, Fs.basename(real)
 end
 
@@ -634,15 +642,15 @@ local function elf_interpreter(fd: integer, head: string): string?
 end
 
 --- `path` made absolute against `cwd` (the process's own when nil).
-local function absolute(path: string, cwd?: string): string?, string
-  if path:sub(1, 1) == "/" then return path, "" end
+local function absolute(path: string, cwd?: string): (string) | (nil, Failure)
+  if path:sub(1, 1) == "/" then return path end
   local base = cwd
   if base == nil then
     local got, why = sys.getcwd()
-    if got == nil then return nil, why end
+    if got == nil then return nil, Failure.new(tostring(why)) end
     base = got
   end
-  return base .. "/" .. path, ""
+  return base .. "/" .. path
 end
 
 --- The file the kernel reads to start a program, past its own bytes: the
@@ -667,7 +675,7 @@ local SH_VARIANT <const> = "/private/var/select/sh"
 --- line or its ELF header (PT_INTERP) names, then that one's, as far as the
 --- kernel follows. The files a policy must grant `r` and `x` for the
 --- program to start at all. `path` is relative to `cwd` (this process's
---- directory when nil). Nil and why when the program or an interpreter it
+--- directory when nil). Nil and a Failure when the program or an interpreter it
 --- names does not exist. On macOS /bin/sh is followed by the shell it
 --- runs, the one /private/var/select/sh names.
 ---
@@ -680,13 +688,13 @@ local SH_VARIANT <const> = "/private/var/select/sh"
 ---
 ---     local files = assert(Sandbox.loaders("/bin/sh"))
 ---     print(#files >= 1) -- true
-function Sandbox.loaders(path: string, cwd?: string): {string}?, string
+function Sandbox.loaders(path: string, cwd?: string): ({string}) | (nil, Failure)
   local files: mut {string} = {}
   local seen: mut {string:boolean} = {}
   local at = path
   for _ = 0, MAX_CHAIN do
     local whole, why = absolute(at, cwd)
-    if whole == nil then return refuse(why) end
+    if whole == nil then return refuse(tostring(why)) end
     local real, trouble = sys.realpath(whole)
     if real == nil then return refuse(whole .. ": " .. trouble) end
     if seen[real] == true then break end
@@ -705,7 +713,7 @@ function Sandbox.loaders(path: string, cwd?: string): {string}?, string
     if next_file == nil then break end
     at = next_file
   end
-  return files, ""
+  return files
 end
 
 -- What the restriction calls of other modules, taken as it loads, so a
@@ -720,8 +728,8 @@ local seatbelt_resolve <const> = Seatbelt.resolve
 local seatbelt_compile <const> = Seatbelt.compile
 
 --- What [`Sandbox.restrict`] returns for a failure: false and `why`.
-local function denied(why: string): boolean, string
-  return false, "sandbox: restrict: " .. why
+local function denied(why: string): (true) | (false, Failure)
+  return false, Failure.new("sandbox: restrict: " .. why)
 end
 
 --- Why a merged policy cannot hold the running process, or "": what it
@@ -865,7 +873,7 @@ end
 --- own, applied to this process with its limits. `policy` is the caller's,
 --- which [`not_in_process`] passed: the profile resolves "system" to
 --- macOS's paths, not the Linux ones [`Sandbox.union`] gives.
-local function held_by_seatbelt(policy: Sandbox.Policy, kept: {integer}): boolean, string
+local function held_by_seatbelt(policy: Sandbox.Policy, kept: {integer}): (true) | (false, Failure)
   local setup = policy.setup or {}
   local grants: mut {Sandbox.Grant} = {}
   for _, grant in ipairs(policy.grants or {}) do grants[#grants + 1] = grant end
@@ -873,9 +881,9 @@ local function held_by_seatbelt(policy: Sandbox.Policy, kept: {integer}): boolea
   local held: Sandbox.Policy = { grants = grants,
     limits = policy.limits, setup = { user = setup.user, group = setup.group } }
   local options, resolve_trouble = seatbelt_resolve(held)
-  if options == nil then return denied(resolve_trouble) end
+  if options == nil then return denied(tostring(resolve_trouble)) end
   local profile, compile_trouble = seatbelt_compile(held, options)
-  if profile == nil then return denied(compile_trouble) end
+  if profile == nil then return denied(tostring(compile_trouble)) end
   local done, why, failure = raw.restrict_self({ grants = {}, promises = {},
     rlimits = profile.rlimits, seatbelt = { profile = profile.text, parameters = profile.parameters } },
     kept)
@@ -885,7 +893,7 @@ local function held_by_seatbelt(policy: Sandbox.Policy, kept: {integer}): boolea
     end
     return denied(why)
   end
-  return true, ""
+  return true
 end
 
 --- The kernel layers [`Sandbox.restrict`] would hold this process to
@@ -893,7 +901,7 @@ end
 --- its paths as one Landlock ruleset with their letters, the groups of
 --- system calls its seccomp filter allows, whether the exec filter refuses
 --- execve (no grant gives `x`) and the rlimits. Restrict applies what this
---- answers. Nil and why for a policy it refuses, as it does: one the union
+--- answers. Nil and a Failure for a policy it refuses, as it does: one the union
 --- refuses, or one only a child can be held to (`isolate`, a connect
 --- grant, `loopback`, `tmp` and the rest), and on macOS, where a
 --- Seatbelt profile holds the process instead. It looks at the policy
@@ -902,15 +910,15 @@ end
 ---
 ---     local layers = assert(Sandbox.layers({ grants = { { path = "/srv", letters = "r" }, { calls = "fork" } } }))
 ---     print(layers.landlock[1].path, layers.calls[1], layers.exec_refused) -- /srv  fork  true
-function Sandbox.layers(policy: Sandbox.Policy): Sandbox.Layers?, string
+function Sandbox.layers(policy: Sandbox.Policy): (Sandbox.Layers) | (nil, Failure)
   local merged, why = Sandbox.union(policy)
   if merged == nil then return nil, why end
   if rules.on_macos() then
-    return nil, "sandbox: restrict: on macOS a Seatbelt profile holds the process, not Landlock and seccomp"
+    return nil, Failure.new("sandbox: restrict: on macOS a Seatbelt profile holds the process, not Landlock and seccomp")
   end
   local trouble = not_in_process(merged)
-  if trouble ~= "" then return nil, "sandbox: restrict: " .. trouble end
-  return rules.layers(merged), ""
+  if trouble ~= "" then return nil, Failure.new("sandbox: restrict: " .. trouble) end
+  return rules.layers(merged)
 end
 
 --- Holds the calling process, and everything it starts, for good to the
@@ -989,7 +997,7 @@ end
 --- so does a [`Child.start`] with a policy afterwards, since its child's
 --- profile would be a second one; a child started without one is held by
 --- this process's. Elsewhere it fails, saying so.
-function Sandbox.restrict(policy: Sandbox.Policy, options?: Sandbox.RestrictOptions): boolean, string
+function Sandbox.restrict(policy: Sandbox.Policy, options?: Sandbox.RestrictOptions): (true) | (false, Failure)
   local merged, why = Sandbox.union(policy)
   if merged == nil then return false, why end
   local trouble = not_in_process(merged)
@@ -1007,7 +1015,7 @@ function Sandbox.restrict(policy: Sandbox.Policy, options?: Sandbox.RestrictOpti
     local done, seatbelt_why = held_by_seatbelt(policy, kept)
     if not done then return false, seatbelt_why end
     record_held(merged, runtime_grants())
-    return true, ""
+    return true
   end
   local layers = rules.layers(merged)
   local grants: mut {raw_process.Grant} = {}
@@ -1026,7 +1034,7 @@ function Sandbox.restrict(policy: Sandbox.Policy, options?: Sandbox.RestrictOpti
     return denied(held)
   end
   record_held(merged, {})
-  return true, ""
+  return true
 end
 
 --- How many ids a root caller's sandboxes choose their user from
@@ -1087,12 +1095,12 @@ end
 --- differ get different users; two with equal serials share one, which
 --- costs only what a shared user does -- the files each owns that the
 --- other can reach -- since each has a pid namespace and its own user
---- namespace's process count. Nil and why where the namespace maps no
+--- namespace's process count. Nil and a Failure where the namespace maps no
 --- such run of ids.
 ---
 ---     local id = assert(Sandbox.user_id("0 0 4294967295\n", "0 0 4294967295\n", 0))
 ---     print(id) -- 4294963198
-function Sandbox.user_id(uid_map: string, gid_map: string, serial: integer): integer?, string
+function Sandbox.user_id(uid_map: string, gid_map: string, serial: integer): (integer) | (nil, Failure)
   local uid_top, gid_top = highest_mapped(uid_map), highest_mapped(gid_map)
   if uid_top == nil or gid_top == nil then
     return refuse("this user namespace maps no user or no group")
@@ -1105,7 +1113,7 @@ function Sandbox.user_id(uid_map: string, gid_map: string, serial: integer): int
         tostring(top) .. ", from which a sandbox's own user is taken: a root caller's program never " ..
         "runs as root, so it needs a namespace that maps more ids, as a host's does")
   end
-  return first + serial % USER_POOL, ""
+  return first + serial % USER_POOL
 end
 
 --- Whether `id` is one of the pool [`Sandbox.user_id`] takes a root
