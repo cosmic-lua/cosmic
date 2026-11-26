@@ -488,7 +488,7 @@ local type Selection = raw.Selection
 local function selection(paths: {Json.Steps}): Selection?, string
   local root: Selection = { whole = false, names = {}, positions = {} }
   for i, steps in ipairs(paths) do
-    if #steps == 0 then return nil, "" end
+    if #steps == 0 then root.whole = true end
     local node = root
     for j, step in ipairs(steps) do
       local bad = bad_step(j, step)
@@ -496,7 +496,6 @@ local function selection(paths: {Json.Steps}): Selection?, string
         bad = ("step %d is %d, from the end, which only counts from 1"):format(j, step)
       end
       if bad ~= nil then return nil, ("only: path %d: %s"):format(i, bad) end
-      if node.whole then break end
       local child: Selection?
       if step is string then child = node.names[step] else child = node.positions[step] end
       if child == nil then
@@ -507,16 +506,19 @@ local function selection(paths: {Json.Steps}): Selection?, string
       node = child
     end
   end
+  if root.whole then return nil, "" end
   return root, ""
 end
 
 --- [`raw.decode`] of `text` under `opts`; `record`, when given, is the
 --- JSON Lines line `text` is, which a failure names.
+--- `chosen` is `opts.only` as [`selection`] built it, when the caller
+--- built it once for many texts.
 local function decode_with(text: string, opts: Json.DecodeOptions, record?: integer,
-                           null_value?: Json.Null): Json.Value?, string
+                           null_value?: Json.Null, chosen?: Selection): Json.Value?, string
   if null_value == nil then null_value = opts.null_value end
-  local only: Selection? = nil
-  if opts.only ~= nil then
+  local only = chosen
+  if only == nil and opts.only ~= nil then
     local why: string
     only, why = selection(opts.only)
     if why ~= "" then return refuse(why) end
@@ -663,6 +665,10 @@ end
 --- costs a fraction of a decode. `null_value` changes nothing here.
 function Json.check(text: string, opts?: Json.DecodeOptions): (true) | (false, Failure)
   local o: Json.DecodeOptions = opts or {}
+  if o.only ~= nil then
+    local _, why = selection(o.only)
+    if why ~= "" then return false, Failure.new("json: " .. why) end
+  end
   local ok, err = raw.check(text, o.max_depth, o.json5, o.lone_surrogates, o.hash_comments,
     o.duplicate_keys, o.big_numbers_as_strings)
   if not ok then return false, Failure.new("json: " .. err) end
@@ -728,6 +734,12 @@ local function decode_lines_text(text: string, opts?: Json.DecodeOptions): {Json
   local number = 0
   local count = 0
   local line_opts: Json.DecodeOptions = opts or {}
+  local chosen: Selection? = nil
+  if line_opts.only ~= nil then
+    local why: string
+    chosen, why = selection(line_opts.only)
+    if why ~= "" then return refuse(why) end
+  end
   for line in String.lines(text) do
     number = number + 1
     if line:find("%S") then
@@ -735,7 +747,7 @@ local function decode_lines_text(text: string, opts?: Json.DecodeOptions): {Json
       -- The record's own number names a failure's line: the decoder
       -- would otherwise count a lone \r (or, in JSON5, U+2028 or
       -- U+2029) inside it as a line end, which no record boundary is.
-      local value, err = decode_with(line, line_opts, number)
+      local value, err = decode_with(line, line_opts, number, nil, chosen)
       if err ~= "" then
         return nil, err
       end

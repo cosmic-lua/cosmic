@@ -486,7 +486,9 @@ static void push_only (struct decoding *d, yyjson_val *val, int node) {
       lua_pop(L, 1);
       if (whole) {
         lua_pushvalue(L, child - 1);
-        /* No problem is left to find: see above. */
+        /* read_text already walked the whole document under the same
+         * max_depth and duplicate-key rule, so push_value finds no
+         * problem, and its depth can start again at 0. */
         (void)push_value(d, item, 0);
         lua_rawset(L, out);
       } else if (yyjson_is_ctn(item)) {
@@ -937,7 +939,7 @@ static int refused (lua_State *L) {
 
 /* decode(text, null?, max_depth?, json5?, big_as_string?,
  * lone_surrogates?, record?, hash_comments?, duplicate_keys?, line?,
- * column?, prefix?, opened?): the value
+ * column?, prefix?, opened?, only?): the value
  * `text` holds, and "". nil and a message when it is not one JSON
  * value -- RFC 8259, or JSON5 when `json5` is true, either with `#`
  * line comments when `hash_comments` is -- holds an object with a key
@@ -951,7 +953,9 @@ static int refused (lua_State *L) {
  * value the text is, a pointer a failure names is put under it; with
  * `opened`, that
  * many arrays and objects are open around it there, and count toward
- * `max_depth`. */
+ * `max_depth`. With `only`, a selection (Selection in
+ * cosmic/internal/json.d.tl), the text is checked whole first, then only
+ * what it selects is built ([`push_only`]). */
 static int json_decode (lua_State *L) {
   struct reading r;
   r.text = luaL_checklstring(L, 1, &r.len);
