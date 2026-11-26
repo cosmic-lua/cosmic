@@ -803,6 +803,40 @@ end
 EOF
 if (cd mini && $tool test > /dev/null 2>&1); then echo pass; else echo fail; fi]==],
   },
+  {
+    name = "fix-calc",
+    prompt = "Calc.eval in eval/plant/calc.tl answers wrong values: it should give `2-3-4` = -5, `10-4-3` = 3, " ..
+      "`2^3^2` = 512 (`^` groups from the right) and `-2^2` = -4 (`^` binds tighter than a minus before it), and " ..
+      "keep `10/4/5` = 0.5, `2*3+4` = 10 and `(1+2)*3` = 9. Find the bugs and fix them, and change nothing else. " ..
+      "Its tests are eval/plant/calc_test.tl; run them with `cosmic test eval/plant/calc_test.tl`.",
+    truth = "echo pass",
+    check = [==[mkdir mini && cp eval/plant/calc.tl mini/calc.tl && cat > mini/hidden_test.tl <<'EOF'
+local Calc = require("calc")
+
+local function test_minus_groups_from_the_left()
+  assert(Calc.eval("2-3-4") == -5)
+  assert(Calc.eval("10-4-3") == 3)
+  assert(Calc.eval("1-2+3") == 2)
+end
+
+local function test_a_power_groups_from_the_right()
+  assert(Calc.eval("2^3^2") == 512)
+end
+
+local function test_a_power_binds_tighter_than_a_minus()
+  assert(Calc.eval("-2^2") == -4)
+  assert(Calc.eval("-(1+2)") == -3)
+  assert(Calc.eval("2*-3") == -6)
+end
+
+local function test_the_rest_holds()
+  assert(Calc.eval("10/4/5") == 0.5)
+  assert(Calc.eval("2*3+4") == 10)
+  assert(Calc.eval("(1+2)*3") == 9)
+end
+EOF
+if (cd mini && $tool test > /dev/null 2>&1); then echo pass; else echo fail; fi]==],
+  },
 }
 
 local USAGE <const> = "usage: eval/agent --tool NAME=PATH [--tool NAME=PATH ...] --fixture DIR --out DIR " ..
