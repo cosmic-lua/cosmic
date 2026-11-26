@@ -53,7 +53,7 @@ local record Sql
 end
 
 Sql.methods = {
-  run = true, rows = true, one = true, query = true, map = true, text_rows = true, prepare = false,
+  run = true, rows = true, one = true, query = true, map = true, prepare = false,
 }
 
 --- A schema's database, or SQLite's refusal of its DDL, by the DDL's text.
