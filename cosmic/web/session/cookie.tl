@@ -23,6 +23,7 @@
 --- @public
 
 local Codec = require("cosmic.codec")
+local Failure = require("cosmic.failure")
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
 local Secret = require("cosmic.web.secret")
@@ -73,48 +74,48 @@ function SessionCookie.store(opts: SessionCookie.Options): Session.Store
   end
 
   local store: Session.Store = { revocable = false,
-    load = function(_: Session.Store, token: string, now: integer, cookie: string): Session.Data?, string
-      if #token > max_bytes then return nil, "" end
+    load = function(_: Session.Store, token: string, now: integer, cookie: string): (Session.Data | false) | (nil, Failure)
+      if #token > max_bytes then return false end
       local payload, sent = token:match("^([^.]+)%.([^.]+)$")
-      if payload == nil or sent == nil then return nil, "" end
+      if payload == nil or sent == nil then return false end
       local given, _ = Codec.unbase64url(sent)
-      if given == nil then return nil, "" end
+      if given == nil then return false end
       local verified: integer? = nil
       for i, key in ipairs(keys) do
         -- Every key is tried, so the time taken does not say which matched.
         if Hash.equal(mac(key, cookie, payload), given) and verified == nil then verified = i end
       end
-      if verified == nil then return nil, "" end
+      if verified == nil then return false end
       local bytes, _ = Codec.unbase64url(payload)
-      if bytes == nil then return nil, "" end
+      if bytes == nil then return false end
       local body, _ = Json.decode_object(bytes, { max_depth = DEPTH, null_value = Json.null })
-      if body == nil then return nil, "" end
+      if body == nil then return false end
       local created, expires = body["c"], body["e"]
       if body["v"] ~= VERSION or not created is integer or not expires is integer then
-        return nil, ""
+        return false
       end
       local held, _ = Json.to_object(body["d"])
-      if held == nil then return nil, "" end
+      if held == nil then return false end
       local values: mut {string: Json.Value} = {}
       for key, entry in pairs(held) do values[key] = entry end
-      if expires <= now then return nil, "" end
-      return { values = values, created = created, expires = expires, stale = verified > 1 }, ""
+      if expires <= now then return false end
+      return { values = values, created = created, expires = expires, stale = verified > 1 }
     end,
     save = function(_: Session.Store, _previous: string, data: Session.Data,
-                    _changes: Session.Changes, _now: integer, cookie: string): string?, string
+                    _changes: Session.Changes, _now: integer, cookie: string): (string) | (nil, Failure)
       local text, why = Json.encode({ v = VERSION, c = data.created, e = data.expires, d = data.values },
         { max_depth = DEPTH })
-      if text == nil then return nil, "cannot encode the session: " .. tostring(why) end
+      if text == nil then return nil, Failure.within(why, "cannot encode the session") end
       local payload = Codec.base64url(text)
       local token = payload .. "." .. Codec.base64url(mac(newest, cookie, payload))
       if #token > max_bytes then
-        return nil, ("cookie would be %s (limit %d); keep ids, not objects, in the session or use the SQLite store"):
-          format(String.counted(#token, "byte"), max_bytes)
+        return nil, Failure.new(("cookie would be %s (limit %d); keep ids, not objects, in the session or use the SQLite store"):
+            format(String.counted(#token, "byte"), max_bytes))
       end
-      return token, ""
+      return token
     end,
-    destroy = function(_: Session.Store, _token: string): boolean, string
-      return true, ""
+    destroy = function(_: Session.Store, _token: string): (true) | (false, Failure)
+      return true
     end,
   }
   return store

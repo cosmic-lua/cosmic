@@ -29,7 +29,12 @@ local record Case
 end
 
 local cases: {Case} = {
-  -- The way cosmic code decodes a wrapped body today (cosmic.acme, cosmic.key): strip whitespace, then decode.
+  -- The decoder for text in lines: the core skips the line breaks itself.
+  { name = "mime unbase64_lines", input = body,
+    expect = bytes, decode = function(text: string): string
+      return assert(Codec.unbase64_lines(text))
+    end },
+  -- The way cosmic.acme and cosmic.key decode a wrapped body: strip whitespace, then decode.
   { name = "mime strip %s + unbase64", input = body,
     expect = bytes, decode = function(text: string): string
       return assert(Codec.unbase64((text:gsub("%s", ""))))

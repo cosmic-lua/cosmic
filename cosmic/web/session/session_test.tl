@@ -1,4 +1,5 @@
 local Cookies = require("cosmic.web.cookies")
+local Failure = require("cosmic.failure")
 local Json = require("cosmic.json")
 local Secret = require("cosmic.web.secret")
 local Session = require("cosmic.web.session")
@@ -11,6 +12,14 @@ local KEY <const> = "k3Jf9Lq0Zx7Rw2Ub8Tn5Vc1Hd6Ym4Ga0Pe7Sx2Wq9Ac"
 
 --- The session cookie's name, which is Secure.
 local NAME <const> = "__Host-session"
+
+--- The data a store loads for `token`, nil where it names none; a store that failed raises.
+local function loaded(store: Session.Store, token: string, now: integer, cookie: string): Session.Data?
+  local data, why = store:load(token, now, cookie)
+  if data == nil then error(tostring(why)) end
+  if data == false then return nil end
+  return data
+end
 
 --- A client acting as a browser on an https page, which sends a Secure
 --- cookie back.
@@ -367,14 +376,14 @@ end
 local function test_a_failing_store_is_a_500_and_a_cookie_over_the_limit_is_raised_for_the_developer()
   local failing: Session.Store = {
     revocable = false,
-    load = function(_: Session.Store, _t: string, _n: integer, _c: string): Session.Data?, string
-      return nil, "disk on fire"
+    load = function(_: Session.Store, _t: string, _n: integer, _c: string): (Session.Data | false) | (nil, Failure)
+      return nil, Failure.new("disk on fire")
     end,
     save = function(_: Session.Store, _p: string, _d: Session.Data, _ch: Session.Changes, _n: integer,
-                    _c: string): string?, string
-      return nil, "no space"
+                    _c: string): (string) | (nil, Failure)
+      return nil, Failure.new("no space")
     end,
-    destroy = function(_: Session.Store, _t: string): boolean, string return true, "" end,
+    destroy = function(_: Session.Store, _t: string): (true) | (false, Failure) return true end,
   }
   local lines: mut {string} = {}
   local spec: Web.AppSpec = { sink = { line = function(_self: Web.Sink, text: string)
@@ -695,7 +704,7 @@ local function test_invalidate_revokes_even_when_the_response_is_a_500()
   local res = client:post("/logout-fails")
   assert(res.status == 500)
   assert(session_count(db) == 0, "the row is gone")
-  assert(store:load(before, now, NAME) == nil)
+  assert(loaded(store, before, now, NAME) == nil)
   assert(#set_cookies(res) == 1 and client.jar[NAME] == nil, "and the cookie is expired")
 end
 
