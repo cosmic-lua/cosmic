@@ -94,6 +94,22 @@ local function test_e_runs_a_chunk_that_requires_the_library(tmp: string)
   assert(r.ok and r.stdout == "[1,2]\n", tostring(r.stdout) .. tostring(r.stderr))
 end
 
+--- A chunk requires a module of the working directory's tree, as a file at its root does: the module is checked with
+--- the chunk, its errors told under its own file.
+local function test_e_requires_a_module_of_the_working_directory(tmp: string)
+  assert(Fs.write(tmp .. "/util.tl", "local record U\nend\nfunction U.twice(n: integer): integer return n * 2 end\nreturn U\n"))
+  local r = evaluate(tmp, 'local U = require("util") print(U.twice(21))')
+  assert(r.ok and r.stdout == "42\n", tostring(r.stdout) .. tostring(r.stderr))
+  assert(Fs.write(tmp .. "/util.tl", "local record U\nend\nfunction U.twice(n: integer): integer return \"x\" end\nreturn U\n"))
+  local broken = evaluate(tmp, 'local U = require("util") print(U.twice(21))')
+  assert(broken.code == 4 and says(broken, "util.tl:3:"), tostring(broken.stderr))
+  -- A module the binary carries is the binary's, whatever file of its name the tree has.
+  assert(Fs.mkdirs(tmp .. "/build"))
+  assert(Fs.write(tmp .. "/build/exit_status.tl", "local record E\nend\nreturn E\n"))
+  local own = evaluate(tmp, 'local E = require("build.exit_status") print(E.uncompiled)')
+  assert(own.ok and own.stdout == "4\n", tostring(own.stdout) .. tostring(own.stderr))
+end
+
 --- The words after the chunk are its `...`, and what it returns is the exit code.
 local function test_e_hands_the_words_to_the_chunk_and_exits_with_what_it_returns(tmp: string)
   local r = evaluate(tmp, 'print(select("#", ...), ...) return 3', { "a", "b" })

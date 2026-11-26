@@ -2,9 +2,9 @@
 --- Accept-Encoding header any client sends: it is total over any bytes;
 --- and for a header drawn from well-formed elements it returns what a
 --- reading of RFC 9110 section 12.5.3 written apart from the module
---- says. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
+--- says. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (cosmic/fuzz.tl).
 
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Server = require("cosmic.http.server")
 
 local NAMES <const> = { "zstd", "gzip", "identity", "*", "br", "deflate", "ZSTD", "GzIp", "x-gzip", "Identity" }

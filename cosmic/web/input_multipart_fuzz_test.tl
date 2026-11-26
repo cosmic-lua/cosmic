@@ -3,10 +3,10 @@
 --- value within the caps or a refusal with one of the statuses of the
 --- package, never raises, and leaves no file in the upload directory once
 --- the request is over.
---- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
+--- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (cosmic/fuzz.tl).
 
 local Fs = require("cosmic.fs")
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Input = require("cosmic.web.input")
 local Server = require("cosmic.http.server")
 local Stream = require("cosmic.stream")

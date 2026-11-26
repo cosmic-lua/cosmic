@@ -3,14 +3,13 @@
 --- no dynamic loader, no libc or libm of the host's -- is mapped into
 --- a core's process, and a test's floats and libc are the ones that
 --- ship. macOS's cores link libSystem, which is shared, and are not
---- held to this.
+--- held to this: the module requires Linux.
 
 local Fs = require("cosmic.fs")
-local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
 --- /proc, where a process's own mappings are listed.
-Test.policy{ profiles = { "proc" } }
+Test.policy{ profiles = { "proc" }, requires = { "os:linux" } }
 
 --- The shared objects mapped into this process, by their paths in
 --- /proc/self/maps, each once, sorted.
@@ -55,8 +54,6 @@ end
 --- A Linux core maps no shared object: a checked core linked to the
 --- build host's glibc mapped its loader, libc and libm.
 local function test_a_linux_core_maps_no_shared_object()
-  local names = assert(sys.uname())
-  if names.sysname ~= "Linux" then Test.skip("only a Linux core maps its libraries by glibc") end
   local maps = assert(Fs.read("/proc/self/maps"))
   assert(maps:find("\n", 1, true) ~= nil, "/proc/self/maps names no mapping")
   local found = shared_objects(maps)

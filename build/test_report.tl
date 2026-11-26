@@ -195,7 +195,7 @@ function test_report.deliberate(reasons: {string}): {string}
 end
 
 --- The line a fuzz property prints, in the output of the worker running it, when
---- it stops drawing inputs at its time limit (FUZZ_SECONDS, build/fuzz/init.tl);
+--- it stops drawing inputs at its time limit (FUZZ_SECONDS, cosmic/fuzz.tl);
 --- the rest of the line is "<property> drew N of M inputs in S s ...".
 function test_report.stopped_prefix(): string
   return "fuzz stopped: "

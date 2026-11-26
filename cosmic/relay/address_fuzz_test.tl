@@ -4,9 +4,9 @@
 --- address that carries an IPv4 one is refused undecoded;
 --- and a literal grant opens its address alone, and selection keeps every allowed
 --- address, in order. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
---- (build/fuzz/init.tl).
+--- (cosmic/fuzz.tl).
 
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local relay_address = require("cosmic.relay.address")
 local String = require("cosmic.string")
 

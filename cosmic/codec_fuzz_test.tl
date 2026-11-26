@@ -3,11 +3,11 @@
 --- handed, it returns bytes or a failure and never raises. What a
 --- decoder accepts it accepts exactly: the bytes encode back to the
 --- text they came from. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
---- (build/fuzz/init.tl).
+--- (cosmic/fuzz.tl).
 
 local Codec = require("cosmic.codec")
 local type Failure = require("cosmic.failure")
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 
 local record Pair
   name: string

@@ -6,10 +6,10 @@
 --- and that the combinators mean what they say: `not` turns a result
 --- over, and `allOf` with `true`, `anyOf` or `oneOf` with `false`, and
 --- `if` it `then` `true` `else` `false` change none.
---- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
+--- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (cosmic/fuzz.tl).
 
 local Array = require("cosmic.array")
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Json = require("cosmic.json")
 local JsonSchema = require("cosmic.jsonschema")
 local String = require("cosmic.string")

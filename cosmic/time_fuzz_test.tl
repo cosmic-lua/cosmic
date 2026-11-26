@@ -7,11 +7,11 @@
 --- all three of RFC 9110's forms. `between` returns a duration of one
 --- sign for any two moments in any zone, which text round trips, and in
 --- a zone whose offset is fixed `add_calendar` adds back to the second
---- moment. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
+--- moment. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (cosmic/fuzz.tl).
 
 local Array = require("cosmic.array")
 local Failure = require("cosmic.failure")
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Time = require("cosmic.time")
 
 local NS <const> = 1000000000

@@ -4,14 +4,14 @@
 --- corpus's search against a brute-force reference (over the vectors as
 --- each storage holds them), and the centroid search. Each is total -- a result or a refusal, never a crash -- and
 --- each result is held to a reference written here in Teal, over the
---- bytes. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
+--- bytes. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (cosmic/fuzz.tl).
 ---
 --- The references use numbers a float holds exactly (small integers and
 --- quarters) wherever a result is compared for equality, so a mismatch
 --- is a wrong result and not a different rounding; sums of other numbers
 --- are compared within a tolerance.
 
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Sqlite = require("cosmic.sqlite")
 local Vector = require("cosmic.vector")
 local Test = require("cosmic.test")

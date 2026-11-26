@@ -3,51 +3,23 @@
 --- test runs its own launches, in processes of its own, past the
 --- launcher; a host program has no launcher, so there is nothing here
 --- for it to check. The launcher's own cache is
---- core/launcher_cache_test.tl's.
+--- core/launcher_cache_test.tl's, and a script that names the core in
+--- its `#!` line is core/startup_script_test.tl's.
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
-local sys = require("cosmic.sys")
-local this_program = require("build.this_program")
+local startup_fixture = require("build.startup_fixture")
 local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
 
 --- The program itself, which its tests start past its launcher.
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
-local function environment(): mut {string:string}
-  local env = this_program.environment()
-  env["COSMIC_PORTABLE_STARTUP_TEST_READY"] = nil
-  env["COSMIC_PORTABLE_STARTUP_TEST_GO"] = nil
-  return env
-end
-
---- This start's relaunch, skipping the test where it has none or its argv
---- names no artifact (a host program, or a start with nothing to relaunch).
-local function relaunch_or_skip(): Proc.Relaunch
-  local relaunch, _ = Proc.relaunch()
-  if relaunch == nil then Test.skip("this program has no relaunch to start again") end
-  local found = assert(relaunch, "Test.skip ends the test where there is no relaunch")
-  if #found.argv < 3 then
-    Test.skip("this relaunch names no artifact: its argv is " .. table.concat(found.argv, " "))
-  end
-  return found
-end
-
---- Word `i` of the argv a relaunch starts: the core, `--artifact`, the artifact.
-local function argv_at(relaunch: Proc.Relaunch, i: integer): string
-  local word = assert(relaunch.argv[i], "a relaunch's argv holds word " .. tostring(i))
-  return word
-end
-
---- Runs `argv` with the private contract `relaunch` hands a child.
-local function run_relaunched(relaunch: Proc.Relaunch, argv: {string}): Child.Result
-  local env = environment()
-  for name, value in pairs(relaunch.env) do env[name] = value end
-  return (assert(Child.run(argv, { env = env, fds = relaunch.fds,
-    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })))
-end
+local environment = startup_fixture.environment
+local relaunch_or_skip = startup_fixture.relaunch_or_skip
+local argv_at = startup_fixture.argv_at
+local run_relaunched = startup_fixture.run_relaunched
 
 --- The core refuses an artifact it cannot name absolutely, before it
 --- reads anything from it, and says why.
@@ -109,37 +81,6 @@ local function test_a_joined_artifact_path_naming_another_file_is_refused(tmp: s
       "cosmic: portable artifact path does not name the retained artifact", 1, true),
       path .. ": " .. tostring(r.stderr))
   end
-end
-
---- The one-argument form is what a `#!` line can carry: a script whose
---- first line names the core and its artifact runs as a program of its
---- own, handed its arguments. The whole line counts against what the
---- kernel reads of it -- 255 bytes on Linux since 5.1, 127 before -- so
---- the line names links in the test's directory, not the core's path in
---- the cache and the artifact's in the checkout, which together run past
---- it; a link to the artifact names its file as well as the path does.
---- macOS reads and splits the line otherwise; only Linux's is checked.
-local function test_a_script_names_the_core_as_its_interpreter(tmp: string)
-  local names = assert(sys.uname())
-  if names.sysname ~= "Linux" then Test.skip("only Linux checks a `#!` line this way") end
-  local relaunch = relaunch_or_skip()
-  assert(Fs.symlink(argv_at(relaunch, 1), tmp .. "/c"))
-  assert(Fs.symlink(argv_at(relaunch, 3), tmp .. "/a"))
-  local line = "#!" .. tmp .. "/c --artifact=" .. tmp .. "/a"
-  assert(#line <= 255, "the #! line is longer than the kernel reads: " .. line)
-  local script = tmp .. "/script.tl"
-  assert(Fs.write(script, line .. "\n" .. [[
-local Proc = require("cosmic.proc")
-
-return function(argv: {string}): integer
-  local executable, _ = Proc.executable()
-  print(executable, table.concat(argv, "|"))
-  return 0
-end
-]], 0x1ed))
-  local r = run_relaunched(relaunch, { script, "a", "b c" })
-  assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
-  assert(r.stdout == tmp .. "/a\ta|b c\n", tostring(r.stdout))
 end
 
 --- Runs `argv` with `relaunch`'s contract but for the two descriptors, which
