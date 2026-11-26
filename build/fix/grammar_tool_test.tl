@@ -4,7 +4,6 @@
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
-local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 
 --- The program itself, which its test starts.
@@ -13,7 +12,7 @@ Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx
 --- `cosmic fix`, with `--check` where `check`, in `root`, and what it said.
 local function fix_new(root: string, check: boolean): Child.Result, string
   local words = if check then { "fix", "--check" } else { "fix" } end
-  local started = this_program.program(words, { cwd = root, env = this_program.environment(),
+  local started = Test.cosmic(words, { cwd = root, env = Test.environment(),
     stdout = "capture", stderr = "stdout", timeout_ns = Clock.seconds(120) })
   local result = assert(Child.run(started.argv, started.options))
   return result, result.stdout or ""

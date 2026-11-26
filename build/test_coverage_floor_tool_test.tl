@@ -7,7 +7,6 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
-local this_program = require("build.this_program")
 
 --- The program itself, which its tests start.
 Test.policy{
@@ -48,14 +47,14 @@ end
 --- run's switch, and returns its status and what it said.
 local function invoke(root: string, output: string, words: {string}): Child.Result, string
   local fd = assert(Fs.open_write(output))
-  local env = this_program.environment()
+  local env = Test.environment()
   env["COSMIC_TEST_SANDBOX"] = "0"
   env["COSMIC_VERDICT_CACHE"] = "0"
   env["COSMIC_TEST_ALL"] = nil
   env["TMPDIR"] = Fs.dirname(output)
   local argv: mut {string} = { "test" }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
-  local started = this_program.program(argv, {
+  local started = Test.cosmic(argv, {
     cwd = root, env = env, stdout = fd, stderr = fd,
     process_group = true, timeout_ns = Clock.seconds(100),
   })

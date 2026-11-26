@@ -1,7 +1,6 @@
 local Child = require("cosmic.child")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
-local this_program = require("build.this_program")
 
 Test.policy{ profiles = { "cosmic" } }
 
@@ -57,7 +56,7 @@ local function test_start_on_pty_applies_the_size()
   assert(probe)
   assert(sys.close(probe.slave))
   assert(sys.close(probe.master))
-  local program = this_program.program({ "-e", "" }, { timeout_ns = Child.FOREVER })
+  local program = Test.cosmic({ "-e", "" }, { timeout_ns = Child.FOREVER })
   local started = assert(Child.start_on_pty(program.argv, program.options, { streams = { 1 }, rows = 7, columns = 33 }))
   local size = assert(sys.winsize(started.master))
   assert(size.rows == 7 and size.columns == 33)

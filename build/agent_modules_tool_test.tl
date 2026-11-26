@@ -3,7 +3,6 @@
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Test = require("cosmic.test")
-local this_program = require("build.this_program")
 
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
@@ -19,7 +18,7 @@ print(built:find("<cosmic_modules>\n", 1, true) ~= nil and built:find(modules, 1
 ]]
 
 local function test_the_binary_lists_its_own_modules_and_its_prompt_shows_them(tmp: string)
-  local started = this_program.program({ "-e", SCRIPT }, { cwd = tmp, stdout = "capture", stderr = "capture",
+  local started = Test.cosmic({ "-e", SCRIPT }, { cwd = tmp, stdout = "capture", stderr = "capture",
     timeout_ns = Clock.seconds(20) })
   local result = assert(Child.run(started.argv, started.options))
   local out = result.stdout or ""

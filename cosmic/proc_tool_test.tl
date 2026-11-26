@@ -7,7 +7,6 @@ local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
-local this_program = require("build.this_program")
 local Fake = require("cosmic.fake")
 -- Required, so the fake's main is of this test's closure.
 local _fake = require("build.proc_tool_fake")
@@ -40,7 +39,7 @@ local function test_relaunch_starts_this_same_program(tmp: string)
   assert(again == relaunch, "the relaunch description is kept")
   local chunk = 'local Proc = require("cosmic.proc") local Store = require("cosmic.store") ' ..
     'print(Store.meta("host_image"), Store.meta("runtime"), (assert(Proc.executable())))'
-  local started = this_program.program({ "-e", chunk }, { env = this_program.environment(), cwd = tmp,
+  local started = Test.cosmic({ "-e", chunk }, { env = Test.environment(), cwd = tmp,
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stderr))
@@ -90,7 +89,7 @@ local trouble = Proc.exec({ probe, "status-field", "SigIgn" }, { env = {} })
 print(tostring(trouble))
 require("cosmic.sys").exit(1)
 ]]
-  local started = this_program.program({ "-e", chunk, probe }, { env = this_program.environment(), cwd = tmp,
+  local started = Test.cosmic({ "-e", chunk, probe }, { env = Test.environment(), cwd = tmp,
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stdout) .. tostring(r.stderr))
@@ -105,9 +104,9 @@ end
 local function becomes(tmp: string, probe: string, exec: string): string
   local chunk = 'local Proc = require("cosmic.proc")\nlocal probe = ...\nif probe == nil then return 2 end\n' ..
     "local trouble = " .. exec .. "\nprint(tostring(trouble))\nrequire(\"cosmic.sys\").exit(1)\n"
-  local env = this_program.environment()
+  local env = Test.environment()
   env.FOO = "outer" -- checked: map_field
-  local started = this_program.program({ "-e", chunk, probe }, { env = env, cwd = tmp,
+  local started = Test.cosmic({ "-e", chunk, probe }, { env = env, cwd = tmp,
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stdout) .. tostring(r.stderr))
@@ -146,7 +145,7 @@ local function test_the_relaunch_cwd_is_where_the_program_started(tmp: string)
   end
   local chunk = "local Proc = require('cosmic.proc') require('cosmic.sys').chdir('/') " ..
     "print(assert(Proc.relaunch()).cwd)"
-  local started = this_program.program({ "-e", chunk },
+  local started = Test.cosmic({ "-e", chunk },
     { cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.code == 0, tostring(r.stderr))

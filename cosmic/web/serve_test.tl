@@ -209,14 +209,14 @@ local function test_a_lifespan_that_fails_stops_serve_before_it_listens()
   end }
   local ok, why = Web.serve(app, { listeners = { Net.tcp("127.0.0.1", 0) },
     on_ready = function(_addresses: {Net.Address}, _server: Net.Server) listened = true end })
-  assert(not ok and why == "no database" and not listened)
+  assert(not ok and tostring(why) == "no database" and not listened)
 end
 
 local function test_serve_warns_when_debug_meets_a_listener_beyond_the_loopback()
   local sink, lines = recording()
   local app = Web.app{ routes = {}, debug = true, sink = sink }
   -- Not an address of this host: the bind fails, after the warning.
-  local ok = Web.serve(app, { listeners = { Net.tcp("10.255.255.1", 0) } })
+  local ok, _ = Web.serve(app, { listeners = { Net.tcp("10.255.255.1", 0) } })
   assert(not ok)
   assert(#lines >= 1 and lines[1]:find("debug is on", 1, true) ~= nil, table.concat(lines, "|"))
   -- A socket file is how a proxy reaches an app: beyond the loopback too.
@@ -234,10 +234,10 @@ end
 local function test_serve_gives_the_server_a_grace_of_ten_seconds_unless_told_otherwise()
   local graces: mut {integer} = {}
   local real = Server.serve
-  Server.serve = function(spec: Server.ServeSpec): boolean, string -- checked: field_fixed
+  Server.serve = function(spec: Server.ServeSpec): (true) | (false, Failure) -- checked: field_fixed
     local spec_grace_ns = assert(spec.grace_ns, "expected spec.grace_ns")
     graces[#graces + 1] = spec_grace_ns
-    return true, ""
+    return true
   end
   local ran, err = pcall(function()
     local app = Web.app{ routes = {} }

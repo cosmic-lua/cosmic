@@ -82,6 +82,20 @@ local function test_from_string_honors_max_bytes()
   assert(chunk == false)
 end
 
+--- With a chunk, no read returns more than it, with a `max_bytes` or
+--- without, and a smaller `max_bytes` is still honored; a skip goes past
+--- bytes as it does with none, and a chunk below 1 raises.
+local function test_from_string_with_a_chunk_reads_at_most_the_chunk()
+  local r = Stream.from_string("abcdefgh", 3)
+  assert(chunk_of(r) == "abc")
+  assert(chunk_of(r, 100) == "def")
+  assert(chunk_of(r, 1) == "g")
+  assert(Stream.skip(r, 1))
+  local chunk, _ = r:read()
+  assert(chunk == false)
+  Test.raises(function() Stream.from_string("x", 0) end, "not at least 1")
+end
+
 local function test_from_string_empty_is_immediate_eof()
   local r = Stream.from_string("")
   local chunk, _ = r:read()

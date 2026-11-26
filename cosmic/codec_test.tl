@@ -111,6 +111,42 @@ local function test_unbase64url_refuses_padding_and_the_standard_alphabet()
   end
 end
 
+local function test_unbase64_lines_skips_mime_line_breaks()
+  local bytes = ("cosmic"):rep(40)
+  local flat = Codec.base64(bytes)
+  local lines: mut {string} = {}
+  for i = 1, #flat, 76 do lines[#lines + 1] = flat:sub(i, i + 75) end
+  assert(assert(Codec.unbase64_lines(table.concat(lines, "\r\n") .. "\r\n")) == bytes)
+  assert(assert(Codec.unbase64_lines(table.concat(lines, "\n"))) == bytes)
+  assert(assert(Codec.unbase64_lines(flat)) == bytes)
+  assert(assert(Codec.unbase64_lines("Zm9v\r\nYg==\r\n")) == "foob")
+  assert(assert(Codec.unbase64_lines("")) == "")
+  assert(assert(Codec.unbase64_lines("\r\n")) == "")
+  assert(assert(Codec.unbase64_lines("Zg=\r\n=")) == "f")
+  assert(assert(Codec.unbase64_lines("Zg\r\n==")) == "f")
+  assert(assert(Codec.unbase64_lines("Zg==\r\n\r\n")) == "f")
+end
+
+local function test_unbase64_lines_refuses_as_unbase64_does_at_the_place_in_the_text()
+  local cases: {Refusal} = {
+    { text = "Zm9v\r\nZm9", says = "length 7 without its line breaks, not a multiple of 4" },
+    { text = "Zm9v\r\nZ m9", says = "byte 0x20 at 8" },
+    { text = "Zm9v\tZm9", says = "byte 0x09 at 5" },
+    { text = "Zg==\r\nZm9v", says = "misplaced '=' padding at 3" },
+    { text = "Zm9v\r\nZh==", says = "nonzero padding bits" },
+    { text = "Zm9v\r\nZh\r\n==\r\n", says = "nonzero padding bits" },
+    { text = "Z=\n=\n=", says = "misplaced '=' padding at 2" },
+    { text = "=\r\n=\r\n=\r\n=", says = "misplaced '=' padding at 1" },
+    { text = "Zm\n9\0", says = "byte 0x00 at 5" },
+    { text = ("A"):rep(1024 * 1024 - 4) .. "\r\nAAA\0", says = "byte 0x00 at " .. tostring(1024 * 1024 + 2) },
+  }
+  for _, c in ipairs(cases) do
+    local out, why = Codec.unbase64_lines(c.text)
+    assert(out == nil, c.text)
+    assert(tostring(why):find(c.says, 1, true), c.text .. ": " .. tostring(why))
+  end
+end
+
 local function test_a_megabyte_round_trips()
   local parts: mut {string} = {}
   for i = 1, 4096 do

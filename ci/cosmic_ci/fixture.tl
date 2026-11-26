@@ -74,6 +74,12 @@ local record Fixture
   end
 end
 
+-- TODO: have each module of fixtures/ require `env:` of each variable it
+-- reads here (`requires = { "env:COSMIC_FIXTURE_TARGET" }`), so a plain
+-- `cosmic test` in ci/ finds it n/a, once ci/cosmic-driver.pin names a
+-- release whose build/host_names.tl knows `env:`. A fixture that reads
+-- no variable, only files its run places, needs another requirement its
+-- run alone meets.
 function Fixture.required(name: string): string
   return (assert(Env.get(name), "fixture environment is missing " .. name))
 end
@@ -306,7 +312,7 @@ end
 --- - COSMIC_PORTABLE_CACHE, COSMIC_VERDICT_CACHE, COSMIC_AUTO_BOOT,
 ---   COSMIC_TEST_SANDBOX, COSMIC_SANDBOX and COSMIC_TEST_HELD: what a
 ---   process of the program running the tests reads to run at all
----   (build/this_program.tl's `runtime_environment`, and COSMIC_SANDBOX,
+---   (cosmic/test.tl's `runtime_environment`, and COSMIC_SANDBOX,
 ---   which `confine` reads).
 --- - COSMIC_BUILD_HOME: the generated-directory base, shared by a child
 ---   and the driver resolving its products.

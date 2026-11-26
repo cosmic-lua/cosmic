@@ -4,13 +4,12 @@
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Test = require("cosmic.test")
-local this_program = require("build.this_program")
 
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 --- Runs the program with `words` as its command line and returns the result.
 local function started_with(tmp: string, words: {string}): Child.Result
-  local started = this_program.program(words, { env = this_program.environment(), cwd = tmp,
+  local started = Test.cosmic(words, { env = Test.environment(), cwd = tmp,
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
   return (assert(Child.run(started.argv, started.options)))
 end

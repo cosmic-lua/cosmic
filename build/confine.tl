@@ -196,7 +196,7 @@ end
 
 --- The variable a sandboxed worker held by a Landlock ruleset is
 --- started with ([`forbid_running`]), naming its module: every process it
---- starts inherits the hold, and, through [`this_program.environment`],
+--- starts inherits the hold, and, through [`Test.environment`],
 --- the variable, so a `cosmic test` one of them runs refuses to sandbox
 --- its workers ([`build.test`]) as a spawn here refuses a root of its own
 --- (`enter`), naming `nests`, rather than falling back to confining
@@ -633,19 +633,6 @@ function confine.forbid_running(programs: {string}, within?: {string}): boolean,
   return true, ""
 end
 
---- The running test's own directory, the innermost running stand-in's
---- (see `enter`), or nil: where a process it starts makes its
---- temporary files (build.this_program's `environment`).
-function confine.test_directory(): string?
-  -- The innermost stand-in is the last entered, so the last one with a directory wins.
-  local innermost: string? = nil
-  for _, each in ipairs(entered) do
-    local own = each.own[1]
-    if own ~= nil then innermost = own end
-  end
-  return innermost
-end
-
 --- What an absolute path resolves to, links and all, when it is read:
 --- `realpath` of the path, or, when it is not there (a stat or an open
 --- of a missing file is a read too), of its nearest existing ancestor
@@ -1002,8 +989,7 @@ local type Leave = function(): string?
 --- returns is called, which puts back what it stood in for and returns
 --- the first spawn [`must_confine`] refused meanwhile, or nil. `own` holds
 --- the directories the running test owns, which a confined process may
---- change: its own directory first, where a process it starts makes its
---- temporary files ([`confine.test_directory`]). `sandboxed` says this
+--- change: its own directory first. `sandboxed` says this
 --- process runs in a sandbox every process it starts inherits -- a
 --- sandboxed worker's (build/test_sandbox.tl) -- which holds a process
 --- a library's work starts (`declaring`) in its place.

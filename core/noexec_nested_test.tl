@@ -13,7 +13,6 @@ local sys = require("cosmic.sys")
 local Fake = require("cosmic.fake")
 local test_child = require("build.test_child")
 local testing = require("cosmic.internal.testing")
-local this_program = require("build.this_program")
 
 --- The declared scratch; this program, which the child runs; and
 --- permission to make the mount namespace the child binds in.
@@ -71,7 +70,7 @@ local function test_nested_bind_preserves_noexec_and_cannot_clear_it(tmp: string
   assert(Fs.write(path, assert(Fs.read(ordinary)), 0x1c0))
   local alias = tmp .. "/bound"
   assert(Fs.mkdirs(alias))
-  local started = this_program.program(test_child.words(tmp, "core.noexec_nested_test", "nested bind", { noexec, alias }),
+  local started = Test.cosmic(test_child.words(tmp, "core.noexec_nested_test", "nested bind", { noexec, alias }),
     { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(10) })
   local result, trouble = Child.run(started.argv, started.options)
   assert(result ~= nil, trouble)

@@ -80,7 +80,7 @@ end
 --- A module of the test's closure loads; one outside it is not found in the artifact a child runs, where a `tool`
 --- test's child would load it: the checker refuses the chunk that requires it, naming the module.
 local function test_a_module_outside_the_closure_is_not_found()
-  local ok, _, err = run({ "-e", "local Child = require('cosmic.child') local This = require('build.this_program') " ..
+  local ok, _, err = run({ "-e", "local Child = require('cosmic.child') local This = require('build.confine') " ..
       "print(type(Child), type(This))" })
   assert(ok, err)
   skip_unless_sandboxed()

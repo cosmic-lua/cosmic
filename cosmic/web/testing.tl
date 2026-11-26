@@ -761,7 +761,7 @@ function Testing.with_server(app: Types.App, fn: function(client: Testing.Loopba
     end,
   })
   if failures[1] ~= nil then error(failures[1], 0) end
-  if not ok then error("web: with_server: " .. why, 2) end
+  if not ok then error("web: with_server: " .. tostring(why), 2) end
 end
 
 return Testing

@@ -8,7 +8,6 @@
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
-local this_program = require("build.this_program")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local _ = require("build.standalone")
@@ -44,7 +43,7 @@ local Http = require("cosmic.http")
 local _, trouble = Http.open("http://127.0.0.1:1/", { timeout_ns = Clock.seconds(60), connect_timeout_ns = Clock.seconds(2) })
 local _, _ = Fs.put(Fs.stdout, tostring(trouble))
 ]]))
-  local started = this_program.program({ "--standalone", script },
+  local started = Test.cosmic({ "--standalone", script },
     { env = { SSL_CERT_FILE = cert_file, XDG_CACHE_HOME = tmp .. "/cache" },
       stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local result = assert(Child.run(started.argv, started.options))
@@ -101,7 +100,7 @@ end
   local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(20) }))
   local url = "http://127.0.0.1:" .. tostring(assert(server.address.port)) .. "/"
   local marker = tmp .. "/marker"
-  local started = this_program.program({ "--standalone", script, url, marker },
+  local started = Test.cosmic({ "--standalone", script, url, marker },
     { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })
   local child <close> = assert(Child.start(started.argv, started.options))
   local conn <close> = assert(server:accept())
@@ -181,7 +180,7 @@ end
   local url = "http://127.0.0.1:" .. tostring(assert(server.address.port)) .. "/items/1"
   local args = { "--standalone", script, method, url }
   if body ~= nil then args[#args + 1] = body end
-  local started = this_program.program(args, { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })
+  local started = Test.cosmic(args, { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })
   local child <close> = assert(Child.start(started.argv, started.options))
   local accepted, refused = server:accept()
   if accepted == nil then
@@ -279,7 +278,7 @@ end
 ]]))
   local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(20) }))
   local url = "https://127.0.0.1:" .. tostring(assert(server.address.port)) .. "/"
-  local started = this_program.program({ "--standalone", script, url }, { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })
+  local started = Test.cosmic({ "--standalone", script, url }, { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })
   local child <close> = assert(Child.start(started.argv, started.options))
   local conn <close> = assert(server:accept())
   local hello = tls_record(conn, "")

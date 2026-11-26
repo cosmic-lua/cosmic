@@ -1,4 +1,4 @@
---- How a test starts this very program (build.this_program's `program`).
+--- How a test starts this very program ([`Test.cosmic`]) and what it hands it ([`Test.environment`]).
 
 local Array = require("cosmic.array")
 local Child = require("cosmic.child")
@@ -9,9 +9,8 @@ local Failure = require("cosmic.failure")
 local Proc = require("cosmic.proc")
 local Sandbox = require("cosmic.sandbox")
 local Test = require("cosmic.test")
-local this_program = require("build.this_program")
 
---- What `program` copies is this process's environment, which for a
+--- What `cosmic` copies is this process's environment, which for a
 --- worker is the variables it declares and the pinned ones, and what it
 --- starts is this very program, which reads its own command line in /proc.
 Test.policy{
@@ -33,18 +32,18 @@ local function relaunching(relaunch: Proc.Relaunch?, fn: function())
   assert(ok, tostring(trouble))
 end
 
---- `program` starts the core the relaunch names with its arguments and
+--- `cosmic` starts the core the relaunch names with its arguments and
 --- the program's after them, or, with no artifact to relaunch, the
 --- program itself; either way without the startup test's handshake.
-local function test_program_starts_the_relaunch_or_else_the_executable()
+local function test_cosmic_starts_the_relaunch_or_else_the_executable()
   relaunching({ argv = { "/cache/core-x", "--artifact", "/tree/o/bin/cosmic" }, env = {},
     fds = {} }, function()
-      local argv = this_program.program({ "test", "--all" }).argv
+      local argv = Test.cosmic({ "test", "--all" }).argv
       assert(table.concat(argv, " ") == "/cache/core-x --artifact /tree/o/bin/cosmic test --all",
         table.concat(argv, " "))
     end)
   relaunching(nil, function()
-    local started = this_program.program({ "-e", "" }, { timeout_ns = Child.FOREVER, env = { HOME = "/home",
+    local started = Test.cosmic({ "-e", "" }, { timeout_ns = Child.FOREVER, env = { HOME = "/home",
       COSMIC_PORTABLE_STARTUP_TEST_READY = "r", COSMIC_PORTABLE_STARTUP_TEST_GO = "g" },
       fds = { [3] = 1 } })
     local argv = started.argv
@@ -57,19 +56,19 @@ local function test_program_starts_the_relaunch_or_else_the_executable()
   end)
   -- And this very program's: its relaunch where it has one.
   local relaunch, _ = Proc.relaunch()
-  local argv = this_program.program({ "x" }).argv
+  local argv = Test.cosmic({ "x" }).argv
   local lead = if relaunch ~= nil then relaunch.argv else { assert(Proc.executable()) } end
   assert(#argv == #lead + 1 and argv[#argv] == "x", table.concat(argv, " "))
   for i, word in ipairs(lead) do assert(argv[i] == word, table.concat(argv, " ")) end
 end
 
---- `program` adds the relaunch's variables to the environment the
+--- `cosmic` adds the relaunch's variables to the environment the
 --- caller gives, in a copy, or to the whole of this process's where it
 --- gives none, and takes out the startup test's handshake either way;
 --- the relaunch's descriptors go beside the caller's, and one the
 --- caller names already raises; every other option is the caller's,
 --- and the caller's tables are left as they were.
-local function test_program_adds_the_relaunch_to_a_copy_of_the_options()
+local function test_cosmic_adds_the_relaunch_to_a_copy_of_the_options()
   local relaunch: Proc.Relaunch = { argv = { "/cache/core-x", "--artifact", "/a" },
     env = { COSMIC_PORTABLE_ARTIFACT = "/a", SHARED = "relaunch" },
     fds = { [254] = 7, [255] = 8 } }
@@ -82,7 +81,7 @@ local function test_program_adds_the_relaunch_to_a_copy_of_the_options()
     local given: Child.Options = { env = env, cwd = "/somewhere", stdin = "stream", input = "bytes",
       stdout = "capture", stderr = "stdout", fds = fds, capture_limit = 9,
       process_group = true, timeout_ns = Clock.ms(5), sandbox = sandbox }
-    local opts = this_program.program({}, given).options
+    local opts = Test.cosmic({}, given).options
     assert(opts.env ~= env and opts.fds ~= fds, "the caller's tables are copied")
     assert(assert(opts.env)["HOME"] == "/home" and assert(opts.env)["COSMIC_PORTABLE_ARTIFACT"] == "/a" and
         assert(opts.env)["SHARED"] == "relaunch")
@@ -100,13 +99,13 @@ local function test_program_adds_the_relaunch_to_a_copy_of_the_options()
     -- A descriptor the relaunch hands the core its artifact as, named
     -- by the caller too, raises rather than being dropped.
     Test.raises(function()
-      this_program.program({}, { timeout_ns = Child.FOREVER, fds = { [254] = "capture" } })
+      Test.cosmic({}, { timeout_ns = Child.FOREVER, fds = { [254] = "capture" } })
     end, "descriptor 254")
     -- No environment given: this process's whole, which a child given
     -- none would have inherited, with the relaunch's added. A worker's
     -- is the variables it declares and the pinned ones; TMPDIR is
     -- always among them.
-    local whole = this_program.program({ "x" }).options
+    local whole = Test.cosmic({ "x" }).options
     local own = Env.all()
     assert(Env.get("TMPDIR") ~= nil, "the worker's environment is empty")
     for name, value in pairs(own) do
@@ -122,11 +121,11 @@ local function test_program_adds_the_relaunch_to_a_copy_of_the_options()
   end)
 end
 
---- This very program, started as `program` says, starts with an empty
+--- This very program, started as `cosmic` says, starts with an empty
 --- environment on the core the relaunch names: not the one a launcher
 --- given no cache home would find or unpack elsewhere.
-local function test_program_starts_this_program_with_no_environment(tmp: string)
-  local started = this_program.program({ "-e", [[
+local function test_cosmic_starts_this_program_with_no_environment(tmp: string)
+  local started = Test.cosmic({ "-e", [[
 local Fs = require("cosmic.fs")
 local cmdline, _ = Fs.read("/proc/self/cmdline")
 if cmdline ~= nil then print(cmdline:match("^[^%z]*")) else print("") end
@@ -145,16 +144,16 @@ if cmdline ~= nil then print(cmdline:match("^[^%z]*")) else print("") end
   assert(r.stdout == program .. "\n", tostring(r.stdout) .. " is no relaunch of " .. program)
 end
 
---- Under a policy `program` is the command line a policy start takes,
+--- Under a policy `cosmic` is the command line a policy start takes,
 --- which relaunches the program itself: the path it is started by and
 --- the arguments, the policy and the caller's descriptors alone, no
 --- environment, and no word or descriptor of the relaunch.
-local function test_program_under_a_policy_leaves_the_relaunch_to_the_start()
+local function test_cosmic_under_a_policy_leaves_the_relaunch_to_the_start()
   local relaunch: Proc.Relaunch = { argv = { "/cache/core-x", "--database", "/db" },
     env = { COSMIC_PORTABLE_ARTIFACT = "/a" }, fds = { [254] = 7 } }
   relaunching(relaunch, function()
     local policy: Sandbox.Policy = {}
-    local started = this_program.program({ "-e", "x" }, { timeout_ns = Child.FOREVER, policy = policy, cwd = "/w",
+    local started = Test.cosmic({ "-e", "x" }, { timeout_ns = Child.FOREVER, policy = policy, cwd = "/w",
       fds = { [3] = 1 } })
     local argv = started.argv
     assert(#argv == 3 and argv[1] == assert(Proc.executable()) and argv[2] == "-e" and
@@ -164,22 +163,35 @@ local function test_program_under_a_policy_leaves_the_relaunch_to_the_start()
     assert(opts.env == nil, "the policy's env and set_env are the whole environment")
     -- Layers alone are held as a policy is, and carried to the start.
     local layers: {Sandbox.Policy} = { policy }
-    local layered = this_program.program({ "-e", "x" }, { timeout_ns = Child.FOREVER, layers = layers })
+    local layered = Test.cosmic({ "-e", "x" }, { timeout_ns = Child.FOREVER, layers = layers })
     assert(layered.options.layers == layers and layered.options.env == nil and #layered.argv == 3,
       table.concat(layered.argv, " "))
     assert(assert(opts.fds)[3] == 1 and assert(opts.fds)[254] == nil)
     -- The relaunch's descriptors are not this start's to refuse.
-    assert(assert(this_program.program({}, { timeout_ns = Child.FOREVER, policy = policy, fds = { [254] = "capture" } }).options.fds)[254] ==
+    assert(assert(Test.cosmic({}, { timeout_ns = Child.FOREVER, policy = policy, fds = { [254] = "capture" } }).options.fds)[254] ==
         "capture")
     -- Child.start refuses an env beside a policy; so does this, rather than drop it.
     Test.raises(function()
-      this_program.program({}, { timeout_ns = Child.FOREVER, policy = policy, env = { A = "1" } })
+      Test.cosmic({}, { timeout_ns = Child.FOREVER, policy = policy, env = { A = "1" } })
     end, "env beside a policy")
   end)
   -- Without a policy the relaunch is still there.
   relaunching(relaunch, function()
-    local started = this_program.program({ "-e", "x" })
+    local started = Test.cosmic({ "-e", "x" })
     assert(started.argv[1] == "/cache/core-x" and started.argv[2] == "--database")
     assert(started.options.env ~= nil and assert(started.options.fds)[254] == 7)
   end)
+end
+
+--- `environment` passes on each of `runtime_environment` this process
+--- has, and no other, with TMPDIR the running test's own directory.
+local function test_environment_names_the_test_s_own_directory(tmp: string)
+  local env = Test.environment()
+  assert(env["TMPDIR"] == tmp, tostring(env["TMPDIR"]) .. " is not " .. tmp)
+  local kept: mut {string:boolean} = {}
+  for _, name in ipairs(Test.runtime_environment) do kept[name] = true end
+  for name, _ in pairs(env) do assert(kept[name] == true, name .. " is no runtime variable") end
+  -- A fresh table each call, which the caller may change.
+  env["TMPDIR"] = "/elsewhere"
+  assert(Test.environment()["TMPDIR"] == tmp)
 end

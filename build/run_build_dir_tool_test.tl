@@ -8,7 +8,6 @@ local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
-local this_program = require("build.this_program")
 local build_paths = require("build.paths")
 
 --- The program itself, which builds the tree around the file it runs.
@@ -17,10 +16,10 @@ Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx
 --- Runs `file` in `root` with this user's cache under `cache`, and no
 --- COSMIC_BUILD_HOME, so the build directory is that cache's.
 local function run(root: string, cache: string, file: string, word: string): Child.Result
-  local env = this_program.environment()
+  local env = Test.environment()
   env.XDG_CACHE_HOME = cache -- checked: map_field
   env.COSMIC_BUILD_HOME = nil -- checked: map_field
-  local started = this_program.program({ file, word }, { cwd = root, env = env,
+  local started = Test.cosmic({ file, word }, { cwd = root, env = env,
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
   return (assert(Child.run(started.argv, started.options)))
 end

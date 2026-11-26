@@ -3,7 +3,6 @@ local Fs = require("cosmic.fs")
 local type _ = require("cosmic.sys")
 local Clock = require("cosmic.clock")
 local Test = require("cosmic.test")
-local this_program = require("build.this_program")
 local type Stream = require("cosmic.stream")
 
 --- The next chunk of `reader`: raises where it ended or failed.
@@ -27,8 +26,8 @@ for i = 1, 1000 do
   assert(Fs.append("log", string.format("%s:%04d\n", name, i)))
 end
 ]]
-  local started = this_program.program({ "-e", script }, { timeout_ns = Child.FOREVER,
-    env = this_program.environment(), cwd = tmp,
+  local started = Test.cosmic({ "-e", script }, { timeout_ns = Child.FOREVER,
+    env = Test.environment(), cwd = tmp,
     stdin = "stream", stdout = "stream", stderr = "capture",
   })
   return (assert(Child.start(started.argv, started.options)))
