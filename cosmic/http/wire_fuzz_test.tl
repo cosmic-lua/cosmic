@@ -46,7 +46,6 @@ local record Request
   chunks: mut {string}
 end
 
---- Draws one request's fields onto `fields`, each a letter and its text.
 --- Why [`wire.check`] refuses `reply`, "" where it does not.
 local function trouble_of(reply: wire.Reply): string
   local ok, why = wire.check(reply)
@@ -54,6 +53,7 @@ local function trouble_of(reply: wire.Reply): string
   return tostring(why)
 end
 
+--- Draws one request's fields onto `fields`, each a letter and its text.
 local function draw_request(src: Fuzz.Source, fields: mut {string})
   fields[#fields + 1] = "r"
   table.insert(fields, "m" .. Fuzz.pick(src, METHODS))

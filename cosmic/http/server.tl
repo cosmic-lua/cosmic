@@ -506,9 +506,9 @@ local function reply_trouble(reply: any): (true) | (false, Failure)
   end
   local headers = reply.headers -- checked: any_use
   if headers ~= nil then
-    if not headers is {any: any} then
+    if not headers is {any: any} then -- declared: key_type
       return false, Failure.new("the reply's headers must be a table")
-    end -- declared: key_type
+    end
     for name, value in pairs(headers) do
       if not name is string then
         return false, Failure.new("the reply's headers must map names to strings")

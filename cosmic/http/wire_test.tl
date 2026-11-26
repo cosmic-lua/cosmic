@@ -9,7 +9,6 @@ local DATE <const> = "Thu, 01 Jan 1970 00:00:00 GMT"
 
 local LIMITS <const>: wire.Limits = { head_bytes = 1024, body_bytes = 100 }
 
---- What reading `text` as one request's head gives.
 --- Why [`wire.check`] refuses `reply`, "" where it does not.
 local function trouble_of(reply: wire.Reply): string
   local ok, why = wire.check(reply)
@@ -17,6 +16,7 @@ local function trouble_of(reply: wire.Reply): string
   return tostring(why)
 end
 
+--- What reading `text` as one request's head gives.
 local function read(text: string, limits?: wire.Limits): wire.Read
   return wire.read_head(wire.input(Stream.from_string(text)), limits or LIMITS)
 end
