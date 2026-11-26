@@ -2312,7 +2312,9 @@ local function test_the_queue_runs_the_checked_suite_in_three_shares()
 end
 
 --- The gate (`ci`, the one check a ruleset requires) needs every job and
---- fails on any that failed or was cancelled; the checked and narrowing
+--- fails on any that failed or was cancelled. A pull request's cancelled
+--- run, which a newer run replaced, skips it instead of failing a head that
+--- is no longer checked. The checked and narrowing
 --- jobs read as passed on a pull request, which skips them. On every
 --- other run it compares the legs' products: the queue's and a push's three, the
 --- scheduled and a manual run's four, which prerelease.yml publishes from
@@ -2320,7 +2322,8 @@ end
 local function test_the_gate_needs_every_job_and_compares_the_legs_products()
   local jobs = ci_workflow().jobs
   local gate = job_of(jobs, "ci")
-  assert(table.concat(needs_of(gate), ",") == "queue-ref,platform,checked,narrowing,driver" and gate["if"] == "always()",
+  assert(table.concat(needs_of(gate), ",") == "queue-ref,platform,checked,narrowing,driver" and
+      gate["if"] == "always() && !(cancelled() && github.event_name == 'pull_request')",
     "the gate needs " .. table.concat(needs_of(gate), ","))
   local passed = step_named(gate.steps, "every job passed")
   local env = map_of(passed.env)
