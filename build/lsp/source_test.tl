@@ -423,7 +423,7 @@ local function test_a_database_made_again_of_another_schema_under_the_session_is
       -- is read as it is.
       local copy = working .. ".another"
       local db = assert(Sqlite.open(working, { writable = true }))
-      assert(db:text_rows("PRAGMA wal_checkpoint(TRUNCATE)"))
+      assert(db:rows("PRAGMA wal_checkpoint(TRUNCATE)"))
       assert(db:run("VACUUM INTO ?1", { { text = copy } }))
       assert(db:close())
       stamp_another(copy)
@@ -818,9 +818,9 @@ local POINT <const> = "local record point\n  x: integer\n  record Corner\n    y:
 
 --- The number of rows of `table` that hold the text `hash` in `db`.
 local function rows_of(db: Sqlite.Handle, table_name: string, hash: string): integer
-  local rows = assert(db:text_rows("SELECT count(*) FROM " .. table_name .. " WHERE source_hash = ?1",
+  local rows = assert(db:rows("SELECT count(*) FROM " .. table_name .. " WHERE source_hash = ?1",
     { { text = hash } }))
-  return math.tointeger(tonumber(assert(rows[1]):text(1))) or -1
+  return assert(rows[1]):integer(1)
 end
 
 --- The places of the staged module `lib.point`, read from the `places` rows the stage derived: nothing is derived, and a
@@ -1496,12 +1496,12 @@ local function dumped(file: string, kind: string, text: string, shared: boolean)
   assert(Derivation.insert(db, "h", file, text, chunk, false, nil, known))
   local out: mut {string} = {}
   for _, name in ipairs(AnalysisSchema.tables) do
-    local columns = assert(db:text_rows("SELECT count(*) FROM pragma_table_info('" .. name .. "')"))
-    local count = math.tointeger(tonumber(assert(columns[1]):text(1))) or 0
-    local rows = assert(db:text_rows("SELECT * FROM " .. name))
+    local columns = assert(db:rows("SELECT count(*) FROM pragma_table_info('" .. name .. "')"))
+    local count = assert(columns[1]):integer(1)
+    local rows = assert(db:rows("SELECT * FROM " .. name))
     for _, row in ipairs(rows) do
       local cells: mut {string} = {}
-      for n = 1, count do cells[n] = row:text(n) end
+      for n = 1, count do cells[n] = row:as_text(n) or "" end
       out[#out + 1] = name .. "|" .. table.concat(cells, "|")
     end
   end
@@ -1580,7 +1580,7 @@ local function test_the_text_a_check_read_and_the_text_now_are_both_kept_in_the_
   source.release(src, "lib/shapes.tl")
   assert(src.scratched["lib/shapes.tl"] == nil)
   local rows = assert(src.scratch)
-  local left = assert(rows:text_rows("SELECT 1 FROM places"))
+  local left = assert(rows:rows("SELECT 1 FROM places"))
   assert(#left == 0, tostring(#left))
   source.close(src)
 end

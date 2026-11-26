@@ -212,7 +212,7 @@ end
 local function build_verdicts(path: string): string
   local db, open_trouble = Sqlite.open(path)
   if db == nil then return "unreadable: " .. tostring(open_trouble) end
-  local rows, trouble = db:text_rows("SELECT verdict FROM builds ORDER BY run")
+  local rows, trouble = db:rows("SELECT verdict FROM builds ORDER BY run")
   local _, _ = db:close()
   if rows == nil then return "unreadable: " .. tostring(trouble) end
   local verdicts = ""
@@ -307,10 +307,10 @@ local function test_a_waiting_projection_keeps_its_compiled_snapshot(tmp: string
         assert(writer.write_result(b, alternate, result))
         assert(work.close(b))
         local db = assert(Sqlite.open(alternate))
-        local rows = assert(db:text_rows(
+        local rows = assert(db:rows(
           "SELECT inflate(source) FROM modules WHERE path = 'main'"))
         -- The one module `main` is stored once.
-        assert(Array.at(rows, 1):text(1) == 'print("replacement")\n')
+        assert(Array.at(rows, 1):bytes(1) == 'print("replacement")\n')
         assert(db:close())
       else
         assert(Fs.write(root .. "/main.tl", 'local broken: string = 42\nprint(broken)\n'))
@@ -326,10 +326,10 @@ local function test_a_waiting_projection_keeps_its_compiled_snapshot(tmp: string
       assert(result.ok, text)
       assert(text:find("original\n", 1, true), text)
       local db = assert(Sqlite.open(support.build_dir(root) .. "/cosmic.db"))
-      local rows = assert(db:text_rows(
+      local rows = assert(db:rows(
         "SELECT inflate(source) FROM modules WHERE path = 'main'"))
-      assert(Array.at(rows, 1):text(1) == original, "published another run's source")
-      local signed = assert(db:text_rows(
+      assert(Array.at(rows, 1):bytes(1) == original, "published another run's source")
+      local signed = assert(db:rows(
         "SELECT value FROM meta WHERE key = 'projected'"))
       assert(Array.at(signed, 1):text(1) == first_signature, "published another run's signature")
       assert(db:close())
@@ -424,9 +424,9 @@ end
 --- How many builds the working database of `root` records.
 local function builds_of(root: string): integer
   local db = assert(Sqlite.open(build_paths.resolve(root).working))
-  local rows = assert(db:text_rows("SELECT count(*) FROM builds"))
+  local rows = assert(db:rows("SELECT count(*) FROM builds"))
   assert(db:close())
-  return assert(math.tointeger(tonumber(assert(rows[1]):text(1))))
+  return assert(rows[1]):integer(1)
 end
 
 --- The check before a verb that only reads, finding the tree's own tool
@@ -630,9 +630,9 @@ end
 --- How many rows of blame the working database of `root` keeps.
 local function blames_of(root: string): integer
   local db = assert(Sqlite.open(build_paths.resolve(root).working))
-  local rows = assert(db:text_rows("SELECT count(*) FROM blames"))
+  local rows = assert(db:rows("SELECT count(*) FROM blames"))
   assert(db:close())
-  return assert(math.tointeger(tonumber(assert(rows[1]):text(1))))
+  return assert(rows[1]):integer(1)
 end
 
 --- `todos` in a tree its check left unchecked, the tool older than the

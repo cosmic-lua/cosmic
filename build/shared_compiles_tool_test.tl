@@ -120,10 +120,10 @@ end
 --- Every row `sql` finds in the database at `path`, a line each.
 local function dump(path: string, sql: string): string
   local db = assert(Sqlite.open(path))
-  local rows = assert(db:text_rows(sql))
+  local rows = assert(db:rows(sql))
   assert(db:close())
   local lines: mut {string} = {}
-  for _, row in ipairs(rows) do lines[#lines + 1] = table.concat(row:texts(), "\t") end
+  for _, row in ipairs(rows) do lines[#lines + 1] = table.concat(row:as_texts(), "\t") end
   return table.concat(lines, "\n")
 end
 
@@ -233,7 +233,7 @@ local function test_a_damaged_row_is_compiled_again_and_replaced(tmp: string)
   built(tmp .. "/first", env, "(3 compiled, 0 cached;")
   local keys: mut {string:string} = {}
   local db = assert(Sqlite.open(support.build_dir(tmp .. "/first") .. "/cosmic.db"))
-  local rows = assert(db:text_rows("SELECT path, CAST(key AS TEXT) FROM modules"))
+  local rows = assert(db:rows("SELECT path, CAST(key AS TEXT) FROM modules"))
   for _, row in ipairs(rows) do
     keys[row:text(1)] = shared_compiles.key(row:text(2), false, false)
   end
@@ -377,7 +377,7 @@ return 0
   end
   local cache, trouble = shared_compiles.open(path)
   assert(cache ~= nil, trouble)
-  local rows = assert(cache.db:text_rows("PRAGMA journal_mode"))
+  local rows = assert(cache.db:rows("PRAGMA journal_mode"))
   assert(support.nth(rows, 1):text(1) == "wal", support.nth(rows, 1):text(1))
   shared_compiles.close(cache)
   local result, wait_trouble = handle:wait(Clock.seconds(10))

@@ -860,9 +860,9 @@ local function test_sql_deflate_and_inflate_speak_raw_deflate()
     assert(Array.at(back, 1):blob(1) == input, "SQL inflates what Compress deflated")
   end
   assert(#assert(Compress.encode("raw", text)) < #text // 10)
-  local nulls = assert(db:text_rows(
+  local nulls = assert(db:rows(
     "SELECT deflate(NULL) IS NULL, inflate(NULL) IS NULL"))
-  assert(Array.at(nulls, 1):text(1) == "1" and Array.at(nulls, 1):text(2) == "1")
+  assert(Array.at(nulls, 1):integer(1) == 1 and Array.at(nulls, 1):integer(2) == 1)
   local stream = assert(Compress.encode("raw", text))
   local record Damaged
     blob: string

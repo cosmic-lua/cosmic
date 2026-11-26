@@ -134,11 +134,17 @@ local function test_nulls_stay_on_their_rows_when_a_query_answers_differently(tm
   assert(nulls + xs == 200, text)
 end
 
-local function test_non_null_cells_dump_as_text_rows_answers_them(tmp: string)
-  local sql = "SELECT 1, 1.5, 1.0e+300, 30000000000.0, -0.0, 'a b', x'61', x'', 'q\"', 9223372036854775807, 0.1"
+--- SQLite's own CAST is the oracle: the dump spells a cell as SQLite
+--- spells it as text, reals and blobs too.
+local function test_non_null_cells_dump_as_sqlite_casts_them(tmp: string)
+  local cells = { "1", "1.5", "1.0e+300", "30000000000.0", "-0.0", "'a b'", "x'61'", "x''", "'q\"'",
+    "9223372036854775807", "0.1" }
+  local casts: mut {string} = {}
+  for i, cell in ipairs(cells) do casts[i] = "CAST(" .. cell .. " AS TEXT)" end
+  local sql = "SELECT " .. table.concat(cells, ", ")
   local path = tmp .. "/kinds.db"
   local db = assert(Sqlite.open(path, { writable = true, create = true }))
-  local texts = assert(db:text_rows(sql))
+  local texts = assert(db:rows("SELECT " .. table.concat(casts, ", ")))
   assert(db:close())
   local want = assert(texts[1]):texts()
   local fields: mut {string} = {}

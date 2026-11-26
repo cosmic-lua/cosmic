@@ -51,9 +51,9 @@ end
 local function test_a_declaration_file_is_a_tool_file_and_no_module_of_the_tree(tmp: string)
   local handle, _ = own_tree(tmp, { ["lang/prelude.d.tl"] = PRELUDE, ["lang/stdlib.d.tl"] = STDLIB, ["lang/m.tl"] = "return 1\n" })
   local function count(table_name: string, file: string): integer
-    local rows = assert(handle.db:text_rows("SELECT count(*) FROM " .. table_name .. " WHERE path = ?1",
+    local rows = assert(handle.db:rows("SELECT count(*) FROM " .. table_name .. " WHERE path = ?1",
       { { text = file } }))
-    return math.tointeger(tonumber(assert(rows[1]):text(1))) or -1
+    return assert(rows[1]):integer(1)
   end
   -- the fork compiles every declaration file of the tree and reads Teal, not the new grammar these are written in
   for _, file in ipairs({ "lang/prelude.d.tl", "lang/stdlib.d.tl" }) do

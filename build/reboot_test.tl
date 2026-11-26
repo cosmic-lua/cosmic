@@ -408,9 +408,9 @@ end
 --- How many builds the working database of `root` records.
 local function builds_of(root: string): integer
   local db = assert(Sqlite.open(paths.resolve(root).working))
-  local rows = assert(db:text_rows("SELECT count(*) FROM builds"))
+  local rows = assert(db:rows("SELECT count(*) FROM builds"))
   assert(db:close())
-  return assert(math.tointeger(tonumber(assert(rows[1]):text(1))))
+  return assert(rows[1]):integer(1)
 end
 
 --- The check before a verb that only reads waits for no run that holds
@@ -454,7 +454,7 @@ local function test_a_reading_verbs_check_holds_the_tool_to_the_tree_when_the_lo
   local code = reboot.stale_exit({ [1] = "docs", [2] = "Fs.read" }, true, tmp, seen_of(tmp)) -- checked: literal_shape
   assert(code == 3, tostring(code))
   local db = assert(Sqlite.open(paths.under((assert(paths.directory(tmp)))).working))
-  local rows = assert(db:text_rows("SELECT path FROM files WHERE path = 'build/importer.tl'"))
+  local rows = assert(db:rows("SELECT path FROM files WHERE path = 'build/importer.tl'"))
   assert(db:close())
   assert(#rows == 1, "the tree is staged")
 end
@@ -483,8 +483,8 @@ local function test_a_reading_verbs_check_holds_the_tool_to_the_tree_over_a_free
   local code = reboot.stale_exit({ [1] = "docs", [2] = "Fs.read" }, true, tmp, seen_of(tmp)) -- checked: literal_shape
   assert(code == 3, tostring(code))
   local db = assert(Sqlite.open(path))
-  local schema = assert(db:text_rows("SELECT value FROM meta WHERE key = 'schema'"))
-  local rows = assert(db:text_rows("SELECT path FROM files WHERE path = 'build/importer.tl'"))
+  local schema = assert(db:rows("SELECT value FROM meta WHERE key = 'schema'"))
+  local rows = assert(db:rows("SELECT path FROM files WHERE path = 'build/importer.tl'"))
   assert(db:close())
   assert(assert(schema[1]):text(1) ~= "another", "the file of another schema was kept")
   assert(#rows == 1, "the tree is staged")
@@ -533,7 +533,7 @@ local function test_a_lookups_build_leaves_a_database_of_another_schema(tmp: str
   assert(assert(Fs.stat(layout.working)).ino == before, "the file was removed")
   assert(not assert(Fs.status(layout.projection)).exists, "a projection was written")
   local db = assert(Sqlite.open(layout.working))
-  local rows = assert(db:text_rows("SELECT path FROM inputs"))
+  local rows = assert(db:rows("SELECT path FROM inputs"))
   assert(db:close())
   assert(#rows == 0, "staged " .. tostring(#rows) .. " files in it")
 end
@@ -581,7 +581,7 @@ local function staged_in(root: string, path: string): boolean
     return false
   end
   local db = assert(Sqlite.open(paths.resolve(root).working))
-  local rows = assert(db:text_rows("SELECT path FROM files WHERE path = '" .. path .. "'"))
+  local rows = assert(db:rows("SELECT path FROM files WHERE path = '" .. path .. "'"))
   assert(db:close())
   return #rows == 1
 end

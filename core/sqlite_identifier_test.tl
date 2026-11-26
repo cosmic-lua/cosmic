@@ -11,13 +11,13 @@ local function test_a_hostile_name_and_text_are_read_as_themselves()
   assert(db:exec("CREATE TABLE " .. Sqlite.identifier(name) .. " (" .. Sqlite.identifier("a \"b\"") ..
       " TEXT DEFAULT " .. Sqlite.literal(text) .. ")"))
   assert(db:exec("INSERT INTO " .. Sqlite.identifier(name) .. " DEFAULT VALUES"))
-  local rows = assert(db:text_rows("SELECT " .. Sqlite.identifier("a \"b\"") .. " FROM " .. Sqlite.identifier(name)))
+  local rows = assert(db:rows("SELECT " .. Sqlite.identifier("a \"b\"") .. " FROM " .. Sqlite.identifier(name)))
   assert(assert(rows[1]):text(1) == text)
-  assert(#assert(db:text_rows("SELECT name FROM sqlite_schema WHERE name = 'kept'")) == 1)
+  assert(#assert(db:rows("SELECT name FROM sqlite_schema WHERE name = 'kept'")) == 1)
   assert(Sqlite.identifier("") == '""' and Sqlite.literal("") == "''")
   for _, odd in ipairs({ "`tick`", "[bracket]", "\xff\xfe", "two words" }) do
     assert(db:exec("CREATE TABLE " .. Sqlite.identifier(odd) .. " (x)"))
-    local found = assert(db:text_rows("SELECT name FROM sqlite_schema WHERE name = ?1", { { text = odd } }))
+    local found = assert(db:rows("SELECT name FROM sqlite_schema WHERE name = ?1", { { text = odd } }))
     assert(#found == 1, odd)
   end
   assert(db:close())

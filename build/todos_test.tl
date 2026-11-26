@@ -291,8 +291,8 @@ local function test_staging_indexes_what_it_reads_and_forgets_what_goes()
   assert(work.stage(handle, { own = false }))
   listed = assert(todos.list(handle.db, root)).todos
   assert(#listed == 1 and listed[1].file == "src/b.tl" and listed[1].line == 2)
-  local rows = assert(handle.db:text_rows("SELECT count(*) FROM todos"))
-  assert(support.nth(rows, 1):text(1) == "1", support.nth(rows, 1):text(1))
+  local rows = assert(handle.db:rows("SELECT count(*) FROM todos"))
+  assert(support.nth(rows, 1):integer(1) == 1, tostring(support.nth(rows, 1):integer(1)))
   assert(work.close(handle))
   assert(Fs.remove_tree(root))
 end
@@ -311,16 +311,16 @@ local function test_a_file_the_build_does_not_consume_is_scanned_all_the_same()
   assert(support.nth(listed, 1).file == "scripts/release.sh" and support.nth(listed, 1).line == 2)
   assert(support.nth(listed, 1).text == "sign the archive", support.nth(listed, 1).text)
   -- Scanned, not staged: nothing the build compiles or runs sees it.
-  local rows = assert(handle.db:text_rows(
+  local rows = assert(handle.db:rows(
     "SELECT count(*) FROM files WHERE path = 'scripts/release.sh'"))
-  assert(support.nth(rows, 1):text(1) == "0", support.nth(rows, 1):text(1))
+  assert(support.nth(rows, 1):integer(1) == 0, tostring(support.nth(rows, 1):integer(1)))
 
   assert(Fs.remove(root .. "/scripts/release.sh"))
   assert(work.stage(handle, { own = false }))
   listed = assert(todos.list(handle.db, root)).todos
   assert(#listed == 0, "found " .. tostring(#listed))
-  rows = assert(handle.db:text_rows("SELECT count(*) FROM scanned"))
-  assert(support.nth(rows, 1):text(1) == "0", support.nth(rows, 1):text(1))
+  rows = assert(handle.db:rows("SELECT count(*) FROM scanned"))
+  assert(support.nth(rows, 1):integer(1) == 0, tostring(support.nth(rows, 1):integer(1)))
   assert(work.close(handle))
   assert(Fs.remove_tree(root))
 end
@@ -349,9 +349,9 @@ local function test_own_tree_scans_github_for_todos()
   end
   assert(table.concat(seen, "|") == ".github/actions/driver/action.yml:2: lint these steps|" ..
       ".github/check.tl:1: not an input|.github/workflows/ci.yml:1: pin the runner", table.concat(seen, "|"))
-  local rows = assert(handle.db:text_rows(
+  local rows = assert(handle.db:rows(
     "SELECT count(*) FROM files WHERE path LIKE '.github/%'"))
-  assert(support.nth(rows, 1):text(1) == "0", support.nth(rows, 1):text(1))
+  assert(support.nth(rows, 1):integer(1) == 0, tostring(support.nth(rows, 1):integer(1)))
   assert(work.close(handle))
 
   -- Staged again as another project's tree, it is hidden, and what the
@@ -360,8 +360,8 @@ local function test_own_tree_scans_github_for_todos()
   assert(work.stage(other, { own = false }))
   listed = assert(todos.list(other.db, root)).todos
   assert(#listed == 0, "found " .. tostring(#listed))
-  rows = assert(other.db:text_rows("SELECT count(*) FROM scanned"))
-  assert(support.nth(rows, 1):text(1) == "0", support.nth(rows, 1):text(1))
+  rows = assert(other.db:rows("SELECT count(*) FROM scanned"))
+  assert(support.nth(rows, 1):integer(1) == 0, tostring(support.nth(rows, 1):integer(1)))
   assert(work.close(other))
   assert(Fs.remove_tree(root))
 end

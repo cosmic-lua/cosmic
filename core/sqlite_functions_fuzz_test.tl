@@ -35,10 +35,10 @@ end
 --- The one value `sql` yields over `values`, as SQLite's text, or nil
 --- and the statement's error.
 local function value(sql: string, values: {Sqlite.Value}): string?, string
-  local rows, trouble = handle:text_rows(sql, values)
+  local rows, trouble = handle:rows(sql, values)
   if rows == nil then return nil, tostring(trouble) end
   assert(#rows == 1, sql .. ": " .. tostring(#rows) .. " rows")
-  return first_row(rows):text(1), ""
+  return (first_row(rows):as_text(1) or ""), ""
 end
 
 --- A varint length as compress.c writes one: seven bits a byte, most
@@ -150,13 +150,13 @@ local function test_decimal_is_total_and_canonical(tmp: string)
         Fuzz.label("not a number")
       else
         Fuzz.label("read")
-        local rows, trouble = handle:text_rows(
+        local rows, trouble = handle:rows(
           "SELECT decimal(decimal(?1)), decimal_cmp(?1, ?1)", one)
         if rows == nil then
           return false, "decimal read " .. number .. " once only: " .. tostring(trouble)
         end
         local again = first_row(rows)
-        if again:text(1) ~= read or again:text(2) ~= "0" then
+        if again:text(1) ~= read or again:integer(2) ~= 0 then
           return false, "decimal(" .. number .. ") = " .. tostring(read) .. " does not read back as itself"
         end
       end
@@ -214,13 +214,13 @@ local function test_text_decoders_are_total_and_round_trip(tmp: string)
           return false, name .. " failed its statement on text"
         end
       end
-      local rows, trouble = handle:text_rows("SELECT uuid_blob(?1) IS NULL, " ..
+      local rows, trouble = handle:rows("SELECT uuid_blob(?1) IS NULL, " ..
           "hex(uuid_blob(uuid_str(?1))) = hex(uuid_blob(?1))", { { text = uuid } })
       if rows == nil then return false, "uuid_blob failed its statement: " .. tostring(trouble) end
       local decoded = first_row(rows)
-      if decoded:text(1) == "1" then
+      if decoded:integer(1) == 1 then
         Fuzz.label("uuid refused")
-      elseif decoded:text(2) == "1" then
+      elseif decoded:integer(2) == 1 then
         Fuzz.label("uuid decoded")
       else
         return false, "uuid_str did not round-trip " .. uuid
@@ -252,7 +252,7 @@ local function test_ieee754_is_total_and_round_trips(tmp: string)
     end,
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
-      local rows, trouble = handle:text_rows(
+      local rows, trouble = handle:rows(
         "SELECT typeof(ieee754_from_blob(?1)), " ..
           "hex(ieee754_to_blob(ieee754_from_blob(?1))) = hex(?1), " ..
           "hex(ieee754_to_blob(ieee754(ieee754_mantissa(?1), ieee754_exponent(?1)))) = hex(?1), " ..
@@ -272,7 +272,7 @@ local function test_ieee754_is_total_and_round_trips(tmp: string)
       if row:text(1) == "real" then
         Fuzz.label("a real")
         for i, what in ipairs({ "ieee754_to_blob", "ieee754(M, E)", "ieee754_to_int" }) do
-          if row:text(i + 1) ~= "1" then return false, what .. " did not give the bytes back" end
+          if row:integer(i + 1) ~= 1 then return false, what .. " did not give the bytes back" end
         end
       else
         Fuzz.label("a NaN")
@@ -351,7 +351,7 @@ local function test_totype_reads_text_exactly(tmp: string)
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
       local shape, text = unpacked(fields, 1), unpacked(fields, 2)
-      local rows, trouble = handle:text_rows(
+      local rows, trouble = handle:rows(
         "SELECT typeof(toreal(?1)), toreal(?1) = CAST(?1 AS REAL), toreal(?1) - toreal(?1) = 0.0, " ..
           "typeof(tointeger(?1)), tointeger(?1), " ..
           "typeof(tointeger(?2)), typeof(toreal(?2))",
@@ -360,8 +360,8 @@ local function test_totype_reads_text_exactly(tmp: string)
       local row = first_row(rows)
       if row:text(1) == "real" then
         Fuzz.label("read as a real")
-        if row:text(2) ~= "1" then return false, "toreal(" .. text .. ") is not CAST's" end
-        if row:text(3) ~= "1" then return false, "toreal(" .. text .. ") is not finite" end
+        if row:integer(2) ~= 1 then return false, "toreal(" .. text .. ") is not CAST's" end
+        if row:integer(3) ~= 1 then return false, "toreal(" .. text .. ") is not finite" end
       elseif shape == "well" then
         return false, "toreal refused the decimal " .. text
       end
@@ -370,8 +370,8 @@ local function test_totype_reads_text_exactly(tmp: string)
       local literal = literal_of(text)
       if literal ~= nil then
         Fuzz.label("read as an integer")
-        if row:text(5) ~= literal then
-          return false, "tointeger(" .. text .. ") answered " .. row:text(5)
+        if row:as_text(5) ~= literal then
+          return false, "tointeger(" .. text .. ") answered " .. tostring(row:as_text(5))
         end
       elseif row:text(4) ~= "null" then
         return false, "tointeger(" .. text .. ") is no integer literal it holds, but answered " .. row:text(5)
@@ -419,11 +419,11 @@ local function test_uint_orders_consistently(tmp: string)
       -- Leading zeros on each run of digits leave a word equal to itself.
       local padded = (a:gsub("(%d+)", "00%1"))
       local function cmp(x: string, y: string): integer
-        local rows = assert(handle:text_rows(
+        local rows = assert(handle:rows(
           "SELECT ?1 < ?2 COLLATE uint, ?1 = ?2 COLLATE uint, ?2 < ?1 COLLATE uint",
           { { text = x }, { text = y } }))
         local answer = first_row(rows)
-        local less, equal, more = answer:text(1) == "1", answer:text(2) == "1", answer:text(3) == "1"
+        local less, equal, more = answer:integer(1) == 1, answer:integer(2) == 1, answer:integer(3) == 1
         local held = (if less then 1 else 0 end) + (if equal then 1 else 0 end) + (if more then 1 else 0 end)
         assert(held == 1, "exactly one of <, = and > holds, not " .. tostring(held))
         return if less then -1 elseif equal then 0 else 1 end
@@ -572,7 +572,7 @@ local function test_rtree_survives_damaged_trees(tmp: string)
           "SELECT count(*) FROM b", "SELECT rtreecheck('b')", "PRAGMA quick_check",
           "INSERT INTO b VALUES (100000, 1, 2, 1, 2)", "DELETE FROM b WHERE id = 1",
           "UPDATE b SET x1 = x1 + 1 WHERE id = 2" }) do
-        local rows, trouble = reopened:text_rows(q)
+        local rows, trouble = reopened:rows(q)
         if rows == nil then
           refused = true
           if trouble.message == "" then return false, q .. " failed without saying why" end
