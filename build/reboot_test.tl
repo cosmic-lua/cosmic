@@ -755,6 +755,22 @@ local function test_a_fresh_project_run_leaves_the_checkouts_database_unwritten(
   assert(logged ~= true, "a project run left a write-ahead log beside the checkout's database")
 end
 
+--- `cosmic --version` and `-e` hold the tool to no tree, so a tool older than its checkout answers from old code. They
+--- say so, from a read of the checkout's database that writes nothing: nothing for a fresh tool, a note once a
+--- file the tool is made of moved, and nothing for a copy of the tool, which records no checkout.
+local function test_a_run_held_to_no_tree_says_where_the_tool_is_older_than_its_checkout(tmp: string)
+  local own, _, layout = fresh_tool(tmp, "these rows")
+  local before = assert(Fs.read(layout.working))
+  assert(reboot.stale_note(own) == nil, "a fresh tool was called stale")
+  assert(assert(Fs.read(layout.working)) == before, "the note's check wrote the checkout's database")
+  assert(Fs.write(tmp .. "/checkout/build/importer.tl", "return { moved = true }\n"))
+  local note = reboot.stale_note(own)
+  assert(note ~= nil and note:find("may be older than ", 1, true) ~= nil, tostring(note))
+  assert(assert(Fs.read(layout.working)) == before, "the note's check wrote the checkout's database")
+  local copy: reboot.Seen = { tool = tmp .. "/elsewhere/cosmic", environment = {}, meta = own.meta }
+  assert(reboot.stale_note(copy) == nil, "a copy of the tool was called stale")
+end
+
 --- A tool a stale tool wrote without stamps, the tree having moved the
 --- code that works them out, is not what a boot writes: fresh as it is,
 --- it builds its database again.
