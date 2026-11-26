@@ -470,8 +470,9 @@ drives it against a fake host.
 
 The merge queue gates a merge and runs what main's push runs, so a
 commit that would turn main red fails its queue entry instead. The
-queue also runs macOS's native suite; the daily run, a manual run of
-main and one that asks for it (`macos`) add macOS's whole leg. A
+queue also runs macOS's native suite; main's push, the daily run, a
+manual run of main and one that asks for it (`macos`) add macOS's whole
+leg. A
 branch's push runs nothing.
 
 - **a push to a branch** runs no CI. The merge queue tests every change
@@ -516,8 +517,8 @@ branch's push runs nothing.
   `alpine-x86_64-portable` (the portable suite, the attestation and the
   product) and `alpine-x86_64-regressions`.
   `macos-aarch64` (part `suite`) runs macOS's native suite and darwin
-  suite, which a push does not: macOS's failures were met only by the
-  daily run, and each held up the prerelease. Beside
+  suite: macOS's failures were met only by the daily run, and each held
+  up the prerelease. Beside
   them `linux-x86_64-format` (part `format`) checks the bootstrap's
   scripts and the tree's format over the paths the commit changed since
   main, as a pull request does, and `linux-x86_64-driver` (the `driver`
@@ -535,16 +536,17 @@ branch's push runs nothing.
   compares the three products. An entry takes as long as its longest job. Main moves
   only through the queue, so its check of what changed holds main's whole
   tree.
-- **a push to main** runs three legs whole, every leg but macOS (the
+- **a push to main** runs all four legs whole, macOS among them (the
   native suite, the credential proofs, assemble, the regressions, the
   portable suite, the attestation and the product), the checked core's
   whole suite (`checked`) and the whole suite on a checked run
-  (`narrowing`), and the gate compares the three products
-  (`COSMIC_CI_PRODUCTS=3`). It also runs macOS's suite (part `suite`, no
-  product), which stands on the queue's macOS verdicts and saves macOS's
-  caches (zig, its build outputs, compiles, verdicts) for the queue's next
-  runs: only the daily run saved them before, and the queue's macOS job
-  booted cold. It publishes nothing. It repeats neither
+  (`narrowing`), and the gate compares the four products
+  (`COSMIC_CI_PRODUCTS=4`). So each commit that lands is tested in full on
+  every platform within about 25 min, where the queue ran only macOS's
+  native suite. Its macOS job stands on the queue's macOS verdicts and
+  saves macOS's caches (zig, its build outputs, compiles, verdicts) for
+  the queue's next runs: only the daily run saved them before, and the
+  queue's macOS job booted cold. It publishes nothing yet. It repeats neither
   the format check nor the pinned driver's, which the queue made of the
   very commit; the daily run checks the driver on every leg, and the
   weekly and a manual run check the whole tree's format too. Each leg
@@ -637,7 +639,7 @@ never given).
 The platform job's `include` is an expression that chooses a list by the
 kind of run (linux-x86_64 for a draft pull request, and macOS's suite beside it for one that is not; for the
 queue every leg but macOS as its suite and its product, linux-x86_64's
-format check and macOS's suite; every leg but macOS, and macOS's suite, for a push to main; all four otherwise),
+format check and macOS's suite; all four for a push to main and otherwise),
 each listing every job: an `include` entry naming a leg
 no dimension holds would start that leg anyway (GitHub adds an entry that
 fits no combination as one of its own). Each entry names the job
