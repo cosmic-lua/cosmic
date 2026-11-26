@@ -10,6 +10,15 @@ local record json
     userdata
   end
 
+  -- What `decode` builds of a value, for `only`: all of it when
+  -- `whole`, else, in an object, the members `names` holds and, in an
+  -- array, the elements at `positions` (from 1), each selected in turn.
+  record Selection
+    mut whole: boolean
+    names: mut {string: Selection}
+    positions: mut {integer: Selection}
+  end
+
   -- The value `text` holds. JSON `null` is `null` when given, and nil
   -- when not. nil and a message, naming the line and column, when the
   -- text is not one RFC 8259 JSON value (JSON5 when `json5`; either
@@ -30,13 +39,17 @@ local record json
   -- the pointer a failure names is put under it; with `opened`, that many
   -- arrays and objects are open
   -- around it there, and count toward `max_depth`, which they must be
-  -- fewer than.
+  -- fewer than. With `only`, the text is checked whole as `check`
+  -- checks it, then only the values it selects are built (see
+  -- [`Selection`]); what a step does not reach is left out, and an array
+  -- keeps its elements' positions, marked as one with holes. A text that
+  -- is no array or object is the value whole.
   decode: function(text: string, null?: any, max_depth?: integer,
                    json5?: boolean, big_as_string?: boolean,
                    lone_surrogates?: boolean, record?: integer,
                    hash_comments?: boolean,
                    duplicate_keys?: boolean, line?: integer, column?: integer,
-                   prefix?: string, opened?: integer): any?, string
+                   prefix?: string, opened?: integer, only?: Selection): any?, string
   -- true and "" when `decode` would read `text` under the same
   -- options; else false and the message it would fail with. It builds
   -- no value.
