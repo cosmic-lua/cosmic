@@ -1,0 +1,12 @@
+file: src/lstrlib.c
+note: Includes core/bytes.h, whose vector scan string.find's plain search takes each first byte from (patch/lua/35-find-byte-plain.txt); build.zig puts a copy of it on Lua's include path.
+--- find
+#include "lua.h"
+
+#include "lauxlib.h"
+--- replace
+#include "lua.h"
+
+#include "bytes.h"
+#include "lauxlib.h"
+--- end
