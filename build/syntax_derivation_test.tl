@@ -19,7 +19,7 @@ end
 
 --- The first column of each row `statement` selects.
 local function rows(db: Sqlite.Handle, statement: string): {string}
-  local found, why = db:text_rows(statement)
+  local found, why = db:rows(statement)
   assert(found ~= nil, why)
   local out: mut {string} = {}
   for _, row in ipairs(found) do

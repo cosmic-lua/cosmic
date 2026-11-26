@@ -320,11 +320,11 @@ end
 --- How many modules the write at `handle` took from the base: the rows of
 --- `temp.reused`, which a write that found no usable base leaves absent.
 local function reused(handle: work.Handle): integer
-  local rows, _ = handle.db:text_rows("SELECT count(*) FROM temp.reused")
+  local rows, _ = handle.db:rows("SELECT count(*) FROM temp.reused")
   if rows == nil then
     return 0
   end
-  return integer_of(assert(rows[1]):text(1))
+  return assert(rows[1]):integer(1)
 end
 
 --- Stages and compiles the tree under the handle's root, writes it to `out`
@@ -475,11 +475,11 @@ end
 --- How many rows of the CA tables of the projection at `path` carry the mark.
 local function marked(path: string): integer
   local db = assert(Sqlite.open(path))
-  local rows = assert(db:text_rows(
+  local rows = assert(db:rows(
     "SELECT (SELECT count(*) FROM ca_roots WHERE label = 'marked') + " ..
       "(SELECT count(*) FROM ca_revoked WHERE kind = 'marked')"))
   assert(db:close())
-  return integer_of(assert(rows[1]):text(1))
+  return assert(rows[1]):integer(1)
 end
 
 --- The tables of CA roots and revoked certificates of cosmic's own tree are
@@ -558,7 +558,7 @@ local function readable_but_for_rows(path: string): boolean
     return false
   end
   local function answers(sql: string): boolean
-    local rows, _ = db:text_rows(sql)
+    local rows, _ = db:rows(sql)
     return rows ~= nil
   end
   local asked = answers("SELECT count(*) FROM meta") and
@@ -627,7 +627,7 @@ local function test_a_use_of_another_modules_record_follows_that_module(tmp: str
   end
   local function uses_of_a(path: string): string
     local db = assert(Sqlite.open(path))
-    local rows = assert(db:text_rows(
+    local rows = assert(db:rows(
       "SELECT coalesce(group_concat(module || ' ' || symbol, ';'), '') FROM uses WHERE from_module = 'a'"))
     assert(db:close())
     return assert(rows[1]):text(1)

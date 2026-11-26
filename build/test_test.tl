@@ -497,8 +497,8 @@ local function test_a_modules_coverage_counts_the_rows_written_and_those_hit()
   assert(db:exec("INSERT INTO coverage (ran_at_ns, path, line, hit) VALUES (7, 'core/a.c', 1, 1), (6, 'build.lib', 1, 1)"))
   local hit, lines = write_module(db, hits, 7)
   assert(hit == 5 and lines == 9, tostring(hit) .. " of " .. tostring(lines))
-  local rows = assert(assert(db:text_rows(
-    "SELECT count(*), sum(hit), group_concat(line, ' ') FROM coverage WHERE ran_at_ns = 7 AND path = 'build.lib' AND hit = 1"))[1]):texts()
+  local rows = assert(assert(db:rows(
+    "SELECT count(*), sum(hit), group_concat(line, ' ') FROM coverage WHERE ran_at_ns = 7 AND path = 'build.lib' AND hit = 1"))[1]):as_texts()
   assert(rows[1] == "5" and rows[2] == "5" and rows[3] == "1 3 5 7 9", table.concat(rows, "|"))
   assert(db:close())
 end
@@ -923,11 +923,11 @@ local function test_coverage_is_kept_for_the_newest_ten_runs_only()
         ", 'a', 1, 1), (" .. tostring(run) .. ", 'a', 2, 0)"))
   end
   assert(test.prune_history(db, 100))
-  local kept = assert(assert(db:text_rows(
-    "SELECT min(ran_at_ns), max(ran_at_ns), count(DISTINCT ran_at_ns), count(*) FROM coverage"))[1]):texts()
+  local kept = assert(assert(db:rows(
+    "SELECT min(ran_at_ns), max(ran_at_ns), count(DISTINCT ran_at_ns), count(*) FROM coverage"))[1]):as_texts()
   assert(kept[1] == "4" and kept[2] == "13" and kept[3] == "10" and kept[4] == "20",
     "coverage kept: " .. table.concat(kept, " "))
-  local runs = assert(assert(db:text_rows("SELECT count(*), min(ran_at_ns) FROM test_runs"))[1]):texts()
+  local runs = assert(assert(db:rows("SELECT count(*), min(ran_at_ns) FROM test_runs"))[1]):as_texts()
   assert(runs[1] == "10" and runs[2] == "4", "test_runs kept: " .. table.concat(runs, " "))
   assert(db:close())
 end
@@ -940,10 +940,10 @@ local function test_failures_keep_each_tests_newest_ten()
   assert(test.record_failure(db, "a_test", "test_x", "boom", 1, "k", 1))
   for at = 2, 30 do assert(test.record_failure(db, "a_test", "test_y", "again", at, "k", at)) end
   assert(test.prune_history(db, 100))
-  local kept = assert(db:text_rows(
+  local kept = assert(db:rows(
     "SELECT test, count(*), min(ran_at_ns), max(ran_at_ns) FROM failures GROUP BY test ORDER BY test"))
   assert(#kept == 2, "failures kept of " .. tostring(#kept) .. " tests")
-  local x, y = assert(kept[1]):texts(), assert(kept[2]):texts()
+  local x, y = assert(kept[1]):as_texts(), assert(kept[2]):as_texts()
   assert(table.concat(x, " ") == "test_x 1 1 1", "test_x kept: " .. table.concat(x, " "))
   assert(table.concat(y, " ") == "test_y 10 21 30", "test_y kept: " .. table.concat(y, " "))
   assert(db:close())

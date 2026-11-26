@@ -33,7 +33,7 @@ end
 local function test_the_binary_s_database_inflates_its_source()
   local databases = Store.databases()
   local binary = Array.at(databases, #databases)
-  local rows = assert(binary:text_rows(
+  local rows = assert(binary:rows(
     "SELECT CAST(inflate(source) AS TEXT) FROM modules WHERE path = 'cosmic.store'"))
   assert(#rows == 1 and rows[1]:text(1) == assert(Store.source("cosmic.store")),
     "the query and Store.source read the same text")

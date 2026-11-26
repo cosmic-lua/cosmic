@@ -18,10 +18,10 @@ local build_paths = require("build.paths")
 --- deflated: the file's own bytes show none of it.
 local function carries(path: string, needle: string): boolean
   local db = assert(Sqlite.open(path))
-  local rows = assert(db:text_rows(
+  local rows = assert(db:rows(
     "SELECT count(*) FROM modules WHERE instr(chunk(bytecode), CAST(?1 AS BLOB)) > 0", { { text = needle } }))
   assert(db:close())
-  return assert(rows[1]):text(1) ~= "0"
+  return assert(rows[1]):integer(1) ~= 0
 end
 
 --- The program itself, which this test starts; it carries the declarations of the standard library.
@@ -106,7 +106,7 @@ end
 --- The rows of `type_violations` the project's last checked run kept.
 local function violations(root: string): Sqlite.Rows
   local db = assert(Sqlite.open(assert(build_paths.directory(root)) .. "/build.db"))
-  local rows = assert(db:text_rows(
+  local rows = assert(db:rows(
     "SELECT kind, site, target, declared, actual, count FROM type_violations ORDER BY site"))
   assert(db:close())
   return rows
@@ -134,8 +134,8 @@ local function test_a_checked_run_reports_the_fact_that_is_false(tmp: string)
   local rows = violations(root)
   assert(#rows == 1, tostring(#rows) .. " rows")
   local row = assert(rows[1])
-  assert(table.concat(row:texts(), " | ") == "fact | lib.tl:" .. read_site() ..
-      " | b.value | not nil | nil | 1", table.concat(row:texts(), " | "))
+  assert(table.concat(row:as_texts(), " | ") == "fact | lib.tl:" .. read_site() ..
+      " | b.value | not nil | nil | 1", table.concat(row:as_texts(), " | "))
   -- the module the run was made of carries the wrap of the read `assert` narrowed too
   assert(carries(assert(build_paths.directory(root)) .. "/cosmic.checked.db", "__fact"),
     "the checked projection carries no wrap")
@@ -221,7 +221,7 @@ local function test_the_programs_the_flows_property_draws_break_no_fact_when_the
   assert(checked.ok, text)
   assert(text:find("test: 1 test passed in ", 1, true) ~= nil, text)
   for _, row in ipairs(violations(root)) do
-    assert(row:text(1) ~= "fact", table.concat(row:texts(), " | "))
+    assert(row:text(1) ~= "fact", table.concat(row:as_texts(), " | "))
   end
   -- the modules the run was made of carry the wraps
   assert(carries(assert(build_paths.directory(root)) .. "/cosmic.checked.db", "__fact"),

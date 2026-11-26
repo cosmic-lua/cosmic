@@ -70,7 +70,7 @@ local function boot(root: string, path: string): importer.Parses, string, string
   if shared ~= nil then shared.finish() end
   assert(ok, tostring(raised))
   local parses = assert(derived, trouble)
-  local recorded = assert(handle.db:text_rows(
+  local recorded = assert(handle.db:rows(
     "SELECT value FROM meta WHERE key = 'analyzer'"))
   local rows = parse_rows(handle.db)
   work.close(handle)
@@ -227,15 +227,15 @@ local function test_a_kept_parse_comes_back_whole(tmp: string)
   assert(shared_compiles.settle(cache, { kept = {}, used = {},
     parses = { { key = key, made = made } }, parses_used = {} }, 10))
   assert(shared_compiles.settle(cache, { kept = { kept }, used = {} }, 5))
-  local sizes = assert(cache.db:text_rows(
+  local sizes = assert(cache.db:rows(
     "SELECT (SELECT size FROM compiled_v2), (SELECT size FROM parsed_v1)"))
-  local parse_size = math.tointeger(tonumber(support.nth(sizes, 1):text(2))) or 0
+  local parse_size = support.nth(sizes, 1):integer(2)
   assert(parse_size > 0)
   assert(shared_compiles.settle(cache, { kept = {}, used = {},
     parses = { { key = { analyzer = "y", source_hash = "ab", mapped = false }, made = made } },
     parses_used = {} }, 20, 2 * parse_size + 1))
-  local left = assert(cache.db:text_rows(
+  local left = assert(cache.db:rows(
     "SELECT (SELECT count(*) FROM compiled_v2), (SELECT count(*) FROM parsed_v1)"))
   shared_compiles.close(cache)
-  assert(support.nth(left, 1):text(1) == "0" and support.nth(left, 1):text(2) == "2", support.nth(left, 1):text(1) .. " " .. support.nth(left, 1):text(2))
+  assert(support.nth(left, 1):integer(1) == 0 and support.nth(left, 1):integer(2) == 2, tostring(support.nth(left, 1):integer(1)) .. " " .. tostring(support.nth(left, 1):integer(2)))
 end

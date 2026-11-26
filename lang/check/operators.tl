@@ -232,7 +232,7 @@ end
 --- `a and b`: both booleans, or a `T?` guarding a value, which is optional.
 function Operators.conjunction(ctx: Ctx, node: Ast.Binary, left: Type, expected: Type?): Type
   local store = ctx.store
-  local left_kind = if left.tag == "invalid" then "bad" else condition_kind(ctx, node.left, left) end
+  local left_kind = if left.tag == "invalid" then "bad" else condition_kind(ctx, node.left, left, nil, "and") end
   if left_kind == "bad" then
     local _ = ctx.walk.expr(ctx, node.right, nil)
     return ctx.invalid
@@ -343,7 +343,7 @@ end
 function Operators.unary(ctx: Ctx, node: Ast.Unary, operand: Type): Type
   local op = node.op
   if op == "not" then
-    local _ = condition_kind(ctx, node.operand, operand)
+    local _ = condition_kind(ctx, node.operand, operand, nil, "not")
     return ctx.store.boolean
   elseif op == "#" then
     return Operands.length_operand(ctx, node.operand, operand) and ctx.store.integer or ctx.invalid -- checked: and_ternary

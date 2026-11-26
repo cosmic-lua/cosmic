@@ -27,6 +27,7 @@
 -- which the lines of a warning and of a text that does not parse do not.
 local AnalysisSchema = require("build.analysis_schema")
 local Ceilings = require("build.ceilings")
+local Markers = require("build.markers")
 local CheckerDeclarations = require("build.checker_declarations")
 local CompileGrammar = require("build.compile_grammar")
 local Ast = require("lang.ast")
@@ -41,6 +42,7 @@ local LuaTail = require("build.lua_tail")
 local Node = require("build.syntax_node")
 local ProjectRefusals = require("build.project_refusals")
 local library_record = require("build.library_record")
+local type Rewrite = require("lang.rewrite")
 local positions = require("build.positions")
 local Receivers = require("build.syntax_receivers")
 local RecordSplices = require("build.syntax_record_splices")
@@ -150,7 +152,14 @@ local record Pipeline
     --- finding: from the checker's own lists, so that a code two stages have is told apart. A finding two stages report at
     --- one place and under one code is "" (no stage can hold it), and a warning has no entry.
     stages: {string: string}
+    --- Where it is refused: the rewrites of its errors that put each right with the meaning kept ([`lang.rewrite`]).
+    edits?: {Rewrite.Edit}
   end
+
+  --- The rewrites of the errors of `result` that put each right with the meaning kept ([`lang.rewrite`]), less those
+  --- a marker of its text holds (`-- checked: concat_type`): the one path by which cosmic agent's run rewrites a refused
+  --- snippet and `cosmic fix` a refused file.
+  edits: function(result: Driver.Outcome): {Rewrite.Edit}
 
   --- [`Pipeline.lone`] with the refusal as a line for each problem, for a caller that lists them.
   --- With `entry`, the source is an entry point: what it returns is called with the command line's words
@@ -835,6 +844,30 @@ local function note_stages(stages: mut {string: string}, stage: string, list: {D
   end
 end
 
+function Pipeline.edits(result: Driver.Outcome): {Rewrite.Edit}
+  -- The codes of the bodies' findings each line's markers hold ([`build.markers`]).
+  local held: mut {integer: mut {string: boolean}} = {}
+  for _, mark in ipairs(Markers.read(result.source.text, result.source.filename).marks) do
+    for _, segment in ipairs(mark.segments) do
+      if segment.stage == "checked" then
+        local codes = held[mark.line] or {}
+        held[mark.line] = codes
+        for _, code in ipairs(segment.codes) do codes[code] = true end
+      end
+    end
+  end
+  local out: mut {Rewrite.Edit} = {}
+  for _, p in ipairs(result.bodies) do
+    local r = p.rewrite
+    local codes = held[p.y]
+    if r ~= nil and not (codes ~= nil and codes[p.code] == true) then
+      out[#out + 1] = { code = p.code, y = p.y, x = p.x, offset = p.offset, length = p.length, before = r.before,
+        after = r.after }
+    end
+  end
+  return out
+end
+
 --- What a build holding `module`, the file `file`, lowered made of it ([`Pipeline.Alone`]).
 local function alone_of(build: Driver.Build, module: string, file: string, options: Pipeline.Options,
                         declared_return?: boolean): Pipeline.Alone
@@ -871,7 +904,7 @@ local function alone_of(build: Driver.Build, module: string, file: string, optio
     end
   end
   if #told > 0 then
-    return { code = nil, lines = told, stages = stages }
+    return { code = nil, lines = told, stages = stages, edits = Pipeline.edits(result) }
   end
   -- A file alone keeps an import it reads as a type only: nothing serves the module it names.
   local emitted = CompileGrammar.emit(build, result, false, true, false)

@@ -19,10 +19,10 @@ local function test_a_module_needs_one_unique_name()
   assert(db:exec("INSERT INTO modules VALUES ('a'" .. tail))
   local duplicate, _ = db:exec("INSERT INTO modules VALUES ('a'" .. tail)
   assert(not duplicate, "a duplicate module path was accepted")
-  local rows = assert(db:text_rows(
+  local rows = assert(db:rows(
     "SELECT path, file, kind, hex(source_hash), hex(key), hex(bytecode), tests, " ..
       "hex(source) FROM modules WHERE path = 'a'"))
-  assert(#rows == 1 and table.concat(rows[1]:texts(), "|") == "a|a.tl|module|01|02|03||04")
+  assert(#rows == 1 and table.concat(rows[1]:as_texts(), "|") == "a|a.tl|module|01|02|03||04")
   assert(db:close())
 end
 
@@ -37,33 +37,33 @@ local function test_module_names_are_indexed_apart_from_their_payloads()
         "?3, '', zeroblob(65536))",
       { { text = name }, { text = name .. ".tl" }, { blob = payload } }))
   end
-  local plan = assert(db:text_rows(
+  local plan = assert(db:rows(
     "EXPLAIN QUERY PLAN SELECT path FROM modules WHERE path = 'middle'"))
   assert(#plan == 1)
   local plan_row = Array.at(plan, 1)
   assert(plan_row:text(4):find("COVERING INDEX", 1, true) ~= nil,
-    "finding a module name reaches the table's payload: " .. table.concat(plan_row:texts(), " "))
+    "finding a module name reaches the table's payload: " .. table.concat(plan_row:as_texts(), " "))
   local lookup = "SELECT bytecode, kind FROM main.modules WHERE path = ?1"
-  local search = assert(db:text_rows("EXPLAIN QUERY PLAN " .. lookup,
+  local search = assert(db:rows("EXPLAIN QUERY PLAN " .. lookup,
     { { text = "middle" } }))
   assert(#search == 1)
   local search_row = Array.at(search, 1)
   assert(search_row:text(4):find("SEARCH", 1, true) ~= nil and
-      search_row:text(4):find("USING INDEX", 1, true) ~= nil, table.concat(search_row:texts(), " "))
+      search_row:text(4):find("USING INDEX", 1, true) ~= nil, table.concat(search_row:as_texts(), " "))
   local found = assert(db:rows(lookup, { { text = "middle" } }))
   assert(#found == 1)
   local found_row = Array.at(found, 1)
   assert(found_row:blob(1) == payload and found_row:text(2) == "module")
-  local rows = assert(db:text_rows(
+  local rows = assert(db:rows(
     "SELECT file, kind, length(bytecode), length(source) FROM modules WHERE path = 'middle'"))
-  assert(#rows == 1 and table.concat(rows[1]:texts(), "|") == "middle.tl|module|36864|65536")
-  local missing = assert(db:text_rows("SELECT bytecode FROM modules WHERE path = 'none'"))
+  assert(#rows == 1 and table.concat(rows[1]:as_texts(), "|") == "middle.tl|module|36864|65536")
+  local missing = assert(db:rows("SELECT bytecode FROM modules WHERE path = 'none'"))
   assert(#missing == 0)
   assert(db:close())
 end
 
 local function digest_of(db: Sqlite.Handle, sql: string): string
-  return Array.at(assert(db:text_rows(sql)), 1):text(1)
+  return Array.at(assert(db:rows(sql)), 1):text(1)
 end
 
 --- The data tables' digest holds the web assets, and leaves them out for a
@@ -77,7 +77,7 @@ local function test_tables_digest_holds_the_web_assets_and_reads_an_older_databa
   assert(db:exec("UPDATE web_assets SET version = '2'"))
   assert(digest_of(db, schema.tables_digest("")) ~= one, "a version moved no digest")
   assert(db:exec("DROP TABLE web_assets"))
-  local absent, _ = db:text_rows(schema.tables_digest(""))
+  local absent, _ = db:rows(schema.tables_digest(""))
   assert(absent == nil, "the table was read though absent")
   local older = digest_of(db, schema.tables_digest("", false))
   assert(older ~= empty and #older == 64)

@@ -80,12 +80,12 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
   assert(writer.write_result(handle, support.build_dir(root) .. "/cosmic.db", result))
   work.close(handle)
   local out = assert(Sqlite.open(support.build_dir(root) .. "/cosmic.db"))
-  local based_on = assert(out:text_rows(
+  local based_on = assert(out:rows(
     "SELECT value FROM meta WHERE key = 'runtime_basis'"))
   local binary: importer.Code = {
     basis = Array.at(based_on, 1):text(1), -- the boot wrote one `runtime_basis` row
     requires = function(name: string): {string}?, string
-      local rows, trouble = out:text_rows(
+      local rows, trouble = out:rows(
         "SELECT requires FROM imports WHERE path = ?1 ORDER BY requires",
         { { text = name } })
       if rows == nil then return nil, tostring(trouble) end
@@ -95,7 +95,7 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
     end,
     source = function(name: string): string?, string
       for _, table_name in ipairs({ "decls", "modules" }) do
-        local rows, trouble = out:text_rows(
+        local rows, trouble = out:rows(
           "SELECT CAST(inflate(source) AS TEXT) FROM " .. table_name ..
             " WHERE path = ?1", { { text = name } })
         if rows == nil then return nil, tostring(trouble) end
@@ -139,13 +139,13 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
     assert(ok, tostring(failure))
     local parses = Array.at(tallies, 1)
     local after = importer.analyzer_identity((assert(importer.tree_code(again))))
-    local recorded = assert(again.db:text_rows(
+    local recorded = assert(again.db:rows(
       "SELECT value FROM meta WHERE key = 'analyzer'"))
-    local planted = assert(again.db:text_rows(
+    local planted = assert(again.db:rows(
       "SELECT count(*) FROM docs WHERE symbol = 'Planted'"))
     work.close(again)
     -- `meta` keys `analyzer` once, and `count(*)` gives one row.
-    return before, after, Array.at(recorded, 1):text(1), Array.at(planted, 1):text(1) == "1", parses.parsed
+    return before, after, (Array.at(recorded, 1):as_text(1) or ""), Array.at(planted, 1):integer(1) == 1, parses.parsed
   end
   -- The first boot after the suite's own binary derived: that binary's
   -- rows go, and the boot names its own as the tool does.
