@@ -65,7 +65,7 @@ local function test_more_parameters_than_a_start_takes_are_refused()
       grants[i] = { path = path, letters = "r" }
       paths[path] = { path = path, directory = false }
     end
-    return { grants = grants, tmp = tmp }, paths
+    return { grants = grants, setup = { tmp = tmp } }, paths
   end
   local fits, fits_paths = policy_of(most - 1, false)
   assert(#compile(fits, fits_paths).text > 0)
@@ -171,12 +171,12 @@ local function test_unmet_policy_fields_are_refused()
     { policy = { grants = { { calls = "nest" } } }, says = "nest" },
     { policy = { grants = { { path = "a", from = "b", letters = "r" } } }, says = "from" },
     { policy = { limits = { processes = 2 } }, says = "limits.processes" },
-    { policy = { database = { path = "/does/not/exist" } }, says = "database" },
-    { policy = { set_env_digests = { A = string.rep("0", 64) } }, says = "set_env_digests" },
+    { policy = { setup = { database = { path = "/does/not/exist" } } }, says = "database" },
+    { policy = { setup = { set_env_digests = { A = string.rep("0", 64) } } }, says = "set_env_digests" },
     { policy = { profiles = { "unrecognized" } }, says = "profiles" },
     { policy = { grants = { { path = "a", letters = "bad" } } }, says = "letters" },
     { policy = { profiles = { "cosmic" } }, says = "no profile \"cosmic\"" },
-    { policy = { set_env = { A = "secret" }, set_env_digests = { A = string.rep("0", 64) } },
+    { policy = { setup = { set_env = { A = "secret" }, set_env_digests = { A = string.rep("0", 64) } } },
       says = "set_env_digests" },
   }
   for _, case in ipairs(cases) do
@@ -229,14 +229,14 @@ end
 --- `rwc` through a parameter its caller sets: none is in the text or the
 --- parameters until then.
 local function test_tmp_is_granted_through_a_parameter_the_caller_sets()
-  local out = compile({ tmp = true })
+  local out = compile({ setup = { tmp = true } })
   assert(out.text == BASE .. [[(allow file-read* file-map-executable (subpath (param "TMP")))
 (allow file-write-data (subpath (param "TMP")))
 (allow file-write-create file-write-unlink (subpath (param "TMP")))
 ]], out.text)
   assert(out.tmp == "TMP" and out.parameters["TMP"] == nil)
   assert(compile({}).tmp == nil)
-  local held = compile({ tmp = true, grants = { { calls = "fattr" } } })
+  local held = compile({ setup = { tmp = true }, grants = { { calls = "fattr" } } })
   assert(held.text:find('file-write-xattr (subpath (param "TMP"))', 1, true), held.text)
 end
 
@@ -248,7 +248,7 @@ local function test_a_database_grants_its_core_and_itself_and_not_this_programs_
     [database] = { path = database, directory = false },
     ["/launcher"] = { path = "/private/launcher", directory = false },
   }
-  local policy: Sandbox.Policy = { database = { path = database } }
+  local policy: Sandbox.Policy = { setup = { database = { path = database } } }
   local out = assert(Seatbelt.compile(policy, { paths = paths, core = "/core", database = database }))
   assert(out.text == BASE .. '(allow file-read* file-map-executable (literal (param "PATH_1")))\n' ..
       '(allow process-exec file-map-executable (literal (param "PATH_1")))\n' ..
@@ -289,7 +289,7 @@ local function test_a_database_needs_the_core_and_the_file_the_core_runs_on(tmp:
     [database] = { path = database, directory = false },
     [other] = { path = other, directory = false },
   }
-  local policy: Sandbox.Policy = { database = { path = database } }
+  local policy: Sandbox.Policy = { setup = { database = { path = database } } }
   local out, why = Seatbelt.compile(policy, { paths = paths })
   assert(out == nil and why:find("database needs the core", 1, true) ~= nil, tostring(why))
   out, why = Seatbelt.compile(policy, { paths = paths, core = "/core" })

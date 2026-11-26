@@ -61,7 +61,7 @@ local function test_a_policy_runs_a_sealed_database_under_a_sandbox(tmp: string)
   local path = tmp .. "/sealed.db"
   fixture.seal(tmp, path)
   local executable = assert(Proc.executable())
-  local result, why = Child.run({ executable, executable }, { policy = { database = { path = path } },
+  local result, why = Child.run({ executable, executable }, { policy = { setup = { database = { path = path } } },
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   if result == nil then
     assert(ChildPolicy.unsandboxable(tostring(why)), "the start was refused: " .. tostring(why))
@@ -88,17 +88,17 @@ local function test_a_database_policy_refuses_another_program_and_this_ones_own_
   local path = tmp .. "/sealed.db"
   fixture.seal(tmp, path)
   local executable = assert(Proc.executable())
-  local other, why = Child.start({ "/bin/sh", "-c", "true" }, { timeout_ns = Child.FOREVER, policy = { database = { path = path } } })
+  local other, why = Child.start({ "/bin/sh", "-c", "true" }, { timeout_ns = Child.FOREVER, policy = { setup = { database = { path = path } } } })
   assert(other == nil and why.message:find("is not this program", 1, true) ~= nil, tostring(why))
-  local file, file_why = Child.start({ executable, "x" }, { timeout_ns = Child.FOREVER, policy = { database = { path = path },
+  local file, file_why = Child.start({ executable, "x" }, { timeout_ns = Child.FOREVER, policy = { setup = { database = { path = path } },
     grants = { { path = executable, letters = "r" } } } })
   assert(file == nil and file_why.message:find("own file", 1, true) ~= nil, tostring(file_why))
-  local above, above_why = Child.start({ executable, "x" }, { timeout_ns = Child.FOREVER, policy = { database = { path = path },
+  local above, above_why = Child.start({ executable, "x" }, { timeout_ns = Child.FOREVER, policy = { setup = { database = { path = path } },
     grants = { { path = assert(executable:match("^(.*)/[^/]+$")), letters = "r" } } } })
   assert(above == nil and above_why.message:find("own file", 1, true) ~= nil, tostring(above_why))
   -- With no grant of the program's file, a start on a database refuses nothing.
   local profiled, profile_why = Child.run({ executable, executable },
-    { policy = { database = { path = path } }, stdout = "capture",
+    { policy = { setup = { database = { path = path } } }, stdout = "capture",
       stderr = "capture", timeout_ns = Clock.seconds(30) })
   if profiled == nil then
     assert(ChildPolicy.unsandboxable(tostring(profile_why)), tostring(profile_why))
@@ -117,7 +117,7 @@ local function test_a_decoded_policy_refuses_a_database_that_changed_since(tmp: 
   end
   local path = tmp .. "/sealed.db"
   fixture.seal(tmp, path)
-  local merged = assert(Sandbox.union({ database = assert(Sandbox.database(path)) }))
+  local merged = assert(Sandbox.union({ setup = { database = assert(Sandbox.database(path)) } }))
   local policy = assert(PolicyJson.decode(PolicyJson.encode(merged)))
   local executable = assert(Proc.executable())
   local bytes = assert(Fs.read(path))
@@ -144,8 +144,8 @@ local function under_nest(tmp: string, mode: string, policy: Sandbox.Policy): {s
   searchable.share(scratch)
   local grants = ChildPolicy.with(policy.grants or {}, { path = scratch, letters = "rwc" }, { calls = "fork" },
     { calls = "nest" })
-  local nested: Sandbox.Policy = { ...policy, database = policy.database or { path = path },
-    isolate = { "file" }, set_env = { TMPDIR = scratch }, grants = grants }
+  local nested: Sandbox.Policy = { ...policy, setup = { ...(policy.setup or {}), database = (policy.setup or {}).database or { path = path }, set_env = { TMPDIR = scratch } },
+    isolate = { "file" }, grants = grants }
   local executable = assert(Proc.executable())
   local result, why = Child.run({ executable, executable, mode, scratch },
     { policy = nested, cwd = tmp, stdout = "capture", stderr = "capture",

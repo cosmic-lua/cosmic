@@ -163,9 +163,10 @@ local function next_place(chunk: Ast.Chunk, stats: {Ast.Stat}, index: integer, c
 end
 
 --- A `return nil, $MSG`-shaped statement's message expression, reduced to whatever of it is a literal: a plain string
---- leaf reads as its own text, a `..` concatenation reads as both sides joined the same way, and anything else (a
---- call, a variable) contributes nothing. A message built entirely from such a case reduces to `""`, which nothing is
---- cataloged for.
+--- leaf reads as its own text, a `..` concatenation reads as both sides joined the same way, a [`cosmic.failure`]
+--- constructor (`Failure.new($MSG)`, `Failure.at($MSG, ...)` and the like) reads as its message, `Failure.within(why,
+--- $CONTEXT)` as its context, and anything else (another call, a variable) contributes nothing. A message built
+--- entirely from such a case reduces to `""`, which nothing is cataloged for.
 local function static_text(chunk: Ast.Chunk, node: Ast.Node?): string
   if node == nil then
     return ""
@@ -174,6 +175,14 @@ local function static_text(chunk: Ast.Chunk, node: Ast.Node?): string
     return node.value
   elseif (node.kind == "Binary") and node.op == ".." then
     return static_text(chunk, node.left) .. static_text(chunk, node.right)
+  elseif (node.kind == "Call") then
+    local callee = node.callee
+    if (callee.kind == "Field") and (callee.object.kind == "Name") and callee.object.text == "Failure" then
+      if callee.name == "within" then
+        return static_text(chunk, node.args[2])
+      end
+      return static_text(chunk, node.args[1])
+    end
   end
   return ""
 end
@@ -1322,16 +1331,10 @@ local function policy_data(chunk: Ast.Chunk, node: Ast.Table): PolicyRules.Polic
   local loopback: {string}?
   local env: {string}?
   local requires: {string}?
-  local set_env: {string: string}?
-  local set_env_digests: {string: string}?
   local grants: {PolicyRules.Grant}?
   local limits: PolicyRules.Limits?
-  local tmp: boolean?
   local cpu_features: boolean?
   local store_text: boolean?
-  local user: integer?
-  local group: integer?
-  local database: string?
   local timeout: integer?
   local seen: mut {string: boolean} = {}
   for _, item in ipairs(node.items) do
@@ -1354,10 +1357,8 @@ local function policy_data(chunk: Ast.Chunk, node: Ast.Table): PolicyRules.Polic
       if (given.kind == "Boolean") then
         if field == "cpu_features" then
           cpu_features = given.value
-        elseif field == "store_text" then
-          store_text = given.value
         else
-          tmp = given.value
+          store_text = given.value
         end
       else
         why = field .. " takes true or false"
@@ -1379,26 +1380,6 @@ local function policy_data(chunk: Ast.Chunk, node: Ast.Table): PolicyRules.Polic
         timeout = given.value
       else
         why = TestPolicy.timeout_refused()
-      end
-    elseif takes == "string" then
-      database, why = plain_string(chunk, given, field)
-    elseif takes == "map" then
-      if field == "set_env" then
-        set_env, why = string_map(chunk, given, field)
-      else
-        set_env_digests, why = string_map(chunk, given, field)
-      end
-    elseif takes == "id" then
-      local number: integer? = nil
-      if (given.kind == "Integer") then
-        number = given.value
-      end
-      if number == nil then
-        why = field .. " takes a whole number"
-      elseif field == "user" then
-        user = number
-      else
-        group = number
       end
     elseif takes == "limits" then
       local found_limits: PolicyRules.Limits = {}
@@ -1460,9 +1441,8 @@ local function policy_data(chunk: Ast.Chunk, node: Ast.Table): PolicyRules.Polic
     end
   end
   return { profiles = profiles, isolate = isolate, loopback = loopback,
-    env = env, requires = requires, set_env = set_env, set_env_digests = set_env_digests, grants = grants,
-    limits = limits, tmp = tmp, cpu_features = cpu_features, store_text = store_text, user = user, group = group,
-    database = database, timeout = timeout }, ""
+    env = env, requires = requires, grants = grants, limits = limits, cpu_features = cpu_features,
+    store_text = store_text, timeout = timeout }, ""
 end
 
 --- The chunk's `Test.policy { ... }` (see [`cosmic.test`]), read as data, never run: nil and "" when there is none,
