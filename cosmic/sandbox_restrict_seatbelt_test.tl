@@ -111,7 +111,7 @@ end
 test_child.register("store after restriction", function(_args: {string}): integer
   print("before=" .. tostring(package.loaded["cosmic.csv"] == nil))
   local restricted, why = Sandbox.restrict({})
-  print("restrict=" .. tostring(restricted) .. " " .. tostring(why))
+  print("restrict=" .. tostring(restricted) .. " " .. (if why == nil then "" else tostring(why) end))
   local Csv = require("cosmic.csv")
   local rows = assert(Csv.parse("a,b"))
   print("loaded=true " .. assert(assert(rows[1])[2]))
@@ -238,7 +238,7 @@ local function soft(): integer
 end
 local before = soft()
 local ok, why = Sandbox.restrict({ limits = { open_files = 17 } })
-print(tostring(ok) .. " " .. why)
+print(tostring(ok) .. " " .. (if why == nil then "" else tostring(why) end))
 print(soft() == before)
 ]]
   local result, why = Child.run({ (assert(Proc.executable())), "-e", chunk }, {
