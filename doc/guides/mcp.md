@@ -249,7 +249,7 @@ local word_count = McpServer.command{
     inputSchema = Mcp.object_schema({ text = { type = "string" } }, { "text" }),
   },
   argv = { "/usr/bin/wc", "-w" },
-  policy = { profiles = { "system" } },
+  policy = { grants = { { profile = "system" } } },
 }
 local server = McpServer.new{ info = { name = "words", version = "1" }, tools = { word_count } }
 assert(server:serve_stdio())

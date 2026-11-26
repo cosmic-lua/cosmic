@@ -19,21 +19,19 @@ end
 
 local function test_decode_reads_every_field()
   local policy = assert(PolicyJson.decode([[{
-    "profiles": ["system"],
-    "grants": [{"path": "data", "letters": "rwxcu", "from": "/srv/data"}, {"calls": "fork"}, {"calls": "jit"},
-      {"calls": "fattr"}, {"calls": "nest"},
-      {"connect": "example.com:443"}, {"connect": "*:80"}, {"connect": "host:*"}],
+    "grants": [{"profile": "system"}, {"path": "data", "letters": "rwxcu", "from": "/srv/data"}, {"calls": "fork"},
+      {"calls": "jit"}, {"calls": "fattr"}, {"calls": "nest"},
+      {"connect": "example.com:443"}, {"connect": "*:80"}, {"connect": "host:*"},
+      {"loopback": "127.0.0.1"}, {"loopback": "127.1.2.3"}, {"env": "HOME"}],
     "isolate": ["file", "proc"],
-    "loopback": ["127.0.0.1", "127.1.2.3"],
-    "env": ["HOME"],
     "setup": {"set_env": {"MODE": "fast"}, "tmp": true},
     "limits": {"open_files": 64, "file_bytes": 0, "cpu_seconds": 9, "processes": 4}
   }]]))
-  assert(assert(policy.profiles)[1] == "system")
+  assert(Sandbox.profiles(policy)[1] == "system")
   assert(Array.at(Sandbox.paths(policy), 1).path == "data" and Array.at(Sandbox.paths(policy), 1).letters == "rwxcu")
   assert(Array.at(Sandbox.paths(policy), 1).from == "/srv/data")
   assert(#assert(policy.isolate) == 2 and #Sandbox.calls(policy) == 4 and #Sandbox.connects(policy) == 3)
-  assert(assert(policy.loopback)[2] == "127.1.2.3" and assert(policy.env)[1] == "HOME")
+  assert(Sandbox.loopback(policy)[2] == "127.1.2.3" and Sandbox.env(policy)[1] == "HOME")
   assert(assert(assert(policy.setup).set_env)["MODE"] == "fast" and assert(policy.setup).tmp == true)
   assert(assert(policy.limits).open_files == 64 and assert(policy.limits).file_bytes == 0)
   assert(assert(policy.limits).cpu_seconds == 9 and assert(policy.limits).processes == 4)
@@ -71,17 +69,17 @@ local function test_decode_refusals_name_the_field()
     { text = '{"promises": ["fork"]}', path = "$.promises" },
     { text = '{"connect": ["example.com:443"]}', path = "$.connect" },
     { text = '{"grants": [{"connect": "h:1", "calls": "fork"}]}', path = "$.grants[0]" },
-    { text = '{"profiles": ["system", "bogus"]}', path = "$.profiles[1]" },
+    { text = '{"grants": [{"profile": "system"}, {"profile": "bogus"}]}', path = "$.grants[1].profile" },
     { text = '{"grants": [{"connect": "example.com"}]}', path = "$.grants[0].connect" },
     { text = '{"grants": [{"connect": "example.com:0"}]}', path = "$.grants[0].connect" },
     { text = '{"grants": [{"connect": "example.com:00080"}]}', path = "$.grants[0].connect" },
     { text = '{"grants": [{"connect": "example.com:65536"}]}', path = "$.grants[0].connect" },
     { text = '{"grants": [{"connect": ":80"}]}', path = "$.grants[0].connect" },
-    { text = '{"loopback": ["10.0.0.1"]}', path = "$.loopback[0]" },
-    { text = '{"loopback": ["127.0.0.256"]}', path = "$.loopback[0]" },
-    { text = '{"loopback": ["127.0.0.01"]}', path = "$.loopback[0]" },
-    { text = '{"env": ["A=B"]}', path = "$.env[0]" },
-    { text = '{"env": [""]}', path = "$.env[0]" },
+    { text = '{"grants": [{"loopback": "10.0.0.1"}]}', path = "$.grants[0].loopback" },
+    { text = '{"grants": [{"loopback": "127.0.0.256"}]}', path = "$.grants[0].loopback" },
+    { text = '{"grants": [{"loopback": "127.0.0.01"}]}', path = "$.grants[0].loopback" },
+    { text = '{"grants": [{"env": "A=B"}]}', path = "$.grants[0].env" },
+    { text = '{"grants": [{"env": ""}]}', path = "$.grants[0].env" },
     { text = '{"setup": {"set_env": {"A": 1}}}', path = "$.setup.set_env.A" },
     { text = '{"setup": {"set_env": {"A=B": "1"}}}', path = '$.setup.set_env["A=B"]' },
     { text = '{"setup": {"set_env_digests": {"A": "xyz"}}}', path = "$.setup.set_env_digests.A" },
@@ -115,13 +113,12 @@ end
 
 local function test_encode_is_canonical_and_keeps_no_value()
   local a = PolicyMerge.merged({
-    grants = { { path = "/b", letters = "x" }, { path = "/a", letters = "r" }, { calls = "jit" }, { calls = "fork" } },
+    grants = { { path = "/b", letters = "x" }, { path = "/a", letters = "r" }, { calls = "jit" }, { calls = "fork" }, { env = "Z" }, { env = "A" } },
     setup = { tmp = true, set_env = { TOKEN = "hunter2" } },
-    limits = { open_files = 7 }, env = { "Z", "A" },
+    limits = { open_files = 7 },
   })
-  local b = PolicyMerge.merged({
-    env = { "A", "Z" }, limits = { open_files = 7 }, setup = { set_env = { TOKEN = "hunter2" }, tmp = true },
-    grants = { { path = "/a", letters = "r" }, { path = "/b", letters = "x" }, { calls = "fork" }, { calls = "jit" } },
+  local b = PolicyMerge.merged({ limits = { open_files = 7 }, setup = { set_env = { TOKEN = "hunter2" }, tmp = true },
+    grants = { { path = "/a", letters = "r" }, { path = "/b", letters = "x" }, { calls = "fork" }, { calls = "jit" }, { env = "A" }, { env = "Z" } },
   })
   local text = PolicyJson.encode(a)
   assert(text == PolicyJson.encode(b), text)
@@ -129,9 +126,8 @@ local function test_encode_is_canonical_and_keeps_no_value()
   local decoded, decoded_trouble = Json.decode(text)
   assert(decoded ~= nil, decoded_trouble)
   assert(type(decoded) == "table")
-  assert(text:find('"env":["A","Z"]', 1, true), text)
-  assert(text:find('"grants":[{"letters":"r","path":"/a"},{"letters":"x","path":"/b"},{"calls":"fork"},{"calls":"jit"}]',
-    1, true), text)
+  assert(text:find('"grants":[{"letters":"r","path":"/a"},{"letters":"x","path":"/b"},{"calls":"fork"},{"calls":"jit"},' ..
+      '{"env":"A"},{"env":"Z"}]', 1, true), text)
   assert(text:find('"limits":{"open_files":7}', 1, true) and text:find('"tmp":true', 1, true), text)
   assert(text:find('"set_env_digests":{"TOKEN":"', 1, true), text)
   assert(PolicyJson.encode(PolicyMerge.merged()) == "{}")
@@ -147,9 +143,8 @@ local function test_encode_decode_encode_is_the_identity()
   local policies: {Sandbox.Policy} = {
     {},
     { setup = { tmp = true } },
-    { grants = { { path = "a b", letters = "rwxcu", from = "/h" }, { path = "/x\u{e9}", letters = "c" }, { calls = "nest" }, { calls = "fattr" }, { calls = "jit" }, { calls = "fork" }, { connect = "h:1" }, { connect = "*:*" } },
+    { grants = { { path = "a b", letters = "rwxcu", from = "/h" }, { path = "/x\u{e9}", letters = "c" }, { calls = "nest" }, { calls = "fattr" }, { calls = "jit" }, { calls = "fork" }, { connect = "h:1" }, { connect = "*:*" }, { loopback = "127.9.9.9" }, { env = "A" }, { env = "B" } },
       isolate = { "file", "proc" },
-      loopback = { "127.9.9.9" }, env = { "A", "B" },
       setup = { set_env = { K = "v", E = "" }, tmp = true }, limits = { open_files = 3, file_bytes = 0, cpu_seconds = 1, processes = 2 } },
     { setup = { set_env_digests = { X = string.rep("a", 64) } } },
   }
@@ -162,7 +157,7 @@ local function test_encode_decode_encode_is_the_identity()
 end
 
 local function test_encode_raises_for_what_is_not_merged()
-  Test.raises(function() PolicyJson.encode({ profiles = { "system" } }) end, "merged")
+  Test.raises(function() PolicyJson.encode({ grants = { { profile = "system" } } }) end, "merged")
   local bad, trouble = pcall(PolicyJson.encode, { grants = { { path = "a", letters = "z" } } })
   assert(not bad and tostring(trouble):find("$.grants[0].letters", 1, true) ~= nil, tostring(trouble))
   assert(PolicyJson.encode({}) == "{}")
@@ -230,7 +225,7 @@ local function test_a_database_text_is_held_to_its_shape(tmp: string)
   refused('{"setup":{"database":"' .. path .. '"}}', "$.setup.database")
   refused('{"setup":{"database":{"path":"' .. path .. '"}}}', "$.setup.database.sha256: missing")
   -- a missing digest is named only once the whole shape holds, so any other field's fault comes first
-  refused('{"env":5,"setup":{"database":{"path":"' .. path .. '"}}}', "$.env")
+  refused('{"isolate":5,"setup":{"database":{"path":"' .. path .. '"}}}', "$.isolate")
   refused('{"setup":{"database":{"path":"rel.db","sha256":"00"}}}', "$.setup.database")
   refused('{"setup":{"database":{"path":"' .. path .. '","sha256":"00","more":1}}}', "$.setup.database")
   local ok, trouble = pcall(PolicyJson.encode,

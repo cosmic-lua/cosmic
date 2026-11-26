@@ -113,13 +113,16 @@ local function shape(effective: test_inputs.Effective): Sandbox.Policy
   local limits: Sandbox.Limits = {}
   local held, _ = sys.getrlimit(sys.RLIMIT_NOFILE)
   if held ~= nil then limits.open_files = math.min(held.hard, MOST_OPEN_FILES) end
-  return {
-    profiles = if effective.system == true then { "system", "programs" } else nil end,
-    isolate = { "file" },
-    grants = calls_of(worker_promises(effective.nests)),
-    loopback = loopback,
-    limits = limits,
-  }
+  local grants: mut {Sandbox.Grant} = {}
+  if effective.system == true then
+    grants[#grants + 1] = { profile = "system" }
+    grants[#grants + 1] = { profile = "programs" }
+  end
+  for _, grant in ipairs(calls_of(worker_promises(effective.nests))) do
+    grants[#grants + 1] = grant
+  end
+  for _, address in ipairs(loopback) do grants[#grants + 1] = { loopback = address } end
+  return { isolate = { "file" }, grants = grants, limits = limits }
 end
 
 --- The part of every worker's policy that is the same for all of them and

@@ -77,7 +77,7 @@ end
 local function test_a_loopback_is_inet_in_a_network_of_its_own(tmp: string)
   skip_on_macos()
   local program = assert(Fake.build(searchable.open(tmp) .. "/fake", Fake.REPLY))
-  local layers = layers_of({ program }, { loopback = { "127.0.0.2" } })
+  local layers = layers_of({ program }, { grants = { { loopback = "127.0.0.2" } } })
   assert(table.concat(layers.sockets, " ") == "inet", table.concat(layers.sockets, " "))
   local named = table.concat(layers.namespaces, " ")
   local want = if sys.getuid() == 0 then "user pid mount ipc net" else "user net" end

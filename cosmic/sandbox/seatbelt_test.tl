@@ -135,7 +135,7 @@ local function test_system_expands_mac_paths_only_and_cosmic_names_the_supplied_
     ["/lib"] = { path = "/lib", directory = true },
     ["program"] = { path = "/opt/cosmic", directory = false },
   }
-  local out = assert(Seatbelt.compile({ profiles = { "system" }, grants = { { path = "program", letters = "rx" } } },
+  local out = assert(Seatbelt.compile({ grants = { { profile = "system" }, { path = "program", letters = "rx" } } },
     { paths = paths }))
   assert(out.parameters["PATH_1"] == "/System/Cryptexes/OS")
   assert(out.parameters["PATH_2"] == "/System/Library")
@@ -167,15 +167,15 @@ local function test_unmet_policy_fields_are_refused()
   local cases: {Unmet} = {
     { policy = { isolate = { "file" } }, says = "isolate" },
     { policy = { grants = { { connect = "example.com:443" } } }, says = "connect needs the port of the network relay" },
-    { policy = { loopback = { "127.0.0.1" } }, says = "loopback" },
+    { policy = { grants = { { loopback = "127.0.0.1" } } }, says = "loopback" },
     { policy = { grants = { { calls = "nest" } } }, says = "nest" },
     { policy = { grants = { { path = "a", from = "b", letters = "r" } } }, says = "from" },
     { policy = { limits = { processes = 2 } }, says = "limits.processes" },
     { policy = { setup = { database = { path = "/does/not/exist" } } }, says = "database" },
     { policy = { setup = { set_env_digests = { A = string.rep("0", 64) } } }, says = "set_env_digests" },
-    { policy = { profiles = { "unrecognized" } }, says = "profiles" },
+    { policy = { grants = { { profile = "unrecognized" } } }, says = "unknown profile" },
     { policy = { grants = { { path = "a", letters = "bad" } } }, says = "letters" },
-    { policy = { profiles = { "cosmic" } }, says = "no profile \"cosmic\"" },
+    { policy = { grants = { { profile = "cosmic" } } }, says = "no profile \"cosmic\"" },
     { policy = { setup = { set_env = { A = "secret" }, set_env_digests = { A = string.rep("0", 64) } } },
       says = "set_env_digests" },
   }
@@ -304,8 +304,10 @@ end
 --- What a policy reaches on macOS is macOS's "system" list, not Linux's.
 local function test_the_grants_a_policy_reaches_are_macoss_own()
   local held: mut {string:string} = {}
-  for _, grant in ipairs(Seatbelt.grants({ profiles = { "system" },
-      grants = { { path = "/srv", letters = "r" } } })) do held[grant.path] = grant.letters end
+  for _, grant in ipairs(Seatbelt.grants({
+      grants = { { profile = "system" }, { path = "/srv", letters = "r" } } })) do
+    held[grant.path] = grant.letters
+  end
   assert(held["/System/Library"] == "r" and held["/sbin"] == "r" and held["/srv"] == "r")
   assert(#Seatbelt.grants({}) == 0)
 end
@@ -315,7 +317,7 @@ end
 --- reaches macOS's list, including /System/Library and /sbin. The profile of
 --- macOS is drawn as a host that has every path would give it.
 local function test_system_profile_means_the_same_raw_merged_and_through_json()
-  local raw: Sandbox.Policy = { profiles = { "system" } }
+  local raw: Sandbox.Policy = { grants = { { profile = "system" } } }
   local profile = rules.system_profile("darwin", function(_: string): boolean return true end)
   local merged = assert(Sandbox.union(profile))
   local decoded = assert(PolicyJson.decode(PolicyJson.encode(merged)))
@@ -326,7 +328,7 @@ local function test_system_profile_means_the_same_raw_merged_and_through_json()
   local want = compile(raw, paths)
   assert(want.parameters["PATH_1"] ~= nil)
   for _, other in ipairs({ profile, merged, decoded }) do
-    assert(other.profiles == nil)
+    assert(#Sandbox.profiles(other) == 0)
     local seen: mut {string:string} = {}
     for _, grant in ipairs(Sandbox.paths(other)) do seen[grant.path] = grant.letters end
     assert(seen["/System/Library"] == "r" and seen["/sbin"] == "r" and seen["/lib64"] == nil)
@@ -351,18 +353,18 @@ local function test_missing_or_noncanonical_host_paths_fail_closed()
 end
 
 local function test_compiling_does_not_mutate_the_policy_or_paths()
-  local policy: Sandbox.Policy = { grants = { { path = "a//b", letters = "xr" } }, profiles = { "system" } }
+  local policy: Sandbox.Policy = { grants = { { profile = "system" }, { path = "a//b", letters = "xr" } } }
   local paths: {string:Seatbelt.Path} = { ["a//b"] = { path = "/real", directory = false } }
   local out = compile(policy, paths)
   assert(out.parameters["PATH_1"] == "/real")
   local grant = assert(Sandbox.paths(policy)[1], "the policy kept its grant")
   assert(grant.path == "a//b" and grant.letters == "xr")
   local kept = assert(paths["a//b"], "the paths kept their entry")
-  assert(assert(policy.profiles)[1] == "system" and kept.path == "/real")
+  assert(Sandbox.profiles(policy)[1] == "system" and kept.path == "/real")
 end
 
 local function test_a_terminal_grants_its_slave_and_dev_tty_by_parameter_and_nothing_otherwise()
-  local without = compile({ profiles = { "system" } })
+  local without = compile({ grants = { { profile = "system" } } })
   assert(not without.text:find("/dev/tty", 1, true) and without.parameters["TTY"] == nil, without.text)
   local out = (assert(Seatbelt.compile({}, { paths = {}, terminal = "/dev/ttys004" })))
   assert(out.text == BASE .. [[(allow file-read-data file-write-data file-ioctl (literal (param "TTY")))

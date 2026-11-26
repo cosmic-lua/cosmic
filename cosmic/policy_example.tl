@@ -11,8 +11,8 @@ local Example = {} -- checked: literal_needs_type
 --- field by its path, never a program that runs with more than
 --- its author meant.
 function Example.decode()
-  local policy = assert(PolicyJson.decode('{"env":["HOME"],"grants":[{"path":"data","letters":"rx"}],"setup":{"tmp":true}}'))
-  local env, grants, setup = assert(policy.env), Sandbox.paths(policy), assert(policy.setup)
+  local policy = assert(PolicyJson.decode('{"grants":[{"path":"data","letters":"rx"},{"env":"HOME"}],"setup":{"tmp":true}}'))
+  local env, grants, setup = Sandbox.env(policy), Sandbox.paths(policy), assert(policy.setup)
   local grant = assert(grants[1])
   print(env[1], grant.letters, setup.tmp) -- HOME  rx  true
   assert(env[1] == "HOME" and grant.letters == "rx" and setup.tmp == true)

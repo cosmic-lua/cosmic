@@ -111,7 +111,7 @@ end
 local function unsupported(policy: rules.Policy): string
   local setup = policy.setup or {}
   if #(policy.isolate or {}) > 0 then return "isolate needs namespaces, which macOS has none of" end
-  if #(policy.loopback or {}) > 0 then return "loopback needs a network namespace of its own" end
+  if #rules.loopback(policy) > 0 then return "loopback needs a network namespace of its own" end
   -- A promise the profile has no rule for would be dropped from it, not
   -- held: each is named here or refused.
   for _, promise in ipairs(rules.calls(policy)) do
@@ -216,7 +216,7 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
     grants[#grants + 1] = { path = held.path, letters = letters }
     return ""
   end
-  for _, name in ipairs(policy.profiles or {}) do
+  for _, name in ipairs(rules.profiles(policy)) do
     if name == "system" or name == "programs" then
       for _, entry in ipairs(assert(rules.profile_paths(name, "darwin"))) do
         local at = assert(entry[1], "a system path entry names its path")
@@ -256,8 +256,9 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
     if trouble ~= "" then return refuse(trouble) end
   end
   for _, promise in ipairs(rules.calls(policy)) do grants[#grants + 1] = { calls = promise } end
+  for _, name in ipairs(rules.env(policy)) do grants[#grants + 1] = { env = name } end
   local merged, failure = rules.merge({ grants = grants,
-    limits = policy.limits, env = policy.env, setup = { set_env = setup.set_env, set_env_digests = setup.set_env_digests, user = setup.user, group = setup.group } })
+    limits = policy.limits, setup = { set_env = setup.set_env, set_env_digests = setup.set_env_digests, user = setup.user, group = setup.group } })
   if merged == nil then return nil, failure end
   local fattr = false
   -- What every program needs to start, whatever it is granted. Contents
@@ -383,7 +384,7 @@ end
 --- each whether or not this host has it. For a check of which paths a policy reaches.
 function Seatbelt.grants(policy: rules.Policy): {rules.Path}
   local out: mut {rules.Path} = {}
-  for _, name in ipairs(policy.profiles or {}) do
+  for _, name in ipairs(rules.profiles(policy)) do
     if name == "system" or name == "programs" then
       for _, entry in ipairs(assert(rules.profile_paths(name, "darwin"))) do
         local path = assert(entry[1], "a system path entry names its path")
@@ -416,7 +417,7 @@ function Seatbelt.resolve(policy: rules.Policy, base?: string, core?: string, da
     paths[name] = { path = real, directory = found.kind == "dir" }
     return ""
   end
-  for _, name in ipairs(policy.profiles or {}) do
+  for _, name in ipairs(rules.profiles(policy)) do
     if name == "system" or name == "programs" then
       -- A path this host lacks is one its system has none of.
       for _, entry in ipairs(assert(rules.profile_paths(name, "darwin"))) do
