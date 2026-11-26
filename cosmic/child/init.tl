@@ -3470,7 +3470,7 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
       -- A bare refusal, with no step of the start named: the run of the
       -- program, or entering its directory. Name the file the start ran,
       -- which is not always argv[1]: a cosmic program runs by its core,
-      -- and a root caller's child by a copy of it ([`shared_core`]).
+      -- and a root caller's child by a copy of it (cosmic/child/hold.tl's `shared_core`).
       trouble = trouble .. ": running " .. string.format("%q", path) ..
         " (the program, or the interpreter it starts through)" ..
         (if held ~= nil then
