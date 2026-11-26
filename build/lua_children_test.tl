@@ -16,6 +16,8 @@ local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Test = require("cosmic.test")
 local Fake = require("cosmic.fake")
+-- Required, so the fake's main is of this test's closure.
+local _fake = require("build.lua_children_fake")
 local test_child = require("build.test_child")
 local test_inputs = require("build.test_inputs")
 -- The checker `-e` types its chunk with: loaded here, as a child's is. build.standalone loads it only to compile.
@@ -135,14 +137,14 @@ end
 --- module, which it carries under a name of its own: started by the test,
 --- and by a child of it in turn.
 local function test_a_fake_runs(tmp: string)
-  local probe = assert(Fake.build(tmp .. "/fake"))
-  local direct = assert(Child.run({ probe, "print ran" }, { stdout = "capture",
+  local probe = assert(Fake.build(tmp .. "/fake", "build.lua_children_fake"))
+  local direct = assert(Child.run({ probe, "print", "ran" }, { stdout = "capture",
     stderr = "capture", timeout_ns = Clock.seconds(30) }))
   assert(direct.ok and direct.stdout == "ran\n", tostring(direct.stdout) ..
       tostring(direct.stderr))
   local ok, out, err = run({ "-e", 'local Child = require("cosmic.child") local Fs = require("cosmic.fs") ' ..
       'local program = ... if program == nil then return 2 end ' ..
-      'local r = assert(Child.run({ program, "print ran" }, { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })) ' ..
+      'local r = assert(Child.run({ program, "print", "ran" }, { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })) ' ..
       'local _, _ = Fs.put(Fs.stdout, (r.stdout or "") .. (r.stderr or "")) local status = 1 if r.ok then status = 0 end return status', probe })
   assert(ok and out == "ran\n", out .. err)
 end

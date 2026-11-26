@@ -870,10 +870,10 @@ local function test_a_record_test_is_written_as_the_fork_writes_it_for_the_tree_
   -- the marker is held: a test no marker holds is refused
   local over, why = generated(marked(source, EXPORT))
   assert(over == nil and why:find("(is_on_record)", 1, true) ~= nil, tostring(why))
-  -- the one table a value may be is told by its kind, with no marker
+  -- the one table a value may be is told by its kind, with no marker, and written as the test above is
   local lone = source:gsub("R | {string}", "R | string", 1)
   local told = assert(generated(marked(lone, EXPORT)))
-  assert(told.lua:find('if (type(v) == "table") then', 1, true) ~= nil, told.lua)
+  assert(told.lua:find('if type(v) == "table" then', 1, true) ~= nil, told.lua)
 end
 
 local function test_into_answers_the_records_type_and_no_annotation_can_say_another()
