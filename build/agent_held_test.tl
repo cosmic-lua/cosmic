@@ -10,7 +10,6 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local searchable = require("build.searchable")
-local this_program = require("build.this_program")
 local sys = require("cosmic.sys")
 local ChildPolicy = require("build.child_policy_fixture")
 
@@ -40,12 +39,12 @@ local function agent(tmp: string, args: {string}): Ran
   searchable.share(work)
   searchable.share(home)
   local env: mut {string: string} = { HOME = home }
-  for name, value in pairs(this_program.environment()) do
+  for name, value in pairs(Test.environment()) do
     if name ~= "HOME" and name ~= "XDG_CACHE_HOME" then env[name] = value end
   end
   local argv: mut {string} = { "agent" }
   for _, word in ipairs(args) do argv[#argv + 1] = word end
-  local started = this_program.program(argv, { env = env, cwd = work, timeout_ns = Child.FOREVER,
+  local started = Test.cosmic(argv, { env = env, cwd = work, timeout_ns = Child.FOREVER,
     stdin = "null", stdout = "capture", stderr = "capture" })
   local result = assert(Child.run(started.argv, started.options))
   return { code = result.code or -1, err = result.stderr or "" }
@@ -84,10 +83,10 @@ local function test_a_held_session_writes_to_a_file_open_for_writing_alone(tmp: 
   local log = base .. "/err.txt"
   local fd = assert(sys.open(log, sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC, 0x1a4))
   local env: mut {string: string} = { HOME = home }
-  for name, value in pairs(this_program.environment()) do
+  for name, value in pairs(Test.environment()) do
     if name ~= "HOME" and name ~= "XDG_CACHE_HOME" then env[name] = value end
   end
-  local started = this_program.program({ "agent", "ask", "--new", "hi" }, { env = env, cwd = work,
+  local started = Test.cosmic({ "agent", "ask", "--new", "hi" }, { env = env, cwd = work,
     timeout_ns = Child.FOREVER, stdin = "null", stdout = "null", stderr = fd })
   local result = assert(Child.run(started.argv, started.options))
   local _, _ = sys.close(fd)
