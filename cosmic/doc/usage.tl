@@ -18,6 +18,10 @@ local has_links = Search.has_links
 local text = Examples.text
 
 local record Usage
+  type Command = Command
+  type Entry = Entry
+  type Use = Use
+  type View = View
 end
 
 --- Whether `db` holds the `catalog` and the index over it: a database built before the codes of the checker were written to

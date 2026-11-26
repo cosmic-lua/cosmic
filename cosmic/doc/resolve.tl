@@ -35,6 +35,9 @@ local stand_ins = Search.stand_ins
 local text = Examples.text
 
 local record Resolve
+  type Entry = Entry
+  type Lookup = Lookup
+  type View = View
 end
 
 --- `entries` as a lookup's result, with the entries of `ahead` standing before them.

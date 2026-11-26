@@ -38,6 +38,8 @@ local record Scored
 end
 
 local record Search
+  type Entry = Entry
+  type Example = Example
   type Rank = Rank
   type Section = Section
   type Scored = Scored

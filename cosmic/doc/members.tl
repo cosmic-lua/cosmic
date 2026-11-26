@@ -31,6 +31,10 @@ local value_record = Usage.value_record
 --- record declared first: what a dotted query names through a type alias, in full, or from a module's last name,
 --- and what a removed name resolves to.
 local record Members
+  type Entry = Entry
+  type Taking = Taking
+  type Use = Use
+  type View = View
 end
 
 --- What a dotted query names through a type alias, else as a module's

@@ -22,6 +22,8 @@ local record HeadPiece
 end
 
 local record Examples
+  type Entry = Entry
+  type Example = Example
   type Piece = Piece
   type HeadPiece = HeadPiece
   columns: string

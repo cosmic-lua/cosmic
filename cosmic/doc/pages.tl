@@ -37,6 +37,8 @@ local text = Examples.text
 local used_as = Usage.used_as
 
 local record Pages
+  type Entry = Entry
+  type View = View
 end
 
 --- The declaring record or enum of a member's source symbol:
