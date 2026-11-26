@@ -82,3 +82,37 @@ local function test_counting_and_sorting()
   end)
   assert(table.concat(by_path, ",") == "0a a.md,f0 b.md,0a c.md", table.concat(by_path, ","))
 end
+
+-- Shell.split cuts at newlines it finds 64 and 32 bytes at a step
+-- (core/bytes.h): lines of every length around those widths come back
+-- whole.
+local function test_split_cuts_lines_of_every_length()
+  local lines: mut {string} = {}
+  for n = 0, 140 do lines[#lines + 1] = string.rep("x", n) end
+  local got = Shell.split(table.concat(lines, "\n"))
+  assert(#got == #lines, #got)
+  for i, line in ipairs(lines) do assert(got[i] == line, i) end
+end
+
+-- A plain grep counts the newlines between its hits 64 and 32 bytes at
+-- a step (core/bytes.h): hits after lines of every length around those
+-- widths are on the lines they are.
+local function test_plain_grep_counts_lines_of_every_length(tmp: string)
+  local lines: mut {string} = {}
+  for n = 0, 140 do
+    lines[#lines + 1] = string.rep("x", n)
+    if n % 7 == 0 then lines[#lines + 1] = "hit " .. tostring(n) end
+  end
+  local path = tmp .. "/lines.txt"
+  assert(Fs.write(path, table.concat(lines, "\n")))
+  local hits = assert(Shell.grep("hit ", { path }, true))
+  local seen = 0
+  for i, line in ipairs(lines) do
+    if line:sub(1, 4) == "hit " then
+      seen = seen + 1
+      local hit = assert(hits[seen], i)
+      assert(hit.line == i and hit.text == line, ("%d: %s"):format(i, hit.text))
+    end
+  end
+  assert(#hits == seen, #hits)
+end

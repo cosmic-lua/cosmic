@@ -332,6 +332,8 @@ function Fs.read(path: string): (string) | (nil, Failure)
     ask = chunk_size
   end
   local _, _ = sys.close(fd)
+  -- A file read whole in one read is that read's string, not a copy.
+  if #parts == 1 then return parts[1] end
   return table.concat(parts)
 end
 

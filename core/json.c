@@ -937,6 +937,43 @@ static int refused (lua_State *L) {
   return 2;
 }
 
+/* Pushes the value `r->text` holds, as `decode` builds it, and returns
+ * true; or pushes why it is refused and returns false. The document is
+ * `guard`'s while the value is built, and released once it is. `only`
+ * is the stack slot of a selection, or 0 for none. */
+static bool push_decoded (struct decoding *d, struct reading *r,
+                          struct cosmic_guard *guard, int only) {
+  lua_State *L = d->L;
+  memset(&d->path, 0, sizeof d->path);
+  d->repeated = NULL;
+  d->duplicate_keys = r->duplicate_keys;
+  /* With a selection, the whole text is checked as `check` checks it
+   * first, so a text decode refuses is refused whatever it selects; then
+   * only the selected values are built. */
+  yyjson_doc *doc = read_text(L, r, guard, only != 0);
+  if (doc == NULL) return false;
+  yyjson_val *root = yyjson_doc_get_root(doc);
+  if (only != 0) d->duplicate_keys = true;
+  if (only != 0 && yyjson_is_ctn(root)) {
+    push_only(d, root, only);
+    cosmic_guard_release(guard);
+    return true;
+  }
+  switch (push_value(d, root, r->opened)) {
+    case REPEATED_KEY:
+    repeat_failure(L, r->text, r->len, &r->layout, doc, d->repeated, &d->path);
+    cosmic_guard_release(guard);
+    return false;
+    case TOO_DEEP:
+    deep_failure(L, r->text, r->len, &r->layout, r->max_depth, r->opened, &d->path);
+    cosmic_guard_release(guard);
+    return false;
+    default:
+    cosmic_guard_release(guard);
+    return true;
+  }
+}
+
 /* decode(text, null?, max_depth?, json5?, big_as_string?,
  * lone_surrogates?, record?, hash_comments?, duplicate_keys?, line?,
  * column?, prefix?, opened?, only?): the value
@@ -984,37 +1021,113 @@ static int json_decode (lua_State *L) {
   r.lone_surrogates = lua_toboolean(L, 6);
   if (lua_toboolean(L, 8)) r.flags |= READ_ALLOW_HASH_COMMENTS;
   r.duplicate_keys = lua_toboolean(L, 9);
-  d.duplicate_keys = r.duplicate_keys;
-  memset(&d.path, 0, sizeof d.path);
-  d.repeated = NULL;
   lua_settop(L, 14);
   luaL_getmetatable(L, ARRAY_TYPE);
   d.array_index = lua_gettop(L);
   /* Building the value allocates, and an allocation can raise: the
    * guard frees the document then, and on every return. */
   struct cosmic_guard *guard = cosmic_guard_push(L, release_doc);
-  /* With a selection, the whole text is checked as `check` checks it
-   * first, so a text decode refuses is refused whatever it selects; then
-   * only the selected values are built. */
-  yyjson_doc *doc = read_text(L, &r, guard, only);
-  if (doc == NULL) return refused(L);
-  yyjson_val *root = yyjson_doc_get_root(doc);
-  if (only && yyjson_is_ctn(root)) {
-    d.duplicate_keys = true;
-    push_only(&d, root, 14);
-    return cosmic_succeeded(L);
+  if (!push_decoded(&d, &r, guard, only ? 14 : 0)) return refused(L);
+  return cosmic_succeeded(L);
+}
+
+/* Whether s[0..n) is blank as a JSON Lines reader skips a line: only
+ * the bytes Lua's `%s` matches (space, \t, \n, \v, \f, \r). */
+static bool blank (const char *s, size_t n) {
+  for (size_t i = 0; i < n; i++) {
+    switch (s[i]) {
+      case ' ': case '\t': case '\n': case '\v': case '\f': case '\r':
+      continue;
+      default:
+      return false;
+    }
   }
-  if (only) d.duplicate_keys = true;
-  switch (push_value(&d, root, r.opened)) {
-    case REPEATED_KEY:
-    repeat_failure(L, r.text, r.len, &r.layout, doc, d.repeated, &d.path);
-    return refused(L);
-    case TOO_DEEP:
-    deep_failure(L, r.text, r.len, &r.layout, r.max_depth, r.opened, &d.path);
-    return refused(L);
-    default:
-    return cosmic_succeeded(L);
+  return true;
+}
+
+/* decode_lines(text, null?, max_depth?, json5?, big_as_string?,
+ * lone_surrogates?, hash_comments?, duplicate_keys?, only?, at?, line?,
+ * most?): the values of the JSON Lines text `text`, from byte `at` (1
+ * when absent), which begins line `line` (1 when absent): one to each
+ * line that is not blank, `most` of them at most (all when absent), in
+ * an array, then "", then the byte and the line the next value is read
+ * from, or nil and nil where the text is done. Each line is decoded as
+ * `decode` decodes a record, its number the line's: a `null` line
+ * without `null` leaves a hole. nil and the first line's message when
+ * one does not decode. */
+static int json_decode_lines (lua_State *L) {
+  size_t len = 0;
+  const char *text = luaL_checklstring(L, 1, &len);
+  struct reading r;
+  r.max_depth = checked_depth(L, 3);
+  r.layout.json5 = lua_toboolean(L, 4);
+  r.layout.line = 1;
+  r.layout.column = 1;
+  r.layout.prefix = NULL;
+  r.opened = 0;
+  r.flags = r.layout.json5 ? YYJSON_READ_JSON5 : YYJSON_READ_NOFLAG;
+  struct decoding d;
+  d.L = L;
+  d.null_index = lua_isnoneornil(L, 2) ? 0 : 2;
+  d.max_depth = r.max_depth;
+  d.big_as_string = lua_toboolean(L, 5);
+  if (d.big_as_string) r.flags |= YYJSON_READ_BIGNUM_AS_RAW;
+  r.lone_surrogates = lua_toboolean(L, 6);
+  if (lua_toboolean(L, 7)) r.flags |= READ_ALLOW_HASH_COMMENTS;
+  r.duplicate_keys = lua_toboolean(L, 8);
+  bool only = !lua_isnoneornil(L, 9);
+  if (only) luaL_checktype(L, 9, LUA_TTABLE);
+  lua_Integer from = luaL_optinteger(L, 10, 1);
+  luaL_argcheck(L, from >= 1 && from <= (lua_Integer)len + 1, 10,
+                "a byte of the text, or the one past its end");
+  lua_Integer number = luaL_optinteger(L, 11, 1) - 1;
+  luaL_argcheck(L, number >= 0, 11, "a line is counted from 1");
+  lua_Integer most = luaL_optinteger(L, 12, LUA_MAXINTEGER);
+  luaL_argcheck(L, most >= 1, 12, "at least one value");
+  lua_settop(L, 12);
+  luaL_getmetatable(L, ARRAY_TYPE);
+  d.array_index = lua_gettop(L);
+  lua_newtable(L);
+  lua_pushvalue(L, d.array_index);
+  lua_setmetatable(L, -2);
+  int values = lua_gettop(L);
+  /* One guard holds each line's document in turn. */
+  struct cosmic_guard *guard = cosmic_guard_push(L, release_doc);
+  int base = lua_gettop(L);
+  lua_Integer count = 0;
+  const char *at = text + from - 1, *end = text + len;
+  bool done = false;
+  while (count < most) {
+    const char *nl = memchr(at, '\n', (size_t)(end - at));
+    const char *stop = nl != NULL ? nl : end;
+    number++;
+    if (!blank(at, (size_t)(stop - at))) {
+      count++;
+      r.text = at;
+      r.len = (size_t)(stop - at);
+      r.layout.record = number;
+      if (!push_decoded(&d, &r, guard, only ? 9 : 0)) return refused(L);
+      /* A `null` line without `null` is a hole: nil is not stored. */
+      lua_rawseti(L, values, count);
+      /* A repaired copy of a line's text (lone surrogates) sits below. */
+      lua_settop(L, base);
+    }
+    if (nl == NULL) {
+      done = true;
+      break;
+    }
+    at = nl + 1;
   }
+  lua_pushvalue(L, values);
+  lua_pushliteral(L, "");
+  if (done) {
+    lua_pushnil(L);
+    lua_pushnil(L);
+  } else {
+    lua_pushinteger(L, (lua_Integer)(at - text) + 1);
+    lua_pushinteger(L, number + 1);
+  }
+  return 4;
 }
 
 /* check(text, max_depth?, json5?, lone_surrogates?, hash_comments?,
@@ -1994,7 +2107,8 @@ static int null_tostring (lua_State *L) {
 }
 
 static const luaL_Reg module[] = {
-  {"decode", json_decode},     {"encode", json_encode},
+  {"decode", json_decode},     {"decode_lines", json_decode_lines},
+  {"encode", json_encode},
   {"check", json_check},       {"format", json_format},
   {"array", json_array},       {"is_array", json_is_array},
   {"with_holes", json_with_holes},

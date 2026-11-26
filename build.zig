@@ -1829,7 +1829,11 @@ fn vendorLibraries(
     const lua_flags: []const []const u8 =
         if (configuration.sanitize) &lua_checked else &lua_base;
     const lua_src = lua.path(b, "src");
-    vendorPart(b, &libraries, configuration, target, "lua", &.{lua_src}).addCSourceFiles(.{
+    // core/bytes.h, which string.find's plain search scans with
+    // (patch/lua/34-find-byte-include.txt), from a copy in the cache, as a
+    // config header is: the tree's own path would be named in the
+    // checked core's debug information.
+    vendorPart(b, &libraries, configuration, target, "lua", &.{ lua_src, configFile(b, "core/bytes.h") }).addCSourceFiles(.{
         .root = lua_src,
         .files = &lua_sources,
         .flags = lua_flags,

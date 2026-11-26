@@ -10,6 +10,10 @@ local record json
     userdata
   end
 
+  -- What JSON can say as a Lua value, as [`decode_lines`] builds it:
+  -- cosmic/json.tl's [`Json.Value`], which is this type.
+  type Value = string | number | boolean | Null | {Value} | {string: Value}
+
   -- What `decode` builds of a value, for `only`: all of it when
   -- `whole`, else, in an object, the members `names` holds and, in an
   -- array, the elements at `positions` (from 1), each selected in turn.
@@ -50,6 +54,21 @@ local record json
                    hash_comments?: boolean,
                    duplicate_keys?: boolean, line?: integer, column?: integer,
                    prefix?: string, opened?: integer, only?: Selection): any?, string
+  -- The values of the JSON Lines text `text` from byte `at` (1 when
+  -- absent), which begins line `line` (1 when absent): one to each line
+  -- that holds more than the bytes `%s` matches, `most` of them at most
+  -- (all when absent), in an array marked as `array` marks one; then
+  -- "", and the byte and line to read on from, or nil and nil where the
+  -- text is done. Each line is read as `decode` reads it with `record`
+  -- set to its line's number, under the options of the same names; a
+  -- `null` line with no `null` leaves a hole. nil and the first refused
+  -- line's message when one does not decode. Raises when `at` is past
+  -- the byte after the text, `line` is below 1 or `most` below 1.
+  decode_lines: function(text: string, null?: any, max_depth?: integer,
+                         json5?: boolean, big_as_string?: boolean,
+                         lone_surrogates?: boolean, hash_comments?: boolean,
+                         duplicate_keys?: boolean, only?: Selection, at?: integer,
+                         line?: integer, most?: integer): any?, string, integer?, integer?
   -- true and "" when `decode` would read `text` under the same
   -- options; else false and the message it would fail with. It builds
   -- no value.
