@@ -43,10 +43,10 @@ function Example.url_parts()
   assert(source:find("_part(v)", 1, true) ~= nil and not source:find("_url(v)", 1, true))
   local java, scheme = Template.compile('{{type Page from site.page}}\n<a href="java{{.x}}">x</a>\n', "link.tmpl")
   assert(java == nil)
-  assert(scheme:find("link.tmpl:2:", 1, true) and scheme:find("fixes where the URL goes", 1, true), scheme)
+  assert(tostring(scheme):find("link.tmpl:2:", 1, true) and tostring(scheme):find("fixes where the URL goes", 1, true), scheme)
   local on, script = Template.compile('{{type Page from site.page}}\n<a hx-on:click="{{.x}}">x</a>\n', "link.tmpl")
   assert(on == nil)
-  assert(script:find("would be script", 1, true), script)
+  assert(tostring(script):find("would be script", 1, true), script)
 end
 
 --- `{{use htmx}}`, in the header beside `{{mode}}`, reads the attributes of
@@ -67,18 +67,18 @@ function Example.htmx()
   assert(source:find("_sel(v)", 1, true) and source:find("_part(v)", 1, true) and source:find("_lurl(v)", 1, true))
   local plain, why = Template.compile('{{type Row from site.row}}\n<b hx-vals=\'{{.vals}}\'>x</b>\n', "row.tmpl")
   assert(plain == nil)
-  assert(why:find("{{use htmx}}", 1, true), why)
+  assert(tostring(why):find("{{use htmx}}", 1, true), why)
   local trigger, trigger_why = Template.compile(
     '{{type Row from site.row}}{{use htmx}}\n<b hx-trigger="click[{{.f}}]">x</b>\n', "row.tmpl")
   assert(trigger == nil)
-  assert(trigger_why:find("'[filter]'", 1, true), trigger_why)
+  assert(tostring(trigger_why):find("'[filter]'", 1, true), trigger_why)
 end
 
 --- A slot where no escaping is right is refused, with its line and column.
 function Example.refusal()
   local source, why = Template.compile("{{type Page from site.page}}\n<a href={{.url}}>x</a>\n", "link.tmpl")
   assert(source == nil)
-  assert(why:find("link.tmpl:2:9:", 1, true) and why:find("unquoted", 1, true), why)
+  assert(tostring(why):find("link.tmpl:2:9:", 1, true) and tostring(why):find("unquoted", 1, true), why)
   print(why) -- link.tmpl:2:9: a slot in an unquoted attribute value: quote the value
 end
 

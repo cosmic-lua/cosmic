@@ -1,3 +1,4 @@
+local Failure = require("cosmic.failure")
 local Array = require("cosmic.array")
 --- Fuzz properties for [`cosmic.template`], which compiles text it is
 --- handed: `compile` is total on any bytes and returns source or a reason
@@ -235,7 +236,7 @@ local function test_compile_is_total_and_keeps_the_lines_on_any_bytes(tmp: strin
     check = function(input: string): boolean, string
       -- A closure, so that `out` and `why` keep `compile`'s declared types.
       local answer: string?
-      local why = ""
+      local why: Failure?
       local ok, raised = pcall(function() answer, why = Template.compile(input, "t.tmpl") end)
       local out = answer
       if not ok then
@@ -244,19 +245,20 @@ local function test_compile_is_total_and_keeps_the_lines_on_any_bytes(tmp: strin
       if input:find("{{range", 1, true) or input:find("{{with", 1, true) or input:find("{{if", 1, true) then
         Fuzz.label("block")
       end
-      local again = Template.compile(input, "t.tmpl")
+      local again, _ = Template.compile(input, "t.tmpl")
       if again ~= out then
         return false, "compile answered differently the second time"
       end
       if out == nil then
-        if not places(why) then
-          return false, "no place in: " .. why
+        local said = tostring(why)
+        if not places(said) then
+          return false, "no place in: " .. said
         end
-        if why:find(": a slot ", 1, true) then
+        if tostring(why):find(": a slot ", 1, true) then
           Fuzz.label("slot")
-        elseif why:find(" end in different places", 1, true) or why:find(" ends where it did not", 1, true) then
+        elseif tostring(why):find(" end in different places", 1, true) or tostring(why):find(" ends where it did not", 1, true) then
           Fuzz.label("arms")
-        elseif why:find(": the template ends ", 1, true) then
+        elseif tostring(why):find(": the template ends ", 1, true) then
           Fuzz.label("open end")
         else
           Fuzz.label("syntax")
@@ -314,7 +316,7 @@ local function test_literal_text_is_rendered_byte_for_byte(tmp: string)
       local body = fields[2] or ""
       local head = if mode == "text" then "{{type T from m.t}}{{mode text}}" else "{{type T from m.t}}" end
       local out, why = Template.compile(head .. body, "t.tmpl")
-      if out == nil and mode == "html" and why:find(": the template ends ", 1, true) ~= nil then
+      if out == nil and mode == "html" and tostring(why):find(": the template ends ", 1, true) ~= nil then
         -- Markup left open is refused in html, and rendered as it stands in text.
         Fuzz.label("html")
         head = "{{type T from m.t}}{{mode text}}"
@@ -322,7 +324,7 @@ local function test_literal_text_is_rendered_byte_for_byte(tmp: string)
         mode = "text"
       end
       if out == nil then
-        return false, "refused text with no action: " .. why
+        return false, "refused text with no action: " .. tostring(why)
       end
       if newlines(out) ~= newlines(body) + 1 then
         return false, "lines: " .. tostring(newlines(out)) .. " for " .. tostring(newlines(body))
@@ -379,25 +381,25 @@ local function test_modes_agree_on_syntax_and_text_takes_what_html_does(tmp: str
       if as_html ~= nil then
         Fuzz.label("both compile")
         if as_text == nil then
-          return false, "text refused what html took: " .. text_why
+          return false, "text refused what html took: " .. tostring(text_why)
         end
         if newlines(as_html) ~= newlines(as_text) then
           return false, "the two modes' modules have different lines"
         end
       elseif as_text ~= nil then
         Fuzz.label("html refuses")
-        if not html_why:find(": a slot ", 1, true) and not html_why:find(" end in different places", 1, true) and
-            not html_why:find(" ends where it did not", 1, true) and
-            not html_why:find(" reads differently after each", 1, true) and
-            not html_why:find("could complete a scheme", 1, true) and
-            not html_why:find("protocol-relative", 1, true) and
-            not html_why:find(": the template ends ", 1, true) then
-          return false, "html refused what text takes, and not for its markup: " .. html_why
+        if not tostring(html_why):find(": a slot ", 1, true) and not tostring(html_why):find(" end in different places", 1, true) and
+            not tostring(html_why):find(" ends where it did not", 1, true) and
+            not tostring(html_why):find(" reads differently after each", 1, true) and
+            not tostring(html_why):find("could complete a scheme", 1, true) and
+            not tostring(html_why):find("protocol-relative", 1, true) and
+            not tostring(html_why):find(": the template ends ", 1, true) then
+          return false, "html refused what text takes, and not for its markup: " .. tostring(html_why)
         end
       else
         Fuzz.label("both refuse")
-        if not places(html_why) or not places(text_why) then
-          return false, "no place: " .. html_why .. " / " .. text_why
+        if not places(tostring(html_why)) or not places(tostring(text_why)) then
+          return false, "no place: " .. tostring(html_why) .. " / " .. tostring(text_why)
         end
       end
       return true, ""
@@ -809,7 +811,7 @@ local function test_a_value_cannot_get_out_of_where_a_slot_puts_it(tmp: string)
         return true, ""
       end
       if source == nil then
-        return false, "refused " .. body .. ": " .. why
+        return false, "refused " .. body .. ": " .. tostring(why)
       end
       local made_kinds: mut {string} = {}
       for helper in source:gmatch("parts%[#parts %+ 1%] = (_%a+)%(v%) end") do
@@ -1032,7 +1034,7 @@ local function test_a_cut_in_the_text_does_not_move_where_a_slot_lands(tmp: stri
           literal:find("<style", 1, true) then
         Fuzz.label("raw text")
       end
-      if whole == nil and why:find("<script>", 1, true) ~= nil then
+      if whole == nil and tostring(why):find("<script>", 1, true) ~= nil then
         Fuzz.label("script slot refused")
       end
       Fuzz.label(if kind == 2 then "range" elseif kind == 3 then "with" elseif kind == 4 then "arms" elseif kind == 5 then "string" else "if" end)
@@ -1042,10 +1044,11 @@ local function test_a_cut_in_the_text_does_not_move_where_a_slot_lands(tmp: stri
       end)) end
       for cut = 0, #literal do
         local body = literal:sub(1, cut) .. block .. literal:sub(cut + 1) .. tail
-        local split = Template.compile(head .. body, "t.tmpl")
+        local split, _ = Template.compile(head .. body, "t.tmpl")
         local reference = whole
         if kind >= 4 then
-          reference = Template.compile(head .. literal:sub(1, cut) .. extra .. literal:sub(cut + 1) .. tail, "t.tmpl")
+          local varied, _ = Template.compile(head .. literal:sub(1, cut) .. extra .. literal:sub(cut + 1) .. tail, "t.tmpl")
+          reference = varied
         end
         if split == nil then
           Fuzz.label("cut refused")
@@ -1092,7 +1095,7 @@ local function test_a_url_suffix_cannot_make_the_assembled_value_leave_the_polic
     shares = { compiled = 0.1, refused = 0.1 },
     check = function(suffix: string): boolean, string
       local body = "<a href=\"{{.u}}" .. suffix .. "\">x</a>"
-      local source = Template.compile("{{type T from m.t}}" .. body, "t.tmpl")
+      local source, _ = Template.compile("{{type T from m.t}}" .. body, "t.tmpl")
       if source == nil then
         Fuzz.label("refused")
         return true, ""
@@ -1168,7 +1171,7 @@ local function test_a_string_action_renders_the_bytes_it_quotes(tmp: string)
       local src = "{{type T from m.t}}{{mode text}}" .. table.concat(body)
       local source, why = Template.compile(src, "t.tmpl")
       if source == nil then
-        return false, "refused: " .. why
+        return false, "refused: " .. tostring(why)
       end
       if newlines(source) ~= newlines(src) + 1 then
         return false, "the module does not have the template's lines"
@@ -1423,7 +1426,8 @@ local function test_a_block_in_a_tag_adds_only_the_attributes_it_writes(tmp: str
       if lead ~= "" then
         Fuzz.label("font in svg")
       end
-      local source = Template.compile("{{type T from m.t}}" .. body, "t.tmpl") or ""
+      local built, _ = Template.compile("{{type T from m.t}}" .. body, "t.tmpl")
+      local source = built or ""
       if source == "" then
         Fuzz.label("refused")
         return true, ""
@@ -1579,7 +1583,7 @@ local function test_a_selector_slot_never_leaves_the_identifier_it_stands_in(tmp
       local body = "<a " .. attr .. "=" .. quote .. lead .. "{{.a}}" .. trail .. quote .. ">"
       local source, why = Template.compile("{{type T from m.t}}{{use htmx}}" .. body, "t.tmpl")
       if source == nil then
-        return false, "refused " .. body .. ": " .. why
+        return false, "refused " .. body .. ": " .. tostring(why)
       end
       local env: {string: any} = { require = function(name: string): any -- checked: any_use
         return if name == "cosmic.html" then Html else {} end -- checked: literal_needs_type
@@ -1643,7 +1647,7 @@ local function test_a_json_slot_is_the_attribute_value_it_was_given(tmp: string)
       local body = "<a " .. attr .. "=" .. quote .. "{{.j}}" .. quote .. ">"
       local source, why = Template.compile("{{type T from m.t}}{{use htmx}}" .. body, "t.tmpl")
       if source == nil then
-        return false, "refused " .. body .. ": " .. why
+        return false, "refused " .. body .. ": " .. tostring(why)
       end
       local env: {string: any} = { require = function(name: string): any -- checked: any_use
         return if name == "cosmic.html" then Html else {} end -- checked: literal_needs_type
@@ -1714,7 +1718,7 @@ local function test_a_slot_in_an_attribute_that_is_script_is_refused_whatever_it
       if use ~= "" then Fuzz.label("use") end
       local body = "<a " .. spelling .. "=" .. quote .. value .. quote .. ">"
       -- `hx-ws` is read by an extension: refused only where a template opts in.
-      local out = Template.compile("{{type T from m.t}}" .. use .. body, "t.tmpl")
+      local out, _ = Template.compile("{{type T from m.t}}" .. use .. body, "t.tmpl")
       if name == "hx-ws" and use == "" then
         return true, ""
       end
