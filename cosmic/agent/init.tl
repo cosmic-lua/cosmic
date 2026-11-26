@@ -589,8 +589,10 @@ local function afterward(s: Agent.Session, call: Agent.Call, result: Tools.Resul
   if not ran then
     return { text = "The agent's after hook failed: " .. told(made), is_error = true, changes = result.changes }
   end
-  -- What the snippet changed is shown whatever the hook made of what the model reads.
+  -- What the snippet changed is shown whatever the hook made of what the model reads, and the answer it gave ends the
+  -- turn where the hook left the result one that ran.
   if made ~= nil and made.changes == nil then made.changes = result.changes end
+  if made ~= nil and made.answer == nil and not made.is_error then made.answer = result.answer end
   return made or result
 end
 
@@ -1190,11 +1192,12 @@ local function loop(s: Agent.Session): boolean, string
         if #sent == 0 and not halted and failed == "" then
           for _, t in ipairs(steering(s)) do sent[#sent + 1] = t end
         end
-        if halted or failed ~= "" or #sent > 0 then
+        if halted or failed ~= "" or #sent > 0 or reply_given ~= nil then
           -- Given results all the same: the API takes no tool call left without its result.
           local why_not = if halted and spent_reason ~= nil then "Stopped: " .. spent_reason .. "."
             elseif halted then "Stopped: the user stopped the turn." elseif failed ~= "" then
-            "Not run: the agent could not keep what came before." else "Skipped: the user sent a message instead." end
+            "Not run: the agent could not keep what came before." elseif #sent > 0 then
+            "Skipped: the user sent a message instead." else "Skipped: a snippet before it gave the answer." end
           results[#results + 1] = { type = "tool_result", tool_use_id = call_id, content = why_not, is_error = true }
         else
           local called = if name is string then name else "?" end

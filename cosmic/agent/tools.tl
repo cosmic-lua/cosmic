@@ -559,7 +559,9 @@ local function served(context: Tools.Context): Worker.Serve
     if name == "answer" then
       local fields, _ = Json.to_object(args)
       local text = fields and fields["text"]
-      if not (text is string) then return nil, Failure.new("the answer has no text") end
+      if not (text is string) or text:match("^%s*$") ~= nil then
+        return nil, Failure.new("the answer is blank: give the reply's text")
+      end
       context.answered = text
       return true
     end

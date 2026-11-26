@@ -166,6 +166,8 @@ local function test_the_run_tool_shows_what_a_snippet_printed_returned_and_was_r
       "which keep what it meant:\nrun.tl:2:15: concat_type: `n` -> `tostring(n)`]\nn=2\n", rewritten.text)
   local answered = tools_run("run", { code = "print(1)\nHost.answer(\"one line\")\n" }, context)
   assert(not answered.is_error and answered.answer == "one line" and answered.text == "1\n", answered.text)
+  local blank = tools_run("run", { code = "Host.answer(\"  \")\n" }, { cwd = dir, worker = w })
+  assert(blank.is_error and blank.answer == nil and blank.text:find("blank", 1, true) ~= nil, blank.text)
   local raised_after = tools_run("run", { code = "Host.answer(\"no\")\nerror(\"boom\")\n" },
     { cwd = dir, worker = w })
   assert(raised_after.is_error and raised_after.answer == nil, raised_after.text)

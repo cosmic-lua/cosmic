@@ -80,6 +80,12 @@ end
 
 --- The left of an `and` is the value of the whole where it fails: `nil` there is not `false`, so no rewrite is made.
 --- Nor of the call `assert` is given alone, whose other values `==` would drop.
+local function test_a_function_defined_on_a_value_that_may_be_nil_has_no_rewrite()
+  local edits, errors = edits_of("local record R\n  m: function(): integer\nend\nlocal r: R? = nil\n" ..
+      "function r.m(): integer return 1 end\n")
+  assert(errors >= 1 and #edits == 0, tostring(errors) .. " errors, " .. tostring(#edits) .. " rewrites")
+end
+
 local function test_an_optional_boolean_that_and_or_assert_passes_on_has_no_rewrite()
   local edits, errors = edits_of("local function g(v: boolean?): integer?\n  return v and 1\nend\nprint(g(nil))\n")
   assert(errors == 1 and #edits == 0, tostring(errors))
