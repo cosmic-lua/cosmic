@@ -13,8 +13,6 @@ local KEY <const> = "k3Jf9Lq0Zx7Rw2Ub8Tn5Vc1Hd6Ym4Ga0Pe7Sx2Wq9Ac"
 --- The session cookie's name, which is Secure.
 local NAME <const> = "__Host-session"
 
---- A client acting as a browser on an https page, which sends a Secure
---- cookie back.
 --- The data a store loads for `token`, nil where it names none; a store that failed raises.
 local function loaded(store: Session.Store, token: string, now: integer, cookie: string): Session.Data?
   local data, why = store:load(token, now, cookie)
@@ -23,6 +21,8 @@ local function loaded(store: Session.Store, token: string, now: integer, cookie:
   return data
 end
 
+--- A client acting as a browser on an https page, which sends a Secure
+--- cookie back.
 local function browser(app: Web.App): Web.TestClient
   local client = Web.test_client(app)
   client.scheme = "https"
