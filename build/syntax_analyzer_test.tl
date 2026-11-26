@@ -340,7 +340,7 @@ local function test_a_catalog_message_is_read_as_the_source_means_it()
   assert(support.nth(found.catalog, 3).message == "the first line break is the string's own", support.nth(found.catalog, 3).message)
 end
 
---- A failure built by [`cosmic.failure`] is cataloged by its message, and one wrapped by `Failure.within` by its context:
+--- A failure built by [`cosmic.failure`] is cataloged by its message, and one wrapped by [`Failure.within`] by its context:
 --- the words a program prints for it. Another call contributes nothing.
 local function test_a_catalog_message_is_read_through_a_failure_constructor()
   local found = analyzed(lines(
