@@ -171,42 +171,37 @@ end
 --- raises, it rolls back. Called inside a transaction the caller opened on
 --- the same handle, it is a savepoint of that one, and holds only the
 --- locks the caller's own `BEGIN` took.
-local function immediate(db: Sqlite.Handle, work: function(): boolean, string): boolean, string
-  local ok, why = db:transact(function(): (true) | (false, Failure)
-    local done, trouble = work()
-    if done then return true end
-    assert(trouble, "session: a transaction that answers false says why")
-    return false, Failure.new(trouble)
-  end, "immediate")
-  if not ok then return false, tostring(why) end
-  return true, ""
+local function immediate(db: Sqlite.Handle, work: function(): (true) | (false, Failure)): (true) | (false, Failure)
+  return db:transact(work, "immediate")
 end
 
 --- A new id.
-local function new_id(): string?, string
+local function new_id(): (string) | (nil, Failure)
   local bytes, why = Rand.entropy(ID_BYTES)
-  if bytes == nil then return nil, "no entropy for a session id: " .. tostring(why) end
-  return Codec.base64url(bytes), ""
+  if bytes == nil then return nil, Failure.within(why, "no entropy for a session id") end
+  return Codec.base64url(bytes)
 end
 
 --- A new public id.
-local function new_public_id(): string?, string
+local function new_public_id(): (string) | (nil, Failure)
   local bytes, why = Rand.entropy(PUBLIC_BYTES)
-  if bytes == nil then return nil, "no entropy for a session's public id: " .. tostring(why) end
-  return Codec.base64url(bytes), ""
+  if bytes == nil then return nil, Failure.within(why, "no entropy for a session's public id") end
+  return Codec.base64url(bytes)
 end
 
 --- The columns a row is read with, in the order [`find`] reads them.
 local COLUMNS <const> = "data, created, expires, subject, label, seen_at, seen_from, public_id"
 
---- The row for `token` that has not expired, or nil.
-local function find(store: Backing, token: string, now: integer): Sqlite.Row?, string
-  if not is_id(token) then return nil, "" end
+--- The row for `token` that has not expired, or false.
+local function find(store: Backing, token: string, now: integer): (Sqlite.Row | false) | (nil, Failure)
+  if not is_id(token) then return false end
   local rows, why = store.db:rows(
     ("SELECT %s FROM %s WHERE id_hash = ?1 AND expires > ?2"):
       format(COLUMNS, store.table), { hash_of(token), { integer = now } })
-  if rows == nil then return nil, "sessions: " .. tostring(why) end
-  return rows[1], ""
+  if rows == nil then return nil, Failure.within(why, "sessions") end
+  local row = rows[1]
+  if row == nil then return false end
+  return row
 end
 
 --- The values a row's JSON holds; nil for text that is not an object.
@@ -218,14 +213,16 @@ local function values_of(text: string): mut {string: Json.Value}?
   return out
 end
 
-local function load_session(self: Session.Store, token: string, now: integer, _cookie: string): Session.Data?, string
+local function load_session(self: Session.Store, token: string, now: integer,
+                            _cookie: string): (Session.Data | false) | (nil, Failure)
   local store = backing(self)
   local row, why = find(store, token, now)
   if row == nil then return nil, why end
+  if row == false then return false end
   local values = values_of(row:text(1))
-  if values == nil then return nil, "" end
+  if values == nil then return false end
   local seen_at: integer? = if row:kind(6) == "integer" then row:integer(6) else nil end
-  return { values = values, created = row:integer(2), expires = row:integer(3), seen_at = seen_at }, ""
+  return { values = values, created = row:integer(2), expires = row:integer(3), seen_at = seen_at }
 end
 
 --- The text in column `i` of `row`, or nil where it is NULL.
@@ -258,11 +255,10 @@ local function apply(values: {string: Json.Value}, changes: Session.Changes): {s
 end
 
 local function save_session(self: Session.Store, previous: string, data: Session.Data,
-                            changes: Session.Changes, now: integer, _cookie: string): string?, string
+                            changes: Session.Changes, now: integer, _cookie: string): (string) | (nil, Failure)
   local store = backing(self)
   -- The id the session is saved under when it was given a new one.
   local minted: mut {string} = {}
-  local failure: string? = nil
   -- No yield between the first read and the commit: another request of
   -- this process cannot interleave, and another process meets SQLite's lock.
   -- The transaction begins IMMEDIATE, taking the write lock before the read:
@@ -270,9 +266,11 @@ local function save_session(self: Session.Store, previous: string, data: Session
   -- would fail its write at once with SQLITE_BUSY_SNAPSHOT, which the busy
   -- timeout does not wait out; waiting for the lock first is the busy
   -- timeout's case.
-  local ok, why = immediate(store.db, function(): boolean, string
-    local row, find_why = find(store, previous, now)
-    if row == nil and find_why ~= "" then return false, find_why end
+  local ok, why = immediate(store.db, function(): (true) | (false, Failure)
+    local found, find_why = find(store, previous, now)
+    if found == nil then return false, find_why end
+    local row: Sqlite.Row? = nil
+    if found ~= false then row = found end
     -- A session revoked while this request ran is not revived with what
     -- the request saw: only what it changed is kept.
     local base: {string: Json.Value} = {}
@@ -293,7 +291,7 @@ local function save_session(self: Session.Store, previous: string, data: Session
     end
     if label == "" then label = nil end
     local text, encode_why = Json.encode(apply(base, changes), { max_depth = Session.MAX_DEPTH })
-    if text == nil then return false, "cannot encode the session: " .. tostring(encode_why) end
+    if text == nil then return false, Failure.within(encode_why, "cannot encode the session") end
     -- A row without a public id was written by an earlier version running
     -- beside this one after the migration: it gets one at its next save.
     if public_id == nil then
@@ -307,8 +305,8 @@ local function save_session(self: Session.Store, previous: string, data: Session
           "WHERE id_hash = ?1"):format(store.table),
         { hash_of(previous), { text = text }, text_value(subject), { integer = now }, { integer = data.expires },
           text_value(label), { text = public_id } })
-      if not answered then return false, tostring(answer_why) end
-      return answered, ""
+      if not answered then return false, answer_why end
+      return true
     end
     local id, id_why = new_id()
     if id == nil then return false, id_why end
@@ -316,7 +314,7 @@ local function save_session(self: Session.Store, previous: string, data: Session
     if row ~= nil then
       local gone, gone_why = store.db:run(("DELETE FROM %s WHERE id_hash = ?1"):format(store.table),
         { hash_of(previous) })
-      if not gone then return false, tostring(gone_why) end
+      if not gone then return false, gone_why end
     end
     -- A regenerated session keeps its public id, label and last-seen: it
     -- is the same session under a new credential.
@@ -326,26 +324,25 @@ local function save_session(self: Session.Store, previous: string, data: Session
       { hash_of(id), { text = text }, text_value(subject), { integer = created }, { integer = now },
         { integer = data.expires }, text_value(label), integer_value(seen_at), text_value(seen_from),
         { text = public_id } })
-    if not answered then return false, tostring(answer_why) end
-    return answered, ""
+    if not answered then return false, answer_why end
+    return true
   end)
-  if not ok then failure = why end
-  if failure ~= nil then return nil, "sessions: " .. failure end
+  if not ok then return nil, Failure.within(why, "sessions") end
   if now - store.swept >= store.sweep_interval then
     store.swept = now
     -- A failed sweep costs a later one, not this request.
     local _, _ = delete_expired(store, now, store.sweep_limit)
   end
-  return minted[1] or previous, ""
+  return minted[1] or previous
 end
 
-local function destroy_session(self: Session.Store, token: string): boolean, string
+local function destroy_session(self: Session.Store, token: string): (true) | (false, Failure)
   local store = backing(self)
-  if not is_id(token) then return true, "" end
+  if not is_id(token) then return true end
   local ok, why = store.db:run(("DELETE FROM %s WHERE id_hash = ?1"):format(store.table),
     { hash_of(token) })
-  if not ok then return false, "sessions: " .. tostring(why) end
-  return true, ""
+  if not ok then return false, Failure.within(why, "sessions") end
+  return true
 end
 
 local function seen_session(self: Session.Store, token: string, data: Session.Data, now: integer, from: string)
@@ -474,8 +471,8 @@ local ADDED <const>: {{string}} = {
 --- adds the columns it lacks, gives each row without one a public id and
 --- indexes them. Inside one IMMEDIATE transaction, so two processes that
 --- open the file at once do not both alter it.
-local function migrate(db: Sqlite.Handle, name: string): boolean, string
-  return immediate(db, function(): boolean, string
+local function migrate(db: Sqlite.Handle, name: string): (true) | (false, Failure)
+  return immediate(db, function(): (true) | (false, Failure)
     local ok, why = db:exec(([[
 CREATE TABLE IF NOT EXISTS %s (
   id_hash BLOB PRIMARY KEY,
@@ -492,30 +489,30 @@ CREATE TABLE IF NOT EXISTS %s (
 CREATE INDEX IF NOT EXISTS %s_expires ON %s (expires);
 CREATE INDEX IF NOT EXISTS %s_subject ON %s (subject) WHERE subject IS NOT NULL;]]):
         format(name, name, name, name, name))
-    if not ok then return false, tostring(why) end
+    if not ok then return false, why end
     local columns, columns_why = db:rows(("PRAGMA table_info(%s)"):format(name))
-    if columns == nil then return false, tostring(columns_why) end
+    if columns == nil then return false, columns_why end
     local have: mut {string: boolean} = {}
     for _, column in ipairs(columns) do have[column:text(2)] = true end
     for _, added in ipairs(ADDED) do
       local column, kind = assert(added[1]), assert(added[2])
       if have[column] == nil then
         local altered, alter_why = db:exec(("ALTER TABLE %s ADD COLUMN %s %s"):format(name, column, kind))
-        if not altered then return false, tostring(alter_why) end
+        if not altered then return false, alter_why end
       end
     end
     local bare, bare_why = db:rows(("SELECT id_hash FROM %s WHERE public_id IS NULL"):format(name))
-    if bare == nil then return false, tostring(bare_why) end
+    if bare == nil then return false, bare_why end
     for _, row in ipairs(bare) do
       local public_id, public_why = new_public_id()
       if public_id == nil then return false, public_why end
       local set, set_why = db:run(("UPDATE %s SET public_id = ?2 WHERE id_hash = ?1"):format(name),
         { { blob = row:blob(1) }, { text = public_id } })
-      if not set then return false, tostring(set_why) end
+      if not set then return false, set_why end
     end
     local done, done_why = db:exec(("CREATE UNIQUE INDEX IF NOT EXISTS %s_public_id ON %s (public_id)"):format(name, name))
-    if not done then return false, tostring(done_why) end
-    return true, ""
+    if not done then return false, done_why end
+    return true
   end)
 end
 
@@ -547,7 +544,7 @@ function SessionSqlite.store(db: Sqlite.Handle, opts?: SessionSqlite.Options): (
     error("session: seen_interval is a number of seconds, at least 1", 2)
   end
   local ok, why = migrate(db, name)
-  if not ok then return nil, Failure.new("sessions: " .. why) end
+  if not ok then return nil, Failure.within(why, "sessions") end
   local store: Session.Store = {
     load = load_session, save = save_session, destroy = destroy_session, revocable = true,
     seen = if seen_interval ~= nil then seen_session else nil end,
