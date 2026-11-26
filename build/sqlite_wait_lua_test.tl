@@ -8,7 +8,6 @@ local Clock = require("cosmic.clock")
 local sys = require("cosmic.sys")
 local type Log = require("cosmic.log")
 local rebuild_lock = require("build.rebuild_lock")
-local this_program = require("build.this_program")
 local logger = require("build.logger")
 local work = require("build.work")
 local support = require("build.test_support_fixture")
@@ -24,7 +23,7 @@ end
 Test.policy{ profiles = { "cosmic" } }
 
 local function child(script: string): Child.Handle
-  local command = this_program.program({ "-e", script },
+  local command = Test.cosmic({ "-e", script },
     { timeout_ns = Child.FOREVER, stdin = "stream", stdout = "stream", stderr = "capture" })
   return (assert(Child.start(command.argv, command.options)))
 end

@@ -5,7 +5,6 @@ local Fs = require("cosmic.fs")
 local Clock = require("cosmic.clock")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
-local this_program = require("build.this_program")
 local Fake = require("cosmic.fake")
 -- Required, so the fake's main is of each test's closure.
 local _ = require("build.test_isolation_fake")
@@ -24,7 +23,7 @@ fixture.FAKE = "build.test_isolation_fake"
 --- check is the runner's own handling of what a worker reads and leaves
 --- of the host, which a sandbox would not let it reach.
 function fixture.environment(): mut {string:string}
-  local env = this_program.environment()
+  local env = Test.environment()
   env["COSMIC_TEST_SANDBOX"] = "0"
   return env
 end
@@ -35,7 +34,7 @@ function fixture.invoke(root: string, output: string, args: {string},
   for _, value in ipairs(args) do words[#words + 1] = value end
   local fd = assert(Fs.open_write(output))
   local environment = env or fixture.environment()
-  local started = this_program.program(words, {
+  local started = Test.cosmic(words, {
     cwd = root, env = environment, stdout = fd, stderr = fd, timeout_ns = Clock.seconds(60),
   })
   local result, trouble = Child.run(started.argv, started.options)

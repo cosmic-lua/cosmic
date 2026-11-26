@@ -5,7 +5,6 @@
 local Child = require("cosmic.child")
 local Test = require("cosmic.test")
 local test_child = require("build.test_child")
-local this_program = require("build.this_program")
 
 --- The program itself, which the policy test below starts again, past its launcher.
 Test.policy{ profiles = { "cosmic" } }
@@ -79,7 +78,7 @@ end)
 
 --- `policy` is refused, saying where the first call was made, for a second.
 local function test_policy_is_called_once(tmp: string)
-  local started = this_program.program(test_child.words(tmp, "cosmic.test_test", "policy"),
+  local started = Test.cosmic(test_child.words(tmp, "cosmic.test_test", "policy"),
     { stdout = "capture", stderr = "stdout", timeout_ns = 60000000000 })
   local result = assert(Child.run(started.argv, started.options))
   assert(result.code == 0, result.stdout)

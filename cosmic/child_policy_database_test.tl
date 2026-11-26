@@ -9,7 +9,6 @@ local Clock = require("cosmic.clock")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 local fixture = require("build.child_policy_database_fixture")
-local this_program = require("build.this_program")
 
 --- [`Store.seal`] reads the rows of every module it carries through
 --- [`Store.databases()`], which a worker without the store is not given
@@ -39,7 +38,7 @@ local function test_a_sealed_database_started_on_the_core_runs_its_main(tmp: str
   for _, name in ipairs(names) do
     assert(name ~= "cosmic.archive", "the fixture's set must leave cosmic.archive out")
   end
-  local env = this_program.environment()
+  local env = Test.environment()
   env.COSMIC_PORTABLE_STARTUP_TEST_READY = nil -- checked: map_field
   env.COSMIC_PORTABLE_STARTUP_TEST_GO = nil -- checked: map_field
   local r = assert(Child.run({ core, "--database", path, "/nowhere" }, { env = env,
@@ -66,7 +65,7 @@ local function test_a_database_sealed_for_another_core_does_not_start(tmp: strin
   assert(db:run("UPDATE meta SET value = ?1 WHERE key = 'core_sha256'",
     { { text = string.rep("0", 64) } }))
   assert(db:close())
-  local env = this_program.environment()
+  local env = Test.environment()
   env.COSMIC_PORTABLE_STARTUP_TEST_READY = nil -- checked: map_field
   env.COSMIC_PORTABLE_STARTUP_TEST_GO = nil -- checked: map_field
   local r = assert(Child.run({ core, "--database", path }, { env = env,

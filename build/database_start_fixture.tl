@@ -11,7 +11,6 @@ local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 local schema = require("build.schema")
-local this_program = require("build.this_program")
 
 local record database_start_fixture
   --- A module of a fixture database: Lua source, compiled to the
@@ -141,7 +140,7 @@ end
 --- The environment a bare core is started with: this program's own, less
 --- the variables of the portable startup's own tests.
 function database_start_fixture.environment(): {string:string}
-  local env = this_program.environment()
+  local env = Test.environment()
   env.COSMIC_PORTABLE_STARTUP_TEST_READY = nil -- checked: map_field
   env.COSMIC_PORTABLE_STARTUP_TEST_GO = nil -- checked: map_field
   return env

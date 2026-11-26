@@ -5,7 +5,6 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
-local this_program = require("build.this_program")
 
 --- The program itself, which its test starts.
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
@@ -13,7 +12,7 @@ Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx
 local function fix(root: string, args: {string}): string
   local words: mut {string} = { "fix" }
   for _, a in ipairs(args) do words[#words + 1] = a end
-  local started = this_program.program(words, { cwd = root, stdout = "capture", stderr = "stdout",
+  local started = Test.cosmic(words, { cwd = root, stdout = "capture", stderr = "stdout",
     timeout_ns = Clock.seconds(120) })
   return assert((assert(Child.run(started.argv, started.options))).stdout)
 end

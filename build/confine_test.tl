@@ -13,7 +13,6 @@ local Fake = require("cosmic.fake")
 -- Required, so the fake's main is of this test's closure.
 local _fake = require("build.confine_fake")
 local test_child = require("build.test_child")
-local this_program = require("build.this_program")
 
 --- What a sandboxed worker of this very program reads: /proc, where the
 --- fake it starts finds itself, and the program itself, which its
@@ -91,13 +90,13 @@ local function sandboxed_worker(tmp: string): {string}
   local unveil = confine.worker_unveil(tree, tmp)
   -- Given no environment but the relaunch's, as `cosmic test` gives
   -- its worker none but what it pins.
-  local worker = this_program.program(test_child.words(tmp, "build.confine_test", "worker", { given, hidden, probe }),
+  local worker = Test.cosmic(test_child.words(tmp, "build.confine_test", "worker", { given, hidden, probe }),
     { timeout_ns = Child.FOREVER, env = {} })
   local argv, opts = worker.argv, worker.options
   local output = assert(sys.open(tmp .. "/said", sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420))
   local process = require("cosmic.internal.process")
   local program = argv[1]
-  assert(program ~= nil, "this_program.program answered an empty argv")
+  assert(program ~= nil, "Test.cosmic answered an empty argv")
   local pid, trouble, errno = process.spawn(program, argv, opts.env, tree, nil, output,
     output, false, TestSandboxFixture.spawn_fds(worker),
     { unveil = unveil, offline = true })
@@ -218,4 +217,14 @@ local function test_a_resolution_is_the_one_its_names_tell(tmp: string)
     assert(told == want, path:sub(1, 80) .. ": " .. told:sub(1, 80) .. " ~= " ..
         want:sub(1, 80))
   end
+end
+
+--- A process of this program a test starts inherits the hold: the
+--- variable that marks it is among those [`Test.environment`] passes on.
+local function test_the_held_variable_is_passed_on()
+  local found = false
+  for _, name in ipairs(Test.runtime_environment) do
+    if name == confine.held_variable then found = true end
+  end
+  assert(found, confine.held_variable .. " is not in Test.runtime_environment")
 end

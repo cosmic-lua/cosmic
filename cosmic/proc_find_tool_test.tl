@@ -5,7 +5,6 @@ local Fs = require("cosmic.fs")
 local type _ = require("cosmic.proc")
 local Clock = require("cosmic.clock")
 local Test = require("cosmic.test")
-local this_program = require("build.this_program")
 
 --- Only the default search's first candidate is needed; it is inspected,
 --- not run. The child itself is this program running a chunk.
@@ -15,7 +14,7 @@ Test.policy{
 }
 
 local function lookup(dir: string, path: string?): string
-  local env = this_program.environment()
+  local env = Test.environment()
   env.PATH = path -- checked: map_field
   local script = [[
 local Env = require("cosmic.env")
@@ -23,7 +22,7 @@ local Proc = require("cosmic.proc")
 local found, why = Proc.find("sh")
 print(if Env.get("PATH") == nil then "unset" else "set" end, found or "", if why ~= nil then tostring(why) else "" end)
 ]]
-  local started = this_program.program({ "-e", script }, {
+  local started = Test.cosmic({ "-e", script }, {
     env = env, cwd = dir, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(10),
   })
   local child = assert(Child.run(started.argv, started.options))

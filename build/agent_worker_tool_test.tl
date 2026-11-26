@@ -17,7 +17,6 @@ local type _ = require("build.agent")
 local type _ = require("build.verb_list")
 --- What the MCP server script requires, as its standalone run loads it.
 local type _ = require("cosmic.mcp.server")
-local this_program = require("build.this_program")
 
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "/bin/sh", letters = "r" }, { path = "/bin/sleep", letters = "r" }, { path = "/usr/bin/sleep", letters = "r" }, { path = "/usr/bin/setsid", letters = "r" } },
   -- CI's suites give a test 10 s. On a loaded macOS runner a worker test started with the suite ran past that
@@ -60,7 +59,7 @@ end
 --- about 60 ms; a child of this module ([`build.test_child`]) took 1.3 s, checking its `-e` chunk and loading the
 --- module first.
 local function set_of_worker(): Worker.Set
-  local started = this_program.program({ "agent", "worker" }, { env = this_program.environment(), timeout_ns = -1 })
+  local started = Test.cosmic({ "agent", "worker" }, { env = Test.environment(), timeout_ns = -1 })
   return Worker.new(started.argv, started.options)
 end
 
@@ -681,7 +680,7 @@ return function(_: {string}): integer
   return 0
 end
 ]=]))
-  local started = this_program.program({ "--standalone", script }, { env = this_program.environment(), timeout_ns = -1 })
+  local started = Test.cosmic({ "--standalone", script }, { env = Test.environment(), timeout_ns = -1 })
   local config = assert(Json.encode({ servers = { adder = { command = Json.array(started.argv), sandbox = "off" } } }))
   assert(Fs.write(dir .. "/mcp.json", config))
   local set = AgentMcp.new(assert(AgentMcp.load(dir .. "/mcp.json")), dir)
@@ -806,7 +805,7 @@ return function(_: {string}): integer
   return 0
 end
 ]=]))
-  local started = this_program.program({ "--standalone", script }, { env = this_program.environment(), timeout_ns = -1 })
+  local started = Test.cosmic({ "--standalone", script }, { env = Test.environment(), timeout_ns = -1 })
   local config = assert(Json.encode({ servers = { adder = { command = Json.array(started.argv), sandbox = "off",
     description = "adds" } } }))
   assert(Fs.write(dir .. "/mcp.json", config))

@@ -13,7 +13,6 @@ local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 local _ = require("build.standalone")
 local sys = require("cosmic.sys")
-local this_program = require("build.this_program")
 local Clock = require("cosmic.clock")
 
 --- The next line of `lines`: raises where they ended or failed.
@@ -54,7 +53,7 @@ return function(_argv: {string}): integer
   return 0
 end
 ]]))
-  local started = this_program.program({ "--standalone", script, tmp },
+  local started = Test.cosmic({ "--standalone", script, tmp },
     { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local result = assert(Child.run(started.argv, started.options))
   assert(result.signal ~= sys.SIGPIPE, "the write ended the process with SIGPIPE")
@@ -73,7 +72,7 @@ local function test_a_protocol_runs_a_child_under_the_server_s_guard()
   assert(Net.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
     serve = function(conn: Net.Conn)
-      local started = this_program.program({ "-e", "return 6" }, { timeout_ns = Clock.seconds(30) })
+      local started = Test.cosmic({ "-e", "return 6" }, { timeout_ns = Clock.seconds(30) })
       local r, why = Child.run(started.argv, started.options)
       assert(conn:write((if r ~= nil then tostring(r.code) else tostring(why) end) .. "\n"))
     end,
@@ -89,7 +88,7 @@ end
 --- Runs `script`, a Teal file taking the scratch directory, in a
 --- process of this program's own, and returns how it ended.
 local function run_script(tmp: string, script: string): Child.Result
-  local started = this_program.program({ "--standalone", script, tmp },
+  local started = Test.cosmic({ "--standalone", script, tmp },
     { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   return (assert(Child.run(started.argv, started.options)))
 end

@@ -10,7 +10,6 @@ local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 local build_paths = require("build.paths")
-local this_program = require("build.this_program")
 
 --- The program itself, which its tests start.
 --- The deadline's test sleeps a second in each of its eight tests, over two runs.
@@ -47,12 +46,12 @@ end
 local function invoke(root: string, output: string, words: {string},
                       jobs?: string): Child.Result
   local fd = assert(Fs.open_write(output))
-  local env = this_program.environment()
+  local env = Test.environment()
   env.COSMIC_TEST_SANDBOX = "0" -- checked: map_field
   env.TMPDIR = Fs.dirname(output) -- checked: map_field
   local argv: mut {string} = { "test", "--jobs", jobs or "1" }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
-  local started = this_program.program(argv, {
+  local started = Test.cosmic(argv, {
     cwd = root, env = env, stdout = fd, stderr = fd,
     process_group = true, timeout_ns = Clock.seconds(60),
   })

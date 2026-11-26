@@ -5,8 +5,8 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
-local this_program = require("build.this_program")
 local Clock = require("cosmic.clock")
+local Test = require("cosmic.test")
 
 local record declared_unenforced_fixture
   --- How a run ended and what it printed.
@@ -61,7 +61,7 @@ end
 --- a variable no test declares, and the run's own TMPDIR, which a
 --- worker's is not.
 function declared_unenforced_fixture.environment(cache: string): {string:string}
-  local env = this_program.environment()
+  local env = Test.environment()
   env.COSMIC_VERDICT_CACHE = cache -- checked: map_field
   env.COSMIC_TEST_SANDBOX = "0" -- checked: map_field
   env.FLAVOUR = "sweet" -- checked: map_field
@@ -74,7 +74,7 @@ end
 --- printed, which must say it started.
 function declared_unenforced_fixture.run(root: string, output: string, env: {string:string}): declared_unenforced_fixture.Run
   local fd = assert(Fs.open_write(output))
-  local started = this_program.program({ "test" }, {
+  local started = Test.cosmic({ "test" }, {
     cwd = root, env = env, stdout = fd, stderr = fd, process_group = true, timeout_ns = Clock.seconds(60),
   })
   local result, trouble = Child.run(started.argv, started.options)
