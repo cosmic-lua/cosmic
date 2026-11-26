@@ -2658,16 +2658,17 @@ local function read_command(ctx: Run): integer?
       log:complain("test: --profile needs a directory")
       return 2
     end
-    local made, made_why = Fs.mkdirs(profile_dir, 0x1c0)
-    if not made then
-      log:complain("test: --profile: " .. tostring(made_why))
-      return 5
-    end
     ctx.forced = true
   else
     profile_dir = Env.get("COSMIC_PROFILE")
   end
   if profile_dir ~= nil and profile_dir ~= "" then
+    -- Made with its parents, for the workers to write into: the core makes only the last name of the run's own.
+    local made, made_why = Fs.mkdirs(profile_dir, 0x1c0)
+    if not made and parsed.values["--profile"] ~= nil then
+      log:complain("test: --profile: " .. tostring(made_why))
+      return 5
+    end
     local absolute, _ = Fs.absolute(profile_dir)
     ctx.profile = absolute
   end

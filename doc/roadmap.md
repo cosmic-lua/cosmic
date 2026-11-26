@@ -74,15 +74,8 @@ defines the target; once something ships, it leaves this file.
 
 ## measuring
 
-- a sampling profiler taken by the tool, not by the program. a program
-  installs no hook (`debug.sethook` is refused, [`cosmic.removed`]), and the
-  harness already runs a hook of its own for coverage ([`cosmic.coverage`],
-  [`core/coverage.c`]), so the tool can sample where it counts lines:
-  `cosmic test --profile <selector>` would sample the tests it selects, and
-  `cosmic --profile <file.tl>` a file run, writing each function's and line's
-  self time into a table of `build.db` that `cosmic sql --build` reads beside
-  `runs` and `coverage` ([doc/guides/measuring.md](guides/measuring.md)).
-  [`Clock.span`] times the regions a builder marks by hand until then.
+- keep a profile's span totals across runs, so a phase can be compared from
+  one commit to the next: `cosmic profile` reads one run's files today.
 - pin [`Proc.relaunch`] under a source run (`cosmic <file.tl>`) to the build
   of the parent: each child it starts checks the tree again and runs the
   source as it is when the child starts, so a child can run other code than
@@ -563,11 +556,9 @@ four-producer provenance join.
 [`Child.end_strays`]: ../cosmic/child/init.tl
 [`ci/cosmic-driver.pin`]: ../ci/cosmic-driver.pin
 [`ci/cosmic_ci/prerelease.tl`]: ../ci/cosmic_ci/prerelease.tl
-[`Clock.span`]: ../cosmic/clock.tl
 [`core/coverage.c`]: ../core/coverage.c
 [`core/json.c`]: ../core/json.c
 [`cosmic.cipher`]: ../cosmic/cipher.tl
-[`cosmic.coverage`]: ../cosmic/coverage.tl
 [`cosmic.dns`]: ../cosmic/dns.tl
 [`cosmic.fs`]: ../cosmic/fs.tl
 [`cosmic.fuzz`]: ../cosmic/fuzz.tl
@@ -585,7 +576,6 @@ four-producer provenance join.
 [`cosmic.protobuf`]: ../cosmic/protobuf/init.tl
 [`cosmic.relay.address`]: ../cosmic/relay/address.tl
 [`cosmic.relay.grant`]: ../cosmic/relay/grant.tl
-[`cosmic.removed`]: ../cosmic/removed.tl
 [`cosmic.sandbox`]: ../cosmic/sandbox/init.tl
 [`cosmic.shape`]: ../cosmic/shape.tl
 [`cosmic.template`]: ../cosmic/template/init.tl

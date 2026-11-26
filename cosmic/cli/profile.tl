@@ -17,7 +17,8 @@
 ---   counted twice. `--by line` prints the innermost Lua lines. `--by span` prints the spans alone. `--by process`
 ---   prints each process: its id, its parent, its CPU time, its sampled time, and its command line.
 --- - `--top N` is how many rows each list has (default 25).
---- - `--process PID` reads the profile of that process alone.
+--- - `--process PID` reads the profile of that process alone. A process in a sandbox has the pid it has there,
+---   so each sandboxed test worker is pid 2: its command line tells it apart.
 --- - `--folded` prints each stack and its microseconds on a line (`a;b;c 1234`), the spans first, for a flame graph
 ---   tool.
 ---
