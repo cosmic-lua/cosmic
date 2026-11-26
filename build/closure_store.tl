@@ -925,7 +925,8 @@ local function closed(uses_from: string, image: boolean): {string}
       "SELECT path, file, kind, source_hash, X'', X'', tests, source FROM whole.modules " ..
       "WHERE path IN temp.sourced AND path NOT IN temp.wanted ORDER BY path",
     "INSERT INTO main.imports SELECT * FROM whole.imports " ..
-      "WHERE (path IN temp.wanted OR path IN temp.sourced) AND (requires IN temp.wanted OR requires IN temp.sourced) " ..
+      "WHERE (path IN temp.wanted OR path IN temp.sourced) AND (requires IN temp.wanted OR requires IN temp.sourced OR " ..
+      "requires NOT IN (SELECT path FROM whole.modules)) " ..
       "ORDER BY path, requires",
     "INSERT INTO main.decl_imports SELECT * FROM whole.decl_imports " ..
       "WHERE path IN temp.wanted OR path IN temp.declared ORDER BY path, requires",
@@ -993,7 +994,8 @@ local function closed_pure(image: boolean): {string}
       "source = (SELECT w.source FROM whole.modules w WHERE w.path = main.modules.path) " ..
       "WHERE path IN temp.sourced AND path IN temp.wanted",
     "INSERT INTO main.imports SELECT * FROM whole.imports " ..
-      "WHERE (path IN temp.wanted OR path IN temp.sourced) AND (requires IN temp.wanted OR requires IN temp.sourced) " ..
+      "WHERE (path IN temp.wanted OR path IN temp.sourced) AND (requires IN temp.wanted OR requires IN temp.sourced OR " ..
+      "requires NOT IN (SELECT path FROM whole.modules)) " ..
       "ORDER BY path, requires",
     "INSERT INTO main.decl_imports SELECT * FROM whole.decl_imports " ..
       "WHERE path IN temp.wanted OR path IN temp.declared ORDER BY path, requires",
