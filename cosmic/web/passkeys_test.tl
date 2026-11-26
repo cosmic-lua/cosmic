@@ -5,6 +5,7 @@
 
 local Cbor = require("cosmic.cbor")
 local Codec = require("cosmic.codec")
+local Failure = require("cosmic.failure")
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
 local Rand = require("cosmic.rand")
@@ -36,6 +37,21 @@ local function browser(app: Web.App): Web.TestClient
   local client = Web.test_client(app)
   client.scheme = "https"
   return client
+end
+
+--- What a store call answered, which a test takes as a value: the boolean,
+--- or the passkey kept.
+local function did(call: function(): (boolean) | (nil, Failure)): boolean
+  local done, why = call()
+  assert(done ~= nil, tostring(why))
+  return done
+end
+
+local function has(call: function(): (Webauthn.Credential | false) | (nil, Failure)): Webauthn.Credential
+  local found, why = call()
+  assert(found ~= nil, tostring(why))
+  assert(found ~= false, "the passkey is not kept")
+  return found
 end
 
 local function key_new(): Key
@@ -273,7 +289,7 @@ local function test_a_copied_cookie_does_not_replay_a_login()
   local kept = assert(registering.jar["__Host-session"])
   local made = registration(other, begun)
   assert(post(registering, "/register/finish", made, headers).status == 201)
-  assert(rig.store:remove(other.id) == true)
+  assert(did(function() return rig.store:remove(other.id) end) == true)
   local again = browser(rig.app):post("/auth/passkey/register/finish", {
     json = made, headers = headers, cookies = { ["__Host-session"] = kept },
   })
@@ -318,26 +334,31 @@ end
 --- A store that fails, or that has lost the passkey by the time a login
 --- keeps its counter.
 local function failing(store: Web.PasskeyStore, fails: string, why: string): Web.PasskeyStore
-  local function broken(): boolean, string return false, why end
+  local function broken(): (boolean) | (nil, Failure)
+    if why == "" then return false end
+    return nil, Failure.new(why)
+  end
   return {
-    find = function(_: Web.PasskeyStore, id: string): Webauthn.Credential?, string
-      if fails == "find" then return nil, why end
+    find = function(_: Web.PasskeyStore, id: string): (Webauthn.Credential | false) | (nil, Failure)
+      if fails == "find" then return nil, Failure.new(why) end
       return store:find(id)
     end,
-    list = function(_: Web.PasskeyStore, handle: string): {Webauthn.Credential}?, string
-      if fails == "list" then return nil, why end
+    list = function(_: Web.PasskeyStore, handle: string): ({Webauthn.Credential}) | (nil, Failure)
+      if fails == "list" then return nil, Failure.new(why) end
       return store:list(handle)
     end,
-    add = function(_: Web.PasskeyStore, c: Webauthn.Credential): boolean, string
+    add = function(_: Web.PasskeyStore, c: Webauthn.Credential): (boolean) | (nil, Failure)
       if fails == "add" then return broken() end
       return store:add(c)
     end,
-    update = function(_: Web.PasskeyStore, c: Webauthn.Credential): boolean, string
+    update = function(_: Web.PasskeyStore, c: Webauthn.Credential): (boolean) | (nil, Failure)
       if fails == "update" then return broken() end
       return store:update(c)
     end,
-    remove = function(_: Web.PasskeyStore, id: string): boolean, string return store:remove(id) end,
-    spend = function(_: Web.PasskeyStore, c: string, lapses: integer, now: integer): boolean, string
+    remove = function(_: Web.PasskeyStore, id: string): (boolean) | (nil, Failure)
+      return store:remove(id)
+    end,
+    spend = function(_: Web.PasskeyStore, c: string, lapses: integer, now: integer): (boolean) | (nil, Failure)
       if fails == "spend" then return broken() end
       return store:spend(c, lapses, now)
     end,
@@ -424,27 +445,27 @@ local function test_a_spent_challenge_outlives_its_answer()
     local time: Time = { now = 1700000000 }
     local ticking: Ticking = { slow = "none" }
     local store: Web.PasskeyStore = {
-      find = function(_: Web.PasskeyStore, id: string): Webauthn.Credential?, string
+      find = function(_: Web.PasskeyStore, id: string): (Webauthn.Credential | false) | (nil, Failure)
         if ticking.slow == "find" then time.now = time.now + 1 end
         return inner:find(id)
       end,
-      list = function(_: Web.PasskeyStore, h: string): {Webauthn.Credential}?, string
+      list = function(_: Web.PasskeyStore, h: string): ({Webauthn.Credential}) | (nil, Failure)
         return inner:list(h)
       end,
-      add = function(_: Web.PasskeyStore, c: Webauthn.Credential): boolean, string
+      add = function(_: Web.PasskeyStore, c: Webauthn.Credential): (boolean) | (nil, Failure)
         return inner:add(c)
       end,
-      update = function(_: Web.PasskeyStore, c: Webauthn.Credential): boolean, string
+      update = function(_: Web.PasskeyStore, c: Webauthn.Credential): (boolean) | (nil, Failure)
         return inner:update(c)
       end,
-      remove = function(_: Web.PasskeyStore, id: string): boolean, string
+      remove = function(_: Web.PasskeyStore, id: string): (boolean) | (nil, Failure)
         return inner:remove(id)
       end,
-      spend = function(_: Web.PasskeyStore, c: string, lapses: integer, now: integer): boolean, string
+      spend = function(_: Web.PasskeyStore, c: string, lapses: integer, now: integer): (boolean) | (nil, Failure)
         -- Waited on, and found the row already forgotten.
         if ticking.slow == "spend" then
           time.now = time.now + 1
-          return true, ""
+          return true
         end
         return inner:spend(c, lapses, now)
       end,
@@ -485,14 +506,16 @@ local function test_a_removed_passkey_logs_its_sessions_out()
   local client = browser(rig.app)
   assert(register(client, key, "ada").status == 201)
   assert(client:get("/"):text() == "handle-ada verified")
-  local kept = assert(rig.store:find(key.id))
-  assert(rig.store:remove(key.id) == true)
+  local kept = has(function() return rig.store:find(key.id) end)
+  assert(did(function() return rig.store:remove(key.id) end) == true)
   assert(client:get("/"):text() == "nobody")
-  assert(rig.store:add({
-    id = kept.id, user_handle = "handle-eve", public_key = kept.public_key, alg = kept.alg,
-    sign_count = kept.sign_count, backup_eligible = kept.backup_eligible, backed_up = kept.backed_up,
-    transports = kept.transports, user_verified = kept.user_verified, aaguid = kept.aaguid,
-  }) == true)
+  assert(did(function()
+    return rig.store:add({
+      id = kept.id, user_handle = "handle-eve", public_key = kept.public_key, alg = kept.alg,
+      sign_count = kept.sign_count, backup_eligible = kept.backup_eligible, backed_up = kept.backed_up,
+      transports = kept.transports, user_verified = kept.user_verified, aaguid = kept.aaguid,
+    })
+  end) == true)
   assert(client:get("/"):text() == "nobody")
   local broken = rig_of({ store = failing(rig.store, "find", "the disk is full") })
   local other = browser(broken.app)
@@ -514,8 +537,8 @@ local function test_a_passkey_not_kept_does_not_log_in()
   -- Removed, a passkey that logged in logs in no more.
   local key = key_new()
   assert(register(browser(rig.app), key, "ada").status == 201)
-  assert(rig.store:remove(key.id) == true)
-  assert(rig.store:remove(key.id) == false)
+  assert(did(function() return rig.store:remove(key.id) end) == true)
+  assert(did(function() return rig.store:remove(key.id) end) == false)
   assert(log_in(browser(rig.app), key, "handle-ada").status == 401)
 end
 
@@ -537,7 +560,8 @@ local function test_the_counter_is_kept()
   assert(register(browser(rig.app), key, "ada").status == 201)
   key.count = 6
   assert(log_in(browser(rig.app), key, "handle-ada").status == 200)
-  assert(assert(rig.store:find(key.id)).sign_count == 6)
+  local kept = has(function() return rig.store:find(key.id) end)
+  assert(kept.sign_count == 6)
   -- A copy of the authenticator that has not moved on is refused.
   local res = log_in(browser(rig.app), key, "handle-ada")
   assert(res.status == 401 and res.body:find("cloned", 1, true) ~= nil, res.body)
@@ -676,7 +700,7 @@ local function test_options_that_cannot_work_raise()
   made("https://login.example.com", RP)()
   made("http://127.0.0.1:8080", "127.0.0.1")()
   Test.raises(function()
-    local _ = Web.passkey_store((assert(Sqlite.memory())), { table = "a b" })
+    local _, _ = Web.passkey_store((assert(Sqlite.memory())), { table = "a b" })
   end, "identifier")
 end
 
@@ -689,23 +713,23 @@ local function test_the_store_keeps_every_field()
     user_verified = false, backup_eligible = true, backed_up = false, transports = { "usb", "nfc" },
     aaguid = ("\7"):rep(16),
   }
-  assert(store:add(credential) == true)
-  assert(store:add(credential) == false)
+  assert(did(function() return store:add(credential) end) == true)
+  assert(did(function() return store:add(credential) end) == false)
   credential.sign_count = 9
   credential.backed_up = true
-  assert(store:update(credential))
+  assert(did(function() return store:update(credential) end))
   local again = assert(Web.passkey_store(db, { table = "keys" }))
-  local found = assert(again:find("\0\1id"))
+  local found = has(function() return again:find("\0\1id") end)
   assert(found.user_handle == "\0h" and found.public_key == "\xa1\1\2" and found.alg == -8)
   assert(found.sign_count == 9 and found.backed_up and found.backup_eligible and not found.user_verified)
   assert(found.transports[1] == "usb" and found.transports[2] == "nfc" and found.aaguid == ("\7"):rep(16))
-  local missing, why = again:find("other")
-  assert(missing == nil and why == "")
+  local other, why = again:find("other")
+  assert(other == false and why == nil)
   -- A challenge is spent once, and forgotten once it lapses.
-  assert(again:spend("c", 100, 50) == true)
-  assert(again:spend("c", 100, 60) == false)
-  assert(again:spend("c", 200, 100) == true)
+  assert(did(function() return again:spend("c", 100, 50) end) == true)
+  assert(did(function() return again:spend("c", 100, 60) end) == false)
+  assert(did(function() return again:spend("c", 200, 100) end) == true)
   -- An update of a passkey not kept says so.
-  assert(again:remove("\0\1id") == true)
-  assert(again:update(credential) == false)
+  assert(did(function() return again:remove("\0\1id") end) == true)
+  assert(did(function() return again:update(credential) end) == false)
 end
