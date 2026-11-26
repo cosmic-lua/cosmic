@@ -42,7 +42,7 @@ end
 --- Where a start of the program's own meets its host: the directory a root
 --- is built in is in TMPDIR, which the sandbox grants.
 local function nested(at: ChildPolicy.NestPlace): Sandbox.Policy
-  return { isolate = { "file" }, set_env = { TMPDIR = at.scratch },
+  return { isolate = { "file" }, setup = { set_env = { TMPDIR = at.scratch } },
     grants = ChildPolicy.with(at.grants, { path = at.scratch, letters = "rwc" },
       { path = at.extra, letters = "r" }, { calls = "fork" }, { calls = "nest" }) }
 end

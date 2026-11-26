@@ -87,7 +87,7 @@ local function least_policy(program: string, scratch: string,
     own_scratch = false, why_shared = "",
   }
   local policy = test_policy.worker(plan, effective)
-  policy.set_env = environment -- checked: field_fixed
+  policy.setup = { tmp = (policy.setup or {}).tmp, set_env = environment } -- checked: field_fixed
   return policy
 end
 

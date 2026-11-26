@@ -69,7 +69,7 @@ local function test_what_a_restriction_refuses_is_refused()
   local none, why = Sandbox.layers({ profiles = { "nosuch" } })
   assert(none == nil and why:find("^sandbox: ") ~= nil and why:find("nosuch", 1, true) ~= nil, why)
   local child_only: {Sandbox.Policy} = { { grants = { { connect = "api.github.com:443" } } },
-    { isolate = { "proc" } }, { loopback = { "127.0.0.2" } }, { tmp = true },
+    { isolate = { "proc" } }, { loopback = { "127.0.0.2" } }, { setup = { tmp = true } },
     { grants = { { path = "/run/app.sock", letters = "u" } } } }
   for _, policy in ipairs(child_only) do
     local refused, refusal = Sandbox.layers(policy)
