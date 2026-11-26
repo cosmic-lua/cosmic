@@ -54,7 +54,10 @@
 ---   present by that (`worker`) and the runner process's own namespace,
 ---   which may have no loopback up, is never probed;
 --- - `path:<absolute path>`: a file or directory of the host;
---- - `program:<name>`: a program the PATH finds ([`Proc.find`]).
+--- - `program:<name>`: a program the PATH finds ([`Proc.find`]);
+--- - `env:<NAME>`: the runner's environment holds NAME, which `check`
+---   holds the module to pass to its workers. Without it the outcome is
+---   `na`.
 ---
 --- Every probe runs in the process that asks (the runner's), not in a
 --- worker: `path:` and `program:` use its filesystem, which a
@@ -100,7 +103,7 @@ local digest = require("build.digest")
 local host_names = require("build.host_names")
 
 local find_program, status = Proc.find, Fs.status
-local relaunch, getuid, realpath = Proc.relaunch, sys.getuid, Fs.absolute
+local relaunch, getuid, realpath, getenv = Proc.relaunch, sys.getuid, Fs.absolute, sys.getenv
 local sandbox_platform, may_map_ids = confine.sandbox_platform, confine.may_map_ids
 local own_proc_given, landlock_abi = confine.own_proc_given, confine.landlock_abi
 local unix_socket_available = confine.unix_socket_available
@@ -220,6 +223,9 @@ local record host_requires
     --- ([`Proc.find`]). A run whose workers are sandboxed gives theirs
     --- ([`build.test_sandbox`]'s `path`), which is not the runner's.
     path?: string
+    --- Reads a variable of the runner's environment for `env:`;
+    --- [`cosmic.sys`]'s `getenv` by default.
+    getenv?: function(name: string): string?
     --- Reads a file for the settings `userns` and `nest` read, which a
     --- test stands in for.
     read?: function(path: string): host_requires.Read
@@ -622,6 +628,14 @@ local table_of: {string:Entry} = {
       if key == nil then return absent(rule) end
       return present(key)
     end },
+  env = { platform_has = function(host: host_requires.Host, argument: string): boolean
+    return (host.context.getenv or getenv)(argument) ~= nil
+  end,
+    probe = function(_: string, _: host_requires.Host): Found
+      -- Only a run that holds the variable gets here ([`platform_has`]); its
+      -- value is the worker's, keyed as each passed variable is.
+      return present("set")
+    end },
   program = {
     probe = function(argument: string, host: host_requires.Host): Found
       -- The worker runs it only with the profile "system" and the variable
@@ -678,6 +692,7 @@ function host_requires.answer(host: host_requires.Host, names: {string},
         end
         if has ~= nil and spec.class == "platform" and not has(host, spec.argument) then
           cached = { name = name, class = spec.class, kind = "na", key = "", why = if spec.base == "os" then "this is not " .. spec.argument
+            elseif spec.base == "env" then "this run's environment has no " .. spec.argument
             else spec.base .. ": this platform has none" end }
         else
           local found = entry.probe(spec.argument, host)

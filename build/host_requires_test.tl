@@ -139,6 +139,7 @@ local function test_every_name_parses()
     if name == "path" then text = "path:/etc/hostname" end
     if name == "program" then text = "program:sh" end
     if name == "os" then text = "os:linux" end
+    if name == "env" then text = "env:COSMIC_FIXTURE_ROOT" end
     local spec, why = host_names.parse(text)
     assert(spec ~= nil, why)
     assert(spec.base == name)
@@ -176,6 +177,11 @@ local function test_a_bad_name_is_refused_naming_the_rule()
     { name = "program:", says = "no \"/\"" },
     { name = "program:/bin/sh", says = "no \"/\"" },
     { name = "program:a/b", says = "no \"/\"" },
+    { name = "env", says = "needs an argument" },
+    { name = "env:", says = "a variable's name" },
+    { name = "env:path", says = "a variable's name" },
+    { name = "env:1A", says = "a variable's name" },
+    { name = "env:A-B", says = "a variable's name" },
     { name = "sandbox:1", says = "takes no argument" },
     { name = "proc:", says = "takes no argument" },
     { name = "root:yes", says = "takes no argument" },
@@ -204,7 +210,7 @@ end
 --- host may lack.
 local function test_classes()
   for _, name in ipairs({ "sandbox", "landlock", "landlock:2", "userns", "nest", "own_proc", "proc",
-      "portable", "checked" }) do
+      "portable", "checked", "env:HOME" }) do
     assert(host_names.class(name) == "platform", name)
   end
   for _, name in ipairs({ "root", "path:/etc", "program:sh", "all_cores", "pinned_zig", "loopback", "unix_socket" }) do
@@ -510,6 +516,21 @@ local function test_check_refuses_what_the_worker_could_not_use()
   assert(not host_names.check({ "program:jq" }, { system = true }))
   assert(not host_names.check({ "program:jq" }, { env = { "PATH" } }))
   assert(host_names.check({ "program:jq" }, { system = true, env = { "PATH" } }))
+  local unpassed, why = host_names.check({ "env:COSMIC_FIXTURE_ROOT" }, { env = { "PATH" } })
+  assert(not unpassed and why:find('needs env = { "COSMIC_FIXTURE_ROOT" }', 1, true) ~= nil, why)
+  assert(host_names.check({ "env:COSMIC_FIXTURE_ROOT" }, { env = { "COSMIC_FIXTURE_ROOT" } }))
+end
+
+--- `env:` is present in a run whose environment holds the variable, empty
+--- or not, and n/a in one without it, with no probe of the host.
+local function test_an_env_requirement_follows_the_runs_environment()
+  local values: {string:string} = { COSMIC_FIXTURE_ROOT = "/fixture", COSMIC_FIXTURE_EMPTY = "" }
+  local host = host_requires.new({ getenv = function(name: string): string? return values[name] end })
+  local set = ask(host, "env:COSMIC_FIXTURE_ROOT")
+  assert(set.kind == "present" and set.key == "set" and set.class == "platform")
+  assert(ask(host, "env:COSMIC_FIXTURE_EMPTY").kind == "present", "an empty value is still set")
+  local missing = ask(host, "env:COSMIC_FIXTURE_TARGET")
+  assert(missing.kind == "na" and missing.why == "this run's environment has no COSMIC_FIXTURE_TARGET", missing.why)
 end
 
 --- A run's promises are names the table accepts, written with commas; a
