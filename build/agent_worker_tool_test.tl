@@ -171,10 +171,10 @@ local function test_the_run_tool_shows_what_a_snippet_printed_returned_and_was_r
   local raised = tools_run("run", { code = "error(\"boom\")\n" }, context)
   assert(raised.is_error and raised.text:find("Error: run.tl:1: boom", 1, true) ~= nil, raised.text)
   local long = tools_run("run", { code = "for i = 1, 4000 do print(\"line \" .. tostring(i)) end\n" }, context)
-  -- Past 8KB, its start and its end, and between them a line of how much was cut.
+  -- Past 4KB, its start and its end, and between them a line of how much was cut.
   assert(not long.is_error and long.text:find("Output cut", 1, true) ~= nil and long.text:find("line 4000\n", 1, true) ~= nil and
       long.text:find("\nline 1\n", 1, true) ~= nil and long.text:find("line 2000\n", 1, true) == nil and
-      long.text:find(" cut ...]\n", 1, true) ~= nil and #long.text < 8400 and long.raw ~= nil, long.text:sub(1, 200))
+      long.text:find(" cut ...]\n", 1, true) ~= nil and #long.text < 4300 and long.raw ~= nil, long.text:sub(1, 200))
   -- Past 64KB, the count is of all that was cut, not of what the worker sent.
   local huge = tools_run("run", { code = "for i = 1, 40000 do print(\"line \" .. tostring(i)) end\n" }, context)
   local cut_bytes = tonumber(huge.text:match("%[%.%.%. (%d+) bytes cut %.%.%.%]")) or 0
@@ -184,7 +184,7 @@ local function test_the_run_tool_shows_what_a_snippet_printed_returned_and_was_r
   assert(not wide.is_error and wide.text:find("line 2000\n", 1, true) ~= nil and #wide.text > 8400, wide.text:sub(1, 200))
   local narrow = tools_run("run", { code = "print(1)\n", output_bytes = 10 }, context)
   assert(narrow.is_error and narrow.text:find("output_bytes is 10: give 1024 to 65536", 1, true) ~= nil, narrow.text)
-  assert(#long.text < 9 * 1024, tostring(#long.text))
+  assert(#long.text < 5 * 1024, tostring(#long.text))
   local none = tools_run("run", { code = "local x = 1\nassert(x == 1)\n" }, context)
   assert(not none.is_error and none.text == "(no output)", none.text)
   worker_close(w)

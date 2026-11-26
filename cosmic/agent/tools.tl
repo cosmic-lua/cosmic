@@ -5,7 +5,7 @@
 --- one environment, not a tool for each thing.
 ---
 ---     run    code, timeout?, output_bytes?
----       what it printed, its start and end past 8KB, and the JSON of
+---       what it printed, its start and end past 4KB, and the JSON of
 ---       what it returned; a refused snippet's result is the checker's
 ---       lines; 120 seconds unless the model says, after which the
 ---       worker ends
@@ -226,8 +226,10 @@ local function too_long(seconds?: integer): string
   return "timeout is " .. tostring(seconds) .. ": give at most " .. String.counted(MOST_SECONDS, "second")
 end
 
---- The most bytes of a snippet's output run gives the model: a snippet prints what it needs.
-local RUN_BYTES <const> = 8 * 1024
+--- The most bytes of a snippet's output run gives the model: a snippet prints what it needs. Each byte shown is written
+--- to the prompt cache once and read again on every later request of the turn; the whole is kept in sessions.db, which
+--- Host.output reads.
+local RUN_BYTES <const> = 4 * 1024
 --- How long a snippet may run, in seconds, unless the model says.
 local RUN_SECONDS <const> = 120
 
