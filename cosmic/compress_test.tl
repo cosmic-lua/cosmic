@@ -347,6 +347,28 @@ local function test_xz_truncated_input_errors_on_finish()
   assert(last == nil, tostring(trouble))
 end
 
+local function test_xz_unsupported_check_is_refused()
+  -- `printf 'hello, cosmic!' | xz -0`, its stream flags made to name
+  -- check 5, which the format reserves (8 bytes, like CRC-64), and both
+  -- flags' CRC-32s made again. No decoder can verify it, so a byte
+  -- changed in the data would decode unnoticed: `xz -t` warns of it.
+  local reserved = assert(Codec.unhex(
+    "fd377a585a00000570e6b331020021010c0000008f98419c01000d68656c6c6f2c20636f736d696321" ..
+      "000000c3e7e165d353587a0001260e081be0048986f40a010000000005595a"))
+  local _, trouble = drive(assert(Compress.decoder("xz")), reserved)
+  assert(trouble == "compress: unsupported xz integrity check", trouble)
+  -- A stream with no check at all (`xz --check=none`) is the format's own
+  -- choice, and still decodes.
+  local none = assert(Codec.unhex(
+    "fd377a585a000000ff12d941020021010c0000008f98419c01000d68656c6c6f2c20636f736d696321" ..
+      "00000000011e0ef3a77f1306729e7a010000000000595a"))
+  local out, why = drive(assert(Compress.decoder("xz")), none)
+  assert(why == "" and out == "hello, cosmic!", why)
+  -- Each stream of a file is held to it, not the first alone.
+  local _, later = drive(assert(Compress.decoder("xz")), none .. reserved)
+  assert(later == "compress: unsupported xz integrity check", later)
+end
+
 local function test_xz_corrupt_magic_is_refused()
   local dec = assert(Compress.decoder("xz"))
   local out, trouble = dec:update("not an xz stream")
