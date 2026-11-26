@@ -1,8 +1,8 @@
---- The fake of build/fake_steps_test.tl, a [`cosmic.fake`] main whose
---- cases are the steps of build/fake_steps.tl, one each, for the test
+--- The fake of cosmic/fake/steps_test.tl, a [`cosmic.fake`] main whose
+--- cases are the steps of cosmic/fake/steps.tl, one each, for the test
 --- to check what each says and ends with.
 
-local Steps = require("build.fake_steps")
+local Steps = require("cosmic.fake.steps")
 
 local int = Steps.int
 
@@ -31,6 +31,11 @@ local cases: {string:function({string}): integer} = {
     if Steps.attempt(function(): integer? return Steps.cat(words[1]!) end) then return 0 end
     return Steps.print("taken up") or 0
   end,
+  ["start-count"] = function(words: {string}): integer
+    return Steps.finish(Steps.start_count(int(words[1]!), { table.unpack(words, 2) }) or 0)
+  end,
+  ["run-isolated"] = function(words: {string}): integer return Steps.run_isolated(words) or 0 end,
+  chmod = function(words: {string}): integer return Steps.chmod(words[1]!, words[2]!) or 0 end,
   ["sleep-forever"] = function(_: {string}): integer return Steps.sleep_forever() end,
 }
 
