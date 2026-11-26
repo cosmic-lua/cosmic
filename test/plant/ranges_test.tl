@@ -1,4 +1,4 @@
-local Ranges = require("eval.plant.ranges")
+local Ranges = require("test.plant.ranges")
 
 local function show(list: {Ranges.Range}): string
   local parts: mut {string} = {}

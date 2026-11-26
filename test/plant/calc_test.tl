@@ -1,4 +1,4 @@
-local Calc = require("eval.plant.calc")
+local Calc = require("test.plant.calc")
 local Test = require("cosmic.test")
 
 local function test_sums_and_products()

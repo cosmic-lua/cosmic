@@ -1,4 +1,4 @@
-local Rle = require("eval.plant.rle")
+local Rle = require("test.plant.rle")
 
 local function test_nothing_encodes_to_nothing()
   assert(Rle.encode("") == "")

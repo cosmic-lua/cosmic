@@ -749,11 +749,11 @@ Agent.tasks = {
   },
   {
     name = "fix-bug",
-    prompt = "Ranges.merge in eval/plant/ranges.tl has a bug: ranges that touch or share an end must join (`1-3` and " ..
+    prompt = "Ranges.merge in test/plant/ranges.tl has a bug: ranges that touch or share an end must join (`1-3` and " ..
       "`4-6` cover 1 to 6 with no gap, and `1-3` and `3-5` overlap), but it leaves them apart. Fix the bug and " ..
-      "change nothing else. Its tests, eval/plant/ranges_test.tl, run with `cosmic test eval/plant/ranges_test.tl`.",
+      "change nothing else. Its tests, test/plant/ranges_test.tl, run with `cosmic test test/plant/ranges_test.tl`.",
     truth = "echo pass",
-    check = [==[mkdir mini && cp eval/plant/ranges.tl mini/ranges.tl && cp eval/plant/ranges_test.tl mini/ranges_test.tl && sed -i 's/eval\.plant\.ranges/ranges/' mini/ranges_test.tl && cat > mini/hidden_test.tl <<'EOF'
+    check = [==[mkdir mini && cp test/plant/ranges.tl mini/ranges.tl && cp test/plant/ranges_test.tl mini/ranges_test.tl && sed -i 's/test\.plant\.ranges/ranges/' mini/ranges_test.tl && cat > mini/hidden_test.tl <<'EOF'
 local Ranges = require("ranges")
 
 local function show(list: {Ranges.Range}): string
@@ -778,11 +778,11 @@ if (cd mini && $tool test > /dev/null 2>&1); then echo pass; else echo fail; fi]
   },
   {
     name = "fix-rle",
-    prompt = "Rle in eval/plant/rle.tl does not round-trip: decoding what encode wrote does not always answer the " ..
+    prompt = "Rle in test/plant/rle.tl does not round-trip: decoding what encode wrote does not always answer the " ..
       "first text (try `abc` and a run of twelve `a`). Find the bugs and fix them, and change nothing else. Its " ..
-      "tests are eval/plant/rle_test.tl; run them with `cosmic test eval/plant/rle_test.tl`.",
+      "tests are test/plant/rle_test.tl; run them with `cosmic test test/plant/rle_test.tl`.",
     truth = "echo pass",
-    check = [==[mkdir mini && cp eval/plant/rle.tl mini/rle.tl && cat > mini/hidden_test.tl <<'EOF'
+    check = [==[mkdir mini && cp test/plant/rle.tl mini/rle.tl && cat > mini/hidden_test.tl <<'EOF'
 local Rle = require("rle")
 
 local function test_a_text_round_trips()
@@ -805,12 +805,12 @@ if (cd mini && $tool test > /dev/null 2>&1); then echo pass; else echo fail; fi]
   },
   {
     name = "fix-calc",
-    prompt = "Calc.eval in eval/plant/calc.tl answers wrong values: it should give `2-3-4` = -5, `10-4-3` = 3, " ..
+    prompt = "Calc.eval in test/plant/calc.tl answers wrong values: it should give `2-3-4` = -5, `10-4-3` = 3, " ..
       "`2^3^2` = 512 (`^` groups from the right) and `-2^2` = -4 (`^` binds tighter than a minus before it), and " ..
       "keep `10/4/5` = 0.5, `2*3+4` = 10 and `(1+2)*3` = 9. Find the bugs and fix them, and change nothing else. " ..
-      "Its tests are eval/plant/calc_test.tl; run them with `cosmic test eval/plant/calc_test.tl`.",
+      "Its tests are test/plant/calc_test.tl; run them with `cosmic test test/plant/calc_test.tl`.",
     truth = "echo pass",
-    check = [==[mkdir mini && cp eval/plant/calc.tl mini/calc.tl && cat > mini/hidden_test.tl <<'EOF'
+    check = [==[mkdir mini && cp test/plant/calc.tl mini/calc.tl && cat > mini/hidden_test.tl <<'EOF'
 local Calc = require("calc")
 
 local function test_minus_groups_from_the_left()
