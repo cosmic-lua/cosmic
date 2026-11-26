@@ -46,7 +46,8 @@ local record Agent
     follow_up?: string
     --- A bash command run in an untouched copy of the fixture: its output is what a right answer leaves.
     truth: string
-    --- A bash command run in the run's copy once the agent ended: its output must be the truth's.
+    --- A bash command run in the run's copy once the agent ended: its output must be the truth's. `$tool` is the
+    --- path of the tool under test, for a task whose answer is a program to run.
     check: string
     --- The MCP servers the run is given, in one config, where the task needs them. Its truth runs with `$data`
     --- the path of the first one's data: the others are there to be passed over.
@@ -727,6 +728,25 @@ Agent.tasks = {
       "sha256sum | cut -c1-64; }",
     check = "for f in $(find cosmic -name '*.tl' | sort); do echo \"$f\"; cat \"$f\"; done | sha256sum | cut -c1-64",
   },
+  {
+    name = "write-wordfreq",
+    prompt = "Write top.tl in this directory: a cosmic program (Teal, checked) that takes the path of a text file as " ..
+      "its first argument and prints the five most frequent words, a word being a run of the letters a to z once " ..
+      "lowercased, as `count word`, such as `12 the`, most first, ties by word. It must pass `cosmic --standalone --check top.tl`.",
+    truth = "cat doc/guides/*.md | tr 'A-Z' 'a-z' | grep -oE '[a-z]+' | sort | uniq -c | awk '{print $1\" \"$2}' | " ..
+      "sort -k1,1nr -k2,2 | head -5",
+    check = "cat doc/guides/*.md > all.txt; $tool --standalone --check top.tl > /dev/null 2>&1 && $tool --standalone top.tl all.txt",
+  },
+  {
+    name = "write-dirs",
+    prompt = "Write dirs.tl in this directory: a cosmic program (Teal, checked) that takes a directory as its first " ..
+      "argument and prints, for each directory directly inside it, how many .tl files lie under that directory (at any " ..
+      "depth), as `count path` with the path as the argument and the name joined by `/` (`cosmic/web`), such as " ..
+      "`40 cosmic/web`, most first, ties by path. It must pass `cosmic --standalone --check dirs.tl`.",
+    truth = "for d in $(find cosmic -mindepth 1 -maxdepth 1 -type d | sort); do echo \"$(find $d -name '*.tl' | wc -l) $d\"; done | " ..
+      "sort -k1,1nr -k2,2",
+    check = "$tool --standalone --check dirs.tl > /dev/null 2>&1 && $tool --standalone dirs.tl cosmic",
+  },
 }
 
 local USAGE <const> = "usage: eval/agent --tool NAME=PATH [--tool NAME=PATH ...] --fixture DIR --out DIR " ..
@@ -1000,7 +1020,7 @@ function Agent.execute(options: Agent.Options, system: Agent.System, key: string
           stop()
           if not ran then error(why, 0) end
           local truth = truths[task.name] or ""
-          local left = Agent.lines_of(own.run({ "bash", "-c", task.check }, work, nil, 60).stdout)
+          local left = Agent.lines_of(own.run({ "bash", "-c", "tool=" .. quoted(tool.path) .. "; " .. task.check }, work, nil, 60).stdout)
           local grade = "fail"
           if truth == "" then grade = "unfit" elseif left == truth then grade = "pass" end
           write(options.out .. "/" .. tool.name .. "/" .. task.name .. "-" .. tostring(rep) .. ".txt",
