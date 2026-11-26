@@ -358,7 +358,7 @@ local function escaped(tmp: string, script: string): Child.Handle
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
-local program = require("cosmic.test").program({ "-e", SCRIPT }, { timeout_ns = -1, process_group = false })
+local program = require("cosmic.test").cosmic({ "-e", SCRIPT }, { timeout_ns = -1, process_group = false })
 local writer = assert(Child.start(program.argv, program.options))
 assert(Fs.write(PIDS, tostring(writer.pid)))
 sys.exit(0)
