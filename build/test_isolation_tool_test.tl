@@ -42,14 +42,14 @@ end
 --- starts only once `ends` has ended and the runner has ended the
 --- strays it would.
 local function test_a_running_workers_orphan_outlives_another_worker(tmp: string)
-  local probe = assert(Fake.build(tmp .. "/fake"))
+  local probe = assert(Fake.build(tmp .. "/fake", fixture.FAKE))
   local root = tmp .. "/project"
   local shared = tmp .. "/shared"
   assert(Fs.mkdirs(root .. "/suite"))
   assert(Fs.mkdirs(root .. "/bin"))
   assert(Fs.mkdirs(shared))
   assert(Fake.place(probe, root .. "/bin/probe"))
-  assert(Fake.place(probe, shared .. "/late", "wait-for $DIR/go\nwrite $DIR/done done"))
+  assert(Fake.place(probe, shared .. "/late"))
   local await = [[
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
@@ -73,7 +73,7 @@ local Child = require("cosmic.child")
 
 local function test_orphans()
   -- In this worker's group, as `late` is, and so no subreaper made.
-  local r = assert(Child.run({ "bin/probe", "start SHARED/late" },
+  local r = assert(Child.run({ "bin/probe", "start", "SHARED/late", "late" },
     { process_group = false, timeout_ns = Clock.seconds(30) }))
   assert(r.ok)
   assert(Fs.write("SHARED/ready", ""))

@@ -10,9 +10,14 @@ local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local searchable = require("build.searchable")
 local Fake = require("cosmic.fake")
+-- Required, so the fake's main is of each test's closure.
+local _ = require("build.child_policy_fake")
 
 local record child_policy_fixture
-  --- What a script left and how its program ended.
+  --- The fake's main, build/child_policy_fake.tl: each test's fake runs it.
+  FAKE: string
+
+  --- What a case left and how its program ended.
   record Outcome
     code: integer
     said: string
@@ -51,19 +56,19 @@ function child_policy_fixture.unsandboxable(why: string): boolean
   return false
 end
 
---- Runs `script` in `program` under `policy`, starting in `cwd`: its output
+--- Runs the case `args` in `program` under `policy`, starting in `cwd`: its output
 --- (stderr beside stdout) and how it ended. Skips the test where the host
 --- gives no sandbox; fails it where the start is refused for another
 --- reason, which `refused` is told.
---- @param program the program, which takes `script` as its one argument
+--- @param program the program, which takes `args` as its arguments
 --- @param policy the policy to start it under
 --- @param cwd the directory it starts in
---- @param script what it is told to do
+--- @param args the case and its words
 --- @param fds the descriptors it is handed, as [`Child.start`]'s `fds`
 --- @return how it ended
-function child_policy_fixture.under(program: string, policy: Sandbox.Policy, cwd: string, script: string,
+function child_policy_fixture.under(program: string, policy: Sandbox.Policy, cwd: string, args: {string},
                                     fds?: {integer:integer | string}): child_policy_fixture.Outcome
-  local result, why = Child.run({ program, script },
+  local result, why = Child.run({ program, table.unpack(args) },
     { timeout_ns = Child.FOREVER, policy = policy, cwd = cwd, stdout = "capture", stderr = "stdout", fds = fds })
   if result == nil then
     assert(child_policy_fixture.unsandboxable(tostring(why)), "the start was refused: " .. tostring(why))
@@ -80,7 +85,7 @@ end
 --- @param cwd the directory it starts in
 --- @return the refusal
 function child_policy_fixture.refused(program: string, policy: Sandbox.Policy, cwd: string): string
-  local handle, why = Child.start({ program, "print hi" }, { timeout_ns = Child.FOREVER, policy = policy, cwd = cwd })
+  local handle, why = Child.start({ program, "print", "hi" }, { timeout_ns = Child.FOREVER, policy = policy, cwd = cwd })
   if handle ~= nil then
     local _, _ = handle:wait()
     return ""
@@ -104,7 +109,7 @@ end
 --- @return the fake and the working directory
 function child_policy_fixture.placed(tmp: string): child_policy_fixture.Place
   searchable.open(tmp)
-  local probe = assert(Fake.build(tmp .. "/fake"))
+  local probe = assert(Fake.build(tmp .. "/fake", child_policy_fixture.FAKE))
   assert(sys.chmod(probe, octal("755")))
   searchable.open(Fs.dirname(probe))
   local work = tmp .. "/work"
@@ -119,7 +124,7 @@ end
 --- @return the place
 function child_policy_fixture.nest_placed(tmp: string): child_policy_fixture.NestPlace
   local base = assert(sys.realpath(searchable.open(tmp)))
-  local probe = assert(Fake.build(base .. "/fake"))
+  local probe = assert(Fake.build(base .. "/fake", child_policy_fixture.FAKE))
   local work = base .. "/work"
   assert(Fs.mkdirs(work .. "/ro"))
   assert(Fs.mkdirs(work .. "/rw"))
@@ -142,5 +147,7 @@ function child_policy_fixture.with(grants: {Sandbox.Grant}, ...: Sandbox.Grant):
   for _, grant in ipairs({ ... }) do out[#out + 1] = grant end
   return out
 end
+
+child_policy_fixture.FAKE = "build.child_policy_fake"
 
 return child_policy_fixture

@@ -1,6 +1,7 @@
 --- `spawn`'s `rlimits` (core/process.h) on a live child: the limits the
 --- child reads back with getrlimit, soft and hard together. The child is a
---- fake ([`cosmic.fake`]), which prints what its script says. A host
+--- fake built from build/rlimits_child_fake.tl, which prints the limits
+--- its args name. A host
 --- that refuses to set one (ENOSYS: anything but Linux) skips the test
 --- (Test.skip).
 
@@ -8,6 +9,8 @@ local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local Fake = require("cosmic.fake")
+-- Required, so the fake's main is of this test's closure.
+local _fake = require("build.rlimits_child_fake")
 -- Required, so the module whose loader is handed the raw table is of this
 -- test's import closure, and the store has it to hand it from.
 local type _ = require("cosmic.child")
@@ -16,13 +19,13 @@ Test.policy{}
 
 local process = require("cosmic.internal.process")
 
---- What `script` printed in a fake started with `rlimits`, or nil and why
+--- What the case `args` printed in a fake started with `rlimits`, or nil and why
 --- the start was refused.
-local function run(tmp: string, rlimits: {string:integer}, script: string): string?, string, integer
-  local program = assert(Fake.build(tmp .. "/fake"))
+local function run(tmp: string, rlimits: {string:integer}, args: {string}): string?, string, integer
+  local program = assert(Fake.build(tmp .. "/fake", "build.rlimits_child_fake"))
   local path = tmp .. "/said"
   local output = assert(sys.open(path, sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420))
-  local pid, trouble, errno = process.spawn(program, { program, script }, nil, nil, nil, output,
+  local pid, trouble, errno = process.spawn(program, { program, table.unpack(args) }, nil, nil, nil, output,
     output, false, nil, { rlimits = rlimits })
   if pid == nil then
     sys.close(output)
@@ -30,13 +33,13 @@ local function run(tmp: string, rlimits: {string:integer}, script: string): stri
   end
   local status = assert(process.waitpid(pid, false))
   sys.close(output)
-  assert(status.code == 0, "the script ended " .. tostring(status.code) .. ": " .. tostring((assert(Fs.read(path)))))
+  assert(status.code == 0, "the fake ended " .. tostring(status.code) .. ": " .. tostring((assert(Fs.read(path)))))
   return (assert(Fs.read(path))), "", 0
 end
 
 local function test_every_limit_is_the_childs_soft_and_hard(tmp: string)
   local said, why, errno = run(tmp, { nofile = 48, fsize = 1 << 30, cpu = 5, core = 0 },
-    "rlimit nofile; rlimit fsize; rlimit cpu; rlimit core")
+    { "rlimit", "nofile", "fsize", "cpu", "core" })
   if said == nil then
     assert(errno == sys.ENOSYS, why)
     if assert(sys.uname()).sysname == "Linux" then Test.skip(why) end
@@ -46,7 +49,7 @@ local function test_every_limit_is_the_childs_soft_and_hard(tmp: string)
 end
 
 local function test_a_limit_not_named_is_the_one_the_child_inherits(tmp: string)
-  local said, why, errno = run(tmp, { core = 0 }, "rlimit core; rlimit cpu")
+  local said, why, errno = run(tmp, { core = 0 }, { "rlimit", "core", "cpu" })
   if said == nil then
     assert(errno == sys.ENOSYS, why)
     if assert(sys.uname()).sysname == "Linux" then Test.skip(why) end
@@ -57,22 +60,22 @@ local function test_a_limit_not_named_is_the_one_the_child_inherits(tmp: string)
 end
 
 local function test_math_maxinteger_is_no_limit_and_an_empty_table_names_none(tmp: string)
-  local said, why, errno = run(tmp, { fsize = math.maxinteger }, "rlimit fsize")
+  local said, why, errno = run(tmp, { fsize = math.maxinteger }, { "rlimit", "fsize" })
   if said == nil then
     assert(errno == sys.ENOSYS, why)
     if assert(sys.uname()).sysname == "Linux" then Test.skip(why) end
     return
   end
   assert(said == ("fsize %d %d\n"):format(math.maxinteger, math.maxinteger), said)
-  local none = assert(run(tmp, {}, "rlimit core"))
+  local none = assert(run(tmp, {}, { "rlimit", "core" }))
   local own = assert(sys.getrlimit(sys.RLIMIT_CORE))
   assert(none == ("core %d %d\n"):format(own.soft, own.hard), none)
 end
 
 local function test_a_limit_the_call_cannot_hold_raises(tmp: string)
-  local program = assert(Fake.build(tmp .. "/fake"))
+  local program = assert(Fake.build(tmp .. "/fake", "build.rlimits_child_fake"))
   local function refuses(sandbox: any, text: string)
-    local ok, why = pcall(process.spawn, program, { program, "print x" }, nil, nil, nil, nil, nil, false, nil, -- checked: overload_none
+    local ok, why = pcall(process.spawn, program, { program, "print", "x" }, nil, nil, nil, nil, nil, false, nil, -- checked: overload_none
       sandbox)
     assert(not ok and tostring(why):find(text, 1, true) ~= nil, text .. ": " .. tostring(why))
   end

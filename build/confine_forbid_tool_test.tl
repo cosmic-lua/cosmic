@@ -8,6 +8,8 @@ local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local confine = require("build.confine")
 local Fake = require("cosmic.fake")
+-- Required, so the fake's main is of this test's closure.
+local _fake = require("build.confine_fake")
 local this_program = require("build.this_program")
 
 --- /proc, where the fake program a test starts finds itself; `nests`,
@@ -25,7 +27,7 @@ Test.policy{
 --- it is told, still runs. A process of its own takes the hold, which
 --- lasts for good.
 local function test_forbid_running_within_refuses_the_program_by_every_name(tmp: string)
-  local sibling = assert(Fake.build(tmp .. "/sibling/fake"))
+  local sibling = assert(Fake.build(tmp .. "/sibling/fake", "build.confine_fake"))
   -- `itself` lists the running program first.
   local program = Array.at(confine.itself(), 1)
   assert(Fs.mkdirs(tmp .. "/links"))
@@ -45,7 +47,7 @@ local out = {
   "program " .. ran({ %q }),
   "link " .. ran({ %q }),
   "exe " .. ran({ "/proc/self/exe" }),
-  "sibling " .. ran({ %q, "exists / 3" }),
+  "sibling " .. ran({ %q, "exists", "/" }),
 }
 local _, _ = require("cosmic.fs").put(1, table.concat(out, "\n"))
 ]=], "{ " .. string.format("%q, %q, %q", within[1], within[2], within[3]) .. " }",
