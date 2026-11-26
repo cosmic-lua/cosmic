@@ -32,7 +32,7 @@
 --- password and a salt are bytes, hashed as given: a caller that takes
 --- text from a person settles its encoding and normal form first.
 ---
---- What a correct program can meet returns nil and why: a peer's public
+--- What a correct program can meet returns nil and a Failure: a peer's public
 --- value that is not a number from 1 to the prime less 1, a scrambling
 --- value of zero, a proof that is wrong. An argument that is the
 --- caller's own mistake raises (a group whose prime is even or, unless
@@ -57,6 +57,7 @@
 
 local Bigint = require("cosmic.bigint")
 local Codec = require("cosmic.codec")
+local Failure = require("cosmic.failure")
 local Hash = require("cosmic.hash")
 local Rand = require("cosmic.rand")
 local String = require("cosmic.string")
@@ -147,14 +148,14 @@ local record Srp
     --- `A`, to send to the server.
     public: string
 
-    --- The session, given the salt and public value the server sent,
-    --- and "". nil and why when `server_public` is not a number from 1
+    --- The session, given the salt and public value the server sent.
+    --- nil and a [`Failure`] when `server_public` is not a number from 1
     --- to the prime less 1, or when the scrambling value `u` is zero.
     --- A public value of zero modulo the prime, or a `u` of zero, would
     --- let a server that does not know the verifier choose the key, and
     --- no honest server sends a number that is not below the prime.
     --- Give up the login then: `verify` checks no earlier session.
-    prove: function(self: Client, salt: string, server_public: string): Session?, string
+    prove: function(self: Client, salt: string, server_public: string): (Session) | (nil, Failure)
 
     --- Whether `server_proof` is the proof of the session `prove`
     --- returned, which only a server holding the verifier can send.
@@ -168,15 +169,15 @@ local record Srp
     public: string
 
     --- The session, given the public value and the proof the client
-    --- sent, and "": its `proof` is the reply that shows the client
-    --- the server holds the verifier. nil and why when `client_proof`
+    --- sent: its `proof` is the reply that shows the client
+    --- the server holds the verifier. nil and a [`Failure`] when `client_proof`
     --- is wrong, which is what a wrong password looks like, when
     --- `client_public` is not a number from 1 to the prime less 1, or
     --- when `u` is zero. A client that failed gets a reply with nothing
     --- computed from the key, or it could try passwords against the
     --- reply at leisure. Each proof tests one guess at the password:
     --- the caller limits how many an identity gets.
-    verify: function(self: Server, client_public: string, client_proof: string): Session?, string
+    verify: function(self: Server, client_public: string, client_proof: string): (Session) | (nil, Failure)
   end
 
   --- The 1024-bit group of RFC 5054, appendix A. Its generator is 2.
@@ -466,14 +467,14 @@ function Srp.client(parameters: Srp.Parameters, identity: string, password: stri
 
   return {
     public = sent,
-    prove = function(_self: Srp.Client, salt: string, server_public: string): Srp.Session?, string
+    prove = function(_self: Srp.Client, salt: string, server_public: string): (Srp.Session) | (nil, Failure)
       expected = nil
       local theirs = accepted(suite, server_public)
       if theirs == nil then
-        return nil, "srp: the server's public value is not from 1 to the prime less 1"
+        return nil, Failure.new("srp: the server's public value is not from 1 to the prime less 1")
       end
       local u = scrambler(suite, public, theirs)
-      if u == nil then return nil, "srp: the scrambling value is zero" end
+      if u == nil then return nil, Failure.new("srp: the scrambling value is zero") end
       local x = private_key(suite, identity, password, salt)
       local verifier = Bigint.secret_powmod(suite.generator, x, suite.prime)
       local masked = Bigint.secret_mulmod(suite.multiplier, verifier, suite.prime)
@@ -484,7 +485,7 @@ function Srp.client(parameters: Srp.Parameters, identity: string, password: stri
       local shared = shortest(Bigint.reveal(Bigint.secret_powmod(base, power, suite.prime)))
       local key, proof, server_proof = proofs(suite, identity, salt, public, theirs, shared)
       expected = server_proof
-      return { key = key, proof = proof }, ""
+      return { key = key, proof = proof }
     end,
     verify = function(_self: Srp.Client, server_proof: string): boolean
       local want = expected
@@ -520,20 +521,20 @@ function Srp.server(parameters: Srp.Parameters, identity: string, salt: string, 
 
   return {
     public = padded(suite, public),
-    verify = function(_self: Srp.Server, client_public: string, client_proof: string): Srp.Session?, string
+    verify = function(_self: Srp.Server, client_public: string, client_proof: string): (Srp.Session) | (nil, Failure)
       local theirs = accepted(suite, client_public)
       if theirs == nil then
-        return nil, "srp: the client's public value is not from 1 to the prime less 1"
+        return nil, Failure.new("srp: the client's public value is not from 1 to the prime less 1")
       end
       local u = scrambler(suite, theirs, public)
-      if u == nil then return nil, "srp: the scrambling value is zero" end
+      if u == nil then return nil, Failure.new("srp: the scrambling value is zero") end
       local base = Bigint.secret_mulmod(theirs, Bigint.secret_powmod(v, u, suite.prime), suite.prime)
       local shared = shortest(Bigint.reveal(Bigint.secret_powmod(base, exponent, suite.prime)))
       local key, expected, proof = proofs(suite, identity, salt, theirs, public, shared)
       if not Hash.equal(client_proof, expected) then
-        return nil, "srp: the client's proof is wrong"
+        return nil, Failure.new("srp: the client's proof is wrong")
       end
-      return { key = key, proof = proof }, ""
+      return { key = key, proof = proof }
     end,
   }
 end
