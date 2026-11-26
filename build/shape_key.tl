@@ -24,6 +24,8 @@ local Parser = require("lang.parser")
 local record ShapeKey
   --- The digest of the source `text` of the file `name`.
   digest: function(text: string, name: string): string
+  --- The digest of a source the parser took with no error, from its tree `chunk`: [`digest`]'s of its text.
+  parsed: function(chunk: Ast.Chunk): string
 end
 
 --- The tokens of `chunk` inside a function's body, each by its index, or nil where the source did not parse: what the files
@@ -51,12 +53,10 @@ local function in_bodies(chunk: Ast.Chunk): {integer: boolean}
   return inside
 end
 
-function ShapeKey.digest(text: string, name: string): string
-  local lexed = Lexer.lex(text, name)
-  local tokens = lexed.tokens
-  local parsed = Parser.parse(lexed, name, "tl")
-  -- A source that does not parse is held by every token: which of them a body holds is not known.
-  local skipped: {integer: boolean} = if #parsed.errors == 0 then in_bodies(parsed.chunk) else {} end
+--- The digest of the tokens `tokens`, less those `skipped` holds, the modules `requires`, in order, and the lexical
+--- errors `errors`.
+local function digest_of(tokens: Lexer.Tokens, skipped: {integer: boolean}, requires: {Ast.Require},
+                         errors: {Lexer.Error}): string
   local parts: mut {string} = { "shape 2" }
   -- The last line the previous token is on: a token on a later one begins a line.
   local ended = 0
@@ -71,13 +71,25 @@ function ShapeKey.digest(text: string, name: string): string
   end
   -- Every module it requires, in order, a body's too: the driver lowers what a module requires in that order, which
   -- decides the order a cycle of requires is lowered in.
-  for _, r in ipairs(parsed.chunk.requires) do
+  for _, r in ipairs(requires) do
     parts[#parts + 1] = "requires " .. r.module
   end
-  for _, e in ipairs(lexed.errors) do
+  for _, e in ipairs(errors) do
     parts[#parts + 1] = "error " .. e.code .. "\0" .. e.msg .. "\0" .. e.fix
   end
   return Hash.hex_sha256(table.concat(parts, "\n"))
+end
+
+function ShapeKey.digest(text: string, name: string): string
+  local lexed = Lexer.lex(text, name)
+  local parsed = Parser.parse(lexed, name, "tl")
+  -- A source that does not parse is held by every token: which of them a body holds is not known.
+  local skipped: {integer: boolean} = if #parsed.errors == 0 then in_bodies(parsed.chunk) else {} end
+  return digest_of(lexed.tokens, skipped, parsed.chunk.requires, lexed.errors)
+end
+
+function ShapeKey.parsed(chunk: Ast.Chunk): string
+  return digest_of(chunk.tokens, in_bodies(chunk), chunk.requires, {})
 end
 
 return ShapeKey
