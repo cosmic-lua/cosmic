@@ -7,6 +7,7 @@
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Test = require("cosmic.test")
+local tool_fixture = require("build.tool_fixture")
 
 --- The program itself, which its tests start.
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
@@ -76,12 +77,12 @@ end
 --- verb that does: a command line pays at its start for every module it loads.
 local function test_time_loads_no_stream(tmp: string)
   local env = Test.environment()
-  env["COSMIC_TRACE_REQUIRE"] = "1"
+  env["COSMIC_PROFILE"] = tmp .. "/prof"
   local started = Test.cosmic({ "time", "now" }, { env = env, cwd = tmp, stdout = "capture", stderr = "capture",
     timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
-  local traced = r.stderr or ""
-  assert(r.ok, tostring(r.stdout) .. traced)
-  assert(traced:find(" build.bare ", 1, true), "the run printed no require trace: " .. traced:sub(1, 400))
-  assert(not traced:find(" cosmic.stream ", 1, true), "time loaded cosmic.stream")
+  assert(r.ok, tostring(r.stdout) .. tostring(r.stderr))
+  local loaded = tool_fixture.loaded(tmp .. "/prof")
+  assert(loaded["build.bare"] == true, "the run's profile names no load of build.bare")
+  assert(loaded["cosmic.stream"] ~= true, "time loaded cosmic.stream")
 end

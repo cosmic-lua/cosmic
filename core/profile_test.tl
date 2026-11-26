@@ -59,7 +59,7 @@ end
 local function test_a_profiled_process_writes_its_profile()
   local text = only(run("run", CHUNK))
   assert(text:match("^cosmic%-profile 1\nprocess %d+ parent %d+ clock cpu hz 2000\ncommand [^\n]*%-e") ~= nil, text)
-  assert(text:match("\ntotal wall_ns %d+ cpu_ns %d+ sampled_us %d+ dropped_us 0 other_us %d+\n") ~= nil, text)
+  assert(text:match("\ntotal wall_ns %d+ cpu_ns %d+ sampled_us %d+ dropped_us 0 other_us %d+ peak_rss_kb %d+\n") ~= nil, text)
   for line in text:gmatch("[^\n]+") do
     if line:sub(1, 7) == "sample " then
       assert(line:match("^sample [^ ]+ [^ ]+ %d+$") ~= nil, line)
@@ -114,9 +114,9 @@ local function test_phases_and_spans_are_spans_of_the_profile()
     "local p <close> = Clock.phase('outer') do local _s <close> = Clock.span(spans, 'inner') " ..
     "for _ = 1, 400 do spin(100000) end end p:next('after') for _ = 1, 200 do spin(100000) end"
   local text = only(run("run", chunk))
-  assert(text:match("\nspan %[outer%] 1 %d+ %d+\n") ~= nil, text)
-  assert(text:match("\nspan %[outer%];%[inner%] 1 %d+ %d+\n") ~= nil, text)
-  assert(text:match("\nspan %[after%] 1 %d+ %d+\n") ~= nil, text)
+  assert(text:match("\nspan %[outer%] 1 %d+ %d+ %d+\n") ~= nil, text)
+  assert(text:match("\nspan %[outer%];%[inner%] 1 %d+ %d+ %d+\n") ~= nil, text)
+  assert(text:match("\nspan %[after%] 1 %d+ %d+ %d+\n") ~= nil, text)
   assert(text:match("\nsample %[outer%];%[inner%];[^ ]*spin@%-e:1 ") ~= nil, text)
   assert(text:match("\nsample %[after%];[^ ]*spin@%-e:1 ") ~= nil, text)
 end
@@ -146,6 +146,14 @@ local function test_a_stale_token_closes_nothing()
     "assert(not sys.profile_span_close(a)) for _ = 1, 200 do spin(100000) end " ..
     "assert(sys.profile_span_close(b)) assert(sys.profile_span_close(x))"
   local text = only(run("run", chunk))
-  assert(text:match("\nspan %[x%];%[b%] 1 %d+ %d+\n") ~= nil, text)
+  assert(text:match("\nspan %[x%];%[b%] 1 %d+ %d+ %d+\n") ~= nil, text)
   assert(text:match("\nsample %[x%];%[b%];[^ ]*spin@%-e:1 ") ~= nil, text)
+end
+
+--- Each module a profiled process loads from the store is a span of its own, from the read to the end of its run,
+--- and a module it requires stands in it: cosmic.mcp requires cosmic.json, which nothing loaded before it.
+local function test_each_module_loaded_is_a_span()
+  local text = only(run("run", "local _ = require('cosmic.mcp')"))
+  assert(text:match("\nspan [^\n]*%[require:cosmic%.mcp%] 1 %d+ %d+ %d+\n") ~= nil, text)
+  assert(text:match("\nspan [^\n]*%[require:cosmic%.mcp%];%[require:cosmic%.json%] 1 %d+ %d+ %d+\n") ~= nil, text)
 end

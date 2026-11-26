@@ -141,6 +141,12 @@ time of their own and in their stack. `--by line` lists the lines,
 `--by process` the processes, and `--folded` prints folded stacks for a
 flame graph tool.
 
+The profile holds what a process loads and how much memory it holds too.
+Each module loaded from the store is a span `[require:<module>]`, from the
+read of its chunk to the end of its run, so `cosmic profile --by require`
+lists the modules by the time each took. A span records the most the Lua
+heap held as one closed, and the totals record the peak resident set.
+
 `bin/cosmic bench/runtime.tl [name...]` times the standard library's hot
 paths (JSON, SQLite, streams, CSV) and prints nanoseconds per operation. It
 measures; no test reads its numbers.

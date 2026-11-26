@@ -13,7 +13,6 @@
 local CheckerDeclarations = require("build.checker_declarations")
 local Driver = require("build.driver")
 local Fs = require("cosmic.fs")
-local Memprobe = require("build.memprobe")
 local ParseDerive = require("build.parse_derive")
 local Scopes = require("lang.scopes")
 local RecordSplices = require("build.syntax_record_splices")
@@ -206,7 +205,6 @@ function TreeProgram.stream(build: Driver.Build, index: Driver.Index, modules: {
   -- The garbage of a module is freed as the next is read, and not when the heap has doubled: the memory the default
   -- collector waits to free is the resident set the process keeps. A collector already in this mode is left in it.
   local previous = collectgarbage("generational")
-  local count = 0
   for _, module in ipairs(TreeProgram.ordered(index, modules)) do
     if spliced then
       local read = build:parsed(module)
@@ -221,10 +219,6 @@ function TreeProgram.stream(build: Driver.Build, index: Driver.Index, modules: {
     build:lower({ module })
     each(module)
     build:retire(module)
-    count = count + 1
-    if count % 100 == 0 then
-      Memprobe.mark(("stream: %d"):format(count))
-    end
   end
   if previous == "incremental" then
     collectgarbage("incremental")

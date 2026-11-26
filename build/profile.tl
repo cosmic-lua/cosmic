@@ -28,13 +28,14 @@ local record verb
     us: integer
   end
 
-  --- One `span` line: the path of names (`[outer];[inner]`), how many spans of that path closed, and their wall
-  --- and CPU nanoseconds.
+  --- One `span` line: the path of names (`[outer];[inner]`), how many spans of that path closed, their wall
+  --- and CPU nanoseconds, and the most the Lua heap held, in KB, as one closed.
   record Span
     path: string
     count: integer
     wall_ns: integer
     cpu_ns: integer
+    heap_kb: integer
   end
 
   --- What one process's profile holds.
@@ -49,6 +50,7 @@ local record verb
     sampled_us: integer
     dropped_us: integer
     other_us: integer
+    peak_rss_kb: integer
     spans: {Span}
     samples: {Sample}
   end
@@ -61,6 +63,7 @@ local record verb
     "line"
     "span"
     "process"
+    "require"
   end
 
   record Options
@@ -87,7 +90,7 @@ local spec = assert(Verb.spec, "profile has options")
 
 --- Each `--by` word as its list.
 local BYS <const>: {string: verb.By} = {
-  ["function"] = "function", stack = "stack", line = "line", span = "span", process = "process",
+  ["function"] = "function", stack = "stack", line = "line", span = "span", process = "process", require = "require",
 }
 
 --- `text` as a whole number, or nil.
@@ -102,6 +105,7 @@ function verb.read(text: string, name: string): verb.Process?, string
     return nil, name .. ": not a profile (no `cosmic-profile 1` line first)"
   end
   local pid, parent, hz, wall_ns, cpu_ns, sampled_us, dropped_us, other_us = 0, 0, 0, 0, 0, 0, 0, 0
+  local peak_rss_kb = 0
   local clock, command = "cpu", ""
   local spans: mut {verb.Span} = {}
   local samples: mut {verb.Sample} = {}
@@ -116,16 +120,16 @@ function verb.read(text: string, name: string): verb.Process?, string
     elseif word == "command" then
       command = line:sub(9)
     elseif word == "total" then
-      local wall, cpu, sampled, dropped, other =
-        line:match("^total wall_ns (%d+) cpu_ns (%d+) sampled_us (%d+) dropped_us (%d+) other_us (%d+)$")
+      local wall, cpu, sampled, dropped, other, rss = line:match(
+        "^total wall_ns (%d+) cpu_ns (%d+) sampled_us (%d+) dropped_us (%d+) other_us (%d+) peak_rss_kb (%d+)$")
       if wall == nil then return nil, name .. ": a total line it cannot read: " .. line end
       wall_ns, cpu_ns, sampled_us = whole(wall) or 0, whole(cpu) or 0, whole(sampled) or 0
-      dropped_us, other_us = whole(dropped) or 0, whole(other) or 0
+      dropped_us, other_us, peak_rss_kb = whole(dropped) or 0, whole(other) or 0, whole(rss) or 0
     elseif word == "span" then
-      local path, count, wall, cpu = line:match("^span (%S+) (%d+) (%d+) (%d+)$")
+      local path, count, wall, cpu, heap = line:match("^span (%S+) (%d+) (%d+) (%d+) (%d+)$")
       if path == nil then return nil, name .. ": a span line it cannot read: " .. line end
       spans[#spans + 1] = { path = path, count = whole(count) or 0, wall_ns = whole(wall) or 0,
-        cpu_ns = whole(cpu) or 0 }
+        cpu_ns = whole(cpu) or 0, heap_kb = whole(heap) or 0 }
     elseif word == "sample" then
       local stack, at, us = line:match("^sample (%S+) (%S+) (%d+)$")
       if stack == nil or at == nil then
@@ -142,7 +146,7 @@ function verb.read(text: string, name: string): verb.Process?, string
   if not seen_process then return nil, name .. ": not a profile (no process line)" end
   return { pid = pid, parent = parent, clock = clock, hz = hz, command = command, wall_ns = wall_ns,
     cpu_ns = cpu_ns, sampled_us = sampled_us, dropped_us = dropped_us, other_us = other_us,
-    spans = spans, samples = samples }, ""
+    peak_rss_kb = peak_rss_kb, spans = spans, samples = samples }, ""
 end
 
 --- Milliseconds of `ns` nanoseconds, as text.
@@ -183,18 +187,68 @@ local function ranked(weights: {string: integer}, label: string, total: integer,
 end
 
 --- The spans of `processes`, added up by path, each under the span it stood in, in the order they first appear.
-local function span_lines(processes: {verb.Process}): {string}
+--- The module a span path's own span loaded (`...;[require:cosmic.json]` is cosmic.json), or nil for a span of
+--- another kind.
+function verb.module_of(path: string): string?
+  return path:match("%[require:([^%]]+)%]$")
+end
+
+--- The modules `processes` loaded from the store, as a set: each one's `[require:<module>]` span.
+function verb.loaded(processes: {verb.Process}): {string: boolean}
+  local out: mut {string: boolean} = {}
+  for _, p in ipairs(processes) do
+    for _, s in ipairs(p.spans) do
+      local module = verb.module_of(s.path)
+      if module ~= nil then out[module] = true end
+    end
+  end
+  return out
+end
+
+--- The lines of the modules list: each module `processes` loaded, by the most wall time its loads took, what it
+--- required in them included.
+local function require_lines(processes: {verb.Process}, top: integer): {string}
+  local wall: mut {string: integer} = {}
+  local cpu: mut {string: integer} = {}
+  local names: mut {string} = {}
+  for _, p in ipairs(processes) do
+    for _, s in ipairs(p.spans) do
+      local module = verb.module_of(s.path)
+      if module ~= nil then
+        if wall[module] == nil then names[#names + 1] = module end
+        wall[module] = (wall[module] or 0) + s.wall_ns
+        cpu[module] = (cpu[module] or 0) + s.cpu_ns
+      end
+    end
+  end
+  table.sort(names, function(a: string, b: string): boolean
+    local x, y = wall[a] or 0, wall[b] or 0
+    if x ~= y then return x > y end
+    return a < b
+  end)
+  local out: mut {string} = { ("modules loaded (%d; wall, cpu, with what each required):"):format(#names) }
+  for n = 1, math.min(top, #names) do
+    local name = names[n] or ""
+    out[#out + 1] = ("  %12s  %12s  %s"):format(ms_of_ns(wall[name] or 0), ms_of_ns(cpu[name] or 0), name)
+  end
+  return out
+end
+
+local function span_lines(processes: {verb.Process}, requires: boolean): {string}
   local order: mut {string} = {}
   local totals: mut {string: verb.Span} = {}
   for _, p in ipairs(processes) do
     for _, s in ipairs(p.spans) do
       local t = totals[s.path]
-      if t == nil then
+      if not requires and verb.module_of(s.path) ~= nil then
+        -- A module's load, which `--by require` lists.
+      elseif t == nil then
         order[#order + 1] = s.path
-        totals[s.path] = { path = s.path, count = s.count, wall_ns = s.wall_ns, cpu_ns = s.cpu_ns }
+        totals[s.path] = { path = s.path, count = s.count, wall_ns = s.wall_ns, cpu_ns = s.cpu_ns,
+          heap_kb = s.heap_kb }
       else
         totals[s.path] = { path = s.path, count = t.count + s.count, wall_ns = t.wall_ns + s.wall_ns,
-          cpu_ns = t.cpu_ns + s.cpu_ns }
+          cpu_ns = t.cpu_ns + s.cpu_ns, heap_kb = math.max(t.heap_kb, s.heap_kb) }
       end
     end
   end
@@ -232,12 +286,12 @@ local function span_lines(processes: {verb.Process}): {string}
     end
     return false
   end)
-  local out: mut {string} = { "spans (count, wall, cpu):" }
+  local out: mut {string} = { "spans (count, wall, cpu, most heap at a close):" }
   for _, path in ipairs(order) do
     local t = assert(totals[path])
     local _, depth = path:gsub(";", "")
-    out[#out + 1] = ("%s%s  %d  %s  %s"):format(("  "):rep(depth + 1), path:match("([^;]+)$") or path, t.count,
-      ms_of_ns(t.wall_ns), ms_of_ns(t.cpu_ns))
+    out[#out + 1] = ("%s%s  %d  %s  %s  %s"):format(("  "):rep(depth + 1), path:match("([^;]+)$") or path, t.count,
+      ms_of_ns(t.wall_ns), ms_of_ns(t.cpu_ns), ("%.1f MB"):format(t.heap_kb / 1024))
   end
   return out
 end
@@ -250,11 +304,11 @@ local function process_lines(processes: {verb.Process}, top: integer): {string}
     if a.cpu_ns ~= b.cpu_ns then return a.cpu_ns > b.cpu_ns end
     return a.pid < b.pid
   end)
-  local out: mut {string} = { "processes (pid, parent, cpu, sampled, command):" }
+  local out: mut {string} = { "processes (pid, parent, cpu, sampled, peak resident set, command):" }
   for n = 1, math.min(top, #sorted) do
     local p = assert(sorted[n])
-    out[#out + 1] = ("  %d  %d  %s  %s  %s"):format(p.pid, p.parent, ms_of_ns(p.cpu_ns), ms_of_us(p.sampled_us),
-      p.command)
+    out[#out + 1] = ("  %d  %d  %s  %s  %.1f MB  %s"):format(p.pid, p.parent, ms_of_ns(p.cpu_ns),
+      ms_of_us(p.sampled_us), p.peak_rss_kb / 1024, p.command)
   end
   return out
 end
@@ -308,14 +362,17 @@ function verb.report(processes: {verb.Process}, options: verb.Options, empty?: i
   elseif by == "line" then
     parts[1] = ranked(lines, "lines", total, top)
   elseif by == "span" then
-    parts[1] = span_lines(processes)
+    parts[1] = span_lines(processes, true)
+  elseif by == "require" then
+    parts[1] = require_lines(processes, top)
   elseif by == "process" then
     parts[1] = process_lines(processes, top)
   else
-    local cpu, wall, sampled, dropped = 0, 0, 0, 0
+    local cpu, wall, sampled, dropped, rss = 0, 0, 0, 0, 0
     local clocks: mut {string: boolean} = {}
     for _, p in ipairs(processes) do
       cpu = cpu + p.cpu_ns
+      if p.peak_rss_kb > rss then rss = p.peak_rss_kb end
       if p.wall_ns > wall then wall = p.wall_ns end
       sampled = sampled + p.sampled_us
       dropped = dropped + p.dropped_us
@@ -326,7 +383,7 @@ function verb.report(processes: {verb.Process}, options: verb.Options, empty?: i
     table.sort(names)
     local head = ("%d %s, %s cpu, %s sampled on the %s clock, the longest %s wall"):format(#processes,
       if #processes == 1 then "process" else "processes" end, ms_of_ns(cpu), ms_of_us(sampled),
-      table.concat(names, " and "), ms_of_ns(wall))
+      table.concat(names, " and "), ms_of_ns(wall)) .. (", the largest peak resident set %.1f MB"):format(rss / 1024)
     if dropped > 0 then
       head = head .. (", %s dropped (no room in the tables)"):format(ms_of_us(dropped))
     end
@@ -334,7 +391,7 @@ function verb.report(processes: {verb.Process}, options: verb.Options, empty?: i
       head = head .. (", %d empty (killed by a signal)"):format(empty or 0)
     end
     parts[1] = { head }
-    parts[#parts + 1] = span_lines(processes)
+    parts[#parts + 1] = span_lines(processes, false)
     parts[#parts + 1] = ranked(own, "own time", total, top)
     parts[#parts + 1] = ranked(within, "in the stack", total, top)
   end

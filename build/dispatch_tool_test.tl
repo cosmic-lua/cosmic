@@ -5,6 +5,7 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
+local tool_fixture = require("build.tool_fixture")
 local test_child = require("build.test_child")
 
 --- The program itself, started with `-e`.
@@ -241,13 +242,14 @@ local function test_e_keeps_no_compile_where_the_program_records_no_boot_hash(tm
   local Store = require("cosmic.store")
   assert(Store.meta("boot_hash") == nil, "a test's closure store records a boot hash")
   local chunk = 'local exit_status = require("build.exit_status") print(exit_status.uncompiled) return 0'
-  local env = { XDG_CACHE_HOME = tmp .. "/cache", COSMIC_TRACE_REQUIRE = "1" }
   for round = 1, 2 do
+    local dir = tmp .. "/prof-" .. tostring(round)
+    local env = { XDG_CACHE_HOME = tmp .. "/cache", COSMIC_PROFILE = dir }
     local started = Test.cosmic({ "-e", chunk }, { env = env, cwd = tmp, stdout = "capture",
       stderr = "capture", timeout_ns = Clock.seconds(30) })
     local r = assert(Child.run(started.argv, started.options))
     assert(r.ok and r.stdout == "4\n", tostring(round) .. tostring(r.stdout) .. tostring(r.stderr))
-    assert(says(r, " build.pipeline "), ("run %d of the chunk loaded no checker"):format(round))
+    assert(tool_fixture.loaded(dir)["build.pipeline"] == true, ("run %d of the chunk loaded no checker"):format(round))
   end
   local kept, _ = Fs.list(tmp .. "/cache/cosmic/standalone")
   assert(kept == nil or #kept == 0, "a compile is kept")

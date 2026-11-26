@@ -9,13 +9,16 @@
 --- A directory stands for each `.prof` file in it; `-` is standard input. Each process wrote one file,
 --- and the report adds them up:
 ---
---- - With no `--by`, it prints the processes' totals, the spans (each under the span it stood in, with its count,
----   wall time and CPU time), then the functions with the most time of their own, and those with the most time in
----   their stack.
+--- - With no `--by`, it prints the processes' totals (the largest peak resident set among them), the spans (each
+---   under the span it stood in, with its count, wall time, CPU time, and the most the Lua heap held as one
+---   closed), then the functions with the most time of their own, and those with the most time in their stack.
+---   A module a process loads is a span `[require:<module>]` too, left out here.
 --- - `--by function` prints the functions by their own time: the innermost frame of each sample, a C function
 ---   included. `--by stack` counts a function once in each sample whose stack holds it, so a recursive one is not
----   counted twice. `--by line` prints the innermost Lua lines. `--by span` prints the spans alone. `--by process`
----   prints each process: its id, its parent, its CPU time, its sampled time, and its command line.
+---   counted twice. `--by line` prints the innermost Lua lines. `--by span` prints the spans alone, the modules'
+---   loads too. `--by require` prints the modules loaded, by the wall time each took with what it required.
+---   `--by process` prints each process: its id, its parent, its CPU time, its sampled time, its peak resident
+---   set, and its command line.
 --- - `--top N` is how many rows each list has (default 25).
 --- - `--process PID` reads the profile of that process alone. A process in a sandbox has the pid it has there,
 ---   so each sandboxed test worker is pid 2: its command line tells it apart.
@@ -37,8 +40,8 @@ local command: Flags.Command = {
     { line = "--folded prof", about = "folded stacks, for a flame graph" },
   },
   spec = {
-    ["--by"] = { value = "kind", about = "print one list: functions by own time, stacks, lines, spans or processes",
-      choices = { "function", "stack", "line", "span", "process" } },
+    ["--by"] = { value = "kind", about = "print one list: functions by own time, stacks, lines, spans, processes or modules loaded",
+      choices = { "function", "stack", "line", "span", "process", "require" } },
     ["--top"] = { value = "n", about = "the rows of each list", integer = { min = 1, max = 100000 }, default = "25" },
     ["--process"] = { value = "pid", about = "read the profile of this process alone", integer = { min = 1 } },
     ["--folded"] = { about = "print each stack and its microseconds, for a flame graph tool" },

@@ -1,6 +1,7 @@
 local Compress = require("cosmic.compress")
 local Hash = require("cosmic.hash")
 local Fixture = require("cosmic_ci.fixture")
+local Fs = require("cosmic.fs")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 
@@ -156,17 +157,30 @@ end
 
 --- The product keeps a clean compile of a `-e` chunk, so a second run of it loads no checker; and the key is the
 --- chunk's own: a file whose bytes are a chunk's key words ahead of the chunk is still refused as a file.
+--- Whether a process that wrote its profile into `dir` (`COSMIC_PROFILE`) loaded `module` from the store: a span
+--- `[require:<module>]` of its profile.
+local function loaded(dir: string, module: string): boolean
+  local names, _ = Fs.list(dir)
+  for _, name in ipairs(names or {}) do
+    local text, _ = Fs.read(dir .. "/" .. name)
+    if text ~= nil and text:find("[require:" .. module .. "] ", 1, true) ~= nil then return true end
+  end
+  return false
+end
+
 local function test_the_product_keeps_a_chunks_compile_under_its_own_key(tmp: string)
   local product = Fixture.placed("product")
   local diagnostics = tmp .. "/logs"
   Fixture.mkdir(tmp .. "/run")
   local chunk = 'local exit_status = require("build.exit_status") print("ran", exit_status.uncompiled) return 0'
-  local env = { COSMIC_PORTABLE_CACHE = tmp .. "/cache", XDG_CACHE_HOME = tmp .. "/xdg", COSMIC_TRACE_REQUIRE = "1" }
+  local env = { COSMIC_PORTABLE_CACHE = tmp .. "/cache", XDG_CACHE_HOME = tmp .. "/xdg" }
   for round = 1, 2 do
+    local profile = tmp .. "/prof-" .. tostring(round)
     local ran = Fixture.run("chunk-" .. tostring(round), { product .. "/cosmic", "-e", chunk }, tmp .. "/run",
-      diagnostics, env)
+      diagnostics, { COSMIC_PORTABLE_CACHE = env.COSMIC_PORTABLE_CACHE, XDG_CACHE_HOME = env.XDG_CACHE_HOME,
+        COSMIC_PROFILE = profile })
     Fixture.contains(ran.out, "ran\t4")
-    local checked = Fixture.read(ran.err):find(" build.pipeline ", 1, true) ~= nil
+    local checked = loaded(profile, "build.pipeline")
     assert(checked == (round == 1), ("run %d of the chunk loaded the checker: %s"):format(round, tostring(checked)))
   end
   Fixture.write(tmp .. "/run/spelled.tl", "own\0" .. chunk)
@@ -189,17 +203,14 @@ local function test_the_product_answers_help_without_the_reboot_guard(tmp: strin
   for slot, words in ipairs(asks) do
     local argv: mut {string} = { product .. "/cosmic" }
     for _, word in ipairs(words) do argv[#argv + 1] = word end
-    local helped = Fixture.run("help-traced-" .. tostring(slot), argv,
-      tmp .. "/run", diagnostics, { COSMIC_PORTABLE_CACHE = tmp .. "/cache",
-        COSMIC_TRACE_REQUIRE = "1" })
+    local profile = tmp .. "/prof-help-" .. tostring(slot)
+    local helped = Fixture.run("help-profiled-" .. tostring(slot), argv,
+      tmp .. "/run", diagnostics, { COSMIC_PORTABLE_CACHE = tmp .. "/cache", COSMIC_PROFILE = profile })
     local shown = table.concat(words, " ")
     Fixture.contains(helped.out, if #words == 1 then "cosmic help" else "cosmic hash" end)
-    local traced = Fixture.read(helped.err)
-    assert(traced:find("require: build.dispatch", 1, true),
-      shown .. " printed no require trace: " .. traced:sub(1, 400))
+    assert(loaded(profile, "build.dispatch"), shown .. "'s profile names no load of build.dispatch")
     for _, name in ipairs({ "build.reboot", "build.writer", "build.test", "build.fix" }) do
-      assert(not traced:find(" " .. name .. " ", 1, true),
-        "the product's " .. shown .. " loaded " .. name)
+      assert(not loaded(profile, name), "the product's " .. shown .. " loaded " .. name)
     end
   end
 end
