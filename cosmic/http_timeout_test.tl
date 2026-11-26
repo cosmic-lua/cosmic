@@ -4,6 +4,7 @@
 --- time given, whatever the unit the core reads it in.
 
 local Clock = require("cosmic.clock")
+local type Failure = require("cosmic.failure")
 local Http = require("cosmic.http")
 local Net = require("cosmic.net")
 local Test = require("cosmic.test")
@@ -11,15 +12,10 @@ local Test = require("cosmic.test")
 --- The listener sends nothing, on the worker's own loopback.
 Test.policy{ loopback = { "127.0.0.1" } }
 
---- Whether `why` is curl's message for an expired limit: its
---- "Operation timed out after N", "Connection timeout after N ms" or
---- "Resolving timed out after N milliseconds", the phase the limit ended in.
---- TODO: match the kind rather than the wording, once cosmic.http reports
---- a timeout as one (CURLE_OPERATION_TIMEDOUT) rather than curl's message.
-local function timed_out(why: string): boolean
-  return why:find("^Operation timed out after %d+") ~= nil or
-    why:find("^Connection timeout after %d+ ms") ~= nil or
-    why:find("^%a+ timed out after %d+ milliseconds") ~= nil
+--- Whether `why` is the failure of an expired limit, whichever phase
+--- (resolve, connect or transfer) it ended in.
+local function timed_out(why: Failure?): boolean
+  return why ~= nil and why.kind == "timeout"
 end
 
 --- A listener whose connections complete in its backlog and are never
@@ -34,7 +30,7 @@ local function test_a_request_timeout_ends_at_about_the_time_given()
   local began = Clock.monotonic_ns()
   local response, why = Http.open(url, { timeout_ns = Clock.ms(300) })
   local took = Clock.monotonic_ns() - began
-  assert(response == nil and timed_out(tostring(why)), tostring(why))
+  assert(response == nil and timed_out(why), tostring(why))
   assert(took >= Clock.ms(250) and took < Clock.seconds(10), tostring(took // Clock.ms(1)) .. " ms")
   assert(server ~= nil) -- checked: compare_disjoint
 end
@@ -45,11 +41,11 @@ local function test_a_limit_under_a_millisecond_is_not_none()
   local server <close>, url = silent()
   local began = Clock.monotonic_ns()
   local response, why = Http.open(url, { timeout_ns = 1 })
-  assert(response == nil and timed_out(tostring(why)), tostring(why))
+  assert(response == nil and timed_out(why), tostring(why))
   assert(Clock.monotonic_ns() - began < Clock.seconds(5), "ended long after 1 ms")
   began = Clock.monotonic_ns()
   response, why = Http.open(url, { connect_timeout_ns = 1, timeout_ns = Clock.ms(200) })
-  assert(response == nil and timed_out(tostring(why)), tostring(why))
+  assert(response == nil and timed_out(why), tostring(why))
   assert(Clock.monotonic_ns() - began < Clock.seconds(10))
   assert(server ~= nil) -- checked: compare_disjoint
 end
@@ -61,7 +57,7 @@ local function test_a_stalled_transfer_ends_after_the_low_speed_time()
   local began = Clock.monotonic_ns()
   local response, why = Http.open(url, { timeout_ns = Clock.seconds(60), low_speed_bytes = 1000, low_speed_ns = Clock.seconds(1) })
   local took = Clock.monotonic_ns() - began
-  assert(response == nil, "a stalled request was answered")
+  assert(response == nil and timed_out(why), "a stalled request was answered: " .. tostring(why))
   assert(took >= Clock.ms(500) and took < Clock.seconds(20),
     tostring(took // Clock.ms(1)) .. " ms: " .. tostring(why))
   assert(server ~= nil) -- checked: compare_disjoint
