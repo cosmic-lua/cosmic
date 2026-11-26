@@ -176,7 +176,7 @@ end
 --- the parameter [`Seatbelt.Profile`]'s `tmp` names, which the caller sets.
 --- A policy's `connect` is reached through the network relay alone, at
 --- [`Seatbelt.Options.relay_port`] of the host's loopback.
---- Nil and why for an invalid policy, missing path or unsupported field,
+--- Nil and a Failure for an invalid policy, missing path or unsupported field,
 --- or for more parameters than a start takes (`SEATBELT_PARAMETER_MAX`).
 ---
 --- The returned rlimits must be applied separately. This is preparation
@@ -404,7 +404,7 @@ end
 --- relative grant is from `base`, where given. `core` and `database` are the file a start of
 --- this program runs and the one it runs on, resolved like a grant.
 --- `terminal` is the pty slave's path, resolved through links for
---- [`Seatbelt.Options.terminal`]. Nil and why where a grant's path is not there.
+--- [`Seatbelt.Options.terminal`]. Nil and a Failure where a grant's path is not there.
 function Seatbelt.resolve(policy: rules.Policy, base?: string, core?: string, database?: string,
                           terminal?: string): (Seatbelt.Options) | (nil, Failure)
   local setup = policy.setup or {}

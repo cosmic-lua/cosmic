@@ -238,7 +238,7 @@ end
 --- names it reads the same on both. That is every process's entries
 --- there, not this one's alone; `isolate` "proc" is the other thing, a
 --- /proc of the sandbox's own.
---- Nil and why for a name it has not, or one this host cannot give.
+--- Nil and a Failure for a name it has not, or one this host cannot give.
 ---
 ---     local system = assert(Sandbox.profile("system"))
 ---     print(system.grants[1].path, system.grants[1].letters) -- /usr  r (Linux and macOS)
@@ -250,7 +250,7 @@ end
 
 --- The database at `path` with the SHA-256 of its bytes, taken now: a
 --- [`Sandbox.Database`] that [`Child.start`] runs a program on only while
---- the file hashes to that. Nil and why where the file cannot be read. A
+--- the file hashes to that. Nil and a Failure where the file cannot be read. A
 --- database named by its path alone (`{ path = ... }`) is held to no
 --- digest; this is where a path acquires one.
 ---
@@ -300,7 +300,7 @@ end
 --- right, which the start sets up, joins as a union joins it: `set_env`,
 --- and one `user`, `group` and `database`, refused where layers
 --- disagree. A grant with `from` meets only a grant of its own path and
---- source. Nil and why for no layer, or one [`Sandbox.union`] refuses.
+--- source. Nil and a Failure for no layer, or one [`Sandbox.union`] refuses.
 ---
 --- Paths are met as written, cleaned, while the kernel meets the files
 --- they name: a link (`/lib` to `/usr/lib`) or a relative path read from
@@ -342,7 +342,7 @@ end
 
 --- The real name of the absolute `path`, links followed: the real name
 --- of the nearest directory above it that is there, and the rest, where
---- it is not there yet. Nil and why for a path that is not absolute, a
+--- it is not there yet. Nil and a Failure for a path that is not absolute, a
 --- `.` or `..` in what is not there, or a name in it that is there but
 --- does not resolve (a dangling link, which a create would follow out of
 --- a grant).
@@ -385,7 +385,7 @@ local ACTIONS <const>: {string:{letter: string, directory: boolean}} = {
 }
 
 --- Whether `policy` lets a program held by it do `action` at the absolute
---- `path`: the real name it checked, or nil and why.
+--- `path`: the real name it checked, or nil and a Failure.
 --- `action` is "read", "write", "run", "create" or "remove". "create" and
 --- "remove" ask `c` of the directory that holds the name, as Landlock
 --- grants it, and do not follow a link that is the last name, as unlink
@@ -518,7 +518,7 @@ end
 --- `action` is "read", "write" or "create", the acts a [`Fs.Dir`] has.
 --- A write through it makes a new file and renames it over the name, so
 --- "write" asks `c` of the directory beside `w`, as Landlock would of
---- that write. Nil and why where `policy` does not permit it, for "/",
+--- that write. Nil and a Failure where `policy` does not permit it, for "/",
 --- and where a link is met on the way (a name changed since the check).
 ---
 ---     local policy = { grants = { { path = "/srv/data", letters = "rwc" } } }
@@ -675,7 +675,7 @@ local SH_VARIANT <const> = "/private/var/select/sh"
 --- line or its ELF header (PT_INTERP) names, then that one's, as far as the
 --- kernel follows. The files a policy must grant `r` and `x` for the
 --- program to start at all. `path` is relative to `cwd` (this process's
---- directory when nil). Nil and why when the program or an interpreter it
+--- directory when nil). Nil and a Failure when the program or an interpreter it
 --- names does not exist. On macOS /bin/sh is followed by the shell it
 --- runs, the one /private/var/select/sh names.
 ---
@@ -901,7 +901,7 @@ end
 --- its paths as one Landlock ruleset with their letters, the groups of
 --- system calls its seccomp filter allows, whether the exec filter refuses
 --- execve (no grant gives `x`) and the rlimits. Restrict applies what this
---- answers. Nil and why for a policy it refuses, as it does: one the union
+--- answers. Nil and a Failure for a policy it refuses, as it does: one the union
 --- refuses, or one only a child can be held to (`isolate`, a connect
 --- grant, `loopback`, `tmp` and the rest), and on macOS, where a
 --- Seatbelt profile holds the process instead. It looks at the policy
@@ -1095,7 +1095,7 @@ end
 --- differ get different users; two with equal serials share one, which
 --- costs only what a shared user does -- the files each owns that the
 --- other can reach -- since each has a pid namespace and its own user
---- namespace's process count. Nil and why where the namespace maps no
+--- namespace's process count. Nil and a Failure where the namespace maps no
 --- such run of ids.
 ---
 ---     local id = assert(Sandbox.user_id("0 0 4294967295\n", "0 0 4294967295\n", 0))

@@ -101,7 +101,7 @@ function tailnet.resolved(connect: {string}, status: Tailscale.Status): {string}
 end
 
 --- The node's status, asked of the daemon `daemon` names
---- ([`Tailscale.connect`]; the machine's own when nil). Nil and why where
+--- ([`Tailscale.connect`]; the machine's own when nil). Nil and a Failure where
 --- the daemon cannot be asked, or this node is not running.
 local function status_of(daemon?: Tailscale.Daemon): (Tailscale.Status) | (nil, Failure)
   local Live = require("cosmic.tailscale")
