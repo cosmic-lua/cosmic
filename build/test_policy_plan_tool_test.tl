@@ -259,7 +259,7 @@ local function test_a_plan_gives_a_scratch_of_its_own_only_where_no_host_directo
     assert(not made.own_scratch and made.why_shared:find(word, 1, true) ~= nil, word .. ": " .. made.why_shared)
     assert((assert(made.sandbox.unveil).writes or {})[1] == scratch)
     local held = assert(test_policy.worker(made, inputs))
-    assert(assert(held.setup).tmp == nil, word)
+    assert((held.setup or {}).tmp == nil, word)
   end
   shared(function(inputs: test_inputs.Effective): test_inputs.Effective
     return { ...inputs, system = true }

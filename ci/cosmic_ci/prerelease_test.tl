@@ -7,8 +7,10 @@ local GithubApi = require("cosmic_ci.github_api")
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
 local Maps = require("cosmic_ci.maps")
+local PolicyJson = require("cosmic.policy")
 local Prerelease = require("cosmic_ci.prerelease")
 local Proc = require("cosmic.proc")
+local Sandbox = require("cosmic.sandbox")
 local Shape = require("cosmic.shape")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
@@ -91,12 +93,16 @@ local function test_the_smoke_policy_grants_the_tool_and_its_cache_alone()
     end
     assert(encoded(policy["env"]) == '["PATH","HOME"]', text)
     assert(encoded(policy["profiles"]) == '["system"]', text)
-    assert(encoded(policy["set_env"]) == '{"COSMIC_PORTABLE_CACHE":"/tmp/smoke-cache"}', text)
+    -- What the start sets up is a `setup` of its own where calls are grants, as cosmic writes both now.
+    local set_env = if as_grants then assert(Json.object_of(policy["setup"]))["set_env"] else policy["set_env"] end
+    assert(encoded(set_env) == '{"COSMIC_PORTABLE_CACHE":"/tmp/smoke-cache"}', text)
     assert(policy["isolate"] == nil and policy["connect"] == nil, text)
   end
   -- The running cosmic reads one of the two forms.
   local taken = Prerelease.smoke_policy("/runner/release/cosmic", "/tmp/smoke-cache")
-  assert((taken.set_env or {})["COSMIC_PORTABLE_CACHE"] == "/tmp/smoke-cache")
+  local digest = Hash.hex_sha256("/tmp/smoke-cache")
+  local written = PolicyJson.encode((assert(Sandbox.union(taken))))
+  assert(written:find('"set_env_digests":{"COSMIC_PORTABLE_CACHE":"' .. digest .. '"}', 1, true) ~= nil, written)
 end
 
 --- Skips where this run is root: the smoke's sandbox then runs the tool as
