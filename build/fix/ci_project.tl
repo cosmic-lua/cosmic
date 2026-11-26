@@ -4,7 +4,7 @@
 --- outside `ci/` breaks it on either: a stdlib API it uses, or a file of ci/bootstrap-files.txt the release runs
 --- standalone. So the run holds `ci/` to both, as CI does:
 ---
---- - this tool's `fix` (with `--check` where the run checks), with `ci/` as the working directory;
+--- - this tool's `fix` (with `--check` where the run checks), run as [`bin/cosmic`] with `ci/` as the working directory;
 --- - `bin/cosmic-bootstrap cosmic_ci/driver.tl check-islands` (ci/cosmic_ci/islands.tl), which checks the bootstrap's
 ---   files and all of `ci/` on the pinned release, fetched and verified by its digest the first time.
 ---
@@ -15,7 +15,6 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
-local Proc = require("cosmic.proc")
 local clock = require("build.clock")
 local plural = require("build.plural")
 
@@ -46,9 +45,9 @@ end
 function CiProject.start(root: string, checking: boolean): CiProject.Started
   local ci = root .. "/ci"
   local started: CiProject.Started = { names = {}, handles = {}, started = Clock.monotonic_ns(), refused = {} }
-  local function launch(name: string, argv: {string}, env: {string:string}, fds?: {integer:integer})
+  local function launch(name: string, argv: {string}, env: {string:string})
     -- In this process's group, so the interrupt that ends the run ends them too.
-    local handle, why = Child.start(argv, { cwd = ci, env = env, fds = fds, stdout = "capture", stderr = "capture",
+    local handle, why = Child.start(argv, { cwd = ci, env = env, stdout = "capture", stderr = "capture",
       timeout_ns = Child.FOREVER, process_group = false })
     if handle == nil then
       local line = "ci/: " .. name .. " did not start: " .. tostring(why)
@@ -58,19 +57,10 @@ function CiProject.start(root: string, checking: boolean): CiProject.Started
     started.names[#started.names + 1] = name
     started.handles[#started.handles + 1] = handle
   end
-  local relaunch, why = Proc.relaunch()
-  if relaunch == nil then
-    local line = "ci/: this tool's fix did not start: " .. tostring(why)
-    started.refused[#started.refused + 1] = line
-  else
-    local argv: mut {string} = {}
-    for _, word in ipairs(relaunch.argv) do argv[#argv + 1] = word end
-    argv[#argv + 1] = "fix"
-    if checking then argv[#argv + 1] = "--check" end
-    local env = Env.all()
-    for name, value in pairs(relaunch.env) do env[name] = value end
-    launch("`cosmic fix" .. (if checking then " --check" else "" end) .. "` in ci/", argv, env, relaunch.fds)
-  end
+  -- The tool as [`bin/cosmic`] runs it, which finds this tree's tool from ci/ as from anywhere else.
+  local argv: mut {string} = { root .. "/bin/cosmic", "fix" }
+  if checking then argv[#argv + 1] = "--check" end
+  launch("`../bin/cosmic fix" .. (if checking then " --check" else "" end) .. "` in ci/", argv, Env.all())
   local env = Env.all()
   env["COSMIC_BOOTSTRAP"] = nil
   launch("`bin/cosmic-bootstrap cosmic_ci/driver.tl check-islands` (the pinned release) in ci/",
@@ -81,26 +71,36 @@ end
 --- How many lines of a failing check a finding shows; the rest are counted.
 local SHOWN <const> = 30
 
---- The lines of `text`, a failing check's output, that a finding keeps: what it found, without its progress lines, the
---- tool's own notes (`cosmic: `) and the links that do not resolve only because the build was refused, at most
---- [`SHOWN`] of them. A path is named from the tree's root (`ci/...`).
+--- The lines of `text`, a failing check's output, that a finding keeps: what it found, without its progress lines and the
+--- links that do not resolve only because the build was refused, the other links last, at most [`SHOWN`] of them. A
+--- path is named from the tree's root (`ci/...`).
 local function said(text: string): {string}
-  local kept: mut {string} = {}
-  local left = 0
+  local first: mut {string} = {}
+  local links: mut {string} = {}
   for read in text:gmatch("[^\n]+") do
     local rest = read:match("^fix: FAIL  (.*)$")
     local line = rest or read
-    local noise = line:sub(1, 8) == "cosmic: " or (rest == nil and line:sub(1, 5) == "fix: ") or
-      line:find("; fix that first)", 1, true) ~= nil
+    local noise = (rest == nil and line:sub(1, 5) == "fix: ") or line:find("; fix that first)", 1, true) ~= nil
     if not noise then
       if line:match("^[%w_][%w_/.-]*%.tl:") ~= nil and line:sub(1, 3) ~= "ci/" then
         line = "ci/" .. line
       end
+      if line:find(": link: ", 1, true) ~= nil then
+        links[#links + 1] = line
+      else
+        first[#first + 1] = line
+      end
+    end
+  end
+  local kept: mut {string} = {}
+  local left = 0
+  for _, group in ipairs({ first, links }) do
+    for _, line in ipairs(group) do
       if #kept < SHOWN then kept[#kept + 1] = line else left = left + 1 end
     end
   end
   if #kept == 0 then
-    kept[#kept + 1] = "(it said nothing but its notes; run it alone to see them)"
+    kept[#kept + 1] = "(it said nothing but its progress; run it alone to see it)"
   end
   if left > 0 then
     kept[#kept + 1] = "... and " .. plural.count(left, "more line") .. "; run it alone to see them"
