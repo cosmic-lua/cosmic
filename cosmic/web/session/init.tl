@@ -59,6 +59,7 @@
 --- @public
 
 local Clock = require("cosmic.clock")
+local Failure = require("cosmic.failure")
 local Cookies = require("cosmic.web.cookies")
 local Json = require("cosmic.json")
 local Request = require("cosmic.web.request")
@@ -113,18 +114,18 @@ local record Session
   --- Where a session is kept. `cookie` is the name of the session cookie
   --- the token travels in, for a store that binds one to the other.
   record Store
-    --- The data `token` names; nil and "" when it names none (absent,
+    --- The data `token` names; false when it names none (absent,
     --- tampered, unknown, expired), which makes the request anonymous.
-    --- Nil and why when the store itself failed, which is a 500.
-    load: function(Store, token: string, now: integer, cookie: string): Data?, string
+    --- Nil and a [`Failure`] when the store itself failed, which is a 500.
+    load: function(Store, token: string, now: integer, cookie: string): (Data | false) | (nil, Failure)
     --- Keeps `data`, the session as the request saw it with its changes
     --- applied, and returns the token to send. `previous` is the token the
-    --- request came with, "" for a new session. Nil and why when it cannot
+    --- request came with, "" for a new session. Nil and a Failure when it cannot
     --- (the cookie store when the token is too big), which is a 500.
     save: function(Store, previous: string, data: Data, changes: Changes, now: integer,
-        cookie: string): string?, string
+        cookie: string): (string) | (nil, Failure)
     --- Revokes `token` where the store can.
-    destroy: function(Store, token: string): boolean, string
+    destroy: function(Store, token: string): (true) | (false, Failure)
     --- Whether `destroy` revokes: false for a signed cookie, which
     --- lives until it expires wherever it was copied.
     revocable: boolean
@@ -289,8 +290,8 @@ local function ensure(st: State)
   local token = Cookies.parse(st.req:header("cookie"))[st.cookie]
   if token == nil or token == "" then return end
   local data, why = st.opts.store:load(token, st.now, st.cookie)
-  if data == nil then
-    if why ~= "" then error("session: " .. why, 0) end
+  if data == nil then error("session: " .. tostring(why), 0) end
+  if data == false then
     st.bad_cookie = true
     return
   end
@@ -591,7 +592,7 @@ function Session.middleware(opts: Session.Options): Types.Middleware
       -- Revoking is not undone by a 500: a logout that errors still logs out.
       for _, token in ipairs(st.doomed) do
         local ok, destroy_why = opts.store:destroy(token)
-        if not ok then error("session: " .. destroy_why, 0) end
+        if not ok then error("session: " .. tostring(destroy_why), 0) end
       end
       if res.status >= 500 then
         if st.invalidated then expire(res, cookie, opts, secure) end
@@ -608,7 +609,7 @@ function Session.middleware(opts: Session.Options): Types.Middleware
               "development mode came over http; serve it over https or pass secure = true", 0)
         end
         local token, save_why = opts.store:save(st.token, st.data, st.changes, st.now, cookie)
-        if token == nil then error("session: " .. save_why, 0) end
+        if token == nil then error("session: " .. tostring(save_why), 0) end
         kept = token
         local attrs = attributes(opts, secure)
         attrs.max_age = math.max(st.data.expires - st.now, 1)
