@@ -2,11 +2,11 @@
 --- bytes and whose loader takes any keys: reading is total on any text,
 --- and a row loaded is a row read back through `_json`, whatever its keys
 --- (dots, quotes, case twins, the empty key, `_json` itself).
---- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
+--- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (cosmic/fuzz.tl).
 
 local Csv = require("cosmic.csv")
 local dataset = require("build.dataset")
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
 local support = require("build.test_support_fixture")

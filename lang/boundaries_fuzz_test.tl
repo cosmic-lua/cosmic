@@ -1,8 +1,8 @@
 --- Fuzz property for [`lang.boundaries`], over the random types of [`lang.types_programs`]: a value made for a type is
 --- accepted by the kinds [`Boundaries.kinds`] returns for it, as the worker's `__cosmic_tc` reads them, and a mapping that
---- leaves a kind out is caught. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
+--- leaves a kind out is caught. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (cosmic/fuzz.tl).
 local Boundaries = require("lang.boundaries")
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Hash = require("cosmic.hash")
 local Programs = require("lang.types_programs")
 local Test = require("cosmic.test")

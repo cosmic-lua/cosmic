@@ -1,4 +1,4 @@
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Test = require("cosmic.test")
 local Udp = require("build.udp_fixture")
 

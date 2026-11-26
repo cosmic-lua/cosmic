@@ -2,10 +2,10 @@
 --- each behaves as [`cosmic.codec`]'s whole-string functions do, the same
 --- text or bytes or the same reason, however the input is cut into
 --- chunks. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
---- (build/fuzz/init.tl).
+--- (cosmic/fuzz.tl).
 
 local Codec = require("cosmic.codec")
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Sources = require("build.codec_fuzz_sources")
 local codec = require("build.codec")
 local type Failure = require("cosmic.failure")

@@ -62,8 +62,7 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Rand = require("cosmic.rand")
-local plural = require("build.plural")
-local shrink = require("build.fuzz.shrink")
+local shrink = require("cosmic.internal.fuzz_shrink")
 local type Budget = require("cosmic.internal.budget")
 local testing = require("cosmic.internal.testing")
 local String = require("cosmic.string")
@@ -434,7 +433,7 @@ local function attempt_all(p: Fuzz.Property, input: string, budget: integer, sta
     end
     return failed("starved, unstarved run: raised: " .. want.text)
   end
-  local how = ("starved after %s of %d%s (%d refused)"):format(plural.count(after, "allocation"), want.used,
+  local how = ("starved after %s of %d%s (%d refused)"):format(String.counted(after, "allocation"), want.used,
     if starve.once then ", refusing one" else "" end, got.refused)
   starving.runs = starving.runs + 1
   if got.refused > 0 then starving.refused = starving.refused + 1 end
@@ -494,7 +493,7 @@ end
 --- an input that held is a call to it made.
 local function corpus_failed(p: Fuzz.Property, path: string, why: string, input: string): boolean
   error(("fuzz %s: corpus input %s: %s\n  input (hex, %s): %s"):
-      format(p.name, path, why, plural.count(#input, "byte"), shown(input)), 0)
+      format(p.name, path, why, String.counted(#input, "byte"), shown(input)), 0)
   return false -- checked: unreachable
 end
 
@@ -561,7 +560,7 @@ local function label_counts(counts: {string: integer}, required: {string},
   for i, name in ipairs(names) do
     parts[i] = ("%s %d"):format(name, counts[name] or 0)
   end
-  return ("%s (of %s)"):format(table.concat(parts, ", "), plural.count(iters, "input"))
+  return ("%s (of %s)"):format(table.concat(parts, ", "), String.counted(iters, "input"))
 end
 
 --- Builds the input `values` replay to, with the draws that built it.
@@ -670,7 +669,7 @@ local function run(p: Fuzz.Property): integer
     if seconds > 0 and i > MIN_BUDGETED and Clock.monotonic_ns() - began_ns >= Clock.seconds(seconds) then
       iters = i - 1
       print(("%s%s drew %d of %d %s in %d s (FUZZ_SECONDS=%d): each cost about %.2f s"):
-          format(STOPPED_PREFIX, p.name, iters, asked, plural.noun(asked, "input"), (Clock.monotonic_ns() - began_ns) // Clock.seconds(1),
+          format(STOPPED_PREFIX, p.name, iters, asked, (if asked == 1 then "input" else "inputs" end), (Clock.monotonic_ns() - began_ns) // Clock.seconds(1),
             seconds, (Clock.monotonic_ns() - began_ns) / 1e9 / iters))
       break
     end
@@ -708,7 +707,7 @@ local function run(p: Fuzz.Property): integer
         error(("fuzz %s: %s: flaky: failed (%s), then held when the same input was " ..
           "checked again; it depends on something beside its input\n" ..
           "  input (%s, hex): %s\n  %s\n  reproduce: %s"):
-            format(p.name, where, reason, plural.count(#input, "byte"), shown(input),
+            format(p.name, where, reason, String.counted(#input, "byte"), shown(input),
               if kept ~= nil then ("kept at " .. kept) else "not kept: the property names no dir" end,
               reproduce), 0)
       end
@@ -745,8 +744,8 @@ local function run(p: Fuzz.Property): integer
         "  shrunk in %s from %s and %s to %s and %s; input (hex): %s%s\n" ..
         "  %s\n  reproduce: %s\n" ..
         "  once fixed, keep it as a regression case: %s"):
-          format(p.name, where, reason, plural.count(tries, "try", "tries"), plural.count(#draws, "draw"),
-            plural.count(#input, "byte"), plural.count(#smallest, "draw"), plural.count(#small, "byte"), shown(small), flaky,
+          format(p.name, where, reason, String.counted(tries, "try", "tries"), String.counted(#draws, "draw"),
+            String.counted(#input, "byte"), String.counted(#smallest, "draw"), String.counted(#small, "byte"), shown(small), flaky,
             if kept ~= nil then ("kept at " .. kept) else "not kept: the property names no dir" end,
             reproduce,
             if kept ~= nil then ("mkdir -p %s && cp %s %s"):format(corpus_of(p), kept, keep) else
@@ -772,7 +771,7 @@ local function run(p: Fuzz.Property): integer
   end
   if starving.runs > 0 then
     print(("fuzz %s: starved: %s, %d with an allocation refused, %d ended by a refusal"):
-        format(p.name, plural.count(starving.runs, "run"), starving.refused, starving.raised))
+        format(p.name, String.counted(starving.runs, "run"), starving.refused, starving.raised))
   end
   local line = label_counts(counts, named, iters)
   if line ~= nil then print(("fuzz %s: labels: %s"):format(p.name, line)) end
@@ -791,7 +790,7 @@ local function run(p: Fuzz.Property): integer
       if reached_by < label.share * iters then
         if kept ~= nil then local _, _ = Fs.remove(kept) end
         error(("fuzz %s: seed=%d: %s of %d reached %q, under the share of %g the property " ..
-          "requires: its inputs exercise it too rarely"):format(p.name, seed, plural.count(reached_by, "input"), iters, name,
+          "requires: its inputs exercise it too rarely"):format(p.name, seed, String.counted(reached_by, "input"), iters, name,
             label.share), 0)
       end
     end

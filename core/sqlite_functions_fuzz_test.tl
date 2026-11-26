@@ -8,12 +8,12 @@
 --- a bound list back. Each is total: it returns a
 --- value or NULL, or fails its statement with a message, and never
 --- takes the process down. What an encoder writes, its decoder reads
---- back. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
+--- back. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (cosmic/fuzz.tl).
 ---
 --- SQLite is fuzzed upstream, but not these files of ext/misc/: the
 --- nightly run on the checked core is what holds their C to its bounds.
 
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Sqlite = require("cosmic.sqlite")
 
 local handle = assert(Sqlite.memory())

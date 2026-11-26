@@ -4,7 +4,7 @@
 --- as Lua and run with every read of a narrowed place checked ([`Programs.execute`]), and must run to its end, or to an
 --- `assert` that failed, with no `fact violated` and no nil operand. A program the checker refuses is not run: most of the
 --- draws are refused, for the narrowing of a field the new grammar declares `mut` is not one. `FUZZ_SEED` and `FUZZ_ITERS`
---- pick the inputs (build/fuzz/init.tl). A few draws run by default so that the test fits a few seconds; the nightly fuzz
+--- pick the inputs (cosmic/fuzz.tl). A few draws run by default so that the test fits a few seconds; the nightly fuzz
 --- workflow draws from a seed of its own.
 ---
 --- Fixed fields get their own generator: records whose paths (`r.a`, `r.leaf.n`) are tested, read, copied and
@@ -16,7 +16,7 @@
 --- The programs of the corpus the checker takes also run in a real `cosmic test --check-types` run, their Lua written by
 --- the tool and not by [`Programs.execute`] ([`build.fact_hook_tool_test`]).
 local Env = require("cosmic.env")
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Programs = require("lang.check_programs")
 local Test = require("cosmic.test")
 local adapt = require("lang.check_drawn")

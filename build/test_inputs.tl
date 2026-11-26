@@ -9,8 +9,8 @@
 ---   (a `local type` require of a module is no edge: see `closure`), as
 ---   the build's module graph has them, or the declaration file of one
 ---   only a declaration covers;
---- - every fuzz corpus (`testdata/fuzz/`, where [`build.fuzz`] looks),
----   when the closure holds [`build.fuzz`];
+--- - every fuzz corpus (`testdata/fuzz/`, where [`cosmic.fuzz`] looks),
+---   when the closure holds [`cosmic.fuzz`];
 --- - the tree's public guides (`doc/guides/*.md`), for a module that
 ---   declares `store_text`, as modules of its closure; and
 --- - a pinned environment, `pinned_env`: what the fuzzer reads of it, and what a process of this program needs.
@@ -171,14 +171,14 @@ function test_inputs.compiler_sought(closure: {string}, lua?: boolean): {string}
   return out
 end
 
---- Where [`build.fuzz`] keeps the corpus of every property.
+--- Where [`cosmic.fuzz`] keeps the corpus of every property.
 local corpora <const> = "testdata/fuzz/"
 
 --- Every module `m` requires, directly or not, and itself, that `by_path`
 --- holds -- a module the binary carries rather than the tree is no file
 --- of it -- as the files they are read from, sorted; and the declaration
 --- file of each it requires that only `declarations`, the tree's
---- declaration files by import path, covers. Whether [`build.fuzz`]
+--- declaration files by import path, covers. Whether [`cosmic.fuzz`]
 --- is among them rides along, and so do the modules' names, sorted.
 ---
 --- `type_only` names the edges not followed (importer path, then required
@@ -225,7 +225,7 @@ local function closure(m: Module, by_path: {string:Module},
       for _, name in ipairs(here.requires) do
         local other = by_path[name]
         local declared = declarations[name]
-        if name == "build.fuzz" then fuzzes = true end
+        if name == "cosmic.fuzz" then fuzzes = true end
         if erased[name] then
           -- Loads nothing, so no part of the closure.
         elseif other ~= nil and seen[name] ~= true then

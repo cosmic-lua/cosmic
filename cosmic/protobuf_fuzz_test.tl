@@ -1,9 +1,9 @@
 --- Fuzz properties for [`cosmic.protobuf`], whose decoder takes the bytes anyone sends: it never raises, it
 --- returns a message or a reason and never both, every read of what it accepts returns a value or says why, and
 --- what it accepts is written back and read again as the same fields; [`Protobuf.describe`] is as total, and
---- succeeds where decode does. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
+--- succeeds where decode does. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (cosmic/fuzz.tl).
 
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Protobuf = require("cosmic.protobuf")
 
 --- Integers at the edges of the format's sizes.

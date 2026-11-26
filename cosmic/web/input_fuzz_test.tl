@@ -3,7 +3,7 @@
 --- accepts or a refusal that lists its errors; a Content-Type header of
 --- any bytes parses to something total.
 
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Input = require("cosmic.web.input")
 local Shape = require("cosmic.shape")
 local Nodes = require("build.shape_nodes")

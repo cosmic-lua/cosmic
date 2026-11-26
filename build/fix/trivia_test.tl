@@ -1,7 +1,7 @@
 --- [`build.fix.trivia`] over tiny sources: the items in order, the line breaks before each, trailing and own-line
 --- comments, the `#!` line, and a round trip over the lexer's fuzz sources that writes the stream back from its
 --- items and gaps.
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Lexer = require("lang.lexer")
 local Sources = require("build.lexer_sources")
 local Trivia = require("build.fix.trivia")

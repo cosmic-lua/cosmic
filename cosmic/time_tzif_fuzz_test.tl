@@ -6,10 +6,10 @@
 --- transitions and types reads back as what was drawn. Inputs are
 --- mutations of the zones the binary carries, of files written here,
 --- and arbitrary bytes. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
---- (build/fuzz/init.tl).
+--- (cosmic/fuzz.tl).
 
 local Array = require("cosmic.array")
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Store = require("cosmic.store")
 local Clock = require("cosmic.clock")
 local Time = require("cosmic.time")

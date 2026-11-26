@@ -73,7 +73,7 @@ local function test_a_project_cannot_shadow_a_raw_value_wrapper(tmp: string)
   local result = assert(Child.run(started.argv, started.options))
   assert(result.code == 0, tostring(result.stderr))
   local out = assert(result.stdout)
-  for _, name in ipairs({ "build.artifact", "build.fuzz", "cosmic.store" }) do
+  for _, name in ipairs({ "build.artifact", "cosmic.fuzz", "cosmic.store" }) do
     assert(out:find("wrapper " .. name .. "\n", 1, true), name .. " not found: " .. out)
   end
 end

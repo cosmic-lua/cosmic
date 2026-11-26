@@ -3,7 +3,7 @@
 --- is total on any path, and every redirect it makes leads to a path of
 --- one leading "/" that is not itself sent on again.
 
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Router = require("cosmic.web.router")
 local Server = require("cosmic.http.server")
 local Stream = require("cosmic.stream")

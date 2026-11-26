@@ -2,9 +2,9 @@
 --- targets of a policy and the hosts of requests the program sends: no text
 --- raises it; a target it accepts reads again as itself; and every accepted
 --- host but "*" is one the CONNECT and SOCKS readers carry unchanged.
---- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
+--- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (cosmic/fuzz.tl).
 
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Grant = require("cosmic.relay.grant")
 local Wire = require("cosmic.internal.relay_wire")
 

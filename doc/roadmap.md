@@ -96,7 +96,7 @@ defines the target; once something ships, it leaves this file.
 ## untrusted input
 
 design.md promises that the parsers facing untrusted input are fuzzed.
-[`build.fuzz`] runs every `*_fuzz_test.tl` property on every `cosmic test`, and
+[`cosmic.fuzz`] runs every `*_fuzz_test.tl` property on every `cosmic test`, and
 `fuzz.yml` reruns them deep on the checked core each week.
 curl, c-ares and yyjson are fuzzed upstream; record that as their evidence
 rather than fuzzing them here. [`core/json.c`]'s own walk into Lua values and
@@ -547,7 +547,6 @@ four-producer provenance join.
 [`Archive.create`]: ../cosmic/archive.tl
 [`bin/vendor`]: ../bin/vendor
 [`bin/zig`]: ../bin/zig
-[`build.fuzz`]: ../build/fuzz/init.tl
 [`build/archive.tl`]: ../build/archive.tl
 [`build/archive_test.tl`]: ../build/archive_test.tl
 [`build/c/tree.tl`]: ../build/c/tree.tl
@@ -571,6 +570,7 @@ four-producer provenance join.
 [`cosmic.coverage`]: ../cosmic/coverage.tl
 [`cosmic.dns`]: ../cosmic/dns.tl
 [`cosmic.fs`]: ../cosmic/fs.tl
+[`cosmic.fuzz`]: ../cosmic/fuzz.tl
 [`cosmic.html`]: ../cosmic/html.tl
 [`cosmic.http.message`]: ../cosmic/http/message.tl
 [`cosmic.http.server`]: ../cosmic/http/server.tl
