@@ -639,7 +639,7 @@ never given).
 The platform job's `include` is an expression that chooses a list by the
 kind of run (linux-x86_64 for a draft pull request, and macOS's suite beside it for one that is not; for the
 queue every leg but macOS as its suite and its product, linux-x86_64's
-format check and macOS's suite; all four for a push to main and otherwise),
+format check and macOS's suite; all four for a push to main, the daily run and a manual run of main or with `macos`; every leg but macOS for another manual run),
 each listing every job: an `include` entry naming a leg
 no dimension holds would start that leg anyway (GitHub adds an entry that
 fits no combination as one of its own). Each entry names the job

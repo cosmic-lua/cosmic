@@ -848,9 +848,11 @@
         # Once per vendor part and leg, not per core change, which the
         # cache cannot hold, where assemble passed and main found no entry
         # of this vendor part; and on the weekly run, which built cold. A
-        # suite job (macOS's on a push) builds only its boot, and saves it
-        # under `<vendor>boot-`, so it does not stand in for the whole
-        # leg's entry, which the daily run still saves.
+        # suite job builds only its boot, and would save it under
+        # `<vendor>boot-`, so it does not stand in for the whole leg's
+        # entry. No saving run has a suite job now: main's push runs
+        # macOS's whole leg, whose `<vendor>full-` entry the queue's macOS
+        # suite restores first.
         {
           name: "save zig build outputs",
           if: "always() && (steps.assemble.outcome == 'success' || matrix.part == 'suite' && steps.boot.outcome == 'success') && env.COSMIC_CI_SAVES == 'true' && (github.event.schedule == '41 3 * * 0' || !startsWith(steps.zig-cache-restore.outputs.cache-matched-key, format('{0}full-', steps.names.outputs.vendor))) && (matrix.part != 'suite' || !startsWith(steps.zig-cache-restore.outputs.cache-matched-key, format('{0}boot-', steps.names.outputs.vendor)))",
