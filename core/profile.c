@@ -12,6 +12,7 @@
 #include <fcntl.h>
 #include <pthread.h>
 #include <signal.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -21,10 +22,12 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "check.h"
 #include "hook.h"
 #include "lauxlib.h"
 #include "lstate.h"
 #include "memory.h"
+#include "syscalls.h"
 
 /* The thread a resume runs, NULL while only the main thread runs:
  * patch/lua/36-running-thread-declared.txt defines it, and this declares
@@ -34,7 +37,11 @@ extern lua_State *volatile luaD_running;
 /* The most frames of a stack a sample records, from the innermost, and
  * room for the C function and the line after them. */
 #define PROFILE_DEPTH 128
-#define PROFILE_SLOTS (PROFILE_DEPTH + 2)
+/* The most open spans a sample and a total name; one opened deeper is
+ * counted, and its time goes to the span it stands in. */
+#define SPAN_DEPTH 32
+#define PROFILE_SLOTS (SPAN_DEPTH + PROFILE_DEPTH + 2)
+#define SPAN_SLOTS (1u << 12)
 /* The slots of the tables of texts, of stacks and of C function names,
  * powers of two. A sample that finds either of the first two half full
  * is counted in `dropped`. */
@@ -68,6 +75,29 @@ struct name {
   char *name;
 };
 
+/* A span open now: its name's index in `texts`, and the clocks when it
+ * opened. */
+struct open_span {
+  uint32_t id;
+  int64_t wall_ns;
+  int64_t cpu_ns;
+};
+
+/* The total of the spans of one path: the names of the spans it stood in
+ * and its own, from the outermost. */
+struct span_total {
+  uint32_t ids[SPAN_DEPTH];
+  uint32_t depth;
+  unsigned long count;
+  int64_t wall_ns;
+  int64_t cpu_ns;
+};
+
+static struct open_span open_spans[SPAN_DEPTH];
+/* How many spans are open, those past SPAN_DEPTH included. */
+static int open_depth;
+static struct span_total *span_totals;
+
 static struct text *texts;
 static size_t texts_used;
 static struct stack *stacks;
@@ -89,6 +119,9 @@ static int timer_signal;
 static int hz = DEFAULT_HZ;
 static const char *clock_name = "cpu";
 static char *command;
+/* The profile's variables for a child, `NAME=value` each. */
+static char *child_entries[3];
+static size_t child_entry_count;
 /* The process the profile is of: a child that forked from it and exits
  * through the same handler writes nothing, rather than a copy of it. */
 static pid_t profiled;
@@ -302,11 +335,17 @@ static void record (lua_State *L, unsigned long us, const void *c) {
     }
     ids[depth++] = id;
   }
-  /* Outermost first. */
+  /* Outermost first, under the open spans. */
   for (uint32_t i = 0; i < depth / 2; i++) {
     uint32_t t = ids[i];
     ids[i] = ids[depth - 1 - i];
     ids[depth - 1 - i] = t;
+  }
+  uint32_t spans = open_depth < SPAN_DEPTH ? (uint32_t)open_depth : SPAN_DEPTH;
+  if (spans > 0) {
+    memmove(ids + spans, ids, depth * sizeof *ids);
+    for (uint32_t i = 0; i < spans; i++) ids[i] = open_spans[i].id;
+    depth += spans;
   }
   if (c != NULL) {
     const char *name = c_name(L, c);
@@ -341,6 +380,75 @@ void cosmic_profile_sample (lua_State *L) {
   sampled++;
   if (c > 0) record(L, (unsigned long)c, in_c);
   if (lua > 0) record(L, (unsigned long)lua, NULL);
+}
+
+/* Adds the span at the top of `open_spans` to its path's total. */
+static void total_span (const struct open_span *span, uint32_t depth) {
+  int64_t wall = now_ns(CLOCK_MONOTONIC) - span->wall_ns;
+  int64_t cpu = now_ns(CLOCK_THREAD_CPUTIME_ID) - span->cpu_ns;
+  uint32_t ids[SPAN_DEPTH];
+  for (uint32_t i = 0; i < depth; i++) ids[i] = open_spans[i].id;
+  uint64_t h = fnv(1469598103934665603u, ids, depth * sizeof *ids);
+  size_t at = (size_t)h & (SPAN_SLOTS - 1);
+  for (size_t tries = 0; tries < SPAN_SLOTS; tries++) {
+    struct span_total *t = &span_totals[at];
+    if (t->depth == 0) {
+      memcpy(t->ids, ids, depth * sizeof *ids);
+      t->depth = depth;
+    }
+    if (t->depth == depth && memcmp(t->ids, ids, depth * sizeof *ids) == 0) {
+      t->count++;
+      t->wall_ns += wall;
+      t->cpu_ns += cpu;
+      return;
+    }
+    at = (at + 1) & (SPAN_SLOTS - 1);
+  }
+}
+
+/* Closes the open spans down to `depth` of them. */
+static void close_spans (int depth) {
+  while (open_depth > depth && open_depth > 0) {
+    open_depth--;
+    if (open_depth < SPAN_DEPTH) total_span(&open_spans[open_depth], (uint32_t)open_depth + 1);
+  }
+}
+
+COSMIC_SYSCALL(profile_span_open, 1) {
+  const char *name = luaL_checkstring(L, 1);
+  if (span_totals == NULL) {
+    lua_pushinteger(L, 0);
+    return 1;
+  }
+  if (open_depth < SPAN_DEPTH) {
+    char text[512];
+    snprintf(text, sizeof text, "[%s]", name);
+    plain(text);
+    uint32_t id = text_id(text);
+    if (id == UINT32_MAX) {
+      lua_pushinteger(L, 0);
+      return 1;
+    }
+    open_spans[open_depth].id = id;
+    open_spans[open_depth].wall_ns = now_ns(CLOCK_MONOTONIC);
+    open_spans[open_depth].cpu_ns = now_ns(CLOCK_THREAD_CPUTIME_ID);
+  }
+  open_depth++;
+  lua_pushinteger(L, open_depth);
+  return 1;
+}
+
+COSMIC_SYSCALL(profile_span_close, 1) {
+  lua_Integer token = luaL_checkinteger(L, 1);
+  bool closed = span_totals != NULL && token > 0 && token <= open_depth;
+  if (closed) close_spans((int)token - 1);
+  lua_pushboolean(L, closed);
+  return 1;
+}
+
+size_t cosmic_profile_entries (char *const **entries) {
+  *entries = child_entries;
+  return out_fd >= 0 || profiled == getpid() ? child_entry_count : 0;
 }
 
 int cosmic_profile_signal (void) {
@@ -432,6 +540,26 @@ void cosmic_profile_prepare (int argc, char **argv) {
     if (out_fd < 0 && errno != EEXIST) return;
   }
   if (out_fd < 0) return;
+  /* Absolute, since a child may start in another directory. */
+  char absolute[4096];
+  char here[4096];
+  const char *named = dir;
+  if (dir[0] != '/' && getcwd(here, sizeof here) != NULL) {
+    int made = snprintf(absolute, sizeof absolute, "%s/%s", here, dir);
+    if (made > 0 && made < (int)sizeof absolute) named = absolute;
+  }
+  const char *values[3][2] = {{"COSMIC_PROFILE", named}, {"COSMIC_PROFILE_CLOCK", clock_name},
+    {"COSMIC_PROFILE_HZ", NULL}};
+  char rate[32];
+  snprintf(rate, sizeof rate, "%d", hz);
+  values[2][1] = rate;
+  for (size_t i = 0; i < 3; i++) {
+    size_t size = strlen(values[i][0]) + 1 + strlen(values[i][1]) + 1;
+    char *entry = cosmic_malloc(size);
+    if (entry == NULL) break;
+    snprintf(entry, size, "%s=%s", values[i][0], values[i][1]);
+    child_entries[child_entry_count++] = entry;
+  }
   size_t n = 1;
   for (int i = 0; i < argc; i++) n += strlen(argv[i]) + 1;
   command = cosmic_malloc(n);
@@ -473,6 +601,15 @@ void cosmic_profile_report (void) {
   fprintf(f, "command %s\n", command != NULL ? command : "");
   fprintf(f, "total wall_ns %lld cpu_ns %lld sampled_us %lu dropped_us %lu other_us %lu\n", (long long)wall,
           (long long)cpu, sampled_us, dropped, other_total + (unsigned long)ticks_other);
+  /* A span open still, a phase the process ended in, closes as it exits. */
+  if (span_totals != NULL) close_spans(0);
+  for (size_t i = 0; span_totals != NULL && i < SPAN_SLOTS; i++) {
+    const struct span_total *t = &span_totals[i];
+    if (t->depth == 0) continue;
+    fprintf(f, "span ");
+    for (uint32_t k = 0; k < t->depth; k++) fprintf(f, "%s%s", k == 0 ? "" : ";", texts[t->ids[k]].text);
+    fprintf(f, " %lu %lld %lld\n", t->count, (long long)t->wall_ns, (long long)t->cpu_ns);
+  }
   for (size_t i = 0; stacks != NULL && i < STACK_SLOTS; i++) {
     const struct stack *s = &stacks[i];
     if (s->ids == NULL) continue;
@@ -491,13 +628,16 @@ void cosmic_profile_install (lua_State *L) {
   texts = cosmic_calloc(TEXT_SLOTS, sizeof *texts);
   stacks = cosmic_calloc(STACK_SLOTS, sizeof *stacks);
   names = cosmic_calloc(NAME_SLOTS, sizeof *names);
-  if (texts == NULL || stacks == NULL || names == NULL) {
+  span_totals = cosmic_calloc(SPAN_SLOTS, sizeof *span_totals);
+  if (texts == NULL || stacks == NULL || names == NULL || span_totals == NULL) {
     cosmic_free(texts);
     cosmic_free(stacks);
     cosmic_free(names);
+    cosmic_free(span_totals);
     texts = NULL;
     stacks = NULL;
     names = NULL;
+    span_totals = NULL;
     return;
   }
   main_state = L;
