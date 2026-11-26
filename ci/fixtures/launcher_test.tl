@@ -28,6 +28,9 @@ Test.policy{
   },
   env = { "COSMIC_FIXTURE_TARGET" },
   profiles = { "system" },
+  requires = {
+    "env:COSMIC_FIXTURE_TARGET",
+  },
 }
 
 local type Context = LauncherFixture.Context
