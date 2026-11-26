@@ -583,3 +583,95 @@ local function test_flat_of_many_nested_matches_prints_only_the_distinct_leaves(
   for _ in ran.out:gmatch("\n") do lines = lines + 1 end
   assert(ran.code == 0 and lines == 200, lines)
 end
+
+local LINES <const> = '{"user": {"name": "ann", "id": 1}}\n\n{"user": {"id": 2}}\r\n' ..
+  '{"user": {"name": "bo\\nb", "id": 3}, "tags": ["a", "b"]}\n{"user": null}\n[1]\n'
+
+--- `--lines` looks the path up in each line, and prints what each holds
+--- in the lines' order, a value to a line; a line without it prints
+--- nothing.
+local function test_lines_prints_each_lines_value(tmp: string)
+  local names = run({ "--lines", "$.user.name", file(tmp, LINES) })
+  assert(names.code == 0 and names.err == "", names.err)
+  assert(names.out == '"ann"\n"bo\\nb"\n', names.out)
+  local raw = run({ "--lines", "-r", "$.user.name", file(tmp, LINES) })
+  assert(raw.out == "ann\nbo\nb\n", raw.out)
+  -- A whole value prints compact; a `null` is a value.
+  local users = run({ "--lines", "$.user", file(tmp, LINES) })
+  assert(users.out == '{"id":1,"name":"ann"}\n{"id":2}\n{"id":3,"name":"bo\\nb"}\nnull\n', users.out)
+  local first = run({ "--lines", "$[0]", file(tmp, LINES) })
+  assert(first.out == "1\n", first.out)
+  -- A step from the end decodes each line whole.
+  local last = run({ "--lines", "$.tags[-1]", file(tmp, LINES) })
+  assert(last.code == 0 and last.out == '"b"\n', last.out)
+  -- Standard input is read the same.
+  local piped = run({ "--lines", "-r", "$.user.id", "-" }, LINES)
+  assert(piped.out == "1\n2\n3\n", piped.out)
+end
+
+--- A query of many values prints each line's matches as it prints them
+--- in one document.
+local function test_lines_prints_each_match_of_a_query_of_many(tmp: string)
+  local tags = run({ "--lines", "$.tags[*]", file(tmp, LINES) })
+  assert(tags.code == 0 and tags.out == '$.tags[0] = "a"\n$.tags[1] = "b"\n', tags.out)
+  local bare = run({ "--lines", "-r", "$..id", file(tmp, LINES) })
+  assert(bare.out == "1\n2\n3\n", bare.out)
+end
+
+--- `--lines` exits 1 when no line holds the path, 0 for `--exists` when
+--- one does, 5 naming a line that is not JSON, and 2 for a mode it does
+--- not take.
+local function test_lines_exits_by_what_the_lines_hold(tmp: string)
+  local none = run({ "--lines", "$.nope", file(tmp, LINES) })
+  assert(none.code == 1 and none.out == "" and none.err:find("$.nope: no match in any line", 1, true) ~= nil, none.err)
+  assert(run({ "--lines", "--exists", "$.user.name", file(tmp, LINES) }).code == 0)
+  local absent = run({ "--lines", "--exists", "$.nope", file(tmp, LINES) })
+  assert(absent.code == 1 and absent.err == "", absent.err)
+  local bad = run({ "--lines", "$.a", file(tmp, '{"a": 1}\n{"a": tru}\n') })
+  assert(bad.code == 5 and bad.err:find("line 2", 1, true) ~= nil, bad.err)
+  local keys = run({ "--lines", "--keys", file(tmp, LINES) })
+  assert(keys.code == 2 and keys.err:find("--lines", 1, true) ~= nil, keys.err)
+  -- Many lines go out in more than one write, in order.
+  local parts: mut {string} = {}
+  for i = 1, 20000 do parts[i] = '{"n": ' .. tostring(i) .. '}' end
+  local many = run({ "--lines", "$.n", file(tmp, table.concat(parts, "\n")) })
+  assert(many.code == 0 and select(2, many.out:gsub("\n", "")) == 20000, many.err)
+  assert(many.out:sub(-7) == "\n20000\n", many.out:sub(-7))
+  local counted: mut {string} = {}
+  for i = 1, 20000 do counted[i] = tostring(i) end
+  assert(many.out == table.concat(counted, "\n") .. "\n", "every write in order")
+end
+
+--- `--exists` stops at the first line that holds the path; a bad line
+--- after output prints what came before it, then the complaint naming
+--- standard input; no lines is no match.
+local function test_lines_stops_where_it_can(tmp: string)
+  local text = '{"a": 1}\n' .. string.rep('{"b": 2}\n', 5000) .. '{"a": tru}\n'
+  assert(run({ "--lines", "--exists", "$.a", file(tmp, text) }).code == 0)
+  local bad = run({ "--lines", "$.a", "-" }, text)
+  assert(bad.code == 5 and bad.out == "1\n", bad.out)
+  assert(bad.err:find("standard input: json: invalid JSON at line 5002", 1, true) ~= nil, bad.err)
+  local empty = run({ "--lines", "$.a", file(tmp, "") })
+  assert(empty.code == 1 and empty.out == "" and empty.err:find("no match in any line", 1, true) ~= nil, empty.err)
+end
+
+--- A write that fails ends the run with 5, in the middle or at the end.
+local function test_lines_reports_a_failed_write(tmp: string)
+  local parts: mut {string} = {}
+  for i = 1, 9000 do parts[i] = '{"n": ' .. tostring(i) .. '}' end
+  local path = file(tmp, table.concat(parts, "\n"))
+  for _, fail_at in ipairs({ 1, 3 }) do
+    local writes = 0
+    local err = ""
+    local code = json.run(argv_of({ "--lines", "$.n", path }), {
+      out = function(_: string): boolean, string
+        writes = writes + 1
+        if writes == fail_at then return false, "disk full" end
+        return true, ""
+      end,
+      err = function(line: string) err = err .. line .. "\n" end,
+      stdin = function(): string?, string return nil, "none" end,
+    })
+    assert(code == 5 and writes == fail_at and err:find("disk full", 1, true) ~= nil, ("%d: %d %s"):format(fail_at, code, err))
+  end
+end

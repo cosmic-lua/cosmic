@@ -705,6 +705,52 @@ local function test_big_numbers_as_strings()
   assert(encoded(v["id"]) == '"18446744073709551615"', "it encodes back as a string")
 end
 
+-- The next values `lines` reads, raising where it reads none.
+local function batch(lines: Json.LineReader, most: integer): {Json.Value}
+  local values, why = lines:read(most)
+  if values == nil or values == false then error("no values: " .. tostring(why)) end
+  return values
+end
+
+--- A line reader reads some lines at a time, as decode_lines reads them,
+--- numbering a failure's line across reads, and stops at false.
+local function test_line_reader_reads_some_lines_at_a_time()
+  local text = '1\n\n{"a": 2}\r\n3\n4\n'
+  local lines = assert(Json.line_reader(text, { null_value = Json.null }))
+  local first = batch(lines, 2)
+  assert(#first == 2 and first[1] == 1, "two values")
+  local rest = batch(lines, 10)
+  assert(#rest == 2 and rest[1] == 3 and rest[2] == 4, "the rest")
+  local ended, _ = lines:read(10)
+  local still, _ = lines:read(1)
+  assert(ended == false and still == false, "then false")
+  local bad = assert(Json.line_reader('1\n2\n\n{"a": tru}\n5'))
+  assert(#batch(bad, 2) == 2)
+  local _, why = bad:read(2)
+  assert(tostring(why) == "json: invalid JSON at line 4, column 7: invalid literal, expected 'true'", why)
+  local _, again = bad:read(2)
+  assert(again == why, "the same failure again")
+  -- `only` is checked when the reader is made; a duplicate key under it
+  -- names its line.
+  local _, refused = Json.line_reader("1", { only = { { 0 } } })
+  assert(refused ~= nil, "a step of 0 is refused")
+  local twice = assert(Json.line_reader('{"a": 1}\n{"b": 1}\n{"a": 1, "a": 2}', { only = { { "a" } } }))
+  local _, dup = twice:read(5)
+  assert(tostring(dup):match("^json: duplicate key at line 3, "), dup)
+  local kept = assert(Json.line_reader('{"a": 1, "a": 2}', { only = { { "a" } }, duplicate_keys = true }))
+  local values = batch(kept, 5)
+  assert(assert(Json.to_object(values[1]))["a"] == 2, "the last stands")
+  Test.raises(function() local _, _ = kept:read(0) end, "read at least one value")
+end
+
+--- A line of only \v, \f or \r is blank; a line of U+00A0 is not.
+local function test_json_lines_blank_is_ascii_space_alone()
+  local values = assert(Json.decode_lines("1\n\v\n\f\n\r\n \t\n2"))
+  assert(#values == 2 and values[2] == 2, #values)
+  local _, nbsp = Json.decode_lines("1\n\u{a0}")
+  assert(tostring(nbsp):match("^json: invalid JSON at line 2"), nbsp)
+end
+
 local function test_json_lines()
   local values, err = Json.decode_lines('{"a": 1}\n[2]\r\n\n  \n"three"\nnull\n4')
   assert(values ~= nil, err)
@@ -733,6 +779,13 @@ local function test_json_lines()
   assert(tostring(comment) == "json: invalid JSON at line 2: the line holds no value", comment)
   local kept, _ = Json.decode_lines("null\n1", { null_value = Json.null })
   assert(kept ~= nil and kept[1] == Json.null, "options apply to each line")
+  -- Each line's repaired copy (a lone surrogate) goes with its line, and
+  -- a value of every later line is still read.
+  local many: mut {string} = {}
+  for i = 1, 3000 do many[i] = if i % 2 == 0 then '["\\ud83d"]' else tostring(i) end end
+  local read = assert(Json.decode_lines(table.concat(many, "\n"), { lone_surrogates = true }))
+  assert(#read == 3000 and read[2999] == 2999, #read)
+  assert(assert(Json.to_array(read[3000]))[1] == "\u{FFFD}")
 end
 
 --- `hash_comments` reads a `#` line comment, in RFC 8259 JSON and in
