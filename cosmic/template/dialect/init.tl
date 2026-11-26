@@ -13,6 +13,7 @@
 --- matching prefix.
 --- @public
 
+local Failure = require("cosmic.failure")
 local base = require("cosmic.template.dialect.html")
 local htmx = require("cosmic.template.dialect.htmx")
 local types = require("cosmic.template.types")
@@ -43,7 +44,7 @@ local record Dialect
   --- The table for the always-on dialect and the dialects `names` in
   --- `registry`, or nil and why when a name is unknown or two of the named
   --- dialects give one attribute different rules.
-  resolve: function(names: {string}, registry: {string: types.Def}): Table?, string
+  resolve: function(names: {string}, registry: {string: types.Def}): (Table) | (nil, Failure)
 end
 
 local function classify(self: Dialect.Table, attr: string): Rule?
@@ -146,17 +147,17 @@ end
 --- @param names {string} The dialects a template uses, in order
 --- @param registry {string: types.Def} Where their data is found by name
 --- @return Dialect.Table|nil The merged rules
---- @return string The reason, on failure
-function Dialect.resolve(names: {string}, registry: {string: types.Def}): Dialect.Table?, string
+--- @return Failure The reason, on failure
+function Dialect.resolve(names: {string}, registry: {string: types.Def}): (Dialect.Table) | (nil, Failure)
   local defs: mut {types.Def} = { base }
   for _, name in ipairs(names) do
     local def = registry[name]
     if def == nil then
-      return nil, "unknown dialect '" .. name .. "'"
+      return nil, Failure.new("unknown dialect '" .. name .. "'")
     end
     local bad = unlockable(def)
     if bad ~= "" then
-      return nil, bad
+      return nil, Failure.new(bad)
     end
     defs[#defs + 1] = def
   end
@@ -174,7 +175,7 @@ function Dialect.resolve(names: {string}, registry: {string: types.Def}): Dialec
       if prior ~= nil then
         local holder = assert(owner[attr], "a rule is set with its owner")
         if holder ~= base.name and not same(prior, rule) then
-          return nil, "dialects '" .. holder .. "' and '" .. def.name .. "' give '" .. attr .. "' different rules"
+          return nil, Failure.new("dialects '" .. holder .. "' and '" .. def.name .. "' give '" .. attr .. "' different rules")
         end
       end
       exact[attr] = rule
@@ -201,7 +202,7 @@ function Dialect.resolve(names: {string}, registry: {string: types.Def}): Dialec
   end)
   local merged: Dialect.Table = { classify = classify, exact = exact, prefixes = prefixes, families = families,
     known = {}, plain = {} }
-  return merged, ""
+  return merged
 end
 
 Dialect.registry = { htmx = htmx }
