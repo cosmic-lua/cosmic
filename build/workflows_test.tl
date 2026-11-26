@@ -2312,10 +2312,9 @@ local function test_the_queue_runs_the_checked_suite_in_three_shares()
 end
 
 --- The gate (`ci`, the one check a ruleset requires) needs every job and
---- fails on any that failed or was cancelled. A pull request's cancelled
---- run, which a newer run replaced, skips it instead of failing a head that
---- is no longer checked. The checked and narrowing
---- jobs read as passed on a pull request, which skips them. On every
+--- fails on any that failed or was cancelled, but for a pull request's
+--- cancelled run, which skips it. The checked and narrowing jobs read as
+--- passed on a pull request, which skips them. On every
 --- other run it compares the legs' products: the queue's and a push's three, the
 --- scheduled and a manual run's four, which prerelease.yml publishes from
 --- alone.
