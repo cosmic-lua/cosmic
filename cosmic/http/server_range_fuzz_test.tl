@@ -5,9 +5,9 @@
 --- range, as a reading of the grammar written apart from the module's
 --- says; and an entity tag matches itself, weak or strong, in any list
 --- of well-formed tags. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
---- (build/fuzz/init.tl).
+--- (cosmic/fuzz.tl).
 
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Server = require("cosmic.http.server")
 
 local UNITS <const> = { "bytes", "bytes", "bytes", "Bytes", "BYTES", "items", "", "bytes " }

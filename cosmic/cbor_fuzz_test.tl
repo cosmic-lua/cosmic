@@ -1,10 +1,10 @@
 --- Fuzz properties for [`cosmic.cbor`]: [`Cbor.decode`] is total,
 --- handling whatever bytes it is handed and never raising, and what
 --- it reads is written back as bytes that read the same.
---- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
+--- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (cosmic/fuzz.tl).
 
 local Cbor = require("cosmic.cbor")
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 
 --- A map of each kind of item, to mutate.
 local seed <const> = "\xa6\x01\x02\x20\x58\x20" .. ("\x11"):rep(32) ..

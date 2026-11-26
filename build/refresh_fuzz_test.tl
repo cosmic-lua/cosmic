@@ -2,12 +2,12 @@
 --- bundle ([`roots.parse`]), the date curl names it by, and PyPI's
 --- description of tzdata. Each is total -- a refusal by
 --- name, never a raise -- and reads well-formed input back as written.
---- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
+--- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (cosmic/fuzz.tl).
 
 local Array = require("cosmic.array")
 local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Http = require("cosmic.http")
 local Json = require("cosmic.json")
 local Test = require("cosmic.test")

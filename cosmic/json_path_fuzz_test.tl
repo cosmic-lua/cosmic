@@ -3,10 +3,10 @@
 --- byte inside the text when they refuse it; `from_pointer` is total
 --- too; and steps written as a normalized path or a JSON Pointer read
 --- back as the same steps, reaching the same value. `FUZZ_SEED` and
---- `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
+--- `FUZZ_ITERS` pick the inputs (cosmic/fuzz.tl).
 
 local Array = require("cosmic.array")
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Json = require("cosmic.json")
 local type Failure = require("cosmic.failure")
 
