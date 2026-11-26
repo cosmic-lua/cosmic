@@ -166,7 +166,7 @@ local function test_a_raise_names_the_module()
 end
 
 local function test_waiting_outside_a_task_raises()
-  Test.raises(function() Poll.spawn(function() end) end, "outside Poll.run")
+  Test.raises(function() Poll.spawn(function() end) end, "outside Poll.run: call it in the function `Poll.run(main)` runs")
   Poll.run(function()
     Test.raises(function() Poll.run(function() end) end, "already running")
     local notifier = Poll.notifier()
@@ -1356,7 +1356,7 @@ local function test_notify_is_callable_from_a_close_handler()
 end
 
 local function test_a_notifier_is_one_runs_and_waits_only_in_a_task()
-  Test.raises(function() Poll.notifier() end, "Poll.notifier outside Poll.run")
+  Test.raises(function() Poll.notifier() end, "Poll.notifier outside Poll.run: call it in the function `Poll.run(main)` runs")
   local kept: Poll.Notifier? = nil
   Poll.run(function()
     kept = Poll.notifier()

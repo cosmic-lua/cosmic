@@ -26,7 +26,7 @@ local process = require("cosmic.internal.process")
 
 --- A fake program built under `tmp` ([`cosmic.fake`]).
 local function probe_in(tmp: string): string
-  return (assert(Fake.build(tmp .. "/fake")))
+  return (assert(Fake.build(tmp .. "/fake", Fake.REPLY)))
 end
 
 --- Whether `sandbox` is refused as an argument, which raises before any
@@ -100,7 +100,7 @@ local function test_a_sandbox_the_platform_lacks_is_refused(tmp: string)
     { proc = true, user = user, group = user },
   }
   for index, sandbox in ipairs(sandboxes) do
-    local ok, pid, trouble, errno = pcall(process.spawn, probe, { probe, "print hi" }, nil, tmp, nil, -- checked: overload_none
+    local ok, pid, trouble, errno = pcall(process.spawn, probe, { probe }, nil, tmp, nil, -- checked: overload_none
       nil, nil, false, nil, sandbox)
     assert(ok, "a start of a sandbox the platform lacks is refused, not raised, " .. tostring(index) .. ": " .. tostring(pid))
     assert(pid == nil and (errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or

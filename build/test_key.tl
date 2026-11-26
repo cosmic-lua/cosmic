@@ -376,7 +376,7 @@ local harness_own <const>: {string} = { "build.test_sandbox", "build.test_policy
 -- `library`, once cosmic.child's `start` takes spawn's sandbox as it is
 -- (the TODO above its `raw.spawn` call, which would offer the rest of
 -- it): today only cosmic.child reaches spawn for the runner.
-local harness_alone <const>: {string} = { "cosmic.child", "cosmic.sandbox",
+local harness_alone <const>: {string} = { "cosmic.child", "cosmic.child.hold", "cosmic.sandbox",
   "cosmic.sandbox.policy" }
 
 --- The code that makes a key and looks a verdict up under one:

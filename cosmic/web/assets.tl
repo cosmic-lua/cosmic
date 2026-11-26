@@ -179,14 +179,18 @@ function Assets.memory(files: {string:string}, opts?: Assets.MemoryOptions): Ass
     local gzip: string? = nil
     if opts ~= nil and opts.gzip == true then
       local packed, trouble = Mime.gzip(path, data)
-      if trouble ~= "" then error(("web: assets: memory: %q: %s"):format(path, trouble), 2) end
-      gzip = packed
+      if packed == nil then
+        error(("web: assets: memory: %q: %s"):format(path, tostring(trouble)), 2)
+      end
+      if packed ~= false then gzip = packed end
     end
     local zstd: string? = nil
     if opts ~= nil and opts.zstd == true then
       local packed, trouble = Mime.zstd(path, data)
-      if trouble ~= "" then error(("web: assets: memory: %q: %s"):format(path, trouble), 2) end
-      zstd = packed
+      if packed == nil then
+        error(("web: assets: memory: %q: %s"):format(path, tostring(trouble)), 2)
+      end
+      if packed ~= false then zstd = packed end
     end
     held[path] = make(path, data, { gzip = gzip, zstd = zstd })
     names[#names + 1] = path

@@ -303,7 +303,7 @@ local function name_grants(grants: {string}): {NameGrant}, {string}
   for _, grant in ipairs(grants) do
     local parsed, why = Grant.parse(grant)
     if parsed == nil then
-      notes[#notes + 1] = ("grant \"%s\" opens nothing: %s"):format(grant, why)
+      notes[#notes + 1] = ("grant \"%s\" opens nothing: %s"):format(grant, tostring(why))
     elseif parsed.kind == "any" or parsed.kind == "name" then
       -- An address is matched literally, by [`cosmic.relay.address`]'s `granted`.
       names[#names + 1] = { host = parsed.host, port = parsed.port }

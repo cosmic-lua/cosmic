@@ -13,6 +13,8 @@ local doctest = require("build.doctest")
 local gen_syscalls = require("build.gen_syscalls")
 local Template = require("cosmic.template")
 local bind = require("build.bind")
+local type work_schema = require("build.work_schema")
+local type Database = work_schema.Database
 
 local record derivation
   --- Whether [`derivation.inputs`] stopped on a source of the tree it refused, rather than a trouble of the host.
@@ -75,8 +77,8 @@ local insert_derived =
 
 --- The doc guides with no current `derived` row, each extracted into
 --- the test module it is.
-local function derive_doc_guides(db: Sqlite.Handle, refusal: derivation.Refusal): boolean, string
-  local guides, trouble = db:text_rows(
+local function derive_doc_guides(db: Database, refusal: derivation.Refusal): boolean, string
+  local guides, trouble = db:rows(
     "SELECT path, data, sha256 FROM files " ..
       "WHERE ((path GLOB 'doc/guides/*.md' AND path NOT GLOB 'doc/guides/*/*') OR " ..
       "(path GLOB 'doc/guides/internal/*.md' AND path NOT GLOB 'doc/guides/internal/*/*') OR " ..
@@ -87,7 +89,7 @@ local function derive_doc_guides(db: Sqlite.Handle, refusal: derivation.Refusal)
     return false, tostring(trouble)
   end
   for _, row in ipairs(guides) do
-    local file, doc_source, from_hash = row:text(1), row:text(2), row:text(3)
+    local file, doc_source, from_hash = row:text(1), row:bytes(2), row:text(3)
     -- A dot in the name would read as a directory in the module's (`doc.guides.v1.2`), and whether a guide is
     -- public is told from where its module sits ([`cosmic.internal.symbols`]'s `is_public_guide`).
     if file:match("%.[^/]*%.md$") ~= nil then
@@ -127,8 +129,8 @@ end
 --- template stands while the analyzer does ([`build.importer`]'s
 --- `forget_stale_analysis`): [`cosmic.template`] is in its closure. The module is written in the new checker's grammar
 --- ([`cosmic.template`]'s `Options`).
-local function derive_templates(db: Sqlite.Handle, refusal: derivation.Refusal): boolean, string
-  local templates, trouble = db:text_rows(
+local function derive_templates(db: Database, refusal: derivation.Refusal): boolean, string
+  local templates, trouble = db:rows(
     "SELECT path, CAST(data AS TEXT), sha256 FROM files " ..
       "WHERE path GLOB '*.tmpl' " .. analysis_schema.outside_apart("path") .. " " ..
       "AND path NOT IN (SELECT file FROM derived) ORDER BY path")
@@ -156,10 +158,10 @@ end
 --- generated from its header when the header has no current `derived`
 --- row. Only cosmic's own tree has the headers; a project gets the
 --- declarations from the binary.
-local function derive_syscalls(db: Sqlite.Handle, refusal: derivation.Refusal): boolean, string
+local function derive_syscalls(db: Database, refusal: derivation.Refusal): boolean, string
   for _, target in ipairs(gen_syscalls.targets) do
     local file = target.target.header
-    local headers, trouble = db:text_rows(
+    local headers, trouble = db:rows(
       "SELECT data, sha256 FROM files WHERE path = ? " ..
         "AND path NOT IN (SELECT file FROM derived)", { text(file) })
     if headers == nil then
@@ -167,7 +169,7 @@ local function derive_syscalls(db: Sqlite.Handle, refusal: derivation.Refusal): 
     end
     local found = headers[1]
     if found ~= nil then
-      local header, from_hash = found:text(1), found:text(2)
+      local header, from_hash = found:bytes(1), found:text(2)
       local source, generate_trouble = gen_syscalls.declaration(header, target.target)
       if source == nil then
         refusal.refused = true
@@ -190,8 +192,8 @@ end
 --- one path (`x.d.tl` and `x/init.d.tl`) are refused as two sources are;
 --- a declaration beside a source is a pair, which the build refuses in
 --- its own words ([`build.driver`]'s `pairing`).
-local function duplicate_import_paths(db: Sqlite.Handle, refusal: derivation.Refusal): boolean, string
-  local doubled, trouble = db:text_rows(
+local function duplicate_import_paths(db: Database, refusal: derivation.Refusal): boolean, string
+  local doubled, trouble = db:rows(
     "SELECT path, group_concat(file, ' and ') FROM (SELECT path, file, kind FROM inputs ORDER BY file) " ..
       "GROUP BY path, " .. analysis_schema.not_declaration("kind") .. " HAVING count(*) > 1 ORDER BY path")
   if doubled == nil then
@@ -207,8 +209,8 @@ end
 
 --- Every source no parse has seen, in hash order: the one parse each
 --- needs ([`build.parse_derive`]'s `derive`).
-function derivation.fresh(db: Sqlite.Handle): {derivation.Fresh}?, string
-  local rows, trouble = db:text_rows(
+function derivation.fresh(db: Database): {derivation.Fresh}?, string
+  local rows, trouble = db:rows(
     "SELECT source_hash, min(file), source, max(origin <> 'tree') FROM inputs " ..
       "WHERE kind <> 'vendor' " ..
       "AND source_hash NOT IN (SELECT source_hash FROM parsed) " ..
@@ -218,7 +220,7 @@ function derivation.fresh(db: Sqlite.Handle): {derivation.Fresh}?, string
   end
   local out: mut {derivation.Fresh} = {}
   for _, row in ipairs(rows) do
-    out[#out + 1] = { source_hash = row:text(1), file = row:text(2), source = row:text(3), mapped = row:text(4) == "1" }
+    out[#out + 1] = { source_hash = row:text(1), file = row:text(2), source = row:text(3), mapped = row:integer(4) == 1 }
   end
   return out, ""
 end
@@ -240,12 +242,12 @@ end
 function derivation.table_widths(db: Sqlite.Handle): {string:integer}?, string
   local widths: mut {string:integer} = {}
   for _, name in ipairs(packed_tables) do
-    local rows, trouble = db:text_rows(
+    local rows, trouble = db:rows(
       "SELECT count(*) FROM pragma_table_info(?1)", { text(name) })
     if rows == nil then return nil, tostring(trouble) end
     local counted = rows[1]
     if counted == nil then return nil, "pragma_table_info(" .. name .. ") answered no row" end
-    widths[name] = (math.tointeger(tonumber(counted:text(1))) or 1) - 1
+    widths[name] = counted:integer(1) - 1
   end
   return widths, ""
 end
@@ -269,7 +271,7 @@ function derivation.packed_parses(db: Sqlite.Handle,
   local requires: mut {string:mut {string}} = {}
   local pieces: mut {string:mut {string}} = {}
   local unpackable: mut {string:boolean} = {}
-  local names, trouble = db:text_rows(
+  local names, trouble = db:rows(
     "SELECT source_hash, name FROM requires " .. chosen .. " ORDER BY source_hash, ordinal", list)
   if names == nil then return nil, tostring(trouble) end
   for _, row in ipairs(names) do
@@ -311,7 +313,7 @@ function derivation.packed_parses(db: Sqlite.Handle,
       table.insert(of, table.concat(by_hash[hash] or {}))
     end
   end
-  local present, present_trouble = db:text_rows(
+  local present, present_trouble = db:rows(
     "SELECT source_hash FROM parsed WHERE source_hash IN (SELECT value FROM json_each(?1))", list)
   if present == nil then return nil, tostring(present_trouble) end
   local out: mut {string:derivation.Parse} = {}
@@ -378,7 +380,7 @@ end
 
 --- Writes one shared parse of the source `hash` into the tables, as the
 --- parse would have: false where it cannot, having written none of it.
-function derivation.put_parse(db: Sqlite.Handle, hash: string, requires: {string},
+function derivation.put_parse(db: Database, hash: string, requires: {string},
                               rows: {string:{{Sqlite.Value}}}): boolean, string
   local begun, begin_trouble = db:exec("SAVEPOINT shared_parse")
   if not begun then return false, tostring(begin_trouble) end
@@ -421,15 +423,15 @@ function derivation.put_parse(db: Sqlite.Handle, hash: string, requires: {string
 end
 
 --- Every source the tables hold no parse of, in hash order.
-function derivation.unparsed(db: Sqlite.Handle): {Source}?, string
-  local rows, trouble = db:text_rows(
+function derivation.unparsed(db: Database): {Source}?, string
+  local rows, trouble = db:rows(
     "SELECT source_hash, max(origin <> 'tree') FROM inputs WHERE kind <> 'vendor' " ..
       "AND source_hash NOT IN (SELECT source_hash FROM parsed) " ..
       "GROUP BY source_hash ORDER BY source_hash")
   if rows == nil then return nil, tostring(trouble) end
   local out: mut {Source} = {}
   for _, row in ipairs(rows) do
-    out[#out + 1] = { source_hash = row:text(1), mapped = row:text(2) == "1" }
+    out[#out + 1] = { source_hash = row:text(1), mapped = row:integer(2) == 1 }
   end
   return out, ""
 end
@@ -438,7 +440,7 @@ end
 --- any cached parse or compile can stand for them. The templates are written in the new checker's grammar
 --- ([`derive_templates`]). `refusal`'s `refused` is set where a failure is the tree's own sources refusing (a template or
 --- guide that does not compile, two files of one import path) and not a trouble of the host (a database).
-function derivation.inputs(db: Sqlite.Handle, refusal: derivation.Refusal): boolean, string
+function derivation.inputs(db: Database, refusal: derivation.Refusal): boolean, string
   for _, step in ipairs({ derive_doc_guides, derive_syscalls }) do
     local ok, trouble = step(db, refusal)
     if not ok then return false, trouble end

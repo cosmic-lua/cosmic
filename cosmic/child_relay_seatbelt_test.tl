@@ -1,4 +1,4 @@
---- [`Child.start`]'s `policy` with `connect` on macOS (cosmic/child.tl),
+--- [`Child.start`]'s `policy` with `connect` on macOS (cosmic/child/init.tl),
 --- where Seatbelt holds the program and its network relay
 --- (cosmic/internal/relay_main.tl): the relay listens at a port of the host's
 --- loopback behind a token drawn for the start, and the program's profile

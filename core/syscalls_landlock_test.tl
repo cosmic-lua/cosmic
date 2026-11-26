@@ -9,6 +9,8 @@
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local Fake = require("cosmic.fake")
+-- Required, so the fake's main is of this test's closure.
+local _fake = require("build.syscalls_landlock_fake")
 -- Required, so the module whose loader is handed the raw table is of this
 -- test's import closure, and the store has it to hand it from.
 local type _ = require("cosmic.child")
@@ -21,11 +23,11 @@ Test.policy{
 
 local process = require("cosmic.internal.process")
 
---- A fake program built under `tmp` ([`cosmic.fake`]), which runs
---- the script its first argument holds: a static executable that reads
+--- A fake program built under `tmp` from build/syscalls_landlock_fake.tl, which runs
+--- the case its first argument names: a static executable that reads
 --- only itself, so one confined needs nothing of the system's own.
 local function probe_in(tmp: string): string
-  return (assert(Fake.build(tmp .. "/fake")))
+  return (assert(Fake.build(tmp .. "/fake", "build.syscalls_landlock_fake")))
 end
 
 --- Opens `path` for writing, creating it, and returns the descriptor.
@@ -52,7 +54,7 @@ local function test_a_process_held_to_running_some_paths_runs_nothing_else(tmp: 
     if pid == nil then return trouble end
     return assert(process.waitpid(pid, false)).code
   end
-  assert(status_of(elsewhere, { elsewhere, "exit 0" }) == 0, "the copy runs before the hold")
+  assert(status_of(elsewhere, { elsewhere, "exit", "0" }) == 0, "the copy runs before the hold")
   -- Beneath a path given, a file may still move to another directory.
   local given = tmp .. "/given"
   assert(sys.mkdir(given, 0x1c0) and sys.mkdir(given .. "/a", 0x1c0) and
@@ -63,10 +65,10 @@ local function test_a_process_held_to_running_some_paths_runs_nothing_else(tmp: 
     assert(errno == sys.ENOSYS or errno == sys.EOPNOTSUPP or errno == sys.EPERM, trouble)
     Test.skip("the kernel gives no Landlock: " .. tostring(trouble))
   end
-  assert(status_of(probe, { probe, "exit 3" }) == 3, "a program beneath them runs")
-  assert(status_of(elsewhere, { elsewhere, "exit 0" }) ~= 0, "a program elsewhere ran")
+  assert(status_of(probe, { probe, "exit", "3" }) == 3, "a program beneath them runs")
+  assert(status_of(elsewhere, { elsewhere, "exit", "0" }) ~= 0, "a program elsewhere ran")
   -- What it starts is held too: the program may not run the copy.
-  assert(status_of(probe, { probe, "run " .. elsewhere .. " || exit 7" }) == 7)
+  assert(status_of(probe, { probe, "run-or-7", elsewhere, "exit", "0" }) == 7)
   assert(sys.rename(given .. "/a/f", given .. "/b/f"))
   -- So may one in a directory made after the hold, beneath none -- but
   -- not into one where it could be run, which it could not before.
