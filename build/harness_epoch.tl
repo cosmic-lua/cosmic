@@ -71,6 +71,8 @@ harness_epoch.epoch = "71-0a40aed9" -- on a conflict keep neither side: set it t
 harness_epoch.library = {
   ["cosmic.child"] = "its `start` turns a worker's plan into the unveils, binds and " ..
     "offline spawn holds it to; held alone, what it requires is not walked",
+  ["cosmic.child.hold"] = "the half of cosmic.child's `start` that makes a worker's hold of its policy: " ..
+    "the unveils, the user it runs as and the cores it shares; held alone, as cosmic.child is",
   ["cosmic.codec"] = "cosmic.hash's hex encoding of the digest `build.paths` names a " ..
     "project's build directory by",
   ["cosmic.coverage"] = "the worker starts and stops the coverage a test's lines are " ..

@@ -32,20 +32,20 @@ test_child.register("refusals", function(args: {string}): integer
   local many = too_many(tmp)
   print(said("passed_over", confine.call(function(...: any): any...
     confine.must_confine({ reads = many })
-    local ran, _ = Child.run({ probe, "write " .. tmp .. "/ran ran" }, { timeout_ns = Child.FOREVER })
+    local ran, _ = Child.run({ probe, "write", tmp .. "/ran", "ran" }, { timeout_ns = Child.FOREVER })
     confine.confine(nil)
     assert(ran == nil, "an unconfined process ran in its place")
   end, nil, { tmp })))
   assert(not assert(Fs.status(tmp .. "/ran")).exists, "nothing runs in its place")
   print(said("raised_too", confine.call(function(...: any): any...
     confine.must_confine({ reads = many })
-    local _, _ = Child.run({ probe, "exit 0" }, { timeout_ns = Child.FOREVER })
+    local _, _ = Child.run({ probe, "exit", "0" }, { timeout_ns = Child.FOREVER })
     confine.confine(nil)
     error("its own failure")
   end, nil, { tmp })))
   print(said("offline_alone", confine.call(function(...: any): any...
     confine.must_confine({ reads = { probe } })
-    local _, _ = Child.run({ probe, "exit 0" }, { timeout_ns = Child.FOREVER, sandbox = { offline = true } })
+    local _, _ = Child.run({ probe, "exit", "0" }, { timeout_ns = Child.FOREVER, sandbox = { offline = true } })
     confine.confine(nil)
   end, nil, { tmp })))
   return 0
@@ -58,12 +58,12 @@ test_child.register("held", function(args: {string}): integer
   if probe == nil or tmp == nil then return 2 end
   print(said("confined", confine.call(function(...: any): any...
     confine.confine({ reads = { probe } })
-    local ran, _ = Child.run({ probe, "write " .. tmp .. "/ran ran" }, { timeout_ns = Child.FOREVER })
+    local ran, _ = Child.run({ probe, "write", tmp .. "/ran", "ran" }, { timeout_ns = Child.FOREVER })
     confine.confine(nil)
     assert(ran == nil, "an unconfined process ran in its place")
   end, nil, { tmp })))
   print(said("own_sandbox", confine.call(function(...: any): any...
-    local ran, _ = Child.run({ probe, "exit 0" }, { timeout_ns = Child.FOREVER, sandbox = { unveil = { reads = { probe } }, offline = true } })
+    local ran, _ = Child.run({ probe, "exit", "0" }, { timeout_ns = Child.FOREVER, sandbox = { unveil = { reads = { probe } }, offline = true } })
     assert(ran == nil, "a process started in a root of its own")
   end, nil, { tmp })))
   return 0
@@ -78,7 +78,7 @@ test_child.register("mode", function(args: {string}): integer
   many[#many + 1] = probe
   print(said("fell_back", confine.call(function(...: any): any...
     confine.confine({ reads = many })
-    local ran = assert(Child.run({ probe, "exit 0" }, { timeout_ns = Child.FOREVER }))
+    local ran = assert(Child.run({ probe, "exit", "0" }, { timeout_ns = Child.FOREVER }))
     confine.confine(nil)
     assert(ran.ok, "the process it fell back to did not run")
   end, nil, { tmp })))
@@ -93,8 +93,7 @@ test_child.register("confined", function(args: {string}): integer
   if probe == nil or tmp == nil or data == nil or hidden == nil then return 2 end
   print(said("confined", confine.call(function(...: any): any...
     confine.must_confine({ reads = { data, probe } })
-    local ran, _ = Child.run({ probe, "exists " .. hidden .. " 3; copy " .. data .. " " .. tmp .. "/out; " ..
-        "present /proc/self/net/dev && grep-count /proc/self/net/dev : || exit 0" },
+    local ran, _ = Child.run({ probe, "exists-copy-count", hidden, data, tmp .. "/out" },
       { timeout_ns = Child.FOREVER, cwd = tmp, stdout = "capture" })
     confine.confine(nil)
     if ran == nil then return end
@@ -112,14 +111,14 @@ test_child.register("unsandboxed", function(args: {string}): integer
   if probe == nil or tmp == nil then return 2 end
   print(said("refused", confine.call(function(...: any): any...
     confine.must_confine({ reads = { probe } })
-    local _, _ = Child.run({ probe, "exit 0" }, { timeout_ns = Child.FOREVER })
+    local _, _ = Child.run({ probe, "exit", "0" }, { timeout_ns = Child.FOREVER })
     confine.confine(nil)
   end, nil, { tmp })))
   local many = too_many(tmp)
   many[#many + 1] = probe
   print(said("fell_back", confine.call(function(...: any): any...
     confine.confine({ reads = many })
-    local ran = assert(Child.run({ probe, "exit 0" }, { timeout_ns = Child.FOREVER }))
+    local ran = assert(Child.run({ probe, "exit", "0" }, { timeout_ns = Child.FOREVER }))
     confine.confine(nil)
     assert(ran.ok, "the process it fell back to did not run")
   end, nil, { tmp })))

@@ -7,10 +7,17 @@ local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local this_program = require("build.this_program")
 local Fake = require("cosmic.fake")
+-- Required, so the fake's main is of each test's closure.
+local _ = require("build.test_isolation_fake")
 local confine = require("build.confine")
 
 local record fixture
+  --- The fake's main, build/test_isolation_fake.tl, which a test builds
+  --- the `probe` it hands [`fixture.project`] of.
+  FAKE: string
 end
+
+fixture.FAKE = "build.test_isolation_fake"
 
 --- The environment a run of `cosmic test` these tests start is given:
 --- its workers unsandboxed (`COSMIC_TEST_SANDBOX=0`), since what they

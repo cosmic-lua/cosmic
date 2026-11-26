@@ -1,4 +1,4 @@
---- [`Child.start`]'s `policy` with the `nest` promise (cosmic/child.tl): the
+--- [`Child.start`]'s `policy` with the `nest` promise (cosmic/child/init.tl): the
 --- kernel's verdict on a program inside such a sandbox that makes the
 --- namespaces and mounts the filter lets it make, and tries the ones it must
 --- not. The program is this one, making them through the raw calls every
