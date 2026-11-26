@@ -41,9 +41,9 @@ end
 function ArtifactRow.meta(bytes: string, scratch: string): {string:string}
   assert(Fs.write(scratch, ArtifactRow.apart(bytes).database))
   local db = assert(Sqlite.open(scratch))
-  local rows = assert(db:text_rows("SELECT key, value FROM meta"))
+  local rows = assert(db:rows("SELECT key, value FROM meta"))
   local out: mut {string:string} = {}
-  for _, row in ipairs(rows) do out[row:text(1)] = row:text(2) end
+  for _, row in ipairs(rows) do out[row:text(1)] = row:as_text(2) or "" end
   assert(db:close())
   assert(Fs.remove(scratch))
   return out
