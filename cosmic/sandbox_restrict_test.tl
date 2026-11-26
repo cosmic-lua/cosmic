@@ -21,6 +21,8 @@ local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local Fake = require("cosmic.fake")
 local Restrict = require("build.sandbox_restrict_fixture")
+-- Required, so the fake's main is of this test's closure.
+local _ = require("build.sandbox_restrict_fake")
 
 --- The program is this one, which a test starts only with `tool`; its
 --- temporary directory is the test's own.
@@ -85,13 +87,13 @@ say("create", writes(%q))
 end
 
 local function test_the_filter_refuses_a_socket_and_a_process(tmp: string)
-  local probe = assert(Fake.build(tmp .. "/fake"))
+  local probe = assert(Fake.build(tmp .. "/fake", "build.sandbox_restrict_fake"))
   local said = Restrict.in_child(restricted(
     string.format("{ grants = { { path = %q, letters = \"rx\" } } }", probe),
     string.format([[
 local conn, why = Net.connect(Net.tcp("127.0.0.1", 9))
 say("socket", conn ~= nil, why)
-local started, trouble = Child.start({ %q, "print hi" }, { timeout_ns = Child.FOREVER, process_group = false })
+local started, trouble = Child.start({ %q, "print", "hi" }, { timeout_ns = Child.FOREVER, process_group = false })
 say("fork", started ~= nil, trouble)
 ]], probe)))
   -- Not "Connection refused", which a socket the filter let through would meet.
@@ -105,13 +107,13 @@ end
 --- before Landlock would (EACCES), so the text says which layer held. A
 --- process forked after the restriction inherits both.
 local function test_grants_with_no_x_run_no_program(tmp: string)
-  local probe = assert(Fake.build(tmp .. "/fake"))
+  local probe = assert(Fake.build(tmp .. "/fake", "build.sandbox_restrict_fake"))
   local said = Restrict.in_child(restricted(
     string.format("{ grants = { { path = %q, letters = \"r\" }, { calls = \"fork\" } } }", probe),
     string.format([[
-local ran, trouble = Child.run({ %q, "print hi" }, { timeout_ns = Child.FOREVER, process_group = false, stdout = "capture" })
+local ran, trouble = Child.run({ %q, "print", "hi" }, { timeout_ns = Child.FOREVER, process_group = false, stdout = "capture" })
 if ran ~= nil then say("child", ran.ok, ran.stdout) else say("child", false, trouble) end
-local why = require("cosmic.proc").exec({ %q, "print replaced" })
+local why = require("cosmic.proc").exec({ %q, "print", "replaced" })
 say("exec", why)
 ]], probe, probe)))
   -- The exec failed, so this process went on to say so, and was not replaced.
@@ -124,13 +126,13 @@ end
 --- A later restriction that grants `x` does not lift the filter an
 --- earlier one with no `x` added: the kernel holds every layer.
 local function test_a_later_x_grant_runs_no_program_after_none(tmp: string)
-  local probe = assert(Fake.build(tmp .. "/fake"))
+  local probe = assert(Fake.build(tmp .. "/fake", "build.sandbox_restrict_fake"))
   local said = Restrict.in_child(restricted(
     string.format("{ grants = { { path = %q, letters = \"r\" } } }", probe),
     string.format([[
 local again, again_why = Sandbox.restrict({ grants = { { path = %q, letters = "rx" } } })
 say("again", again, again_why)
-local why = require("cosmic.proc").exec({ %q, "print replaced" })
+local why = require("cosmic.proc").exec({ %q, "print", "replaced" })
 say("exec", why)
 ]], probe, probe)))
   assert(said.raw:find("replaced", 1, true) == nil, said.raw)
@@ -178,11 +180,11 @@ say("held", #assert(held.grants))
 end
 
 local function test_the_fork_promise_lets_a_process_start(tmp: string)
-  local probe = assert(Fake.build(tmp .. "/fake"))
+  local probe = assert(Fake.build(tmp .. "/fake", "build.sandbox_restrict_fake"))
   local said = Restrict.in_child(restricted(
     string.format("{ grants = { { path = %q, letters = \"rx\" }, { calls = \"fork\" } } }", probe),
     string.format([[
-local result, trouble = Child.run({ %q, "print hi" }, { timeout_ns = Child.FOREVER, process_group = false, stdout = "capture" })
+local result, trouble = Child.run({ %q, "print", "hi" }, { timeout_ns = Child.FOREVER, process_group = false, stdout = "capture" })
 if result ~= nil then say("fork", result.ok, result.stdout) else say("fork", false, trouble) end
 ]], probe)))
   assert(assert(said.lines["fork"]):find("^true"), said.raw)
@@ -194,12 +196,12 @@ end
 --- the calls to the pid it was built for.
 local function test_the_signal_scope_lets_a_forked_process_signal_what_is_inside(tmp: string)
   local abi, _ = require("cosmic.internal.process").landlock_abi()
-  local probe = assert(Fake.build(tmp .. "/fake"))
+  local probe = assert(Fake.build(tmp .. "/fake", "build.sandbox_restrict_fake"))
   local sibling = assert(Child.start({ probe, "sleep-forever" }, { timeout_ns = Child.FOREVER, process_group = false }))
   local said = Restrict.in_child(restricted(
     string.format("{ grants = { { path = %q, letters = \"rx\" }, { calls = \"fork\" } } }", probe),
     string.format([[
-local own, _ = Child.run({ %q, "signal TERM" }, { timeout_ns = Child.FOREVER, process_group = false, stdout = "capture", stderr = "stdout" })
+local own, _ = Child.run({ %q, "signal", "TERM" }, { timeout_ns = Child.FOREVER, process_group = false, stdout = "capture", stderr = "stdout" })
 if own ~= nil then say("self", own.signal, own.code, own.stdout) else say("self", nil, nil, nil) end
 local held = assert(Child.start({ %q, "sleep-forever" }, { timeout_ns = Child.FOREVER, process_group = false }))
 local ended, kill_why = sys.kill(held.pid, sys.SIGKILL)
@@ -401,7 +403,7 @@ say("after", reads(%q))
 end
 
 local function test_a_child_reaped_does_not_refuse(tmp: string)
-  local probe = assert(Fake.build(tmp .. "/fake"))
+  local probe = assert(Fake.build(tmp .. "/fake", "build.sandbox_restrict_fake"))
   local said = Restrict.in_child(string.format([[
 local running = assert(Child.start({ %q, "sleep-forever" }, { timeout_ns = Child.FOREVER, process_group = false }))
 assert(running:close())

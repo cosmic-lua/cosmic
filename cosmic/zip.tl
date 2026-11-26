@@ -197,14 +197,10 @@ local VERSION_DEFAULT <const> = 20
 --- The longest symlink target read out of an entry body.
 local LINK_LIMIT <const> = 4096
 
---- What a function of this module returns when it fails: nil and `why`
---- under the module's name.
-local function refuse(why: string): nil, string
-  return nil, "zip: " .. why
-end
-
---- `refuse`, as a [`Failure`].
-local function refused(why: string): nil, Failure
+--- What a function of this module returns when it refuses what it
+--- read or was asked: nil and a Failure of `why` under the module's
+--- name. A failure it met (a read's, a write's) is passed on as it is.
+local function refuse(why: string): nil, Failure
   return nil, Failure.new("zip: " .. why)
 end
 
@@ -276,14 +272,16 @@ end
 -- reading
 ------------------------------------------------------------------
 
-local type Pread = function(integer, integer): string?, string
+--- Up to `count` bytes of the file at an offset, "" past its end; or nil
+--- and a Failure, a failed read's with its errno and the file's path.
+local type Pread = function(offset: integer, count: integer): (string) | (nil, Failure)
 
 --- The end-of-central-directory record's offset: the earliest
 --- signature in the file's last 64 KiB whose comment length runs
 --- exactly to the end of the file -- so a comment that itself holds
 --- a forged record is not mistaken for the real one -- or, failing
 --- that, the last signature found.
-local function find_eocd(size: integer, pread: Pread): integer?, string
+local function find_eocd(size: integer, pread: Pread): (integer) | (nil, Failure)
   local window = if size < 65557 then size else 65557 end
   local start = size - window
   local chunk, trouble = pread(start, window)
@@ -300,7 +298,7 @@ local function find_eocd(size: integer, pread: Pread): integer?, string
   end
   local found = exact or last
   if found == nil then return refuse("end of central directory record not found") end
-  return start + found - 1, ""
+  return start + found - 1
 end
 
 --- `usize`, `csize` and `local_offset` from a central directory
@@ -343,11 +341,12 @@ local class SpanReader is Stream.Reader
   mut pos: integer
   mut left: integer
   mut held?: string
-  mut failed?: string
+  --- The failure every read returns after the first, its kind kept.
+  mut failed?: Failure
 
   function read(self, max_bytes?: integer): (string | false) | (nil, Failure)
     local failed = self.failed
-    if failed then return nil, Failure.new(failed) end
+    if failed ~= nil then return nil, failed end
     local left = self.left
     if left <= 0 then return false end
     local want = max_bytes or chunk_size
@@ -364,12 +363,12 @@ local class SpanReader is Stream.Reader
       local got, trouble = self.pread(self.pos, want)
       if got == nil then
         self.failed = trouble
-        return nil, Failure.new(trouble)
+        return nil, trouble
       end
       if #got == 0 then
-        local why = "zip: entry body runs past the end of the file"
+        local why = Failure.new("zip: entry body runs past the end of the file")
         self.failed = why
-        return nil, Failure.new(why)
+        return nil, why
       end
       chunk = got
     end
@@ -449,7 +448,7 @@ local HELD_LIMIT <const> = 1 << 16
 --- and checks its CRC32. Every field it needs is on the entry itself,
 --- so one of these serves a whole reader. A small body comes in the
 --- same read as the header.
-local function open_entry(pread: Pread, e: Zip.Entry): Stream.Reader?, string
+local function open_entry(pread: Pread, e: Zip.Entry): (Stream.Reader) | (nil, Failure)
   local csize = e.compressed_size
   local guess = 30
   if csize <= HELD_LIMIT then guess = 30 + #e.path + EXTRA_SLACK + csize end
@@ -472,7 +471,7 @@ local function open_entry(pread: Pread, e: Zip.Entry): Stream.Reader?, string
     body = raw
   elseif method == 8 then
     local inflater, itrouble = Compress.decoder("raw")
-    if inflater == nil then return nil, tostring(itrouble) end
+    if inflater == nil then return nil, itrouble end
     body = Stream.transform(raw, inflater)
   elseif method == ZSTD then
     -- The decoder keeps its default 128 MiB window. A declared window
@@ -481,7 +480,7 @@ local function open_entry(pread: Pread, e: Zip.Entry): Stream.Reader?, string
     -- limit derived from that size would refuse cosmic's own encoder
     -- output, which declares a 2 MiB window even for an empty entry.
     local decoder, dtrouble = Compress.decoder("zstd")
-    if decoder == nil then return nil, tostring(dtrouble) end
+    if decoder == nil then return nil, dtrouble end
     body = Stream.transform(raw, decoder)
   else
     return refuse("unsupported compression method " .. tostring(method))
@@ -489,7 +488,7 @@ local function open_entry(pread: Pread, e: Zip.Entry): Stream.Reader?, string
   local checked: CheckedReader = {
     inner = body, crc = e.crc32, size = e.size, seen = 0, state = nil, failed = nil, skip = nil,
   }
-  return checked, ""
+  return checked
 end
 
 local S_IFMT <const> = 0xF000
@@ -507,9 +506,7 @@ local class ReadEntry is Zip.Entry
   pread: Pread
 
   function open(self): (Stream.Reader) | (nil, Failure)
-    local body, why = open_entry(self.pread, self)
-    if body == nil then return nil, Failure.new(why) end
-    return body
+    return open_entry(self.pread, self)
   end
 end
 
@@ -536,21 +533,21 @@ local function cursor(pread: Pread, cd_offset: integer, cd_size: integer): Curso
 end
 
 --- Makes sure the window holds at least `n` unread bytes.
-local function need(c: Cursor, n: integer): boolean, string
+local function need(c: Cursor, n: integer): (true) | (false, Failure)
   local avail = #c.buf - c.at + 1
-  if avail >= n then return true, "" end
+  if avail >= n then return true end
   local want = n - avail
   if want < CD_WINDOW then want = CD_WINDOW end
   local left = c.limit - c.fill
   if want > left then want = left end
-  if avail + want < n then return false, "zip: malformed central directory" end
+  if avail + want < n then return false, Failure.new("zip: malformed central directory") end
   local chunk, trouble = c.pread(c.fill, want)
   if chunk == nil then return false, trouble end
-  if #chunk ~= want then return false, "zip: truncated central directory" end
+  if #chunk ~= want then return false, Failure.new("zip: truncated central directory") end
   c.buf = if avail > 0 then (c.buf:sub(c.at) .. chunk) else chunk end
   c.at = 1
   c.fill = c.fill + want
-  return true, ""
+  return true
 end
 
 --- A central directory file header's fixed part, after its signature.
@@ -559,7 +556,7 @@ local CDFH_FIELDS <const> = "<I2I2I2I2I2I2I4I4I4I2I2I2I2I2I4I4"
 --- An entry that was only checked, and has no body to open.
 local class CheckedEntry is Zip.Entry
   function open(self): (Stream.Reader) | (nil, Failure)
-    return refused("the entry was only checked, and has no body to open")
+    return refuse("the entry was only checked, and has no body to open")
   end
 end
 
@@ -569,13 +566,13 @@ local CHECKED: CheckedEntry = {
   method = 0, crc32 = 0, offset = 0,
 }
 
---- The central directory's next entry, or nil and `""` at its end.
---- A symlink's `linkpath` is left "": its target is its body, which
---- the caller reads. With `bare`, an entry other than a symlink is
---- only checked, and `CHECKED` returned in its place.
+--- The central directory's next entry, false at its end, or nil and a
+--- Failure. A symlink's `linkpath` is left "": its target is its body,
+--- which the caller reads. With `bare`, an entry other than a symlink
+--- is only checked, and `CHECKED` returned in its place.
 local function next_record(c: Cursor, bare?: boolean):
-    Zip.Entry?, string
-  if c.at > #c.buf and c.fill >= c.limit then return nil, "" end
+    (Zip.Entry | false) | (nil, Failure)
+  if c.at > #c.buf and c.fill >= c.limit then return false end
   local ok, trouble = need(c, 46)
   if not ok then return nil, trouble end
   local buf, at = c.buf, c.at
@@ -584,14 +581,14 @@ local function next_record(c: Cursor, bare?: boolean):
     name_len, extra_len, comment_len, _disk, _internal, ext_attrs, local_offset =
     string.unpack(CDFH_FIELDS, buf, at + 4)
   local whole = 46 + name_len + extra_len + comment_len
-  ok, trouble = need(c, whole)
-  if not ok then return nil, trouble end
+  local whole_ok, whole_trouble = need(c, whole)
+  if not whole_ok then return nil, whole_trouble end
   buf, at = c.buf, c.at
   c.at = at + whole
   local name_start = at + 46
   local name_end = name_start + name_len - 1
   local refusal = nul_refusal(buf, "in an entry name", name_start, name_end)
-  if refusal ~= "" then return nil, refusal end
+  if refusal ~= "" then return nil, Failure.new(refusal) end
   local mode = 0
   local unix_type = 0
   if (made_by >> 8) == 3 then -- made by a Unix tool
@@ -629,7 +626,7 @@ local function next_record(c: Cursor, bare?: boolean):
         tostring(local_offset) .. ", " .. String.counted(csize, "compressed byte") .. ") runs past " ..
         "the start of the central directory at " .. tostring(cd_offset))
   end
-  if bare == true and kind ~= "symlink" then return CHECKED, "" end
+  if bare == true and kind ~= "symlink" then return CHECKED end
   local entry: ReadEntry = {
     path = buf:sub(name_start, name_end),
     kind = kind,
@@ -643,22 +640,22 @@ local function next_record(c: Cursor, bare?: boolean):
     offset = local_offset,
     pread = c.pread,
   }
-  return entry, ""
+  return entry
 end
 
 --- A symlink entry's target: its (small) body.
-local function read_link(entry: Zip.Entry): string?, string
+local function read_link(entry: Zip.Entry): (string) | (nil, Failure)
   if entry.size > LINK_LIMIT then
     return refuse("symlink " .. entry.path .. " has a " .. tostring(entry.size) ..
         "-byte target")
   end
   local body, trouble = entry:open()
-  if body == nil then return nil, tostring(trouble) end
+  if body == nil then return nil, trouble end
   local target, rtrouble = Stream.read_all(body)
-  if target == nil then return nil, entry.path .. ": " .. tostring(rtrouble) end
+  if target == nil then return nil, Failure.within(rtrouble, entry.path) end
   local refusal = nul_refusal(target, "in the target of symlink " .. entry.path)
-  if refusal ~= "" then return nil, refusal end
-  return target, ""
+  if refusal ~= "" then return nil, Failure.new(refusal) end
+  return target
 end
 
 --- What [`Zip.open`] and [`Zip.open_string`] return.
@@ -684,12 +681,10 @@ local class EntryReader is Zip.Reader
   mut closed: boolean
 
   function next(self): (Zip.Entry | false) | (nil, Failure) -- declared: interface_disagrees
-    if self.closed then return refused("the reader is closed") end
+    if self.closed then return refuse("the reader is closed") end
     local entry, etrouble = next_record(self.walk)
-    if entry == nil then
-      if etrouble == "" then return false end
-      return nil, Failure.new(etrouble)
-    end
+    if entry == nil then return nil, etrouble end
+    if entry == false then return false end
     self.walked = self.walked + 1
     local target = self.links[self.walked]
     if target ~= nil then entry.linkpath = target end -- checked: field_fixed
@@ -703,12 +698,10 @@ local class EntryReader is Zip.Reader
     local c = cursor(self.pread, self.cd_offset, self.cd_size)
     while true do
       local entry, etrouble = next_record(c)
-      if entry == nil then
-        -- Only a complete list is kept: one cut short by a closed
-        -- reader is refused, here and on every later call.
-        if etrouble ~= "" then return nil, Failure.new(etrouble) end
-        break
-      end
+      -- Only a complete list is kept: one cut short by a closed
+      -- reader is refused, here and on every later call.
+      if entry == nil then return nil, etrouble end
+      if entry == false then break end
       all[#all + 1] = entry
       local target = self.links[#all]
       if target ~= nil then entry.linkpath = target end -- checked: field_fixed
@@ -733,7 +726,7 @@ local class EntryReader is Zip.Reader
     end
     local found = index[if fold then path:lower() else path end]
     if found == nil then
-      return refused("no entry " .. string.format("%q", path) .. (if fold then " in any case" else "" end))
+      return refuse("no entry " .. string.format("%q", path) .. (if fold then " in any case" else "" end))
     end
     return found
   end
@@ -746,7 +739,7 @@ local class EntryReader is Zip.Reader
 end
 
 local function open_reader(size: integer, pread: Pread, closer: function(): (true) | (false, Failure)):
-    Zip.Reader?, string
+    (Zip.Reader) | (nil, Failure)
   local eocd_off, trouble = find_eocd(size, pread)
   if eocd_off == nil then return nil, trouble end
   local fixed, ftrouble = pread(eocd_off, 22)
@@ -792,10 +785,8 @@ local function open_reader(size: integer, pread: Pread, closer: function(): (tru
   local check = cursor(pread, cd_offset, cd_size)
   while true do
     local entry, etrouble = next_record(check, true)
-    if entry == nil then
-      if etrouble ~= "" then return nil, etrouble end
-      break
-    end
+    if entry == nil then return nil, etrouble end
+    if entry == false then break end
     count = count + 1
     if entry.kind == "symlink" then
       local target, ltrouble = read_link(entry)
@@ -813,7 +804,7 @@ local function open_reader(size: integer, pread: Pread, closer: function(): (tru
     walk = cursor(pread, cd_offset, cd_size), walked = 0, listed = nil, by_path = nil, by_folded = nil,
     closed = false,
   }
-  return zr, ""
+  return zr
 end
 
 --- A reader over the zip file at `path`, walked with positional reads
@@ -823,18 +814,18 @@ function Zip.open(path: string): (Zip.Reader) | (nil, Failure)
   if fd == nil then return nil, trouble end
   -- The length of the file `fd` opened, so it is the same file every
   -- read goes to.
-  local st, strouble = sys.fstat(fd)
+  local st, _, serrno = sys.fstat(fd)
   if st == nil then
     local _, _ = Fs.close(fd)
-    return refused(path .. ": " .. strouble)
+    return nil, Failure.system(serrno, path)
   end
   local reading_closed: boolean = false
-  local pread: Pread = function(offset: integer, count: integer): string?, string
+  local pread: Pread = function(offset: integer, count: integer): (string) | (nil, Failure)
     -- Once closed, `fd` may already name some other file.
     if reading_closed == true then return refuse(path .. ": the reader is closed") end
-    local data, ptrouble = sys.pread(fd, count, offset)
-    if data == nil then return nil, ptrouble end
-    return data, ""
+    local data, _, perrno = sys.pread(fd, count, offset)
+    if data == nil then return nil, Failure.system(perrno, path) end
+    return data
   end
   local reader, otrouble = open_reader(st.size, pread, function(): (true) | (false, Failure)
     reading_closed = true
@@ -843,7 +834,7 @@ function Zip.open(path: string): (Zip.Reader) | (nil, Failure)
   if reader == nil then
     reading_closed = true
     local _, _ = Fs.close(fd)
-    return nil, Failure.new(otrouble)
+    return nil, otrouble
   end
   return reader
 end
@@ -851,16 +842,16 @@ end
 --- A reader over a zip already in memory as `data`.
 function Zip.open_string(data: string): (Zip.Reader) | (nil, Failure)
   local reading_closed: boolean = false
-  local pread: Pread = function(offset: integer, count: integer): string?, string
+  local pread: Pread = function(offset: integer, count: integer): (string) | (nil, Failure)
     if reading_closed == true then return refuse("the reader is closed") end
-    if offset >= #data then return "", "" end
-    return data:sub(offset + 1, offset + count), ""
+    if offset >= #data then return "" end
+    return data:sub(offset + 1, offset + count)
   end
   local reader, trouble = open_reader(#data, pread, function(): (true) | (false, Failure)
     reading_closed = true
     return true
   end)
-  if reader == nil then return nil, Failure.new(trouble) end
+  if reader == nil then return nil, trouble end
   return reader
 end
 
@@ -961,7 +952,7 @@ local function feed_chunk(self: FeedWriter, chunk: string): (true) | (false, Fai
   local encoder = self.encoder
   if encoder == nil then return emit(self, chunk) end
   local out, etrouble = encoder:update(chunk)
-  if out == nil then return self.fail(tostring(etrouble)) end
+  if out == nil then return self.fail(etrouble) end
   return emit(self, out)
 end
 
@@ -971,7 +962,7 @@ local class FeedWriter is Stream.Writer
   --- Puts bytes through the entry writer's sink, counting them into its offset, and fails that sink with a reason: the
   --- writer is no type of this record, whose class stands above the writer's.
   put: function(string): (true) | (false, Failure)
-  fail: function(string): (true) | (false, Failure)
+  fail: function(string | Failure): (true) | (false, Failure)
   done: Written
   --- The body's deflater or zstd encoder, or nil for a stored one.
   encoder?: Compress.Stream
@@ -1063,7 +1054,7 @@ local function begin_streamed(self: EntryWriter, path: string, method: integer, 
   local done: Written = { crc = 0, usize = 0, csize = 0 }
   local feed: FeedWriter = {
     put = function(data: string): (true) | (false, Failure) return put(self, data) end,
-    fail = function(why: string): (true) | (false, Failure) return self.sink:fail(why) end,
+    fail = function(why: string | Failure): (true) | (false, Failure) return self.sink:fail(why) end,
     done = done, encoder = encoder, wide = wide,
     too_big = "zip: " .. path .. ": a streamed entry of 4 GiB or more needs opts.size",
   }
@@ -1201,7 +1192,7 @@ local function put_entry(self: EntryWriter, path: string, body: string | Stream.
     -- A failed write is the sink's already, said as the Writer said it.
     local usable, failure = self.sink:usable()
     if not usable then return false, failure end
-    return self.sink:fail("zip: add_file: " .. tostring(ctrouble))
+    return self.sink:fail(Failure.within(ctrouble, "zip: add_file"))
   end
   return finish_streamed(self, st)
 end

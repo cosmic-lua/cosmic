@@ -12,6 +12,8 @@ local AnalysisSchema = require("build.analysis_schema")
 local bind = require("build.bind")
 local standard_text = require("build.standard_text")
 local type module = require("build.module")
+local type work_schema = require("build.work_schema")
+local type Database = work_schema.Database
 local type Module = module.Plan
 
 local record plans
@@ -43,7 +45,7 @@ local record plans
   --- The keys of `modules` made from nothing kept ([`plans.dependency_keys`]
   --- without its memos): what each is a function of, which a test holds the
   --- memos to.
-  mut full_keys: function(db: Sqlite.Handle, modules: {Module}, tool: string): {string:Keys}?, string
+  mut full_keys: function(db: Database, modules: {Module}, tool: string): {string:Keys}?, string
 end
 
 local type Keys = plans.Keys
@@ -51,8 +53,8 @@ local text = bind.text
 
 --- What `test_inputs` holds, by source hash: each [`Test.policy`]
 --- declaration, as the [`Test.Needs`] it stands for.
-local function test_inputs_by_hash(db: Sqlite.Handle): {string:PolicyRules.Declared}?, string
-  local rows, trouble = db:text_rows(
+local function test_inputs_by_hash(db: Database): {string:PolicyRules.Declared}?, string
+  local rows, trouble = db:rows(
     "SELECT source_hash, field, value FROM test_inputs ORDER BY source_hash, ordinal")
   if rows == nil then
     return nil, tostring(trouble)
@@ -109,9 +111,9 @@ local function test_inputs_by_hash(db: Sqlite.Handle): {string:PolicyRules.Decla
 end
 
 --- Every name a table keyed by source hash lists, in order, by hash.
-local function names_by_hash(db: Sqlite.Handle,
+local function names_by_hash(db: Database,
                              table_name: string): {string:mut {string}}?, string
-  local rows, trouble = db:text_rows(
+  local rows, trouble = db:rows(
     "SELECT source_hash, name FROM " .. table_name ..
       " ORDER BY source_hash, ordinal")
   if rows == nil then
@@ -144,7 +146,7 @@ local function embedded_edges(name: string): mut {string}?, string
   if own == nil then
     return nil, "this binary carries no database"
   end
-  local rows, trouble = own:text_rows(
+  local rows, trouble = own:rows(
     "SELECT requires FROM decl_imports WHERE path = ?1 ORDER BY requires",
     { text(name) })
   if rows == nil then
@@ -176,13 +178,13 @@ local record Graph
   resolve: function(string, string): Dependency?, string
 end
 
-local function dependency_graph(db: Sqlite.Handle, modules: {Module}): Graph?, string
+local function dependency_graph(db: Database, modules: {Module}): Graph?, string
   local requires, requires_trouble = names_by_hash(db, "requires")
   if requires == nil then
     return nil, requires_trouble
   end
   local dependencies: mut {string:Dependency} = {}
-  local rows, rows_trouble = db:text_rows(
+  local rows, rows_trouble = db:rows(
     "SELECT path, kind, source_hash FROM inputs WHERE kind <> 'vendor' " ..
       "ORDER BY path, " .. AnalysisSchema.declaration("kind") .. " DESC")
   if rows == nil then
@@ -311,7 +313,7 @@ end
 --- module is content-addressed by what the checker reads of it when a
 --- project imports it ([`standard_text`]). Each module's
 --- [`Keys`], by path.
-local function compute_keys(db: Sqlite.Handle, modules: {Module},
+local function compute_keys(db: Database, modules: {Module},
                             tool: string): {string:Keys}?, string
   local graph, trouble = dependency_graph(db, modules)
   if graph == nil then
@@ -398,10 +400,10 @@ end
 --- What the last [`fast_keys`] kept under `tool`: each module's keys by path
 --- and each node's fragment digest by slot, or nil where it kept none. Both
 --- are written together and replaced together, in one transaction.
-local function kept_graph(db: Sqlite.Handle, tool: string): {string:KeptKeys}?, {string:string}?
-  local modules, _ = db:text_rows(
+local function kept_graph(db: Database, tool: string): {string:KeptKeys}?, {string:string}?
+  local modules, _ = db:rows(
     "SELECT path, file, key, graph FROM key_memo WHERE tool = ?1", { text(tool) })
-  local slots, _ = db:text_rows(
+  local slots, _ = db:rows(
     "SELECT slot, digest FROM key_frags WHERE tool = ?1", { text(tool) })
   if modules == nil or slots == nil or #modules == 0 or #slots == 0 then return nil, nil end
   local keys: mut {string:KeptKeys} = {}
@@ -415,7 +417,7 @@ end
 
 --- Replaces what [`kept_graph`] returns with `out` and `fragments`, under
 --- `tool`. A failure costs only the next run's compute.
-local function keep_graph(db: Sqlite.Handle, tool: string, modules: {Module}, out: {string:Keys},
+local function keep_graph(db: Database, tool: string, modules: {Module}, out: {string:Keys},
                           fragments: {string:Fragment})
   local cleared, _ = db:exec("DELETE FROM key_memo; DELETE FROM key_frags")
   if not cleared then return end
@@ -459,7 +461,7 @@ end
 --- Nil, to be made by [`compute_keys`], where a name has a byte
 --- that does not hold to that, or the tree cannot be read as it reads it,
 --- which it then says in its own words.
-local function fast_keys(db: Sqlite.Handle, modules: {Module}, tool: string): {string:Keys}?
+local function fast_keys(db: Database, modules: {Module}, tool: string): {string:Keys}?
   local graph, _ = dependency_graph(db, modules)
   if graph == nil then return nil end
   local fragment_of = fragments_in(graph, source_line)
@@ -564,8 +566,8 @@ end
 --- path and source hash decide the graph it is in), every `requires`
 --- row (what each source hash imports), and each module's own path,
 --- file, kind and source hash. Nil where the database will not say.
-local function keys_fingerprint(db: Sqlite.Handle, modules: {Module}, tool: string): string?
-  local rows, _ = db:text_rows(
+local function keys_fingerprint(db: Database, modules: {Module}, tool: string): string?
+  local rows, _ = db:rows(
     "SELECT coalesce((SELECT lower(hex(sha256(group_concat(path || char(1) || kind || char(1) || " ..
       "source_hash, char(10) ORDER BY path, kind, source_hash)))) FROM inputs WHERE kind <> 'vendor'), ''), " ..
       "coalesce((SELECT lower(hex(sha256(group_concat(source_hash || char(1) || ordinal || char(1) || " ..
@@ -587,9 +589,9 @@ local kept_fingerprints <const> = 4
 
 --- The keys `keys_memo` holds under `fingerprint`, one line a module
 --- (path, key, graph, tab-separated), where they name exactly `modules`.
-local function remembered_keys(db: Sqlite.Handle, fingerprint: string,
+local function remembered_keys(db: Database, fingerprint: string,
                                modules: {Module}): {string:Keys}?
-  local rows, _ = db:text_rows("SELECT body FROM keys_memo WHERE fp = ?1", { text(fingerprint) })
+  local rows, _ = db:rows("SELECT body FROM keys_memo WHERE fp = ?1", { text(fingerprint) })
   if rows == nil then return nil end
   local row = rows[1]
   if row == nil then return nil end
@@ -608,7 +610,7 @@ end
 
 --- Keeps `keys` under `fingerprint`, and drops all but the newest
 --- `kept_fingerprints`. A failure costs only the next run's compute.
-local function keep_keys(db: Sqlite.Handle, fingerprint: string, modules: {Module},
+local function keep_keys(db: Database, fingerprint: string, modules: {Module},
                          keys: {string:Keys})
   local lines: mut {string} = {}
   for _, m in ipairs(modules) do
@@ -628,7 +630,7 @@ end
 --- of a thousand modules, and a run where nothing changed asks it again.
 --- The memo is `keys_memo` of the working database, keyed by
 --- [`keys_fingerprint`], which holds everything the computation reads.
-function plans.dependency_keys(db: Sqlite.Handle, modules: {Module},
+function plans.dependency_keys(db: Database, modules: {Module},
                                tool: string): {string:Keys}?, string
   local fingerprint = keys_fingerprint(db, modules, tool)
   if fingerprint ~= nil then
@@ -667,8 +669,8 @@ end
 
 --- Every module the derived tree holds ([`build.importer.derive`]), with what
 --- its parse found.
-function plans.collect(db: Sqlite.Handle): {Module}?, string
-  local rows, trouble = db:text_rows(
+function plans.collect(db: Database): {Module}?, string
+  local rows, trouble = db:rows(
     "SELECT i.path, i.file, i.kind, i.origin, i.source, i.source_hash, " ..
       "p.has_return, s.source_hash IS NOT NULL, " ..
       -- Only cosmic's own build reads a stub, of a standard-library module.
@@ -698,7 +700,7 @@ function plans.collect(db: Sqlite.Handle): {Module}?, string
   local out: mut {Module} = {}
   for _, row in ipairs(rows) do
     local path, file, kind, origin = row:text(1), row:text(2), row:text(3), row:text(4)
-    local source, source_hash, has_return = row:text(5), row:text(6), row:text(7)
+    local source, source_hash, has_return = row:text(5), row:text(6), row:integer(7) == 1
     local inputs = declared[source_hash]
     local misplaced = plans.policy_refusal(file, kind, inputs)
     if misplaced ~= nil then
@@ -715,12 +717,12 @@ function plans.collect(db: Sqlite.Handle): {Module}?, string
         elseif kind == "example" then examples[source_hash] or {}
         else {} end,
       inputs = inputs,
-      has_top_level_return = has_return == "1",
+      has_top_level_return = has_return,
       generated = origin == "doctest" or origin == "template",
       key = "",
       graph_key = "",
       lua = "",
-      stub = if row:text(8) == "1" then { text = row:text(9), pruned = row:text(10) == "1" } else nil end,
+      stub = if row:integer(8) == 1 then { text = row:text(9), pruned = row:integer(10) == 1 } else nil end,
     }
   end
   return out, ""
@@ -803,8 +805,8 @@ end
 --- declarations are the rows a parse kept (build.globals) for every source, a `.d.tl` and a compile that stands in a
 --- cache included, so the refusal is made before any module is compiled, and does not depend on that order. A
 --- caller may refuse the modules that declare them and not the tree, each refusal naming its file.
-function plans.global_refusals(db: Sqlite.Handle): {plans.GlobalRefusal}?, string
-  local rows, trouble = db:text_rows(
+function plans.global_refusals(db: Database): {plans.GlobalRefusal}?, string
+  local rows, trouble = db:rows(
     "SELECT i.file, g.line, g.column FROM inputs i JOIN globals g " ..
       "ON g.source_hash = i.source_hash WHERE i.kind <> 'vendor' " ..
       "ORDER BY i.file, g.line, g.column")
@@ -814,7 +816,7 @@ function plans.global_refusals(db: Sqlite.Handle): {plans.GlobalRefusal}?, strin
   local out: mut {plans.GlobalRefusal} = {}
   for _, row in ipairs(rows) do
     out[#out + 1] = { file = row:text(1),
-      message = plans.global_refusal(row:text(1) .. ":" .. row:text(2) .. ":" .. row:text(3)) }
+      message = plans.global_refusal(row:text(1) .. ":" .. tostring(row:integer(2)) .. ":" .. tostring(row:integer(3))) }
   end
   return out, ""
 end
@@ -822,7 +824,7 @@ end
 --- The record-field uses one compile found, kept under its key beside
 --- the compile itself, replacing whatever an earlier compile under the
 --- same key left.
-function plans.keep_references(db: Sqlite.Handle, key: string,
+function plans.keep_references(db: Database, key: string,
                                references: {SyntaxReceivers.Reference}): boolean, string
   local ok, why = db:run("DELETE FROM typed_refs WHERE key = ?1", { text(key) })
   if not ok then

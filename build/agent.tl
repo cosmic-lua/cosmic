@@ -1,7 +1,7 @@
 --- `cosmic agent`: a small coding agent, after pi. Claude, through the
---- Messages API, with tools to read, write and edit files, run commands
---- (in the foreground or as background jobs), check and run snippets in
---- the cosmic environment, and query what it has kept, held to a
+--- Messages API, with one tool, run, which checks and runs snippets in
+--- the cosmic environment: they read, write and edit files, run programs
+--- where --commands lets them, and query what it has kept, held to a
 --- sandbox. `cosmic agent worker` is the process that runs the snippets
 --- ([`build.agent_worker`]); the agent starts it. [`cosmic.agent`] runs the loop; this reads the
 --- command line, opens the sessions database and writes what the model
@@ -37,8 +37,8 @@
 ---                                          conversation, as the API
 ---                                          takes it: a prompt, a reply,
 ---                                          or tool results
----     {"type":"tool","name":"bash","input":{...}}   a tool call starts
----     {"type":"result","name":"bash","is_error":false}   it ended
+---     {"type":"tool","name":"run","input":{...}}   a tool call starts
+---     {"type":"result","name":"run","is_error":false}   it ended
 ---     {"type":"request","request":{...}}   a request ended: its model,
 ---                                          status, ms, tokens and cost
 ---     {"type":"end","ok":true}             the turn ended; when ok is
@@ -79,7 +79,6 @@ local Fs = require("cosmic.fs")
 local Grant = require("cosmic.relay.grant")
 local sys = require("cosmic.sys")
 local Hash = require("cosmic.hash")
-local Jobs = require("cosmic.agent.jobs")
 local Worker = require("cosmic.agent.worker")
 local Json = require("cosmic.json")
 local Number = require("cosmic.number")
@@ -93,7 +92,6 @@ local Sessions = require("cosmic.agent.sessions")
 local Show = require("cosmic.agent.show")
 local Signal = require("cosmic.signal")
 local Sqlite = require("cosmic.sqlite")
-local Tools = require("cosmic.agent.tools")
 local bare = require("build.bare")
 local verb_spec = require("build.verb_spec")
 
@@ -138,6 +136,8 @@ local record verb
     env: function(name: string): string?
     --- What opens the API's requests; nil for [`Http.open`].
     send?: Agent.Send
+    --- What starts run's worker; nil for [`Worker.new`]'s `cosmic agent worker` of this program's own file.
+    worker?: function(): Worker.Set
   end
 end
 
@@ -395,32 +395,6 @@ local function budget_of(text: string): Agent.Budget?, string
   return { tokens = most_tokens, cost = cost, turns = turns, seconds = seconds }, ""
 end
 
---- The tools `got` offers: those --tools names ([`Tools.named`]), else the default, with --with's added and
---- --without's taken out ([`Tools.changed`]); under --sandbox read with no
---- --grant that writes, none that changes a file, since the sandbox refuses each change.
-local function offered_tools(got: Flags.Parsed): ({Tools.Tool}) | (nil, string)
-  local given = got.values["--tools"]
-  local offered: {Tools.Tool} = Tools.default()
-  if given ~= nil then
-    local named, why = Tools.named(given)
-    if named == nil then return nil, why end
-    offered = named
-  end
-  local changed, changed_why = Tools.changed(offered, got.values["--with"], got.values["--without"])
-  if changed == nil then return nil, changed_why end
-  offered = changed
-  if got.values["--sandbox"] ~= "read" then return offered end
-  for _, given_grant in ipairs(got.all["--grant"] or {}) do
-    local letters = given_grant:match(":([rwxc]+)$")
-    if letters ~= nil and letters:find("w", 1, true) ~= nil then return offered end
-  end
-  local kept = Tools.without(offered, { "edit", "write" })
-  if #kept == 0 then
-    return nil, "--sandbox read takes edit and write out, so no tool is left to offer"
-  end
-  return kept
-end
-
 --- Holds session `id` for this run, so no other run appends to it at once: the lock's descriptor, or nil where
 --- another run holds it (why is "" then), or nil and why. The lock ends when the descriptor closes, or the run.
 local function hold_session(r: Run, id: integer): integer?, string
@@ -445,7 +419,6 @@ local type Opened = {session: Agent.Session, lock: integer?}
 --- unless --new, and a fresh one starts where there is none, or another run holds it.
 local function session(r: Run, got: Flags.Parsed, db: Sqlite.Handle, newest: boolean,
                        by_default: boolean): Opened?, string
-  local effort = got.values["--effort"] or Agent.EFFORT
   local budget: Agent.Budget? = nil
   local limits = got.values["--budget"]
   if limits ~= nil then
@@ -513,8 +486,7 @@ local function session(r: Run, got: Flags.Parsed, db: Sqlite.Handle, newest: boo
   if policy == nil and policy_why ~= "" then return refused(policy_why) end
   local servers, servers_why = mcp_servers(r, got)
   if servers == nil then return refused(servers_why) end
-  local offered, picked_why = offered_tools(got)
-  if offered == nil then return refused("tools: " .. picked_why) end
+  local commands = got.set["--commands"] == true
   local now = Clock.now_ns() // Clock.seconds(1)
   if id == nil then
     -- A fork copies all the other session kept; this run goes on in the copy, and the other is left as it was.
@@ -549,10 +521,11 @@ local function session(r: Run, got: Flags.Parsed, db: Sqlite.Handle, newest: boo
     r.io.err("cosmic: agent: going on with session " .. tostring(id) .. " (" .. String.counted(#held, "message") ..
         ", " .. model .. unfinished .. "); --new starts a fresh one")
   end
-  local s = Agent.new({ model = model, effort = effort, sign = sign, base_url = base, cwd = here,
-    send = r.io.send, system = Prompt.build(here, Prompt.contexts(here), { tools = offered }),
-    sandbox = if policy == nil then nil else { policy } end, jobs = Jobs.new(), worker = Worker.new(), mcp = AgentMcp.new(servers, here), build = build(),
-    tools = offered, messages = held, db = db, id = id, restarts = restarts, ended = ended, budget = budget })
+  local s = Agent.new({ model = model, effort = got.values["--effort"], sign = sign, base_url = base, cwd = here,
+    send = r.io.send, system = Prompt.build(here, Prompt.contexts(here), { commands = commands }),
+    sandbox = if policy == nil then nil else { policy } end, commands = commands,
+    worker = if r.io.worker ~= nil then r.io.worker() else Worker.new() end,
+    mcp = AgentMcp.new(servers, here), build = build(), messages = held, db = db, id = id, restarts = restarts, ended = ended, budget = budget })
   if budget ~= nil and budget.cost ~= nil and Agent.cost(model, {}) == nil then
     s:close()
     return refused("--budget cost: no price is known for " .. model .. ", so its cost cannot be counted")
@@ -693,7 +666,7 @@ local function turn(r: Run, s: Agent.Session, on: function(event: Agent.Event), 
     r.io.err("cosmic: agent: an event could not be shown: " .. lost)
     s.on_failed = nil
   end
-  -- A signal but Ctrl-C ends the run as the hold ends: the jobs first.
+  -- A signal but Ctrl-C ends the run as the hold ends: the worker and the MCP servers first.
   local caught = held_signals.caught()
   if caught ~= 0 and caught ~= 2 then s:close() end
   held_signals.release()
@@ -953,13 +926,9 @@ local function prompt(r: Run, got: Flags.Parsed): integer
     return bare.refused
   end
   local here = cwd(r)
-  local offered, why = offered_tools(got)
-  if offered == nil then
-    r.complain("prompt: tools: " .. why)
-    return bare.refused
-  end
   -- The system prompt, then the working directory that follows it.
-  r.io.out(Prompt.build(here, Prompt.contexts(here), { tools = offered }) .. "\n\n" .. Prompt.where(here))
+  r.io.out(Prompt.build(here, Prompt.contexts(here), { commands = got.set["--commands"] == true }) .. "\n\n" ..
+      Prompt.where(here))
   return bare.ok
 end
 
@@ -1002,20 +971,15 @@ local function policy(r: Run, got: Flags.Parsed): integer
     r.complain("policy: " .. merged_why)
     return bare.failed
   end
-  local offered, offered_why = offered_tools(got)
-  if offered == nil then
-    r.complain("policy: tools: " .. offered_why)
-    return bare.refused
-  end
-  -- The grants below hold bash; without it the worker runs no program, however much x they give.
-  if Tools.find(offered, "bash") ~= nil then
-    r.io.out("programs: bash runs those the grants below let it run (x)")
+  -- The grants below hold Host.bash; without --commands the worker runs no program, however much x they give.
+  if got.set["--commands"] == true then
+    r.io.out("programs: Host.bash runs those the grants below let it run (x)")
   elseif not Sandbox.on_macos() then
-    r.io.out("programs: none run, since no tool offered is bash: the sandbox lets no file but cosmic's own run, " ..
-        "whatever x the grants below give (--with bash runs them)")
+    r.io.out("programs: none run without --commands: the sandbox lets no file but cosmic's own run, " ..
+        "whatever x the grants below give")
   else
-    r.io.out("programs: no tool offered is bash, but on macOS a snippet may still run those the grants below let it " ..
-        "run (x)")
+    r.io.out("programs: none run by Host.bash without --commands, but on macOS a snippet may still run those the " ..
+        "grants below let it run (x)")
   end
   for _, line in ipairs(Policy.describe(merged, sandbox_home(r))) do r.io.out(line) end
   return bare.ok

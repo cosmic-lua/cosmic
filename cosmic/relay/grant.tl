@@ -32,6 +32,8 @@
 ---     print(target.kind, target.text) -- name  api.example.com:443
 --- @public
 
+local Failure = require("cosmic.failure")
+
 local record Grant
   --- What a target's host is.
   enum Kind
@@ -245,57 +247,55 @@ local function numeric(label: string): boolean
 end
 
 --- `text` as a DNS name in canonical form (lower-case, a trailing dot
---- removed), or nil and why. A name is labels of letters, digits and inner
---- hyphens, 63 bytes at most each and 253 in all, whose last is no number.
+--- removed), or nil and a [`Failure`] that says why. A name is labels
+--- of letters, digits and inner hyphens, 63 bytes at most each and 253
+--- in all, whose last is no number.
 --- @param text string The name
---- @return string|nil The canonical name
---- @return string Why there is none, "" otherwise
-function Grant.name(text: string): string?, string
-  if type(text) ~= "string" then return nil, "a host name is text" end
+function Grant.name(text: string): (string) | (nil, Failure)
+  if type(text) ~= "string" then return nil, Failure.new("a host name is text") end
   if text:sub(-1) == "." then
     text = text:sub(1, -2)
   end
   if text == "" then
-    return nil, "empty host name"
+    return nil, Failure.new("empty host name")
   end
   if #text > MAX_NAME then
-    return nil, "host name longer than 253 bytes"
+    return nil, Failure.new("host name longer than 253 bytes")
   end
   text = text:gsub("%u", string.lower)
   local last = ""
   for label in (text .. "."):gmatch("([^.]*)%.") do
     if label == "" then
-      return nil, "host name with an empty label"
+      return nil, Failure.new("host name with an empty label")
     end
     if #label > MAX_LABEL then
-      return nil, "host name label longer than 63 bytes"
+      return nil, Failure.new("host name label longer than 63 bytes")
     end
     if not label:find("^[a-z0-9][a-z0-9-]*$") or label:sub(-1) == "-" then
-      return nil, "host name label that is not letters, digits and inner hyphens"
+      return nil, Failure.new("host name label that is not letters, digits and inner hyphens")
     end
     last = label
   end
   if numeric(last) then
-    return nil, "host name whose last label is a number (write an IPv4 address in four parts)"
+    return nil, Failure.new("host name whose last label is a number (write an IPv4 address in four parts)")
   end
-  return text, ""
+  return text
 end
 
---- A decimal port from 1 to 65535 with no leading zero, or nil and why.
+--- A decimal port from 1 to 65535 with no leading zero, or nil and a
+--- [`Failure`] that says why.
 --- @param text string The port's text
---- @return integer|nil The port
---- @return string Why there is none, "" otherwise
-function Grant.port(text: string): integer?, string
-  if type(text) ~= "string" then return nil, "a port is text" end
+function Grant.port(text: string): (integer) | (nil, Failure)
+  if type(text) ~= "string" then return nil, Failure.new("a port is text") end
   local why = "port is not a decimal number from 1 to 65535 without leading zeros"
   if not text:find("^[1-9]%d*$") or #text > 5 then
-    return nil, why
+    return nil, Failure.new(why)
   end
   local port = math.tointeger(tonumber(text))
   if port == nil or port > 65535 then
-    return nil, why
+    return nil, Failure.new(why)
   end
-  return port, ""
+  return port
 end
 
 --- `host:port` in its canonical text.
@@ -304,17 +304,15 @@ local function text_of(kind: Grant.Kind, host: string, port: integer): string
   return host .. ":" .. (if port == 0 then "*" else tostring(port) end)
 end
 
---- A `connect` target `text` read, or nil and why: the host a name, an
---- IPv4 address, an IPv6 address in brackets or "*", then ":" and a port or
---- "*" (see the module's header). The why names the first thing wrong,
+--- A `connect` target `text` read, or nil and a [`Failure`] that says
+--- why: the host a name, an IPv4 address, an IPv6 address in brackets or
+--- "*", then ":" and a port or "*" (see the module's header). The Failure names the first thing wrong,
 --- without the target.
 --- @param text string The target, `host:port`
---- @return Grant.Target|nil The target
---- @return string Why there is none, "" otherwise
-function Grant.parse(text: string): Grant.Target?, string
-  if type(text) ~= "string" then return nil, "a target is text" end
+function Grant.parse(text: string): (Grant.Target) | (nil, Failure)
+  if type(text) ~= "string" then return nil, Failure.new("a target is text") end
   local host, at = text:match("^(.+):([^:]+)$")
-  if host == nil or at == nil then return nil, "not host:port" end
+  if host == nil or at == nil then return nil, Failure.new("not host:port") end
   local port = 0
   if at ~= "*" then
     local number, why = Grant.port(at)
@@ -325,73 +323,75 @@ function Grant.parse(text: string): Grant.Target?, string
   if inner ~= nil then
     local bytes = inner:find(":", 1, true) and Grant.address(inner) or nil
     if bytes == nil or #bytes ~= 16 then
-      return nil, "brackets hold an IPv6 address and nothing else"
+      return nil, Failure.new("brackets hold an IPv6 address and nothing else")
     end
     local canonical = Grant.ipv6_text(bytes)
     return { kind = "ipv6", host = canonical, bytes = bytes, port = port,
-      text = text_of("ipv6", canonical, port) }, ""
+      text = text_of("ipv6", canonical, port) }
   end
   if host:find(":", 1, true) then
-    return nil, "an IPv6 host is written in brackets"
+    return nil, Failure.new("an IPv6 host is written in brackets")
   end
   if host == "*" then
-    return { kind = "any", host = "*", port = port, text = text_of("any", "*", port) }, ""
+    return { kind = "any", host = "*", port = port, text = text_of("any", "*", port) }
   end
   if host:find("*", 1, true) then
-    return nil, "a host is a whole name or \"*\", not a pattern"
+    return nil, Failure.new("a host is a whole name or \"*\", not a pattern")
   end
   if host:find("[%[%]]") then
-    return nil, "brackets hold an IPv6 address and nothing else"
+    return nil, Failure.new("brackets hold an IPv6 address and nothing else")
   end
   local bytes = Grant.address(host)
   if bytes ~= nil then
     return { kind = "ipv4", host = host, bytes = bytes, port = port,
-      text = text_of("ipv4", host, port) }, ""
+      text = text_of("ipv4", host, port) }
   end
   local name, why = Grant.name(host)
   if name == nil then return nil, why end
-  return { kind = "name", host = name, port = port, text = text_of("name", name, port) }, ""
+  return { kind = "name", host = name, port = port, text = text_of("name", name, port) }
 end
 
 --- The most bytes of a tag's name or a login name.
 local MAX_TAILNET_NAME <const> = 256
 
---- A tailnet `connect` target `text` read, or nil and why: `tag:` then a
---- letter and letters, digits and hyphens, as an ACL tag is written, or
---- `user:` then a login name (`will@example.com`, `alice@github`), then
---- ":" and a port or "*". Nil and "" for a text that is neither kind
---- (`tag:443` is a host named `tag`), so
---- the caller reads it as a [`Grant.parse`] target instead.
+--- A tailnet `connect` target `text` read, or nil and a [`Failure`] that
+--- says why: `tag:` then a letter and letters, digits and hyphens, as an
+--- ACL tag is written, or `user:` then a login name (`will@example.com`,
+--- `alice@github`), then ":" and a port or "*". False for a text that is
+--- neither kind (`tag:443` is a host named `tag`), so the caller reads it
+--- as a [`Grant.parse`] target instead.
 --- @param text string The target
---- @return Grant.Tailnet|nil The target
---- @return string Why it is no target, "" for a text of neither kind
-function Grant.tailnet(text: string): Grant.Tailnet?, string
-  if type(text) ~= "string" then return nil, "" end
+function Grant.tailnet(text: string): (Grant.Tailnet | false) | (nil, Failure)
+  if type(text) ~= "string" then return false end
   -- A host named `tag` or `user` (`tag:443`) is a name, for Grant.parse:
   -- a tailnet target has a name between two colons.
   local kind = text:match("^(%a+):.*:[^:]*$") or ""
-  if kind ~= "tag" and kind ~= "user" then return nil, "" end
+  if kind ~= "tag" and kind ~= "user" then return false end
   local name, at = text:match("^%a+:(.*):([^:]+)$")
-  if name == nil or at == nil then return nil, kind .. ": is " .. kind .. ":<name>:<port>" end
+  if name == nil or at == nil then
+    return nil, Failure.new(kind .. ": is " .. kind .. ":<name>:<port>")
+  end
   local port = 0
   if at ~= "*" then
     local number, why = Grant.port(at)
     if number == nil then return nil, why end
     port = number
   end
-  if #name > MAX_TAILNET_NAME then return nil, "a " .. kind .. " is at most 256 bytes" end
+  if #name > MAX_TAILNET_NAME then
+    return nil, Failure.new("a " .. kind .. " is at most 256 bytes")
+  end
   local shown = if port == 0 then "*" else tostring(port) end
   if kind == "tag" then
     if name:match("^%a[%w%-]*$") == nil then
-      return nil, "a tag is a letter, then letters, digits and hyphens (tag:db)"
+      return nil, Failure.new("a tag is a letter, then letters, digits and hyphens (tag:db)")
     end
-    return { kind = "tag", name = "tag:" .. name, port = port, text = "tag:" .. name .. ":" .. shown }, ""
+    return { kind = "tag", name = "tag:" .. name, port = port, text = "tag:" .. name .. ":" .. shown }
   end
   local login = name:lower()
   if login:match("^[%w._%%+%-]+@[%w._%-]+$") == nil then
-    return nil, "a user is a login name, such as will@example.com or alice@github"
+    return nil, Failure.new("a user is a login name, such as will@example.com or alice@github")
   end
-  return { kind = "user", name = login, port = port, text = "user:" .. login .. ":" .. shown }, ""
+  return { kind = "user", name = login, port = port, text = "user:" .. login .. ":" .. shown }
 end
 
 return Grant

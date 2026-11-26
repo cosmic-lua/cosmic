@@ -679,7 +679,7 @@ local function test_a_corpus_is_intact_after_a_refused_allocation()
     local ended = AllocationFixture.under_every_failure(function()
       -- Once the add has landed, a later pass only searches.
       if corpus:count() == 64 then local _, _ = pcall(corpus.add, corpus, 1000, blob) end
-      local _, _, _ = pcall(corpus.search, corpus, query, 3, { candidates = 10 })
+      local _, _ = pcall(function() local _, _ = corpus:search(query, 3, { candidates = 10 }) end)
     end, function()
       local n = corpus:count()
       assert(n == 64 or n == 65, "the count became " .. tostring(n))
@@ -947,7 +947,8 @@ local function test_bigint_leaves_nothing_whenever_an_allocation_fails()
     local product = Bigint.mul(power, power)
     local sum = Bigint.add(product, power)
     assert(assert(Bigint.sub(sum, power)) == product)
-    assert(Bigint.sub(power, sum) == nil)
+    local negative, _ = Bigint.sub(power, sum)
+    assert(negative == nil)
     assert(Bigint.compare(Bigint.mod(sum, prime), prime) == -1)
   end)
   assert(ended > 0, "a call's numbers are an allocation")
@@ -1116,7 +1117,7 @@ end
 
 local record Exchange
   name: string
-  options: Http.Options
+  options: Http.OpenOptions
 end
 
 --- Each shape of scripted exchange a request walks: a Content-Length
@@ -1141,7 +1142,7 @@ local exchanges: {Exchange} = {
 --- Opens `options`' exchange, reads the body to its end, closes, and
 --- returns the body. A response a refusal leaves open is the
 --- collector's to close, as any dropped one is.
-local function exchange(options: Http.Options): string
+local function exchange(options: Http.OpenOptions): string
   local response = assert(Http.open("http://cosmic.test/", options))
   local parts: mut {string} = {}
   while true do

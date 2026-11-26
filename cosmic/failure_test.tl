@@ -111,3 +111,18 @@ local function test_a_system_timeout_is_a_timeout()
   local late = Failure.system(errno)
   assert(late.kind == "timeout" and late.errno == errno)
 end
+
+local function test_within_adds_what_was_being_done_and_keeps_the_cause()
+  local timeout = Failure.timeout()
+  local within = Failure.within(timeout, "tar: add_file")
+  assert(within.kind == "timeout" and within.errno == 0 and within.path == nil, within.kind)
+  assert(tostring(within) == "tar: add_file: timed out", tostring(within))
+  assert(timeout.message == "timed out", timeout.message)
+  local missing = Failure.within(Failure.system(sys.ENOENT, "/nowhere"), "reading")
+  assert(missing.kind == "system" and missing.errno == sys.ENOENT and missing.path == "/nowhere")
+  assert(tostring(missing) == "/nowhere: reading: " .. sys.errno_message(sys.ENOENT), tostring(missing))
+  local placed = Failure.within(Failure.at("bad", 3, 5), "csv")
+  assert(placed.kind == "parse" and placed.line == 3 and placed.column == 5)
+  local coded = Failure.within(Failure.coded("busy", 5, 261, "cancelled"), "query")
+  assert(coded.kind == "cancelled" and coded.code == 5 and coded.extended_code == 261)
+end

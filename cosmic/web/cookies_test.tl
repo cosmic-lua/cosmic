@@ -2,6 +2,18 @@ local Cookies = require("cosmic.web.cookies")
 local Time = require("cosmic.time")
 local Web = require("cosmic.web")
 
+--- The line [`Cookies.format`] makes, or nil when it refuses.
+local function format_line(name: string, value: string, attrs?: Cookies.Attributes): string?
+  local line, _ = Cookies.format(name, value, attrs)
+  return line
+end
+
+--- The line [`Cookies.expire`] makes, or nil when it refuses.
+local function expire_line(name: string, attrs?: Cookies.Attributes): string?
+  local line, _ = Cookies.expire(name, attrs)
+  return line
+end
+
 local function test_parse_reads_pairs_and_the_first_of_a_name_wins()
   local got = Cookies.parse("a=1; b=2;c=3; a=9")
   assert(got["a"] == "1" and got["b"] == "2" and got["c"] == "3")
@@ -49,50 +61,50 @@ local function test_parse_reads_at_most_100_cookies_and_8_kib()
 end
 
 local function test_format_writes_attributes_in_a_fixed_order_with_safe_defaults()
-  assert(Cookies.format("n", "v") == "n=v; Path=/; HttpOnly; SameSite=Lax")
+  assert(format_line("n", "v") == "n=v; Path=/; HttpOnly; SameSite=Lax")
   local line = assert(Cookies.format("n", "v", { path = "/app", max_age = 60, domain = ".Example.com",
     secure = true, same_site = "Strict", partitioned = true }))
   assert(line == "n=v; Path=/app; Max-Age=60; Domain=Example.com; Secure; HttpOnly; SameSite=Strict; Partitioned", line)
-  assert(assert(Cookies.format("n", "v", { http_only = false })) == "n=v; Path=/; SameSite=Lax")
+  assert(assert(format_line("n", "v", { http_only = false })) == "n=v; Path=/; SameSite=Lax")
   local dated = assert(Cookies.format("n", "v", { expires_ns = 0 }))
   assert(dated:find("Expires=Thu, 01 Jan 1970 00:00:00 GMT", 1, true), dated)
 end
 
 local function test_format_refuses_a_name_or_value_a_cookie_cannot_hold()
   local line, why = Cookies.format("bad name", "v")
-  assert(line == nil and why:find("name", 1, true) ~= nil, why)
+  assert(line == nil and tostring(why):find("name", 1, true) ~= nil, tostring(why))
   for _, value in ipairs({ "a;b", "a b", "a,b", 'a"b', "a\\b", "a\nb", "é" }) do
     line, why = Cookies.format("n", value)
-    assert(line == nil and why:find("value", 1, true) ~= nil, value)
+    assert(line == nil and tostring(why):find("value", 1, true) ~= nil, value)
   end
   line, why = Cookies.format("n", "v", { path = "/a;b" })
-  assert(line == nil and why:find("path", 1, true) ~= nil, why)
+  assert(line == nil and tostring(why):find("path", 1, true) ~= nil, tostring(why))
   line, why = Cookies.format("n", "v", { domain = "a b" })
-  assert(line == nil and why:find("domain", 1, true) ~= nil, why)
+  assert(line == nil and tostring(why):find("domain", 1, true) ~= nil, tostring(why))
 end
 
 local function test_format_enforces_prefixes_and_samesite_none()
   local line, why = Cookies.format("__Host-id", "v")
-  assert(line == nil and why:find("__Host-", 1, true) ~= nil, why)
+  assert(line == nil and tostring(why):find("__Host-", 1, true) ~= nil, tostring(why))
   line, why = Cookies.format("__Host-id", "v", { secure = true, path = "/x" })
   assert(line == nil, "__Host- needs Path=/")
   line, why = Cookies.format("__Host-id", "v", { secure = true, domain = "example.com" })
   assert(line == nil, "__Host- takes no Domain")
-  assert(Cookies.format("__Host-id", "v", { secure = true }) ~= nil)
+  assert(format_line("__Host-id", "v", { secure = true }) ~= nil)
   line, why = Cookies.format("__secure-id", "v")
-  assert(line == nil and why:find("Secure", 1, true) ~= nil, why)
-  assert(Cookies.format("__Secure-id", "v", { secure = true, domain = "example.com" }) ~= nil)
+  assert(line == nil and tostring(why):find("Secure", 1, true) ~= nil, tostring(why))
+  assert(format_line("__Secure-id", "v", { secure = true, domain = "example.com" }) ~= nil)
   line, why = Cookies.format("n", "v", { same_site = "None" })
-  assert(line == nil and why:find("SameSite=None needs Secure", 1, true) ~= nil, why)
-  assert(Cookies.format("n", "v", { same_site = "None", secure = true }) ~= nil)
+  assert(line == nil and tostring(why):find("SameSite=None needs Secure", 1, true) ~= nil, tostring(why))
+  assert(format_line("n", "v", { same_site = "None", secure = true }) ~= nil)
   line, why = Cookies.format("n", "v", { partitioned = true })
-  assert(line == nil and why:find("Partitioned", 1, true) ~= nil, why)
+  assert(line == nil and tostring(why):find("Partitioned", 1, true) ~= nil, tostring(why))
 end
 
 local function test_format_refuses_a_line_over_4096_bytes_with_the_count()
   local line, why = Cookies.format("n", ("x"):rep(4090))
-  assert(line == nil and why:find("browsers keep at most 4096", 1, true) ~= nil, why)
-  assert(why:find("%d%d%d%d bytes") ~= nil, why)
+  assert(line == nil and tostring(why):find("browsers keep at most 4096", 1, true) ~= nil, tostring(why))
+  assert(tostring(why):find("%d%d%d%d bytes") ~= nil, tostring(why))
   local fit = assert(Cookies.format("n", ("x"):rep(4000)))
   assert(#fit <= 4096)
 end
@@ -112,8 +124,8 @@ local function test_expire_deletes_with_max_age_zero_and_a_past_date()
   local got = assert(Cookies.parse_set_cookie(line))
   assert(got.value == "" and got.max_age == 0 and got.expires_ns == 0)
   assert(got.path == "/app" and got.secure and got.domain == "example.com")
-  assert(Cookies.expire("__Host-sid") == nil, "a __Host- cookie is expired with Secure")
-  assert(Cookies.expire("__Host-sid", { secure = true }) ~= nil)
+  assert(expire_line("__Host-sid") == nil, "a __Host- cookie is expired with Secure")
+  assert(expire_line("__Host-sid", { secure = true }) ~= nil)
 end
 
 local function test_parse_set_cookie_is_lenient_about_what_it_does_not_know()
@@ -124,8 +136,8 @@ local function test_parse_set_cookie_is_lenient_about_what_it_does_not_know()
   local when = assert(Time.parse_http("Sun, 06 Nov 1994 08:49:37 GMT"))
   assert(assert(Cookies.parse_set_cookie("a=1; Expires=Sun, 06 Nov 1994 08:49:37 GMT")).expires_ns == when)
   local nothing, why = Cookies.parse_set_cookie("novalue; Path=/")
-  assert(nothing == nil and why:find("name=value", 1, true) ~= nil, why)
-  nothing = Cookies.parse_set_cookie("=v")
+  assert(nothing == nil and tostring(why):find("name=value", 1, true) ~= nil, tostring(why))
+  nothing, why = Cookies.parse_set_cookie("=v")
   assert(nothing == nil)
 end
 
@@ -138,6 +150,6 @@ local function test_set_appends_lines_and_leaves_the_response_alone_on_refusal()
   local first, second = assert(lines[1]), assert(lines[2])
   assert(first:find("^a=1;") ~= nil and second:find("^b=2;") ~= nil)
   local ok, why = Cookies.set(res, "c", "bad value")
-  assert(not ok and why:find("value", 1, true) ~= nil)
+  assert(not ok and tostring(why):find("value", 1, true) ~= nil)
   assert(#(assert(res.headers)["Set-Cookie"] as {string}) == 2) -- checked: cast_refused
 end

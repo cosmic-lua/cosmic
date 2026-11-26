@@ -1,37 +1,18 @@
---- The bash tool, unsandboxed, as the agent loop runs it: its output,
---- status and time limit, and each output kept before it is shown. It runs
---- the host's bash, found on PATH, and what each command names.
+--- The agent's turn as it runs a tool: each output kept before it is shown, the note that names a cut output's
+--- whole, and the user's stop and steer. The tool is the tests' own ([`agent_fixture.SAY`]).
 
 local Agent = require("cosmic.agent")
 local agent_fixture = require("build.agent_fixture")
-local Tools = require("cosmic.agent.tools")
 local Json = require("cosmic.json")
 local Sessions = require("cosmic.agent.sessions")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 
--- The host programs the tests start, each where hosts keep it: named,
--- not the whole system, so the key holds them alone. /bin/sh is the
--- shell the bash tool falls back to on a host with no bash (Alpine's
--- busybox, which its sleep, seq, head and tr link to as well).
-Test.policy{
-  grants = {
-    { path = "/bin/bash", letters = "r" }, { path = "/usr/bin/bash", letters = "r" },
-    { path = "/bin/sh", letters = "r" },
-    { path = "/bin/seq", letters = "r" }, { path = "/usr/bin/seq", letters = "r" },
-    { path = "/bin/head", letters = "r" }, { path = "/usr/bin/head", letters = "r" },
-    { path = "/bin/tr", letters = "r" }, { path = "/usr/bin/tr", letters = "r" },
-    { path = "/bin/sleep", letters = "r" }, { path = "/usr/bin/sleep", letters = "r" },
-  },
-  env = { "PATH", "TMPDIR" },
-}
+Test.policy{ env = { "TMPDIR" } }
 
-local NONE <const>: {string: Json.Value} = {}
-local scratch = agent_fixture.scratch
-local run = agent_fixture.run
 local said = agent_fixture.said
 local text_reply = agent_fixture.text_reply
-local bash_call = agent_fixture.bash_call
+local say_call = agent_fixture.say_call
 local function kept(replies: {Json.Value}, messages?: {Json.Value}, model?: string): Agent.Session, Api,
                     Sqlite.Handle
   local k = agent_fixture.kept(replies, messages, model)
@@ -39,25 +20,8 @@ local function kept(replies: {Json.Value}, messages?: {Json.Value}, model?: stri
 end
 local type Api = agent_fixture.Api
 
-local function test_bash_runs_in_the_directory_and_says_its_status()
-  local dir = scratch()
-  local r = run("bash", { command = "pwd; echo out; echo err >&2" }, dir)
-  assert(not r.is_error and r.text == dir .. "\nout\nerr", "[" .. r.text .. "]")
-  local failed = run("bash", { command = "exit 3" }, dir)
-  assert(failed.is_error and failed.text == "(no output)\n\nCommand exited with code 3", failed.text)
-  local slow = run("bash", { command = "sleep 5", timeout = 1 }, dir)
-  assert(slow.is_error and slow.text:find("timed out after 1 second") ~= nil, slow.text)
-  local long = run("bash", { command = "seq 1 3000" }, dir)
-  assert(long.text:find("^1001\n") ~= nil and (long.raw or ""):find("^1\n2\n") ~= nil, long.text:sub(1, 20))
-  local one = run("bash", { command = "head -c 60000 /dev/zero | tr '\\0' y" }, dir)
-  assert(one.text:find("^" .. string.rep("y", 100)) ~= nil, one.text:sub(1, 40))
-  assert(run("bash", NONE, dir).is_error)
-  local nope = run("nope", NONE, dir).text
-  assert(nope:find("^Tool nope not found: the tools are read, bash, run") ~= nil, nope)
-end
-
 local function test_each_output_is_kept_before_it_is_shown()
-  local s, _, db = kept({ { content = { bash_call("t1", "echo one") }, stop_reason = "tool_use" }, text_reply("ok") })
+  local s, _, db = kept({ { content = { say_call("t1", "one") }, stop_reason = "tool_use" }, text_reply("ok") })
   local found, kept_messages = 0, 0
   s.on = function(e: Agent.Event)
     if e.kind == "result" then
@@ -74,10 +38,10 @@ local function test_each_output_is_kept_before_it_is_shown()
   assert(found == 1 and kept_messages == 4, tostring(kept_messages))
   -- A whole output too long to show is kept, with what the model read.
   local _: Api
-  s, _, db = kept({ { content = { bash_call("t2", "seq 3000") }, stop_reason = "tool_use" }, text_reply("ok") })
+  s, _, db = kept({ { content = { say_call("t2", string.rep("line\n", 3000)) }, stop_reason = "tool_use" }, text_reply("ok") })
   assert(s:prompt("go"))
   local answer = assert(Sessions.answer(db, assert(s.id), "t2"))
-  assert(#answer.text < 20000, answer.text:sub(-100))
+  assert(#answer.text < 11000, answer.text:sub(-100))
   local whole = assert(db:rows("SELECT length(text), call FROM outputs WHERE call = 't2'"))
   assert(assert(whole[1]):integer(1) > 13000)
   -- The note names the Host.output call that reads it in a snippet of run.
@@ -86,15 +50,15 @@ local function test_each_output_is_kept_before_it_is_shown()
   assert(answer.text:find("[The whole output is kept as output " .. tostring(id) .. ": read it in run with Host.output(" ..
       tostring(id) .. ").]\n", 1, true) == 1, answer.text:sub(1, 100))
   -- With no run tool, nothing reads it, so there is no note.
-  s, _, db = kept({ { content = { bash_call("t3", "seq 3000") }, stop_reason = "tool_use" }, text_reply("ok") })
-  s.tools = Tools.without(s.tools, { "run" })
+  s, _, db = kept({ { content = { say_call("t3", string.rep("line\n", 3000)) }, stop_reason = "tool_use" }, text_reply("ok") })
+  s.tools = { agent_fixture.SAY }
   assert(s:prompt("go"))
   local bare = assert(Sessions.answer(db, assert(s.id), "t3"))
   assert(bare.text:find("kept as output", 1, true) == nil, bare.text:sub(-100))
 end
 
 local function test_the_user_stops_and_steers_a_turn()
-  local two: Json.Value = { content = { bash_call("t1", "echo one"), bash_call("t2", "echo two") },
+  local two: Json.Value = { content = { say_call("t1", "one"), say_call("t2", "two") },
     stop_reason = "tool_use" }
   local s, a, db = kept({ two, text_reply("never") })
   local seen = agent_fixture.events()

@@ -51,14 +51,14 @@ end
 -- [`code_of`] holds all that this module requires, each by its source, so a
 -- comment anywhere in it has the rebuilt tool write its database again.
 local function code_of(db: Sqlite.Handle): string?
-  local rows, _ = db:text_rows(
+  local rows, _ = db:rows(
     "WITH RECURSIVE reached(name) AS (VALUES ('build.stamps') UNION " ..
       "SELECT requires FROM imports JOIN reached ON path = name) " ..
       "SELECT sum(path = 'build.stamps'), lower(hex(sha256(group_concat(path || ' ' || " ..
       "hex(source_hash), char(10) ORDER BY path)))) FROM modules WHERE path IN reached")
   if rows == nil then return nil end
   local row = rows[1]
-  if row == nil or row:text(1) ~= "1" then return nil end
+  if row == nil or row:is_null(1) or row:integer(1) ~= 1 then return nil end
   return row:text(2)
 end
 
@@ -90,7 +90,7 @@ end
 --- What the module `name` of `db` requires, as [`Store.requires`] returns
 --- it for the binary's own.
 local function requires_of(db: Sqlite.Handle, name: string): {string}
-  local rows, _ = db:text_rows("SELECT requires FROM imports WHERE path = ?1 ORDER BY requires",
+  local rows, _ = db:rows("SELECT requires FROM imports WHERE path = ?1 ORDER BY requires",
     { { text = name } })
   local names: mut {string} = {}
   for _, row in ipairs(rows or {}) do names[#names + 1] = row:text(1) end
@@ -116,11 +116,11 @@ local function worked(db: Sqlite.Handle): mut {string:string}
   local function source(name: string): string? return source_of(db, reading, name) end
   local function requires(name: string): {string} return requires_of(db, name) end
   out["stamp_coded"] = code_identity.code_of(source, requires)
-  local basis_rows, _ = db:text_rows("SELECT value FROM meta WHERE key = 'runtime_basis'")
+  local basis_rows, _ = db:rows("SELECT value FROM meta WHERE key = 'runtime_basis'")
   local basis_row = if basis_rows ~= nil then basis_rows[1] else nil end
   -- Given the code, it raises for nothing: a source held without its text is marked in `reading`.
   local analyzer = importer.analyzer_identity({
-    basis = if basis_row ~= nil then basis_row:text(1) else "" end,
+    basis = if basis_row ~= nil then basis_row:as_text(1) or "" else "" end,
     requires = function(name: string): {string}?, string return requires(name), "" end,
     source = function(name: string): string?, string return source(name), "" end,
   })

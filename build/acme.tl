@@ -161,7 +161,7 @@ local standard: verb.Io = {
     return true, ""
   end,
   run = default_run,
-  request = function(method: string, url: string, opts: Http.Options): Http.Body?, string
+  request = function(method: string, url: string, opts: Http.RequestOptions): Http.Body?, string
     local body, why = Http.request(method, url, opts)
     if body == nil then return nil, tostring(why) end
     return body, ""

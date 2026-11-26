@@ -68,13 +68,13 @@ local function projected_signature(path: string): string
   if handle == nil then
     return ""
   end
-  local rows, _ = handle:text_rows(
-    "SELECT value FROM meta WHERE key = 'projected'")
+  -- A file another tool wrote may hold its signature as a value of any type.
+  local row, _ = handle:one("SELECT value FROM meta WHERE key = 'projected'")
   local _, _ = handle:close()
-  if rows == nil or #rows == 0 then
+  if row == nil then
     return ""
   end
-  return rows[1]:text(1)
+  return row:as_text(1) or ""
 end
 
 --- What names the core whose `deflate` made a row of `deflated`: its image
@@ -474,14 +474,11 @@ end
 --- `pending`, as the writer whose identity is `binary` would write it.
 local function signed(handle: work.Handle, result: importer.Result, pending: link_index.Pending,
                       binary: string): string?, string
-  local rows, trouble = handle.db:text_rows(signature_sql(),
+  local row, trouble = handle.db:one(signature_sql(),
     { text(result.main or ""), text("portable-v1"), text(binary .. "\n" .. mime_digest()),
       text(pending.digest) })
-  if rows == nil then
-    return nil, tostring(trouble)
-  end
-  local row = rows[1]
   if row == nil then
+    if trouble ~= nil then return nil, tostring(trouble) end
     return nil, "the signature query answered no row"
   end
   return row:text(1), ""
@@ -545,20 +542,16 @@ local function fill_payload(db: Sqlite.Handle): boolean, string
   if not pruned then
     return false, tostring(prune_trouble)
   end
-  local files, trouble = db:text_rows(
-    "SELECT f.path, f.data, f.sha256, c.path IS NOT NULL, c.gzip, c.zstd, " ..
-      "c.gzip IS NULL, c.zstd IS NULL " ..
+  local files, trouble = db:rows(
+    "SELECT f.path, f.data, f.sha256, c.path IS NOT NULL, c.gzip, c.zstd " ..
       "FROM files f LEFT JOIN compressed c ON c.path = f.path AND c.sha256 = f.sha256 " ..
       "AND c.rules = ?1 AND c.core = " .. deflating_core ..
       " WHERE " .. AnalysisSchema.static_files("f.path") .. " ORDER BY f.path", { text(rules) })
   if files == nil then
     return false, tostring(trouble)
   end
-  -- A text row reads NULL as "" and never as null, so whether a cached
-  -- variant is NULL (not worth compressing) is asked of SQLite in columns 7
-  -- and 8; read as "", it would ship as an empty encoding.
   for _, row in ipairs(files) do
-    local file, data, sha256 = row:text(1), row:text(2), row:text(3)
+    local file, data, sha256 = row:text(1), row:blob(2), row:text(3)
     local asset = AnalysisSchema.static_asset(file)
     if asset == nil then
       return false, file .. ": the condition the rows were read by holds a file that is no static asset"
@@ -567,20 +560,21 @@ local function fill_payload(db: Sqlite.Handle): boolean, string
     local null: Sqlite.Value = {}
     local packed: string? = nil
     local zstd: string? = nil
-    if row:text(4) == "1" then
-      packed = if row:text(7) == "1" then nil else row:text(5) end
-      zstd = if row:text(8) == "1" then nil else row:text(6) end
+    -- A cached variant that is NULL is one not worth compressing: the file ships as it is.
+    if row:integer(4) == 1 then
+      packed = if row:is_null(5) then nil else row:blob(5) end
+      zstd = if row:is_null(6) then nil else row:blob(6) end
     else
-      local gzip_trouble = ""
-      local zstd_trouble = ""
-      packed, gzip_trouble = Mime.gzip(path, data)
-      zstd, zstd_trouble = Mime.zstd(path, data)
+      local gzipped, gzip_failure = Mime.gzip(path, data)
+      local squeezed, zstd_failure = Mime.zstd(path, data)
+      if gzipped ~= nil and gzipped ~= false then packed = gzipped end
+      if squeezed ~= nil and squeezed ~= false then zstd = squeezed end
       -- A failed encoder ships the file as it is, as a file not worth
       -- compressing does, but leaves no row: nil would be kept for good.
       -- The rows are written inside the working transaction, so an
       -- interrupted cold write keeps none of them; committing per file
       -- would split the transaction the projection is built in.
-      if gzip_trouble == "" and zstd_trouble == "" then
+      if gzip_failure == nil and zstd_failure == nil then
         local kept, kept_trouble = db:run(
           "INSERT OR REPLACE INTO compressed (path, sha256, rules, core, gzip, zstd) " ..
             "VALUES (?1, ?2, ?3, " .. deflating_core .. ", ?4, ?5)",
@@ -657,7 +651,7 @@ local function says(rows: Sqlite.Rows?, answer: string): boolean
     return false
   end
   local row = rows[1]
-  return row ~= nil and row:text(1) == answer
+  return row ~= nil and row:as_text(1) == answer
 end
 
 --- Whether the first column of the first row of `rows` is `1`: the result
@@ -670,7 +664,7 @@ end
 --- projection it was signed as is the one the working database recorded
 --- them under ([`vendored_key`]).
 local function vendored_stands(db: Sqlite.Handle, digest: string): boolean
-  local rows, _ = db:text_rows(
+  local rows, _ = db:rows(
     "SELECT count(*) FROM main.meta m, prev.meta p WHERE m.key = '" .. vendored_key ..
       "' AND p.key = 'projected' AND m.value = p.value || char(10) || ?1",
     { text(digest) })
@@ -712,7 +706,7 @@ local function usable_base(db: Sqlite.Handle, by: string, tool: string): boolean
     return "(SELECT count(*) FROM prev.meta WHERE key = '" .. key .. "' AND value = " ..
       parameter .. ") = 1"
   end
-  local rows, _ = db:text_rows(
+  local rows, _ = db:rows(
     "SELECT " .. schema_rows("out", "prev") .. " + " .. schema_rows("prev", "out") .. " = 0 AND " ..
       meta_rows("prev", "main") .. " + " .. meta_rows("main", "prev") .. " = 0 AND " ..
       "(SELECT count(*) FROM main.meta WHERE key IN ('compiler', 'runtime_basis', 'writer')) = 3 AND " ..
@@ -764,7 +758,7 @@ end
 --- standard library's ([`symbols.library_modules`]), a declaration and an
 --- example among them, since a project requires nothing else of it.
 local function fill_public(db: Sqlite.Handle, own: boolean): boolean, string
-  local rows, trouble = db:text_rows("SELECT path, file, kind FROM out.modules ORDER BY path")
+  local rows, trouble = db:rows("SELECT path, file, kind FROM out.modules ORDER BY path")
   if rows == nil then
     return false, tostring(trouble)
   end
@@ -778,7 +772,7 @@ local function fill_public(db: Sqlite.Handle, own: boolean): boolean, string
     local path, file = row:text(1), row:text(2)
     if row:text(3) == "module" then
       local reach = positions.reach(file, entries, function(): boolean
-        local sources, source_trouble = db:text_rows(
+        local sources, source_trouble = db:rows(
           "SELECT CAST(inflate(source) AS TEXT) FROM out.modules WHERE path = ?1 AND length(source) > 0",
           { text(path) })
         if sources == nil then
@@ -986,7 +980,7 @@ local function project(handle: work.Handle,
     end
     -- A module the binary carried no stub of would be typed from its
     -- source, slower and with nothing to say so.
-    local unstubbed, unstubbed_trouble = db:text_rows(unstubbed_modules)
+    local unstubbed, unstubbed_trouble = db:rows(unstubbed_modules)
     if unstubbed == nil then
       return false, tostring(unstubbed_trouble)
     end
@@ -1065,7 +1059,7 @@ function writer.other_code(db: Sqlite.Handle, compiler: string): string?, string
   local function value(key: string): string
     return "coalesce((SELECT value FROM meta WHERE key = '" .. key .. "'), '')"
   end
-  local rows, trouble = db:text_rows("SELECT " .. value("written_by") .. ", " ..
+  local rows, trouble = db:rows("SELECT " .. value("written_by") .. ", " ..
       value("compiled_by") .. ", " .. value("writer") .. ", " .. value("boot_hash"))
   if rows == nil then
     return nil, tostring(trouble)
@@ -1074,10 +1068,11 @@ function writer.other_code(db: Sqlite.Handle, compiler: string): string?, string
   if row == nil then
     return nil, "the projection's meta answered no row"
   end
-  local written_by, compiled_by = row:text(1), row:text(2)
-  local own_writer = row:text(3)
+  -- A projection another code wrote may hold these as values of any type.
+  local written_by, compiled_by = row:as_text(1) or "", row:as_text(2) or ""
+  local own_writer = row:as_text(3) or ""
   local boot_hash = Store.meta("boot_hash")
-  if boot_hash ~= nil and boot_hash ~= row:text(4) then
+  if boot_hash ~= nil and boot_hash ~= row:as_text(4) then
     own_writer = Store.meta("writer") or ("boot " .. boot_hash)
   end
   if written_by == "" or written_by ~= own_writer then
@@ -1176,7 +1171,7 @@ function writer.write_result(handle: work.Handle, out: string,
     if based then
       -- A base that passed [`usable_base`] yet cannot be read to its end (a page of it damaged) would fail every
       -- write after this one the same way, since only a write that fills the rows whole replaces it.
-      local checked, _ = db:text_rows("PRAGMA prev.quick_check(1)")
+      local checked, _ = db:rows("PRAGMA prev.quick_check(1)")
       local intact = says(checked, "ok")
       local _, _ = db:exec("DETACH prev")
       if not intact then

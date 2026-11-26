@@ -41,8 +41,9 @@ unless it has one, in the order published.
 swaps in whatever the server sends under the event name `notes`; on `reset`
 it fetches the list from `/notes`. [`Htmx.head`] with `sse = true` loads the
 extension that reads these attributes, from the binary like htmx itself.
-The page is a whole document because `{{.head}}` is Teal: `<script src>`
-takes no slot in a template.
+The page is a whole document, and `{{.head}}` is what [`Htmx.head`] wrote:
+its script tags carry an `integrity` the binary computed, which no
+template slot could.
 
 ```teal file=pages/data.tl
 local Html = require("cosmic.html")
@@ -249,7 +250,7 @@ print(((said.stderr or "") .. (said.stdout or "")):match("test: %d+ tests? passe
 test: 5 tests passed
 ```
 
-[`cosmic.child`]: ../../cosmic/child.tl
+[`cosmic.child`]: ../../cosmic/child/init.tl
 [`cosmic.web.sse`]: ../../cosmic/web/sse.tl
 [`Html.SafeHtml`]: ../../cosmic/html.tl
 [`Htmx.head`]: ../../cosmic/web/htmx.tl

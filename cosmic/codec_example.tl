@@ -11,15 +11,15 @@ function Example.hex()
   local text = Codec.hex("\x00\xffok")
   print(text)
   assert(text == "00ff6f6b", "unexpected hex: " .. text)
-  assert(Codec.unhex("00FF6F6B") == "\x00\xffok")
+  assert(assert(Codec.unhex("00FF6F6B")) == "\x00\xffok")
 end
 
 --- Malformed hex is a failure the caller handles, not a raise: the
---- decoder returns `nil` and why.
+--- decoder returns nil and a Failure.
 function Example.unhex()
   local bytes, why = Codec.unhex("abc")
   print(why)
-  assert(bytes == nil and why == "codec: hex text of odd length 3", why)
+  assert(bytes == nil and tostring(why) == "codec: hex text of odd length 3", tostring(why))
 end
 
 --- Standard base64 pads to a multiple of four characters; the strict
@@ -28,7 +28,7 @@ function Example.base64()
   local text = Codec.base64("cosmic")
   print(text)
   assert(text == "Y29zbWlj", "unexpected base64: " .. text)
-  assert(Codec.unbase64(Codec.base64("hi")) == "hi")
+  assert(assert(Codec.unbase64(Codec.base64("hi"))) == "hi")
 end
 
 --- Line breaks are not base64: text wrapped into lines, as MIME
@@ -38,7 +38,7 @@ function Example.unbase64()
   local bytes, why = Codec.unbase64(wrapped)
   print(why)
   assert(bytes == nil)
-  assert(Codec.unbase64((wrapped:gsub("\n", ""))) == "hello world")
+  assert(assert(Codec.unbase64((wrapped:gsub("\n", "")))) == "hello world")
 end
 
 --- The URL-safe alphabet without padding, as JSON Web Tokens use it.
@@ -46,7 +46,7 @@ function Example.base64url()
   local text = Codec.base64url("\xfb\xff?")
   print(text)
   assert(text == "-_8_", "unexpected base64url: " .. text)
-  assert(Codec.unbase64url(text) == "\xfb\xff?")
+  assert(assert(Codec.unbase64url(text)) == "\xfb\xff?")
 end
 
 return Example -- checked: export_not_declared

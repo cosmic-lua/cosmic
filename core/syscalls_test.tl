@@ -19,6 +19,8 @@ local Test = require("cosmic.test")
 local unix_socket = require("build.unix_socket")
 local type raw_process = require("cosmic.internal.process")
 local Fake = require("cosmic.fake")
+-- Required, so the fake's main is of this test's closure.
+local _fake = require("build.syscalls_fake")
 
 --- What the syscall table is tested on: /proc. A fake program
 --- ([`cosmic.fake`]) is what a child here runs, reading nothing of the system's. The cases
@@ -36,11 +38,11 @@ local process = require("cosmic.internal.process")
 local cipher = require("cosmic.internal.cipher")
 local hash = require("cosmic.internal.hash")
 
---- A fake program built under `tmp` ([`cosmic.fake`]), which runs
---- the script its first argument holds: a static executable that reads
+--- A fake program built under `tmp` from build/syscalls_fake.tl, which runs
+--- the case its first argument names: a static executable that reads
 --- only itself, so one confined needs nothing of the system's own.
 local function probe_in(tmp: string): string
-  return (assert(Fake.build(tmp .. "/fake")))
+  return (assert(Fake.build(tmp .. "/fake", "build.syscalls_fake")))
 end
 
 --- Asserts `value, message, number` is the failure shape: `nil` or
@@ -584,7 +586,7 @@ local function test_a_child_s_descriptors_are_its_own(tmp: string)
   -- Handed above all of them, so the child closes every one on its way.
   target = target + 2
   local report = create(tmp .. "/report")
-  local pid = assert(process.spawn(probe, { probe, "append /dev/fd/" .. tostring(target) .. " mapped" },
+  local pid = assert(process.spawn(probe, { probe, "append", "/dev/fd/" .. tostring(target), "mapped" },
     nil, nil, nil, nil, nil, false, { [target] = report }))
   assert(assert(process.waitpid(pid, false)).code == 0)
   assert(assert(sys.pread(report, 64, 0)) == "mapped\n")
@@ -611,8 +613,8 @@ local function test_a_child_is_handed_only_the_descriptors_asked_for(tmp: string
     assert(sys.dup2(report, fd))
     assert(not closed_on_exec(fd))
   end
-  local pid = assert(process.spawn(probe, { probe, "fd-closed " .. tostring(below) .. "; fd-closed " ..
-      tostring(above) .. "; write-fd " .. tostring(handed) .. " handed; write-fd " .. tostring(kept) .. " kept" },
+  local pid = assert(process.spawn(probe, { probe, "handed-only", tostring(below), tostring(above),
+    tostring(handed), tostring(kept) },
     nil, nil, nil, nil, nil, false, { [handed] = report, [kept] = kept }))
   local status = assert(process.waitpid(pid, false))
   assert(status.code == 0, tostring(status.code))
@@ -627,7 +629,7 @@ local function test_a_relative_program_is_found_from_the_child_s_directory(tmp: 
   assert(sys.mkdir(tmp .. "/bin", 0x1c0))
   assert(Fake.place(probe_in(tmp), tmp .. "/bin/probe"))
   local function status_of(path: string, cwd: string): integer
-    local pid = assert(process.spawn(path, { path, "exit 3" }, nil, cwd, nil, nil, nil, false))
+    local pid = assert(process.spawn(path, { path, "exit", "3" }, nil, cwd, nil, nil, nil, false))
     return assert(process.waitpid(pid, false)).code
   end
   assert(status_of("probe", tmp .. "/bin") == 3)
@@ -637,7 +639,7 @@ local function test_a_relative_program_is_found_from_the_child_s_directory(tmp: 
   assert(sys.chdir(tmp))
   -- Put the directory back before anything below can raise: every test
   -- after this one runs in this same process.
-  local pid, trouble = process.spawn("../bin/probe", { "probe", "exit 3" }, nil, "bin", nil,
+  local pid, trouble = process.spawn("../bin/probe", { "probe", "exit", "3" }, nil, "bin", nil,
     nil, nil, false)
   sys.chdir(before)
   assert(pid ~= nil, trouble)
@@ -657,8 +659,8 @@ local function test_descriptors_handed_crosswise_are_each_where_asked(tmp: strin
     files[fd] = file
     assert(sys.dup2(file, fd))
   end
-  local pid = assert(process.spawn(probe, { probe, "write-fd " .. tostring(first) .. " first; write-fd " ..
-      tostring(second) .. " second" }, nil, nil, nil, nil, nil, false, { [first] = second, [second] = first }))
+  local pid = assert(process.spawn(probe, { probe, "write-fds", tostring(first), "first",
+    tostring(second), "second" }, nil, nil, nil, nil, nil, false, { [first] = second, [second] = first }))
   assert(assert(process.waitpid(pid, false)).code == 0)
   local first_file, second_file = files[first], files[second]
   assert(first_file and second_file, "both descriptors were made")
@@ -675,7 +677,7 @@ local function test_a_child_s_process_group_is_its_own_where_asked(tmp: string)
   local probe = probe_in(tmp)
   local own = assert(sys.getpgid(0))
   for _, grouped in ipairs({ true, false }) do
-    local pid = assert(process.spawn(probe, { probe, "sleep 10000" }, nil, nil, nil, nil, nil,
+    local pid = assert(process.spawn(probe, { probe, "sleep", "10000" }, nil, nil, nil, nil, nil,
       grouped))
     local group = assert(sys.getpgid(pid))
     assert(sys.kill(pid, sys.SIGKILL))
@@ -708,7 +710,7 @@ local function test_a_child_starts_with_this_process_s_signal_mask(tmp: string)
   local own = assert(sys.read(status, 65536))
   sys.close(status)
   local output = create(tmp .. "/status")
-  local pid = assert(process.spawn(probe, { probe, "cat /proc/self/status" },
+  local pid = assert(process.spawn(probe, { probe, "cat", "/proc/self/status" },
     nil, nil, nil, output, nil, false))
   assert(assert(process.waitpid(pid, false)).code == 0)
   local child = assert(sys.pread(output, 65536, 0))
@@ -1598,7 +1600,7 @@ end
 local function test_spawn_credentials_runtime_refusal(tmp: string)
   local probe = probe_in(tmp)
   local marker = tmp .. "/credential-exec"
-  local pid, trouble, errno = process.spawn(probe, { probe, "append " .. marker .. " wrong" },
+  local pid, trouble, errno = process.spawn(probe, { probe, "append", marker, "wrong" },
     nil, tmp .. "/absent", nil, nil, nil, false, nil, nil, { user = 65532, group = 65532 })
   failed(pid, trouble, errno)
   assert(not assert(Fs.status(marker)).exists)

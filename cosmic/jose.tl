@@ -266,7 +266,7 @@ local function decode_text(token: string): Jose.Jws?, string
     return nil, "jose: a token is three base64url parts apart by dots"
   end
   local header_text, why = Codec.unbase64url(head)
-  if header_text == nil then return nil, "jose: the token's header: " .. why end
+  if header_text == nil then return nil, "jose: the token's header: " .. tostring(why) end
   local header, bad = Json.decode_object(header_text)
   if header == nil then return nil, "jose: the token's header: " .. tostring(bad) end
   local alg = text(header, "alg")
@@ -275,9 +275,9 @@ local function decode_text(token: string): Jose.Jws?, string
     return nil, "jose: the token's kid is no string"
   end
   local payload, trouble = Codec.unbase64url(body)
-  if payload == nil then return nil, "jose: the token's payload: " .. trouble end
+  if payload == nil then return nil, "jose: the token's payload: " .. tostring(trouble) end
   local signature, wrong = Codec.unbase64url(tail)
-  if signature == nil then return nil, "jose: the token's signature: " .. wrong end
+  if signature == nil then return nil, "jose: the token's signature: " .. tostring(wrong) end
   return {
     header = header,
     alg = alg,

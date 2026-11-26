@@ -225,9 +225,9 @@ end
 --- The short commit is read through the git found on the PATH given;
 --- with none, "unknown" names the round's directory.
 local function test_the_short_commit_comes_from_the_git_on_the_path(dir: string)
-  local probe = assert(Fakes.build(dir .. "/fake"))
+  local probe = assert(Fakes.build(dir .. "/fake", Fakes.REPLY))
   assert(Fs.mkdirs(dir .. "/bin"))
-  assert(Fakes.place(probe, dir .. "/bin/git", "print abc1234"))
+  assert(Fakes.reply(probe, dir .. "/bin/git", { ["*"] = { stdout = "abc1234\n" } }))
   assert(Round.short_commit("/anywhere", dir .. "/bin") == "abc1234")
   assert(Round.short_commit("/anywhere", dir .. "/nowhere") == "unknown")
 end

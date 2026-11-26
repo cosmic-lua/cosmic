@@ -239,7 +239,9 @@ local function check_text(input: string): boolean, string
     Fuzz.label(if want == nil then "clean refused" else "clean read" end)
   end
   if blob.kind ~= "blob" then
-    if json_why == "" then return false, "from_json refused without a reason" end
+    if json_why == nil or tostring(json_why) == "" then
+      return false, "from_json refused without a reason"
+    end
     Fuzz.label("refused")
     return true, ""
   end
@@ -1477,7 +1479,7 @@ local function check_blocks(input: string): boolean, string
     if loaded ~= nil then return false, "load_blocks made a corpus of no blocks" end
     Fuzz.label("no blocks")
   else
-    if loaded == nil then return false, who .. ": load_blocks refused: " .. loaded_why end
+    if loaded == nil then return false, who .. ": load_blocks refused: " .. tostring(loaded_why) end
     if loaded:count() ~= kept or loaded.storage ~= storage_of(storage) then
       return false, who .. ": load_blocks made " .. tostring(loaded:count()) .. " " .. loaded.storage
     end
@@ -1573,8 +1575,8 @@ local function check_hostile(input: string): boolean, string
   -- header the core accepted: its dimensions and count are the header's.
   local loaded, loaded_why = Vector.load_blocks(db, "SELECT ?1", { { blob = block } })
   -- A refusal for what is in the block's rows leaves the header good.
-  local is_block = loaded ~= nil or loaded_why:find("finite numbers", 1, true) ~= nil or
-    loaded_why:find("code sums", 1, true) ~= nil
+  local is_block = loaded ~= nil or tostring(loaded_why):find("finite numbers", 1, true) ~= nil or
+    tostring(loaded_why):find("code sums", 1, true) ~= nil
   local block_dims, block_count = dims, 0
   if is_block then
     block_dims, block_count = string.unpack("<I4I4", block, 9)

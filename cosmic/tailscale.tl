@@ -748,7 +748,7 @@ end
 -- `watch` waits as a task does.
 
 --- The options of `watch`'s request to `endpoint`. `timeout_ns` is the call's limit, `default_ns` by default; 0 is none.
-local function options(endpoint: Endpoint, default_ns: integer, method: string, body?: string, timeout_ns?: integer): Http.Options
+local function options(endpoint: Endpoint, default_ns: integer, method: string, body?: string, timeout_ns?: integer): Http.OpenOptions
   local headers: mut {string: string} = {
     -- Over a port the URL names 127.0.0.1, which the daemon takes only
     -- with a token; this one it always takes, as its own client sends.
@@ -804,7 +804,7 @@ local function sent(endpoint: Endpoint, default_ns: integer, method: string, pat
   -- A POST with no body says so, as the daemon's own client does.
   local sending = body or (if method == "GET" then nil else "" end)
   local request, bad = Message.format_request({ method = method, target = path, headers = headers, body = sending })
-  if request == nil then return nil, "tailscale: " .. bad end
+  if request == nil then return nil, "tailscale: " .. tostring(bad) end
   local conn <close>, why = Net.connect(endpoint.via, { timeout_ns = left() })
   if conn == nil then return nil, "tailscale: " .. tostring(why) end
   conn:set_timeout(left())
@@ -1089,7 +1089,7 @@ local function exchanged(endpoint: Endpoint, wait_ns: integer, method: string, p
   end
   local head, bad = Message.format_request({ method = method, target = path, headers = headers,
     body = if body == nil and method ~= "GET" then "" else nil end })
-  if head == nil then return nil, "tailscale: " .. bad end
+  if head == nil then return nil, "tailscale: " .. tostring(bad) end
   -- 0 is no limit, as everywhere in this module.
   local limit = if wait_ns == 0 then nil else wait_ns end
   local conn, why = Net.connect(endpoint.via, { timeout_ns = limit })

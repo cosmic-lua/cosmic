@@ -491,23 +491,23 @@ local function index_of(view: Doc.View): symbol_index.Index?, string
   local out = symbol_index.new()
   for module in pairs(view.owners) do symbol_index.module(out, module) end
   for index, db in ipairs(view.databases) do
-    local tables, tables_trouble = db:text_rows(
+    local tables, tables_trouble = db:rows(
       "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'docs'")
     if tables == nil then return nil, tostring(tables_trouble) end
     if #tables > 0 then
       -- Every row, as [`cosmic.doc`] reads a type an alias stands for
       -- in any; only those shown, of the database that owns the
       -- module, resolve a name.
-      local rows, trouble = db:text_rows(
+      local rows, trouble = db:rows(
         "SELECT d.module, d.symbol, d.source_symbol, d.file, d.kind, d.signature, d.exported, " ..
           "d.id, " .. symbols.shown_docs("d", view.public[index] == true) .. " FROM docs d " ..
           "ORDER BY d.module, d.id")
       if rows == nil then return nil, tostring(trouble) end
       for _, row in ipairs(rows) do
         symbol_index.add(out, { module = row:text(1), symbol = row:text(2), source_symbol = row:text(3),
-          file = row:text(4), kind = row:text(5), signature = row:text(6), exported = row:text(7) == "1",
-          shown = row:text(9) == "1" and view.owners[row:text(1)] == index, database = index,
-          id = math.tointeger(tonumber(row:text(8))) or 0 })
+          file = row:text(4), kind = row:text(5), signature = row:text(6), exported = row:integer(7) == 1,
+          shown = row:as_text(9) == "1" and view.owners[row:text(1)] == index, database = index,
+          id = row:integer(8) })
       end
     end
     local bound, bound_trouble = symbol_index.add_bound(out, db, "")

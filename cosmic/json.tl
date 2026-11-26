@@ -289,32 +289,36 @@ local record Json
     json5?: boolean
     --- Read `#` line comments, as `decode` does, with or without `json5`.
     hash_comments?: boolean
-    --- What `value` puts where the text says `null`.
+    --- What `value` puts where a `null` stands inside an array or object
+    --- it reads whole: nil (the default) or [`Json.null`]. A `null` that
+    --- `value` reads alone is [`Json.null`] whatever this says.
     null_value?: Json.Null
   end
 
   --- A reader of JSON text a token at a time, from [`Json.reader`]. A
-  --- failure, the stream's or the text's, is returned again on every later
-  --- call.
+  --- failure, the stream's or the text's, is returned again, the same
+  --- [`Failure`], on every later call.
   interface Reader
-    --- The next token, and ""; nil and "" when the stream has ended
-    --- with every value whole; nil and a message, naming the line and
+    --- The next token; false when the stream has ended with every value
+    --- whole; nil and a [`Failure`], whose message names the line and
     --- column, when the text is not JSON -- and its JSON Pointer, when the fault
     --- is in where the token stands rather than in its own text (a
-    --- string's escape, a number's digits, which `decode` reads).
-    next: function(Reader): Json.Token?, string
-    --- The kind of the next token, without reading it, and ""; nil and
-    --- "" at the end; nil and a message as `next` fails. It goes by the
+    --- string's escape, a number's digits, which `decode` reads). A
+    --- failure of the source is the source's own Failure, as it gave it.
+    next: function(Reader): (Json.Token | false) | (nil, Failure)
+    --- The kind of the next token, without reading it; false at the end;
+    --- nil and a [`Failure`] as `next` fails. It goes by the
     --- token's first byte (and, under `json5`, an `n`'s second, `nan`
     --- being a number): `next` may still refuse the rest of it (`nope`
     --- peeks as "null").
-    peek: function(Reader): Json.TokenKind?, string
+    peek: function(Reader): (Json.TokenKind | false) | (nil, Failure)
     --- The next whole value -- a scalar, or an array or object with
-    --- everything in it -- decoded as `decode` decodes one, and "". The
+    --- everything in it -- decoded as `decode` decodes one. The
     --- reader must be where a value goes: not at a key, a closing
-    --- bracket or the end, which it refuses. A `null` is nil unless
-    --- `null_value` says otherwise, so test the message.
-    value: function(Reader): Json.Value?, string
+    --- bracket or the end, which it refuses. A `null` is [`Json.null`], as
+    --- `decode` gives it; inside an array or object it is nil unless
+    --- `null_value` says otherwise.
+    value: function(Reader): (Json.Value) | (nil, Failure)
     --- Where the reader is, as steps: the array or object it is in and
     --- the element or member it read last, each position counted from 1.
     --- [`Json.pointer`] and [`Json.path`] spell them.
@@ -2170,6 +2174,7 @@ local function fill(self: TokenReader): boolean, string
   if self.ended then return true, "" end
   local chunk, trouble = self.source:read()
   if chunk == nil then
+    self.source_failure = trouble
     local _, why = stop(self, "json: " .. tostring(trouble))
     return false, why
   end
@@ -2654,6 +2659,18 @@ local function container_text(self: TokenReader): string?, string
   end
 end
 
+--- The [`Failure`] for `why`, the reason a reading failed: the source's own
+--- when the source failed, else one of the reason. A failure that ends the
+--- reading is made once, and every later call returns that one.
+local function failure_of(self: TokenReader, why: string): Failure
+  local kept = self.failure
+  if kept ~= nil then return kept end
+  local made = self.source_failure
+  if made == nil then made = Failure.new(why) end
+  if self.failed ~= "" then self.failure = made end
+  return made
+end
+
 local class TokenReader is Json.Reader
   source: Stream.Reader
   max_depth: integer
@@ -2670,6 +2687,10 @@ local class TokenReader is Json.Reader
   mut before: integer
   mut ended: boolean
   mut failed: string
+  --- The source's Failure, when it failed.
+  mut source_failure: Failure?
+  --- The Failure the reader returns for `failed`, once it has made it.
+  mut failure: Failure?
   --- The line the reader is on, and the offset its first byte has.
   mut line: integer
   mut line_start: integer
@@ -2698,7 +2719,7 @@ local class TokenReader is Json.Reader
     return self.before + self.at - 1
   end
 
-  function peek(self): Json.TokenKind?, string
+  function peek_text(self): Json.TokenKind?, string
     local c, why = arrive(self)
     if c == nil then return nil, why end
     local f = self.frames[#self.frames]
@@ -2714,8 +2735,8 @@ local class TokenReader is Json.Reader
     return token, ""
   end
 
-  function next(self): Json.Token?, string
-    local token, why = self:peek()
+  function next_text(self): Json.Token?, string
+    local token, why = self:peek_text()
     if token == nil then return nil, why end
     local f = self.frames[#self.frames]
     -- Reading the token may read more of the stream, which moves `at`:
@@ -2810,8 +2831,8 @@ local class TokenReader is Json.Reader
     return { kind = token, value = leaf(value) }, ""
   end
 
-  function value(self): Json.Value?, string
-    local token, why = self:peek()
+  function value_text(self): Json.Value?, string
+    local token, why = self:peek_text()
     if token == nil then
       if why ~= "" then return nil, why end
       return stop(self, "json: no value: the stream has ended")
@@ -2820,9 +2841,9 @@ local class TokenReader is Json.Reader
       return fail_at(self, self.at, "expected a value")
     end
     if token ~= "object" and token ~= "array" then
-      local read, trouble = self:next()
+      local read, trouble = self:next_text()
       if read == nil then return nil, trouble end
-      if token == "null" then return self.null_value, "" end
+      if token == "null" then return Json.null, "" end
       return read.value, ""
     end
     begin_value(self)
@@ -2838,6 +2859,26 @@ local class TokenReader is Json.Reader
     if err ~= "" then return stop(self, "json: " .. err) end
     return value_of(value), ""
   end
+
+  function peek(self): (Json.TokenKind | false) | (nil, Failure)
+    local token, why = self:peek_text()
+    if token ~= nil then return token end
+    if why == "" then return false end
+    return nil, failure_of(self, why)
+  end
+
+  function next(self): (Json.Token | false) | (nil, Failure)
+    local token, why = self:next_text()
+    if token ~= nil then return token end
+    if why == "" then return false end
+    return nil, failure_of(self, why)
+  end
+
+  function value(self): (Json.Value) | (nil, Failure)
+    local got, why = self:value_text()
+    if got ~= nil then return got end
+    return nil, failure_of(self, why)
+  end
 end
 
 --- A reader of the JSON text `source` gives, a token at a time, holding
@@ -2846,7 +2887,7 @@ end
 --- refuse one twice. The text may hold any number of values one after
 --- another, as a log of them does; a number or a literal must be ended
 --- by whitespace, a `,` or a close, so `1true` is refused rather than
---- read as two. `next` returns nil and "" once it has read past the last whole
+--- read as two. `next` returns false once it has read past the last whole
 --- one. A failure of `source` fails the reader; a `source` that raises
 --- raises through it. It reads RFC 8259 JSON, or JSON5 under `json5`,
 --- with `#` line comments under `hash_comments`, and refuses what
@@ -2863,14 +2904,21 @@ end
 ---
 ---     local Stream = require("cosmic.stream")
 ---     local r = Json.reader(Stream.from_string('{"rows": [{"id": 1}, {"id": 2}]}'))
----     assert(r:next().kind == "object" and r:next().value == "rows")
----     assert(r:next().kind == "array")
+---     local function token(): Json.Token
+---       local t, why = r:next()
+---       if t == nil then error(tostring(why)) end
+---       if t == false then error("the text ended") end
+---       return t
+---     end
+---     assert(token().kind == "object" and token().value == "rows")
+---     assert(token().kind == "array")
 ---     local ids: {integer} = {}
 ---     while r:peek() == "object" do
----       local row = r:value() as {string: integer}
----       ids[#ids + 1] = row.id
+---       local row, why = r:value()
+---       if row == nil then error(tostring(why)) end
+---       ids[#ids + 1] = (row as {string: integer}).id
 ---     end
----     assert(#ids == 2 and r:next().kind == "end_array")
+---     assert(#ids == 2 and token().kind == "end_array")
 function Json.reader(source: Stream.Reader, opts?: Json.ReaderOptions): Json.Reader
   local o: Json.ReaderOptions = opts or {}
   local depth = o.max_depth or Json.default_depth
@@ -2880,7 +2928,7 @@ function Json.reader(source: Stream.Reader, opts?: Json.ReaderOptions): Json.Rea
   local r: TokenReader = { source = source, max_depth = depth,
     duplicate_keys = o.duplicate_keys == true, big = o.big_numbers_as_strings == true,
     lone = o.lone_surrogates == true, json5 = o.json5 == true, hash = o.hash_comments == true,
-    null_value = o.null_value, buf = "", at = 1, before = 0, ended = false, failed = "",
+    null_value = o.null_value, buf = "", at = 1, before = 0, ended = false, failed = "", source_failure = nil, failure = nil,
     line = 1, line_start = 0, cr = false, lsep = 0, frames = {} }
   return r
 end

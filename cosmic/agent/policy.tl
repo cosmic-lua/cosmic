@@ -1,10 +1,9 @@
 --- @public
 --- What `cosmic agent`'s tools are held to: a [`cosmic.sandbox`] policy, made
---- from the working directory and the user's flags. bash runs under it
---- ([`Child.run`]'s `policy`), and so does run's worker, which runs as this
---- program, needing no grant of it, and is refused the nest promise
---- (`cosmic docs cosmic.agent.worker`); read, write and edit, which run in
---- the agent itself, ask [`Sandbox.permits`] of each path.
+--- from the working directory and the user's flags. run's worker runs under
+--- it, as this program, needing no grant of it, and is refused the nest
+--- promise (`cosmic docs cosmic.agent.worker`); so does what Host.bash runs,
+--- with --commands.
 ---
 ---     local p = assert(Policy.of("/work", { mode = "write", network = false, grants = {} }))
 ---     assert(Sandbox.permits(p, "/work/a.txt", "write"))
@@ -21,7 +20,7 @@
 ---                       run in alone
 ---     --sandbox off     no sandbox: the tools have your user's rights,
 ---                       and --network, --connect and --grant are refused
----     --network         bash and snippets may reach the network (none by
+---     --network         snippets may reach the network (none by
 ---                       default): public addresses alone
 ---     --connect host:port   one more target, given again for each: an
 ---                       address written out may be loopback or private
@@ -47,17 +46,14 @@
 --- (/opt/maven) is not there. Programs may map memory to run (the jit
 --- promise), as node, java and other JIT compilers do.
 ---
---- bash runs under the policy: on Linux in a root of its own, where
+--- Snippets run under the policy: on Linux in a root of its own, where
 --- what was not granted is not there, in its own pid namespace, with at
 --- most 512 processes; on macOS under Seatbelt. TMPDIR is a fresh
 --- temporary directory, and the environment holds PATH, LANG, LC_ALL
 --- and TERM alone (JAVA_HOME and the like are not passed), so no key
 --- of yours reaches a command; with --network, SSL_CERT_FILE too, and
 --- the file it names is read; on Linux USER
---- and LOGNAME are agent. read, write and edit run in the agent itself,
---- and check each path against the same grants, its links followed:
---- read needs r, write w and c (it replaces the file whole), edit all
---- three; /proc is refused them, since there it is the agent's own.
+--- and LOGNAME are agent.
 ---
 --- The commands have a home of their own, not yours, kept from one
 --- session to the next ($XDG_CACHE_HOME/cosmic/agent/home,
@@ -92,9 +88,7 @@
 ---
 --- A command's process group ends when it ends, times out, or the turn
 --- is stopped; on Linux, so does what it started outside the group,
---- and in a root of its own nothing outlives it. A background job runs
---- under the same policy, each in a sandbox of its own, until it ends,
---- is killed, or the session ends (`cosmic docs cosmic.agent.tools`).
+--- and in a root of its own nothing outlives it.
 
 local Fs = require("cosmic.fs")
 local Sandbox = require("cosmic.sandbox")
@@ -105,7 +99,7 @@ local record Policy
     --- "write" (the default): the working directory read and written;
     --- "read": read alone; "off": no sandbox.
     mode: string
-    --- Whether bash may reach the network: every name, by the grant `*:*`.
+    --- Whether snippets may reach the network: every name, by the grant `*:*`.
     network: boolean
     --- More `connect` targets, `host:port` ([`cosmic.relay.grant`]): an
     --- address written out here, loopback or private too, may be reached,
@@ -143,7 +137,7 @@ end
 
 --- The modes, as --sandbox names them.
 local MODES <const>: {string: boolean} = { write = true, read = true, off = true }
---- The most processes and threads one bash call may run at once.
+--- The most processes and threads one snippet's worker may run at once.
 local PROCESSES <const> = 512
 
 -- What most programs read beyond the system profile, where the host has it.

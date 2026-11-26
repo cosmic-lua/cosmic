@@ -4,12 +4,17 @@
 --- binary carries.
 ---
 ---     local Htmx = require("cosmic.web.htmx")
+---     -- pages/items.tmpl, a template (cosmic.template): the page, and the
+---     -- list that is its body, which an htmx request gets alone, of the
+---     -- records Page {head, body: Html.SafeHtml} and List {names: {string}}.
+---     --   {{type Page from pages.data}}<!doctype html><head>{{.head}}</head>
+---     --   <body><ul>{{.body}}</ul></body>
+---     --   {{define list List}}{{range .names}}<li>{{.}}</li>{{end}}{{end}}
+---     local items = require("pages.items")
 ---
----     local function items(req: Web.Request): Web.Response
----       local rows = Html.trust("<li>one</li>")
----       return Htmx.page(req, rows, function(content: Html.SafeHtml): Html.SafeHtml
----         return Html.concat({ Html.trust("<!doctype html><head>"), Htmx.head(),
----           Html.trust("</head><body><ul>"), content, Html.trust("</ul></body>") })
+---     local function shown(req: Web.Request, names: {string}): Web.Response
+---       return Htmx.page(req, items.list({ names = names }), function(content: Html.SafeHtml): Html.SafeHtml
+---         return items.render({ head = Htmx.head(), body = content })
 ---       end)
 ---     end
 ---
@@ -28,6 +33,7 @@
 
 local HtmxHead = require("cosmic.web.htmx_head")
 local Html = require("cosmic.html")
+local Failure = require("cosmic.failure")
 local Json = require("cosmic.json")
 local type MarkupData = require("cosmic.web.markup_data")
 local Response = require("cosmic.web.response")
@@ -237,27 +243,27 @@ end
 
 --- A URL for a header that htmx follows: a string must be a reference
 --- on this origin ([`Html.local_href`]); a [`Html.SafeUrl`] was vouched for.
-local function url_of(what: string, url: string | Html.SafeUrl): string?, string
+local function url_of(what: string, url: string | Html.SafeUrl): (string) | (nil, Failure)
   if url is string then
     local checked = Html.raw_url(Html.local_href(url))
     if checked == "about:invalid" or checked == "" then
-      return nil, "htmx: " .. what .. " is not a same-origin reference"
+      return nil, Failure.new("htmx: " .. what .. " is not a same-origin reference")
     end
-    return checked, ""
+    return checked
   end
   local raw = Html.raw_url(url)
   if raw == "" or not plain(raw) then
-    return nil, "htmx: " .. what .. " is empty or holds a control byte"
+    return nil, Failure.new("htmx: " .. what .. " is empty or holds a control byte")
   end
-  return raw, ""
+  return raw
 end
 
 --- A selector or other free text: not empty, no control byte.
-local function text_of(what: string, value: any): string?, string
+local function text_of(what: string, value: any): (string) | (nil, Failure)
   if not (value is string) or value == "" or not plain(value) then
-    return nil, "htmx: " .. what .. " is not a non-empty text without control bytes"
+    return nil, Failure.new("htmx: " .. what .. " is not a non-empty text without control bytes")
   end
-  return value, ""
+  return value
 end
 
 local SWAPS <const>: {string} = { "innerHTML", "outerHTML", "textContent", "beforebegin",
@@ -274,22 +280,22 @@ end
 
 --- The JSON text of `value` for a header: ASCII only, as the header's
 --- bytes reach htmx as Latin-1.
-local function header_json(what: string, value: any): string?, string
+local function header_json(what: string, value: any): (string) | (nil, Failure)
   local text, why = Json.encode_any(value, { ascii = true })
-  if text == nil then return nil, "htmx: " .. what .. ": " .. tostring(why) end
-  return text, ""
+  if text == nil then return nil, Failure.within(why, "htmx: " .. what) end
+  return text
 end
 
 --- The value of an event header: the names alone where no event has a
 --- detail, else a JSON object of detail by name.
-local function events_of(what: string, events: {Htmx.Event}): string?, string
-  if #events == 0 then return nil, "htmx: " .. what .. " names no event" end
+local function events_of(what: string, events: {Htmx.Event}): (string) | (nil, Failure)
+  if #events == 0 then return nil, Failure.new("htmx: " .. what .. " names no event") end
   local detailed = false
   for _, event in ipairs(events) do
     local name = event.name
     if not (name is string) or name == "" or name:find("[,\"'\\%z\1-\31\127]") ~= nil or
         name:find("^{") ~= nil then
-      return nil, "htmx: " .. what .. ": an event name is empty, starts with a brace or holds a comma, a quote or a control byte"
+      return nil, Failure.new("htmx: " .. what .. ": an event name is empty, starts with a brace or holds a comma, a quote or a control byte")
     end
     if event.detail ~= nil then detailed = true end
   end
@@ -297,7 +303,7 @@ local function events_of(what: string, events: {Htmx.Event}): string?, string
   for _, event in ipairs(events) do
     if not detailed then
       if event.name:find("[\128-\255]") then
-        return nil, "htmx: " .. what .. ": an event name without a detail holds a byte past ASCII"
+        return nil, Failure.new("htmx: " .. what .. ": an event name without a detail holds a byte past ASCII")
       end
       parts[#parts + 1] = event.name
     else
@@ -313,8 +319,8 @@ local function events_of(what: string, events: {Htmx.Event}): string?, string
       parts[#parts + 1] = key .. ":" .. body
     end
   end
-  if not detailed then return table.concat(parts, ", "), "" end
-  return "{" .. table.concat(parts, ",") .. "}", ""
+  if not detailed then return table.concat(parts, ", ") end
+  return "{" .. table.concat(parts, ",") .. "}"
 end
 
 --- Writes `reply` to `res` as `HX-*` headers. Nothing is written where
@@ -324,12 +330,11 @@ end
 --- [`Html.SafeUrl`] the program vouched for; a selector or a swap htmx
 --- would not read; an event with a bad name; a value JSON cannot hold.
 --- Header JSON is ASCII, escaped as `\uXXXX`, because htmx reads the bytes as
---- Latin-1.
+--- Latin-1. Returns `res`, or nil and a [`Failure`] that says what was
+--- refused.
 --- @param res Types.Response The response to write to
 --- @param reply Htmx.Reply The effects
---- @return Types.Response | nil The same response, or nil
---- @return string Why it was refused
-function Htmx.apply(res: Types.Response, reply: Htmx.Reply): Types.Response?, string
+function Htmx.apply(res: Types.Response, reply: Htmx.Reply): (Types.Response) | (nil, Failure)
   local lines: mut {Line} = {}
   local function put(name: string, value: string)
     lines[#lines + 1] = { name = name, value = value }
@@ -364,7 +369,7 @@ function Htmx.apply(res: Types.Response, reply: Htmx.Reply): Types.Response?, st
       put("HX-Location", url)
     end
   end
-  local function url_field(label: string, header: string, value: (string | Html.SafeUrl | boolean)?): string?
+  local function url_field(label: string, header: string, value: (string | Html.SafeUrl | boolean)?): Failure?
     if value == nil then return nil end
     if value is boolean then
       put(header, if value then "true" else "false" end)
@@ -394,11 +399,11 @@ function Htmx.apply(res: Types.Response, reply: Htmx.Reply): Types.Response?, st
   local swap: any = reply.reswap -- checked: any_use
   if swap ~= nil then
     if type(swap) ~= "string" or not swap_ok(swap) then
-      return nil, "htmx: reswap is not a swap style htmx knows, with modifiers"
+      return nil, Failure.new("htmx: reswap is not a swap style htmx knows, with modifiers")
     end
     put("HX-Reswap", swap)
   end
-  local function events_field(label: string, header: string, events: {Htmx.Event}?): string?
+  local function events_field(label: string, header: string, events: {Htmx.Event}?): Failure?
     if events == nil then return nil end
     local text, why = events_of(label, events)
     if text == nil then return why end
@@ -410,19 +415,18 @@ function Htmx.apply(res: Types.Response, reply: Htmx.Reply): Types.Response?, st
     events_field("trigger_after_settle", "HX-Trigger-After-Settle", reply.trigger_after_settle)
   if trouble ~= nil then return nil, trouble end
   for _, line in ipairs(lines) do Response.set_header(res, line.name, line.value) end
-  return res, ""
+  return res
 end
 
 --- A redirect to `url` that the client follows: for an htmx request that
 --- is not boosted, an empty 200 with `HX-Redirect` (an XHR would follow
 --- a 302 and swap the other page into the target); otherwise the
 --- ordinary 303 redirect, which a boosted request's XHR follows and
---- swaps whole. A string is checked as [`Htmx.apply`] checks one.
+--- swaps whole. A string is checked as [`Htmx.apply`] checks one, and
+--- one refused gives nil and a [`Failure`].
 --- @param req Types.Request The request to respond to
 --- @param url string | Html.SafeUrl Where to
---- @return Types.Response | nil The response, or nil
---- @return string Why `url` was refused
-function Htmx.redirect_to(req: Types.Request, url: string | Html.SafeUrl): Types.Response?, string
+function Htmx.redirect_to(req: Types.Request, url: string | Html.SafeUrl): (Types.Response) | (nil, Failure)
   local target, why = url_of("redirect", url)
   if target == nil then return nil, why end
   local seen = Htmx.request(req)
@@ -430,8 +434,8 @@ function Htmx.redirect_to(req: Types.Request, url: string | Html.SafeUrl): Types
     return Htmx.apply(Response.empty(200), { redirect = Html.trust_url(target) })
   end
   match pcall(Response.redirect, target) do
-  | (true, made) then return made, ""
-  | (false, _) then return nil, "htmx: redirect is not a path or an http(s) URL"
+  | (true, made) then return made
+  | (false, _) then return nil, Failure.new("htmx: redirect is not a path or an http(s) URL")
   end
 end
 

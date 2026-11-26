@@ -4,12 +4,12 @@
 --- tokens, cost, seconds and tool calls, read from each tool's own sessions.db. Two tools of one task compare, for
 --- example, the agent with code mode and the release before it.
 ---
----     cosmic --standalone eval/agent.tl --tool NAME=PATH [--tool NAME=PATH ...] --fixture DIR --out DIR
+---     bin/cosmic eval/agent.tl --tool NAME=PATH [--tool NAME=PATH ...] --fixture DIR --out DIR
 ---         [--offer NAME=TOOL,...] [--effort [NAME=]LEVEL] [--tasks T,...|all] [--reps N] [--model M]
 ---         [--timeout S]
 ---
---- `--offer NAME=run,read` runs the agent of the tool NAME with `--tools run,read`: one binary under two names
---- compares, for example, the agent with bash and without it. `--effort NAME=low` runs the agent of the tool NAME
+--- `--offer NAME=run,read` runs the agent of the tool NAME with `--tools run,read`, for a binary from before run became
+--- the agent's one tool (a newer one refuses `--tools`). `--effort NAME=low` runs the agent of the tool NAME
 --- with `--effort low`, and `--effort low` every tool not named so: one binary under two names compares two efforts.
 --- Where none is given, the agent takes its own default.
 --- The fixture is a tree the tasks read, such as this repository at a commit
@@ -18,11 +18,12 @@
 --- servers laid out in its own temp directory, which the agent's tools may not read: only a snippet reaches them, so
 --- a tool with no `--mcp` or no code mode fails it. The mcp-many-* tasks give eight servers, the one the task needs
 --- named for what it holds and not for its tools, so a run finds its tools among the others'. Where the evals run as root, the tool's path must be one every
---- user may search, as the server runs as a user of its own. Each run is a fresh copy, `bench-<tool>-<task>-*` in the temp directory, with
+--- user may search, as the server runs as a user of its own. Each run is a fresh copy, `bench-<tool>-<task>-*` in the temp directory, removed
+--- once the run is graded (as is each other directory the evals make), with
 --- `HOME` and `XDG_DATA_HOME` the tool's own under <out>/<tool>. ANTHROPIC_API_KEY, or HARNESS_ANTHROPIC_API_KEY,
 --- is the key. <out>/report.md is the report, <out>/results.json each run's numbers, and each run's answer, the
---- agent's words, and the grade are in <out>/<tool>/<task>-<rep>.txt. [`eval/agent`] runs this on the bootstrap
---- cosmic: it requires `cosmic.*` modules only. [`Agent.execute`] works through an [`Agent.System`], which a test
+--- agent's words, and the grade are in <out>/<tool>/<task>-<rep>.txt. [`eval/agent`] runs this on the checkout's
+--- own cosmic, and the report is the text template eval/report.tmpl. [`Agent.execute`] works through an [`Agent.System`], which a test
 --- replaces with a fake.
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
@@ -30,6 +31,8 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Proc = require("cosmic.proc")
+local Report = require("eval.report")
+local ReportData = require("eval.report_data")
 local Sqlite = require("cosmic.sqlite")
 
 local record Agent
@@ -146,6 +149,8 @@ local record Agent
     run: function(argv: {string}, cwd: string, env: {string: string}?, seconds: integer): Agent.Output
     --- A new, empty directory, its name starting `prefix`.
     fresh: function(prefix: string): string
+    --- Removes the directory `dir` that `fresh` made, and all in it.
+    discard: function(dir: string)
     --- What one run spent: the session of `tool` whose directory's name holds `marker`.
     spent: function(tool: string, marker: string): Agent.Spent?
     --- Writes `text` to the file `path`, making the directories it is in.
@@ -489,7 +494,7 @@ Agent.tasks = {
   {
     name = "largest",
     prompt = "Write to answer.txt the five largest .tl files under cosmic/ by line count, as `wc -l` counts " ..
-      "lines: one `count path` per line (path from this directory, as cosmic/x.tl), largest first, ties by path.",
+      "lines: one `count path` per line, such as `412 cosmic/x.tl` (path from this directory), largest first, ties by path.",
     truth = "find cosmic -name '*.tl' -type f -exec wc -l {} + | grep -v ' total$' | awk '{print $1\" \"$2}' | " ..
       "sort -k1,1nr -k2,2 | head -5",
     check = "cat answer.txt",
@@ -497,7 +502,7 @@ Agent.tasks = {
   {
     name = "todos",
     prompt = "Write to answer.txt every line of the .tl files under cosmic/ that holds `TODO`, as " ..
-      "`path:line` (path from this directory, line numbered from 1), one a line, sorted by path, then by line.",
+      "`path:line`, such as `cosmic/x.tl:12` (path from this directory, line numbered from 1), one a line, sorted by path, then by line.",
     truth = "grep -rn --include='*.tl' 'TODO' cosmic | cut -d: -f1,2 | sort -t: -k1,1 -k2,2n",
     check = "cat answer.txt",
   },
@@ -505,7 +510,7 @@ Agent.tasks = {
     name = "requires",
     prompt = "For each .tl file under cosmic/agent/ whose name does not end in _test.tl, count the distinct " ..
       "modules it names in `require(\"cosmic.<...>\")`. Write to answer.txt the three with the most, as " ..
-      "`count path`, one a line, most first, ties by path.",
+      "`count path`, such as `7 cosmic/agent/x.tl`, one a line, most first, ties by path.",
     truth = "for f in $(find cosmic/agent -name '*.tl' ! -name '*_test.tl'); do " ..
       "echo \"$(grep -o 'require(\"cosmic\\.[^\"]*\")' \"$f\" | sort -u | wc -l) $f\"; done | " ..
       "sort -k1,1nr -k2,2 | head -3",
@@ -514,7 +519,7 @@ Agent.tasks = {
   {
     name = "tests",
     prompt = "For every file under cosmic/agent/ whose name ends in _test.tl, count the lines that start " ..
-      "`local function test_`. Write to answer.txt one `path count` per line, most first, ties by path.",
+      "`local function test_`. Write to answer.txt one `path count` per line, such as `cosmic/agent/x_test.tl 9`, most first, ties by path.",
     truth = "for f in $(find cosmic/agent -name '*_test.tl'); do " ..
       "echo \"$f $(grep -c '^local function test_' \"$f\")\"; done | sort -k2,2nr -k1,1",
     check = "cat answer.txt",
@@ -523,7 +528,7 @@ Agent.tasks = {
     name = "undocumented",
     prompt = "In the .tl files under cosmic/agent/ whose names do not end in _test.tl, find each line that " ..
       "starts `local function <name>(` where the line just before it does not start with `---`. Write to " ..
-      "answer.txt one `path:line name` per line, sorted by path, then by line.",
+      "answer.txt one `path:line name` per line, such as `cosmic/agent/x.tl:40 helper`, sorted by path, then by line.",
     truth = [==[find cosmic/agent -name '*.tl' ! -name '*_test.tl' | sort | xargs awk 'FNR==1{prev=""} /^local function [A-Za-z_][A-Za-z0-9_]*\(/ { if (prev !~ /^---/) { n=$3; sub(/\(.*/,"",n); print FILENAME":"FNR" "n } } {prev=$0}' | sort -t: -k1,1 -k2,2n]==],
     check = "cat answer.txt",
   },
@@ -531,7 +536,7 @@ Agent.tasks = {
     name = "fan-in",
     prompt = "For each .tl file directly in cosmic/ (not in a subdirectory, and not ending in _test.tl), say " ..
       "cosmic/<x>.tl, count the other .tl files anywhere under cosmic/ that hold the text `require(\"cosmic.<x>\")`. " ..
-      "Write to answer.txt the ten with the most, as `count cosmic.<x>`, most first, ties by name.",
+      "Write to answer.txt the ten with the most, as `count cosmic.<x>`, such as `31 cosmic.x`, most first, ties by name.",
     truth = [==[for f in $(find cosmic -maxdepth 1 -name '*.tl' ! -name '*_test.tl'); do m=$(basename "$f" .tl); n=$(grep -rlF --include='*.tl' "require(\"cosmic.$m\")" cosmic | grep -vx "$f" | wc -l); echo "$n cosmic.$m"; done | sort -k1,1nr -k2,2 | head -10]==],
     check = "cat answer.txt",
   },
@@ -558,8 +563,8 @@ Agent.tasks = {
     name = "sqlite",
     prompt = "Make files.db, a SQLite database with a table files(dir text, path text, lines integer): one row " ..
       "for each .tl file under cosmic/, `lines` as `wc -l` counts them and `dir` the path's directory " ..
-      "(cosmic, or cosmic/x/y). Then, with SQL on it, write to answer.txt one `dir count lines` per line, the " ..
-      "files and lines of each dir: the ten dirs of the most lines, most first, ties by dir.",
+      "(cosmic, or cosmic/x/y). Then, with SQL on it, write to answer.txt one `dir count lines` per line, the files " ..
+      "and lines of each dir, such as `cosmic/x 4 812`: the ten dirs of the most lines, most first, ties by dir.",
     truth = "echo 'SQLite format 3'; find cosmic -name '*.tl' -type f -exec wc -l {} + | grep -v ' total$' | " ..
       "awk '{d=$2; sub(/\\/[^\\/]*$/, \"\", d); c[d]++; l[d] += $1} END {for (d in c) print d\" \"c[d]\" \"l[d]}' | " ..
       "sort -k3,3nr -k1,1 | head -10",
@@ -583,7 +588,7 @@ Agent.tasks = {
   {
     name = "imports",
     prompt = "Across the .tl files under cosmic/agent/, count each `require(\"cosmic.<...>\")` text, every time it " ..
-      "appears. Write to answer.txt the five modules named most, as `count cosmic.<...>`, most first, ties by name.",
+      "appears. Write to answer.txt the five modules named most, as `count cosmic.<...>`, such as `12 cosmic.x`, most first, ties by name.",
     truth = [==[grep -rho --include='*.tl' 'require("cosmic\.[^"]*")' cosmic/agent | sed 's/require("//; s/")//' | sort | uniq -c | awk '{print $1" "$2}' | sort -k1,1nr -k2,2 | head -5]==],
     check = "cat answer.txt",
   },
@@ -598,14 +603,14 @@ Agent.tasks = {
     name = "mcp-value",
     prompt = "The inventory MCP server lists items and tells each one's category, price in cents and stock. " ..
       "Write to answer.txt, for each category, the sum over its items of price_cents times stock, as " ..
-      "`sum category`, one a line, largest first, ties by category.",
+      "`sum category`, such as `123456 shoes`, one a line, largest first, ties by category.",
     truth = "awk -F'\\t' '{s[$3] += $4 * $5} END {for (c in s) print s[c]\" \"c}' \"$data\" | sort -k1,1nr -k2,2",
     check = "cat answer.txt",
     servers = { { name = "inventory", source = INVENTORY_SERVER, data = inventory() } },
   },
   {
     name = "mcp-low",
-    prompt = "Write to answer.txt each item of the inventory MCP server whose stock is below 3, as `id stock`, " ..
+    prompt = "Write to answer.txt each item of the inventory MCP server whose stock is below 3, as `id stock`, such as `i9999 2`, " ..
       "one a line, sorted by id.",
     truth = "awk -F'\\t' '$5 < 3 {print $1\" \"$5}' \"$data\" | sort",
     check = "cat answer.txt",
@@ -613,7 +618,7 @@ Agent.tasks = {
   },
   {
     name = "mcp-many-low",
-    prompt = "Write to answer.txt each item of the warehouse whose stock is below 3, as `id stock`, one a line, " ..
+    prompt = "Write to answer.txt each item of the warehouse whose stock is below 3, as `id stock`, such as `i9999 2`, one a line, " ..
       "sorted by id.",
     truth = "awk -F'\\t' '$5 < 3 {print $1\" \"$5}' \"$data\" | sort",
     check = "cat answer.txt",
@@ -622,7 +627,7 @@ Agent.tasks = {
   {
     name = "mcp-many-value",
     prompt = "Write to answer.txt, for each category of the warehouse's items, the sum over its items of price " ..
-      "in cents times stock, as `sum category`, one a line, largest first, ties by category.",
+      "in cents times stock, as `sum category`, such as `123456 shoes`, one a line, largest first, ties by category.",
     truth = "awk -F'\\t' '{s[$3] += $4 * $5} END {for (c in s) print s[c]\" \"c}' \"$data\" | sort -k1,1nr -k2,2",
     check = "cat answer.txt",
     servers = many_servers(),
@@ -631,7 +636,7 @@ Agent.tasks = {
     name = "web-low",
     prompt = "The inventory web API at {url} answers GET /items?page=N, from page 1, with JSON: `items`, each " ..
       "with id, name, category, price_cents and stock, and `next`, the page after it, which the last page has " ..
-      "not. Write to answer.txt each item whose stock is below 3, as `id stock`, one a line, sorted by id.",
+      "not. Write to answer.txt each item whose stock is below 3, as `id stock`, such as `i9999 2`, one a line, sorted by id.",
     truth = "awk -F'\\t' '$5 < 3 {print $1\" \"$5}' \"$data\" | sort",
     check = "cat answer.txt",
     site = { source = INVENTORY_SITE, data = inventory() },
@@ -640,7 +645,7 @@ Agent.tasks = {
     name = "web-csv",
     prompt = "The web API at {url} serves the sales as CSV at GET /sales.csv, with a header row " ..
       "`region,customer,amount_cents`. Write to answer.txt, for each customer, the sum of its amount_cents, as " ..
-      "`sum customer`, the name as it reads unquoted, one a line, largest first, ties by customer in byte order.",
+      "`sum customer`, the name as it reads unquoted, such as `5000 Zephyr Goods`, one a line, largest first, ties by customer in byte order.",
     truth = "awk -F'\\t' '{s[$2] += $3} END {for (c in s) print s[c]\" \"c}' \"$data\" | LC_ALL=C sort -k1,1nr -k2",
     check = "cat answer.txt",
     site = { source = SALES_SITE, data = sales() },
@@ -650,10 +655,18 @@ Agent.tasks = {
     prompt = "The web API at {url} serves its event log as plain text at GET /log: lines of " ..
       "`HH:MM:SS LEVEL component message`. Print the log.",
     follow_up = "Write to answer.txt, for each component, how many lines of that log have level ERROR, as " ..
-      "`count component`, one a line, most first, ties by component.",
+      "`count component`, such as `3 mailer`, one a line, most first, ties by component.",
     truth = "awk '$2 == \"ERROR\" {n[$3]++} END {for (c in n) print n[c]\" \"c}' \"$data\" | sort -k1,1nr -k2,2",
     check = "cat answer.txt",
     site = { source = LOG_SITE, data = event_log() },
+  },
+  {
+    name = "docedit",
+    prompt = "In cosmic/compress.tl, before each line that starts `local function <name>(`, such as " ..
+      "`local function helper(`, where the line just before it does not start with `---`, insert the line `--- TODO: say what this does.`, and change " ..
+      "nothing else.",
+    truth = [==[n=$(awk '/^local function [A-Za-z_][A-Za-z0-9_]*\(/ && prev !~ /^---/ {n++} {prev=$0} END {print n+0}' cosmic/compress.tl); [ "$n" -gt 0 ] && awk '/^local function [A-Za-z_][A-Za-z0-9_]*\(/ && prev !~ /^---/ {print "--- TODO: say what this does."} {print; prev=$0}' cosmic/compress.tl | sha256sum | cut -c1-64]==],
+    check = "sha256sum cosmic/compress.tl | cut -c1-64",
   },
 }
 
@@ -684,6 +697,10 @@ function Agent.parse(argv: {string}): Agent.Options?, string
     if word == "--tool" then
       local name, path = value:match("^([%w_-]+)=(.+)$")
       if name == nil or path == nil then return nil, "--tool takes NAME=PATH: " .. value end
+      -- A run starts the tool from its work copy: a path is absolute, or a bare name found on PATH.
+      if path:find("/", 1, true) ~= nil and path:sub(1, 1) ~= "/" then
+        return nil, "--tool " .. name .. ": give an absolute path or a name on PATH, not " .. path
+      end
       for _, t in ipairs(tools) do
         if t.name == name then return nil, "two tools named " .. name end
       end
@@ -750,6 +767,10 @@ function Agent.parse(argv: {string}): Agent.Options?, string
   end
   if #tools == 0 then return nil, "--tool is required; " .. USAGE end
   if fixture == "" or out == "" then return nil, "--fixture and --out are required; " .. USAGE end
+  -- The runs read and write them from other directories, and eval/agent runs from the checkout's root.
+  if fixture:sub(1, 1) ~= "/" or out:sub(1, 1) ~= "/" then
+    return nil, "--fixture and --out take absolute paths: " .. (if fixture:sub(1, 1) ~= "/" then fixture else out end)
+  end
   if #tasks == 0 then return nil, "--tasks names no task" end
   local offering: mut {Agent.Tool} = {}
   for _, t in ipairs(tools) do
@@ -817,99 +838,126 @@ end
 --- environment; each run's answer goes to `write`. The results, in order.
 function Agent.execute(options: Agent.Options, system: Agent.System, key: string, base: {string: string},
                        write: function(string, string)): {Agent.Result}
-  local results: mut {Agent.Result} = {}
-  local truths: mut {string: string} = {}
-  for _, task in ipairs(options.tasks) do
-    local pristine = system.fresh("truth-" .. task.name .. "-")
-    system.run({ "cp", "-a", options.fixture .. "/.", pristine }, "/", nil, 600)
-    local script = task.truth
-    local first = task.servers and task.servers[1]
-    local site = task.site
-    local served: string? = if first ~= nil then first.data elseif site ~= nil then site.data else nil end
-    if served ~= nil then
-      local data = system.fresh("data-" .. task.name .. "-") .. "/data.tsv"
-      system.put(data, served)
-      script = "data=" .. quoted(data) .. "; " .. script
-    end
-    local truth = system.run({ "bash", "-c", script }, pristine, nil, 60)
-    truths[task.name] = Agent.lines_of(truth.stdout)
+  -- Every directory the evals make, each removed once it is used, and all that are left where a step raises.
+  local made: mut {string} = {}
+  local function sweep()
+    for _, dir in ipairs(made) do system.discard(dir) end
+    made = {}
   end
-  for _, tool in ipairs(options.tools) do
-    local data, home = options.out .. "/" .. tool.name .. "/data", options.out .. "/" .. tool.name .. "/home"
-    system.run({ "mkdir", "-p", data, home }, "/", nil, 60)
-    local env = env_of(base, key, data, home)
+  local own: Agent.System = {
+    run = system.run,
+    fresh = function(prefix: string): string
+      local dir = system.fresh(prefix)
+      made[#made + 1] = dir
+      return dir
+    end,
+    discard = system.discard,
+    spent = system.spent,
+    put = system.put,
+    serve = system.serve,
+  }
+  local ran, got = pcall(function(): {Agent.Result}
+    local results: mut {Agent.Result} = {}
+    local truths: mut {string: string} = {}
     for _, task in ipairs(options.tasks) do
-      for rep = 1, options.reps do
-        local marker = "bench-" .. tool.name .. "-" .. task.name .. "-"
-        local work = system.fresh(marker)
-        system.run({ "cp", "-a", options.fixture .. "/.", work }, "/", nil, 600)
-        local argv: mut {string} = { tool.path, "agent", "ask", "--model", options.model }
-        local effort = tool.effort
-        if effort ~= nil then
-          argv[#argv + 1] = "--effort"
-          argv[#argv + 1] = effort
-        end
-        local offered = tool.tools
-        if offered ~= nil then
-          argv[#argv + 1] = "--tools"
-          argv[#argv + 1] = offered
-        end
-        local servers = task.servers
-        if servers ~= nil then
-          local config = laid_out(system, servers, tool, "mcp-" .. tool.name .. "-" .. task.name .. "-")
-          argv[#argv + 1] = "--mcp"
-          argv[#argv + 1] = config
-        end
-        local prompt = task.prompt
-        local stop: function() = function() end
-        local unserved: string? = nil
-        local site = task.site
-        if site ~= nil then
-          local dir = system.fresh("site-" .. tool.name .. "-" .. task.name .. "-")
-          system.put(dir .. "/site.tl", site.source)
-          system.put(dir .. "/data.tsv", site.data)
-          local port, ended = system.serve({ tool.path, "--standalone", dir .. "/site.tl", dir .. "/data.tsv",
-            dir .. "/port" }, dir, dir .. "/port", 60)
-          if port == nil then
-            unserved = "the web API did not start: " .. tostring(ended)
-          else
-            stop = ended
-            argv[#argv + 1] = "--connect"
-            argv[#argv + 1] = "127.0.0.1:" .. port
-            prompt = (prompt:gsub("{url}", "http://127.0.0.1:" .. port))
+      local pristine = own.fresh("truth-" .. task.name .. "-")
+      own.run({ "cp", "-a", options.fixture .. "/.", pristine }, "/", nil, 600)
+      local script = task.truth
+      local first = task.servers and task.servers[1]
+      local site = task.site
+      local served: string? = if first ~= nil then first.data elseif site ~= nil then site.data else nil end
+      local data_dir: string? = nil
+      if served ~= nil then
+        data_dir = own.fresh("data-" .. task.name .. "-")
+        local data = data_dir .. "/data.tsv"
+        own.put(data, served)
+        script = "data=" .. quoted(data) .. "; " .. script
+      end
+      local truth = own.run({ "bash", "-c", script }, pristine, nil, 60)
+      truths[task.name] = Agent.lines_of(truth.stdout)
+      sweep()
+    end
+    for _, tool in ipairs(options.tools) do
+      local data, home = options.out .. "/" .. tool.name .. "/data", options.out .. "/" .. tool.name .. "/home"
+      own.run({ "mkdir", "-p", data, home }, "/", nil, 60)
+      local env = env_of(base, key, data, home)
+      for _, task in ipairs(options.tasks) do
+        for rep = 1, options.reps do
+          local marker = "bench-" .. tool.name .. "-" .. task.name .. "-"
+          local work = own.fresh(marker)
+          own.run({ "cp", "-a", options.fixture .. "/.", work }, "/", nil, 600)
+          local argv: mut {string} = { tool.path, "agent", "ask", "--model", options.model }
+          local effort = tool.effort
+          if effort ~= nil then
+            argv[#argv + 1] = "--effort"
+            argv[#argv + 1] = effort
           end
+          local offered = tool.tools
+          if offered ~= nil then
+            argv[#argv + 1] = "--tools"
+            argv[#argv + 1] = offered
+          end
+          local servers = task.servers
+          if servers ~= nil then
+            local config = laid_out(own, servers, tool, "mcp-" .. tool.name .. "-" .. task.name .. "-")
+            argv[#argv + 1] = "--mcp"
+            argv[#argv + 1] = config
+          end
+          local prompt = task.prompt
+          local stop: function() = function() end
+          local unserved: string? = nil
+          local site = task.site
+          if site ~= nil then
+            local dir = own.fresh("site-" .. tool.name .. "-" .. task.name .. "-")
+            own.put(dir .. "/site.tl", site.source)
+            own.put(dir .. "/data.tsv", site.data)
+            local port, ended = own.serve({ tool.path, "--standalone", dir .. "/site.tl", dir .. "/data.tsv",
+              dir .. "/port" }, dir, dir .. "/port", 60)
+            if port == nil then
+              unserved = "the web API did not start: " .. tostring(ended)
+            else
+              stop = ended
+              argv[#argv + 1] = "--connect"
+              argv[#argv + 1] = "127.0.0.1:" .. port
+              prompt = (prompt:gsub("{url}", "http://127.0.0.1:" .. port))
+            end
+          end
+          local follow_up = task.follow_up
+          local again: mut {string} = {}
+          for _, word in ipairs(argv) do again[#again + 1] = word end
+          argv[#argv + 1] = prompt
+          -- A run that raises still ends the web API.
+          local asked: Agent.Output = { code = 127, stdout = "", stderr = unserved or "" }
+          local ran, why = pcall(function()
+            if unserved ~= nil then return end
+            asked = own.run(argv, work, env, options.timeout)
+            if follow_up == nil or asked.code ~= 0 then return end
+            again[#again + 1] = follow_up
+            local next_asked = own.run(again, work, env, options.timeout)
+            asked = { code = next_asked.code, stdout = asked.stdout .. "\n--- follow-up\n" .. next_asked.stdout,
+              stderr = asked.stderr .. "\n--- follow-up\n" .. next_asked.stderr,
+              seconds = (asked.seconds or 0) + (next_asked.seconds or 0) }
+          end)
+          stop()
+          if not ran then error(why, 0) end
+          local truth = truths[task.name] or ""
+          local left = Agent.lines_of(own.run({ "bash", "-c", task.check }, work, nil, 60).stdout)
+          local grade = "fail"
+          if truth == "" then grade = "unfit" elseif left == truth then grade = "pass" end
+          write(options.out .. "/" .. tool.name .. "/" .. task.name .. "-" .. tostring(rep) .. ".txt",
+            "grade: " .. grade .. "\nexit: " .. tostring(asked.code) .. "\n--- left\n" .. left .. "\n--- truth\n" ..
+              truth .. "\n--- words\n" .. asked.stdout .. "\n--- stderr\n" .. asked.stderr .. "\n")
+          results[#results + 1] = { tool = tool.name, task = task.name, rep = rep, grade = grade,
+            spent = own.spent(tool.name, work:match("[^/]+$") or marker), wall = asked.seconds or 0 }
+          sweep()
         end
-        local follow_up = task.follow_up
-        local again: mut {string} = {}
-        for _, word in ipairs(argv) do again[#again + 1] = word end
-        argv[#argv + 1] = prompt
-        -- A run that raises still ends the web API.
-        local asked: Agent.Output = { code = 127, stdout = "", stderr = unserved or "" }
-        local ran, why = pcall(function()
-          if unserved ~= nil then return end
-          asked = system.run(argv, work, env, options.timeout)
-          if follow_up == nil or asked.code ~= 0 then return end
-          again[#again + 1] = follow_up
-          local next_asked = system.run(again, work, env, options.timeout)
-          asked = { code = next_asked.code, stdout = asked.stdout .. "\n--- follow-up\n" .. next_asked.stdout,
-            stderr = asked.stderr .. "\n--- follow-up\n" .. next_asked.stderr,
-            seconds = (asked.seconds or 0) + (next_asked.seconds or 0) }
-        end)
-        stop()
-        if not ran then error(why, 0) end
-        local truth = truths[task.name] or ""
-        local left = Agent.lines_of(system.run({ "bash", "-c", task.check }, work, nil, 60).stdout)
-        local grade = "fail"
-        if truth == "" then grade = "unfit" elseif left == truth then grade = "pass" end
-        write(options.out .. "/" .. tool.name .. "/" .. task.name .. "-" .. tostring(rep) .. ".txt",
-          "grade: " .. grade .. "\nexit: " .. tostring(asked.code) .. "\n--- left\n" .. left .. "\n--- truth\n" ..
-            truth .. "\n--- words\n" .. asked.stdout .. "\n--- stderr\n" .. asked.stderr .. "\n")
-        results[#results + 1] = { tool = tool.name, task = task.name, rep = rep, grade = grade,
-          spent = system.spent(tool.name, work:match("[^/]+$") or marker), wall = asked.seconds or 0 }
       end
     end
-  end
-  return results
+    return results
+  end)
+  sweep()
+  if not ran then error(got, 0) end
+  return got
 end
 
 --- What the session of a run spent, from `db`: the newest session whose directory's name holds `marker`.
@@ -965,24 +1013,33 @@ function Agent.spent_in(db: Sqlite.Handle, marker: string): Agent.Spent?
     first_read = if opened ~= nil then opened:integer(1) else 0 end }
 end
 
+--- `counts` as "key n, key n", most first, ties by key, each count written by `show`; nil when empty.
+local function ranked(counts: {string: integer}, show: function(k: integer): string): string?
+  local keys: mut {string} = {}
+  for key in pairs(counts) do keys[#keys + 1] = key end
+  if #keys == 0 then return nil end
+  table.sort(keys, function(a: string, b: string): boolean
+    local ka, kb = counts[a] or 0, counts[b] or 0
+    if ka ~= kb then return ka > kb end
+    return a < b
+  end)
+  local parts: mut {string} = {}
+  for _, key in ipairs(keys) do
+    parts[#parts + 1] = key .. " " .. show(counts[key] or 0)
+  end
+  return table.concat(parts, ", ")
+end
+
 --- The report of `results` for `options`: for each task, each tool's passes and mean spending per run, as
---- Markdown.
+--- Markdown, which the text template eval/report.tmpl writes.
 function Agent.report(options: Agent.Options, results: {Agent.Result}): string
-  local lines: mut {string} = { "# cosmic agent evals", "",
-    "Model " .. options.model .. "; runs of each task with each tool: " .. tostring(options.reps) .. "; fixture " ..
-      options.fixture .. ". Each number is the mean of a run.", "" }
   local set: mut {string} = {}
   for _, tool in ipairs(options.tools) do
     local effort = tool.effort
     if effort ~= nil then set[#set + 1] = tool.name .. " " .. effort end
   end
-  if #set > 0 then
-    lines[#lines + 1] = "Effort: " .. table.concat(set, ", ") .. "; the agent's default for the rest."
-    lines[#lines + 1] = ""
-  end
   -- Each tool over every task: what a comparison reads first.
-  lines[#lines + 1] = "## all tasks"
-  lines[#lines + 1] = ""
+  local totals: mut {ReportData.Total} = {}
   for _, tool in ipairs(options.tools) do
     local passed, n, unfit, counted = 0, 0, 0, 0
     local cost, write, read, output = 0.0, 0.0, 0.0, 0.0
@@ -1001,14 +1058,12 @@ function Agent.report(options: Agent.Options, results: {Agent.Result}): string
       end
     end
     local d = math.max(counted, 1)
-    local left = if unfit > 0 then " (" .. tostring(unfit) .. " unfit on this fixture, left out)" else "" end
-    lines[#lines + 1] = string.format("- %s: %d of %d passed%s; $%.4f, %.0f cache read, %.0f cache write, " ..
-        "%.0f out a run; $%.3f in all", tool.name, passed, n, left, cost / d, read / d, write / d, output / d, cost)
+    totals[#totals + 1] = { tool = tool.name, passed = passed, n = n, unfit = if unfit > 0 then unfit else nil end,
+      cost = cost / d, cache_read = read / d, cache_write = write / d, output = output / d, total = cost }
   end
-  lines[#lines + 1] = ""
+  local tasks: mut {ReportData.Task} = {}
   for _, task in ipairs(options.tasks) do
-    lines[#lines + 1] = "## " .. task.name
-    lines[#lines + 1] = ""
+    local rows: mut {ReportData.Row} = {}
     for _, tool in ipairs(options.tools) do
       local passed, unfit, n, counted = 0, 0, 0, 0
       local sum: mut {string: number} = { requests = 0, input = 0, output = 0, cache_read = 0, cache_write = 0,
@@ -1045,46 +1100,21 @@ function Agent.report(options: Agent.Options, results: {Agent.Result}): string
       end
       local d = math.max(counted, 1)
       local function mean(k: string): number return (sum[k] or 0) / d end
-      local wall = (sum["wall"] or 0) / math.max(n, 1)
       local grade = tostring(passed) .. " of " .. tostring(n) .. " passed"
       if unfit > 0 then grade = "unfit on this fixture" end
-      lines[#lines + 1] = string.format("- %s: %s; %.1f requests, $%.3f, %.0f s wall (%.0f s in requests); " ..
-          "tokens %.0f in, %.0f out, %.0f cache read (%.0f by the first request), %.0f cache write; %.1f tool calls, " ..
-          "%.1f of them run, %.1f refused", tool.name, grade, mean("requests"), mean("cost"),
-        wall, mean("seconds"), mean("input"), mean("output"), mean("cache_read"), mean("first_read"),
-        mean("cache_write"), mean("tools"), mean("runs"), mean("refused"))
-      local named: mut {string} = {}
-      for code in pairs(codes) do named[#named + 1] = code end
-      table.sort(named, function(a: string, b: string): boolean
-        local ka, kb = codes[a] or 0, codes[b] or 0
-        if ka ~= kb then return ka > kb end
-        return a < b
-      end)
-      if #named > 0 then
-        local parts: mut {string} = {}
-        for _, code in ipairs(named) do
-          parts[#parts + 1] = code .. " " .. tostring(codes[code] or 0)
-        end
-        lines[#lines + 1] = "  - refused for: " .. table.concat(parts, ", ")
-      end
-      local used: mut {string} = {}
-      for name in pairs(helpers) do used[#used + 1] = name end
-      table.sort(used, function(a: string, b: string): boolean
-        local ka, kb = helpers[a] or 0, helpers[b] or 0
-        if ka ~= kb then return ka > kb end
-        return a < b
-      end)
-      if #used > 0 then
-        local parts: mut {string} = {}
-        for _, name in ipairs(used) do
-          parts[#parts + 1] = string.format("%s %.1f", name, (helpers[name] or 0) / d)
-        end
-        lines[#lines + 1] = "  - snippets naming each Host helper: " .. table.concat(parts, ", ")
-      end
+      rows[#rows + 1] = { tool = tool.name, grade = grade, requests = mean("requests"), cost = mean("cost"),
+        wall = (sum["wall"] or 0) / math.max(n, 1), seconds = mean("seconds"), input = mean("input"),
+        output = mean("output"), cache_read = mean("cache_read"), first_read = mean("first_read"),
+        cache_write = mean("cache_write"), tools = mean("tools"), runs = mean("runs"), refused = mean("refused"),
+        refused_for = ranked(codes, function(k: integer): string return tostring(k) end),
+        helpers = ranked(helpers, function(k: integer): string
+          return string.format("%.1f", k / d)
+        end) }
     end
-    lines[#lines + 1] = ""
+    tasks[#tasks + 1] = { name = task.name, rows = rows }
   end
-  return table.concat(lines, "\n")
+  return Report.render({ model = options.model, reps = options.reps, fixture = options.fixture,
+    effort = if #set > 0 then table.concat(set, ", ") else nil end, totals = totals, tasks = tasks })
 end
 
 --- The world as it is: commands found on PATH, run with Child.
@@ -1111,6 +1141,10 @@ local function real(out: string): Agent.System
   end
   local function fresh(prefix: string): string
     return (assert(Fs.mkdtemp(prefix)))
+  end
+  -- A directory that cannot be removed is left, rather than end the evals and lose the runs graded so far.
+  local function discard(dir: string)
+    local _, _ = Fs.remove_tree(dir)
   end
   local function spent(tool: string, marker: string): Agent.Spent?
     local db, _ = Sqlite.open(out .. "/" .. tool .. "/data/cosmic/agent/sessions.db")
@@ -1145,7 +1179,7 @@ local function real(out: string): Agent.System
     stop()
     return nil, "it did not serve in " .. tostring(seconds) .. " s"
   end
-  return { run = run, fresh = fresh, spent = spent, put = put, serve = serve }
+  return { run = run, fresh = fresh, discard = discard, spent = spent, put = put, serve = serve }
 end
 
 --- Runs the evals `argv` asks for: 0 when every graded run passed, 1 when one did not, 2 for a bad command line.

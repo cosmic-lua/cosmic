@@ -190,14 +190,19 @@ end
 --- point, with a first reply of 200 that would never ask for a wait.
 local function test_a_pace_that_is_no_pacer_raises_naming_the_option(tmp: string)
   local fake: Fake = { interval_ns = 0 }
-  local function opts(): Http.Options
-    return { timeout_ns = Clock.seconds(60), pace = fake, script = ok_script() }
-  end
   local entries: {string:function()} = {
-    open = function() local _, _ = Http.open(url, opts()) end,
-    get = function() local _, _ = Http.get(url, opts()) end,
-    request = function() local _, _ = Http.request("PUT", url, opts()) end,
-    download = function() local _, _ = Http.download(url, tmp .. "/never", opts()) end,
+    open = function()
+      local _, _ = Http.open(url, { timeout_ns = Clock.seconds(60), pace = fake, script = ok_script() })
+    end,
+    get = function()
+      local _, _ = Http.get(url, { timeout_ns = Clock.seconds(60), pace = fake, script = ok_script() })
+    end,
+    request = function()
+      local _, _ = Http.request("PUT", url, { timeout_ns = Clock.seconds(60), pace = fake, script = ok_script() })
+    end,
+    download = function()
+      local _, _ = Http.download(url, tmp .. "/never", { timeout_ns = Clock.seconds(60), pace = fake, script = ok_script() })
+    end,
   }
   for name, entry in pairs(entries) do
     local err = Test.raises(entry)

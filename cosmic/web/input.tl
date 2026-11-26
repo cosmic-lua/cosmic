@@ -502,14 +502,12 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
   end
 
   local reader, bad = Multipart.reader(source, { boundary = boundary, max_parts = max_parts + 1 })
-  if reader == nil then return stop_with(stop(400, "body", "", "malformed", bad)) end
+  if reader == nil then return stop_with(stop(400, "body", "", "malformed", tostring(bad))) end
   local parts = 0
   while true do
     local part, why = reader:next_part()
-    if part == nil then
-      if why ~= "" then return stop_with(multipart_failed(why, limit)) end
-      break
-    end
+    if part == nil then return stop_with(multipart_failed(tostring(why), limit)) end
+    if part == false then break end
     parts = parts + 1
     if parts > max_parts then
       return stop_with(stop(413, "body", "", "too_many", ("the body has more than %s"):format(String.counted(max_parts, "part"))))

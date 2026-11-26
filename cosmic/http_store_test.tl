@@ -83,7 +83,7 @@ end
 --- What a request whose server presents `der` makes of it, trusting
 --- what `opts` chooses: "trusted" when only the name is wrong (the
 --- certificate stands for no host), else the failure.
-local function verdict(der: string, opts: Http.Options): string
+local function verdict(der: string, opts: Http.OpenOptions): string
   local response, why = Http.open("https://cosmic.test/",
     { timeout_ns = Clock.seconds(60), script = { first_flight(der) }, roots = opts.roots, ca = opts.ca, pin = opts.pin })
   assert(response == nil, "a canned first flight completes no handshake")
@@ -173,7 +173,7 @@ end
 
 --- Options of the wrong shape raise, naming the option.
 local function test_trust_options_of_the_wrong_shape_raise()
-  local function raised(opts: Http.Options): string
+  local function raised(opts: Http.OpenOptions): string
     local ok, err = pcall(function() local _, _ = Http.open("https://cosmic.test/", opts) end)
     assert(not ok, "no raise")
     return tostring(err)

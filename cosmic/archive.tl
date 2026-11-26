@@ -16,11 +16,12 @@ local Tar = require("cosmic.tar")
 local Zip = require("cosmic.zip")
 local String = require("cosmic.string")
 
---- What a `*_text` form of this module returns for a failure: nil and
---- `why` under the module's name, which the public functions make a
---- Failure.
-local function refuse(why: string): nil, string
-  return nil, "archive: " .. why
+--- What a function of this module returns when it refuses what it
+--- read or was asked: nil and a Failure of `why` under the module's
+--- name. A failure it met (an open's, a read's, a write's) is passed on
+--- as it is.
+local function refuse(why: string): nil, Failure
+  return nil, Failure.new("archive: " .. why)
 end
 
 local record Archive
@@ -181,54 +182,48 @@ end
 --- "bzip2" or "zstd"): the reader [`Archive.open`] returns for a path or a stream.
 --- `label` names the input in a complaint.
 local function open_tar(kind: string, source: Stream.Reader, label: string):
-    Archive.Reader?, string
-  if kind == "tar" then return Tar.reader(source), "" end
-  local codec: Compress.Stream?
-  local ctrouble: Failure?
+    (Archive.Reader) | (nil, Failure)
+  if kind == "tar" then return Tar.reader(source) end
+  local format: Compress.Format = "bz2"
   if kind == "gzip" then
-    codec, ctrouble = Compress.decoder("gzip")
+    format = "gzip"
   elseif kind == "xz" then
-    codec, ctrouble = Compress.decoder("xz")
+    format = "xz"
   elseif kind == "zstd" then
-    codec, ctrouble = Compress.decoder("zstd")
-  else
-    codec, ctrouble = Compress.decoder("bz2")
+    format = "zstd"
   end
+  local codec, ctrouble = Compress.decoder(format)
   if codec == nil then
     local _, _ = source:close()
-    return refuse(label .. ": " .. tostring(ctrouble))
+    return nil, Failure.within(ctrouble, "archive: " .. label)
   end
   local transformed = Stream.transform(source, codec)
-  return draining(Tar.reader(transformed), transformed), ""
+  return draining(Tar.reader(transformed), transformed)
 end
 
--- Archive.open, its failure in words.
-local function open_text(path: string): Archive.Reader?, string
+-- Archive.open of a path.
+local function open_path(path: string): (Archive.Reader) | (nil, Failure)
   local fd, trouble = Fs.open_read(path)
-  if fd == nil then return nil, tostring(trouble) end
+  if fd == nil then return nil, trouble end
   local head, htrouble = Fs.take(fd, 262)
   local _, _ = Fs.close(fd)
-  if head == nil then return nil, tostring(htrouble) end
+  if head == nil then return nil, htrouble end
   local kind = detect(head)
-  if kind == "zip" then
-    local zr, ztrouble = Zip.open(path)
-    if zr == nil then return nil, tostring(ztrouble) end
-    return zr, ""
-  end
+  if kind == "zip" then return Zip.open(path) end
   if kind == "unknown" then
     return refuse(path .. ": not a recognized archive format")
   end
   local raw, otrouble = Stream.open(path)
-  if raw == nil then return nil, tostring(otrouble) end
+  if raw == nil then return nil, otrouble end
   return open_tar(kind, raw, path)
 end
 
--- Archive.open of a stream, its failure in words.
-local function open_stream_text(source: Stream.Reader): Archive.Reader?, string
+-- Archive.open of a stream.
+local function open_stream(source: Stream.Reader): (Archive.Reader) | (nil, Failure)
   local head, trouble = Stream.read_up_to(source, 262)
   if head == nil then
     local _, _ = source:close()
-    return refuse(tostring(trouble))
+    return nil, trouble
   end
   local kind = detect(head)
   if kind == "zip" then
@@ -251,34 +246,30 @@ end
 --- lost. A zip is refused from a stream, since reading one means
 --- seeking in it: write the stream to a file and open that. Closing the
 --- reader closes the stream, which is closed here as well when this
---- fails.
+--- fails. A failure to open or read the source is returned as it is:
+--- a missing path's has the errno `ENOENT` and the path, a stream's
+--- timeout the kind "timeout".
 function Archive.open(source: string | Stream.Reader): (Archive.Reader) | (nil, Failure)
-  local value, why: Archive.Reader?, string
-  if source is string then
-    value, why = open_text(source)
-  else
-    value, why = open_stream_text(source)
-  end
-  if value == nil then return nil, Failure.new(why) end
-  return value
+  if source is string then return open_path(source) end
+  return open_stream(source)
 end
 
 local function listed_open(_e: Archive.Entry): (Stream.Reader) | (nil, Failure)
   return nil, Failure.new("archive: an entry from Archive.list cannot be opened; walk Archive.open instead")
 end
 
--- Archive.list of a reader, its failure in words.
-local function list_reader_text(reader: Archive.Reader): {Archive.Entry}?, string
+-- Archive.list of a reader.
+local function list_reader(reader: Archive.Reader): ({Archive.Entry}) | (nil, Failure)
   local out: mut {Archive.Entry} = {}
   while true do
     local entry, etrouble = reader:next()
     if entry == nil then
       local _, _ = reader:close()
-      return nil, tostring(etrouble)
+      return nil, etrouble
     end
     if entry == false then
       local _, _ = reader:close()
-      return out, ""
+      return out
     end
     -- The reader is closed before the list is returned, so no entry can be
     -- opened: say so, rather than read a closed reader.
@@ -287,42 +278,23 @@ local function list_reader_text(reader: Archive.Reader): {Archive.Entry}?, strin
   end
 end
 
--- Archive.list, its failure in words.
-local function list_text(source: string | Archive.Reader): {Archive.Entry}?, string
-  if source is string then
-    local reader, trouble = open_text(source)
-    if reader == nil then return nil, trouble end
-    return list_reader_text(reader)
-  end
-  return list_reader_text(source)
-end
-
 --- Every entry of an archive, at a path or from a reader
 --- ([`Archive.open`]), read to the end and then closed (on every path),
 --- as [`Archive.extract`] reads one. The entries' `open` fails, since
 --- the reader is closed before this returns; walk the reader to read
 --- bodies.
 function Archive.list(source: string | Archive.Reader): ({Archive.Entry}) | (nil, Failure)
-  local value, why = list_text(source)
-  if value == nil then return nil, Failure.new(why) end
-  return value
+  if source is string then
+    local reader, trouble = open_path(source)
+    if reader == nil then return nil, trouble end
+    return list_reader(reader)
+  end
+  return list_reader(source)
 end
 
 ------------------------------------------------------------------
 -- writers
 ------------------------------------------------------------------
-
--- Archive.format_of, its failure in words.
-local function format_of_text(path: string): Archive.Format?, string
-  local lower = path:lower()
-  if lower:match("%.zip$") then return "zip", "" end
-  if lower:match("%.tar%.gz$") or lower:match("%.tgz$") then return "tar.gz", "" end
-  if lower:match("%.tar%.xz$") or lower:match("%.txz$") then return "tar.xz", "" end
-  if lower:match("%.tar%.zst$") or lower:match("%.tzst$") then return "tar.zst", "" end
-  if lower:match("%.tar$") then return "tar", "" end
-  if lower:match("%.tar%.bz2$") or lower:match("%.tbz2?$") then return "tar.bz2", "" end
-  return refuse(path .. ": cannot tell the format from the name; end it in .tar.gz, .tgz, .tar.xz, .txz, .tar.bz2, .tbz2, .tbz, .tar.zst, .tzst, .tar or .zip")
-end
 
 --- The format [`Archive.create`] would write at `path`, from the
 --- suffix the name ends in, whatever its case: `.tar.gz` or `.tgz`,
@@ -331,41 +303,20 @@ end
 --- suffixes it knows. Nothing is read or created, so a caller can refuse a
 --- name before doing work for it.
 function Archive.format_of(path: string): (Archive.Format) | (nil, Failure)
-  local value, why = format_of_text(path)
-  if value == nil then return nil, Failure.new(why) end
-  return value
+  local lower = path:lower()
+  if lower:match("%.zip$") then return "zip" end
+  if lower:match("%.tar%.gz$") or lower:match("%.tgz$") then return "tar.gz" end
+  if lower:match("%.tar%.xz$") or lower:match("%.txz$") then return "tar.xz" end
+  if lower:match("%.tar%.zst$") or lower:match("%.tzst$") then return "tar.zst" end
+  if lower:match("%.tar$") then return "tar" end
+  if lower:match("%.tar%.bz2$") or lower:match("%.tbz2?$") then return "tar.bz2" end
+  return refuse(path .. ": cannot tell the format from the name; end it in .tar.gz, .tgz, .tar.xz, .txz, .tar.bz2, .tbz2, .tbz, .tar.zst, .tzst, .tar or .zip")
 end
 
--- Archive.create, its failure in words.
-local function create_text(path: string, opts?: Archive.CreateOptions): Archive.Writer?, string
-  local format, why = format_of_text(path)
-  if format == nil then return nil, why end
-  local deterministic = opts ~= nil and opts.deterministic or false
-  local codec: Compress.Stream?
-  if format == "tar.gz" then
-    local ctrouble: Failure?
-    codec, ctrouble = Compress.encoder("gzip")
-    if codec == nil then return refuse(path .. ": " .. tostring(ctrouble)) end
-  elseif format == "tar.xz" then
-    local ctrouble: Failure?
-    codec, ctrouble = Compress.encoder("xz")
-    if codec == nil then return refuse(path .. ": " .. tostring(ctrouble)) end
-  elseif format == "tar.bz2" then
-    local ctrouble: Failure?
-    codec, ctrouble = Compress.encoder("bz2")
-    if codec == nil then return refuse(path .. ": " .. tostring(ctrouble)) end
-  elseif format == "tar.zst" then
-    local ctrouble: Failure?
-    codec, ctrouble = Compress.encoder("zstd")
-    if codec == nil then return refuse(path .. ": " .. tostring(ctrouble)) end
-  end
-  local file, trouble = Stream.create(path)
-  if file == nil then return nil, tostring(trouble) end
-  if format == "zip" then return Zip.writer(file, { deterministic = deterministic }), "" end
-  local sink: Stream.Writer = file
-  if codec ~= nil then sink = Stream.transform_writer(file, codec) end
-  return Tar.writer(sink, { deterministic = deterministic }), ""
-end
+--- The compression of each compressed tar format [`Archive.create`] writes.
+local compression_of: {Archive.Format:Compress.Format} = {
+  ["tar.gz"] = "gzip", ["tar.xz"] = "xz", ["tar.bz2"] = "bz2", ["tar.zst"] = "zstd",
+}
 
 --- A writer of a new archive at `path`, of the format its name ends
 --- in, whatever its case: `.tar.gz` or `.tgz` (a tar compressed with
@@ -377,15 +328,30 @@ end
 --- [`Stream.create`] writes, so `path` holds nothing until `close`
 --- succeeds, and then the whole archive; a failed call or `abort`
 --- leaves `path` as it was. For any other name it returns nil and a
---- Failure, naming the suffixes it knows, and creates nothing.
+--- Failure, naming the suffixes it knows, and creates nothing; where
+--- `path` cannot be created, the Failure [`Stream.create`] returned,
+--- its errno and path kept.
 ---
 ---     local w = assert(Archive.create("release.tar.gz"))
 ---     assert(w:add_file("README", "read me first"))
 ---     assert(w:close())
 function Archive.create(path: string, opts?: Archive.CreateOptions): (Archive.Writer) | (nil, Failure)
-  local value, why = create_text(path, opts)
-  if value == nil then return nil, Failure.new(why) end
-  return value
+  local format, why = Archive.format_of(path)
+  if format == nil then return nil, why end
+  local deterministic = opts ~= nil and opts.deterministic or false
+  local codec: Compress.Stream?
+  local compressed = compression_of[format]
+  if compressed ~= nil then
+    local made, ctrouble = Compress.encoder(compressed)
+    if made == nil then return nil, Failure.within(ctrouble, "archive: " .. path) end
+    codec = made
+  end
+  local file, trouble = Stream.create(path)
+  if file == nil then return nil, trouble end
+  if format == "zip" then return Zip.writer(file, { deterministic = deterministic }) end
+  local sink: Stream.Writer = file
+  if codec ~= nil then sink = Stream.transform_writer(file, codec) end
+  return Tar.writer(sink, { deterministic = deterministic })
 end
 
 ------------------------------------------------------------------
@@ -510,7 +476,7 @@ end
 --- What [`Archive.extract`] does:
 --- `from` is a path to open or a Reader to walk to its end.
 local function extract_from(from: string | Archive.Reader, dest: string,
-                            given: Archive.ExtractOptions?): {string}?, string
+                            given: Archive.ExtractOptions?): ({string}) | (nil, Failure)
   local opts: Archive.ExtractOptions = given or {}
   local max_entries = opts.max_entries
   if max_entries ~= nil and max_entries < 0 then
@@ -530,7 +496,7 @@ local function extract_from(from: string | Archive.Reader, dest: string,
   local entries_left = opts.max_entries
   local reader: Archive.Reader
   if from is string then
-    local opened, trouble = open_text(from)
+    local opened, trouble = open_path(from)
     if opened == nil then return nil, trouble end
     reader = opened
   else
@@ -539,7 +505,7 @@ local function extract_from(from: string | Archive.Reader, dest: string,
   local dest_made, dest_trouble = Fs.mkdirs(dest)
   if not dest_made then
     local _, _ = reader:close()
-    return nil, tostring(dest_trouble)
+    return nil, dest_trouble
   end
 
   local written: mut {string} = {}
@@ -560,63 +526,68 @@ local function extract_from(from: string | Archive.Reader, dest: string,
   end
   local dir_times: mut {DirTime} = {}
 
-  local function bail(message: string): nil, string
+  local function bail(why: Failure): nil, Failure
     local _, _ = reader:close()
-    return nil, message
+    return nil, why
+  end
+
+  --- `bail` with a refusal of this module's, of `why`.
+  local function refuse_with(why: string): nil, Failure
+    return bail(Failure.new("archive: " .. why))
   end
 
   --- Makes sure the first `n` components of `parts` name real
   --- directories under `dest`, creating missing ones, and refusing
   --- a symlink (made or to be made) anywhere along the way.
-  local function ensure_dirs(parts: {string}, n: integer, entry_path: string): boolean, string
+  local function ensure_dirs(parts: {string}, n: integer, entry_path: string): (true) | (false, Failure)
     for i = 1, n do
       local rel = join(parts, i)
       if pending[rel] ~= nil then
-        return false, "archive: refusing to write through a symlink: " .. entry_path
+        return false, Failure.new("archive: refusing to write through a symlink: " .. entry_path)
       end
       if real_dirs[rel] ~= true then
         local full = dest .. "/" .. rel
-        local found, why, errno = sys.lstat(full)
+        local found, _, errno = sys.lstat(full)
         if found == nil then
-          if errno ~= sys.ENOENT then return false, full .. ": " .. why end
-          local made, mtrouble, merr = sys.mkdir(full, 0x1ed)
-          if not made and merr ~= sys.EEXIST then return false, full .. ": " .. mtrouble end
-          found, why = sys.lstat(full)
+          if errno ~= sys.ENOENT then return false, Failure.system(errno, full) end
+          local made, _, merr = sys.mkdir(full, 0x1ed)
+          if not made and merr ~= sys.EEXIST then return false, Failure.system(merr, full) end
+          found, _, errno = sys.lstat(full)
         end
-        if found == nil then return false, full .. ": " .. why end
+        if found == nil then return false, Failure.system(errno, full) end
         local st: sys.Stat = found
         if st.kind ~= "dir" then
           if st.kind == "link" then
-            return false, "archive: refusing to write through a symlink: " .. entry_path
+            return false, Failure.new("archive: refusing to write through a symlink: " .. entry_path)
           end
-          return false, "archive: " .. full .. " is not a directory"
+          return false, Failure.new("archive: " .. full .. " is not a directory")
         end
         real_dirs[rel] = true
       end
     end
-    return true, ""
+    return true
   end
 
-  local function extract_file(dest_path: string, entry: Archive.Entry): boolean, string
+  local function extract_file(dest_path: string, entry: Archive.Entry): (true) | (false, Failure)
     -- A recorded size past a limit is refused before a byte is read, but
     -- a header's claim is the archive's to make: the bytes counted as
     -- they are read are what hold when a body outgrows it.
-    local function over_entry(): boolean, string
-      return false, "archive: " .. entry.path .. " is larger than max_entry_bytes (" ..
-        String.counted(entry_limit, "byte") .. ")"
+    local function over_entry(): (true) | (false, Failure)
+      return false, Failure.new("archive: " .. entry.path .. " is larger than max_entry_bytes (" ..
+          String.counted(entry_limit, "byte") .. ")")
     end
-    local function over_total(): boolean, string
-      return false, "archive: extracting " .. entry.path .. " would write more than max_bytes (" ..
-        String.counted(total_limit, "byte") .. ")"
+    local function over_total(): (true) | (false, Failure)
+      return false, Failure.new("archive: extracting " .. entry.path .. " would write more than max_bytes (" ..
+          String.counted(total_limit, "byte") .. ")")
     end
     if entry.size > entry_limit then return over_entry() end
     if entry.size > total_limit - tally then return over_total() end
     local body, otrouble = entry:open()
-    if body == nil then return false, tostring(otrouble) end
+    if body == nil then return false, otrouble end
     local mode = safe_mode(entry.mode)
     if mode == 0 then mode = 0x1a4 end
     local w, ctrouble = Stream.create(dest_path, mode)
-    if w == nil then return false, tostring(ctrouble) end
+    if w == nil then return false, ctrouble end
     local size = 0
     while true do
       -- One byte past the room is read, to tell a body that ends at a
@@ -629,7 +600,7 @@ local function extract_from(from: string | Archive.Reader, dest: string,
       if chunk == false then break end
       if chunk == nil then
         local _, _ = w:abort()
-        return false, tostring(rtrouble)
+        return false, rtrouble
       end
       size = size + #chunk
       if size > entry_limit or tally + size > total_limit then
@@ -640,14 +611,14 @@ local function extract_from(from: string | Archive.Reader, dest: string,
       local ok, wtrouble = w:write(chunk)
       if not ok then
         local _, _ = w:abort()
-        return false, tostring(wtrouble)
+        return false, wtrouble
       end
     end
     local ok, wtrouble = w:close()
-    if not ok then return false, tostring(wtrouble) end
+    if not ok then return false, wtrouble end
     tally = tally + size
     local _, _ = Fs.set_mtime(dest_path, entry.mtime)
-    return true, ""
+    return true
   end
 
   --- Whether `target`, read from the directory `parts[1..n]`, walks
@@ -684,36 +655,37 @@ local function extract_from(from: string | Archive.Reader, dest: string,
     return false
   end
 
-  local function make_link(link: PendingLink): boolean, string
+  local function make_link(link: PendingLink): (true) | (false, Failure)
     local parts = link.parts
     -- Its own parents, like any other entry's, must be real
     -- directories -- `pending` still holds every link, made or not.
     local ok, why = ensure_dirs(parts, #parts - 1, link.rel)
     if not ok then return false, why end
     if target_crosses_link(parts, #parts - 1, link.target) then
-      return false, "archive: refusing a symlink whose target runs through another symlink " ..
-        "or a missing directory: " ..
-        link.rel
+      return false, Failure.new("archive: refusing a symlink whose target runs through another symlink " ..
+          "or a missing directory: " ..
+          link.rel)
     end
     local full = dest .. "/" .. link.rel
     local st, _ = sys.lstat(full)
     if st ~= nil then
-      if st.kind == "dir" then return false, "archive: " .. full .. " is a directory" end
+      if st.kind == "dir" then
+        return false, Failure.new("archive: " .. full .. " is a directory")
+      end
       local _, _ = sys.unlink(full)
     end
-    local symlink_ok, symlink_why = Fs.symlink(link.target, full)
-    ok, why = symlink_ok, if symlink_ok then "" else tostring(symlink_why) end
-    if not ok then return false, why end
+    local linked, link_why = Fs.symlink(link.target, full)
+    if not linked then return false, link_why end
     local _, _ = Fs.set_mtime(full, link.mtime)
-    return true, ""
+    return true
   end
 
   while true do
     local entry, etrouble = reader:next()
-    if entry == nil then return bail(tostring(etrouble)) end
+    if entry == nil then return bail(etrouble) end
     if entry == false then break end
     if not safe_relative(entry.path) then
-      return bail("archive: refusing an unsafe entry path: " .. entry.path)
+      return refuse_with("refusing an unsafe entry path: " .. entry.path)
     end
     local stripped = apply_strip(entry.path, opts.strip_prefix, count)
     -- A path with no empty or `.` components is its own
@@ -735,13 +707,13 @@ local function extract_from(from: string | Archive.Reader, dest: string,
       local wanted = kind == "dir" or kind == "file" or
         (kind == "symlink" and links_mode == "create")
       if not wanted and kind ~= "symlink" then
-        return bail("archive: cannot extract " .. entry.path .. ": unsupported entry kind '" ..
+        return refuse_with("cannot extract " .. entry.path .. ": unsupported entry kind '" ..
             kind .. "'")
       end
       if wanted then
         if entries_left ~= nil then
           if entries_left <= 0 then
-            return bail("archive: more than " .. String.counted(assert(opts.max_entries), "entry", "entries") ..
+            return refuse_with("more than " .. String.counted(assert(opts.max_entries), "entry", "entries") ..
                 " to extract")
           end
           entries_left = entries_left - 1
@@ -751,7 +723,7 @@ local function extract_from(from: string | Archive.Reader, dest: string,
           local split = parts or components(rel)
           parts = split
           if not stays_inside(join(split, #split - 1), entry.linkpath) then
-            return bail("archive: refusing a symlink escaping the destination: " .. entry.path)
+            return refuse_with("refusing a symlink escaping the destination: " .. entry.path)
           end
           local link: PendingLink = {
             rel = rel, parts = parts, target = entry.linkpath, mtime = entry.mtime,
@@ -807,7 +779,7 @@ local function extract_from(from: string | Archive.Reader, dest: string,
     local _, _ = Fs.set_mtime(d.path, d.mtime)
   end
   local _, _ = reader:close()
-  return written, ""
+  return written
 end
 
 --- Unpacks an archive into `dest`, as `tar -x` or `unzip` would: the
@@ -824,14 +796,16 @@ end
 --- and move it into place to have all or nothing); a file that fails
 --- its own checks (a CRC32, a size) or passes `max_entry_bytes` or
 --- `max_bytes` is never put in place, and none of it is written past
---- the limit. A reader is closed on every path but a raised argument
---- error, which leaves it open.
+--- the limit. A failure of the archive's source, or of a file or
+--- directory written, is returned as it is, its kind, errno and path
+--- kept. A reader is closed on every path but a raised argument error,
+--- which leaves it open.
 function Archive.extract(source: string | Archive.Reader, dest: string, opts?: Archive.ExtractOptions):
     ({string}) | (nil, Failure)
   -- [`extract_from`]'s argument errors, raised at level 3, blame this
   -- function's caller.
   local written, why = extract_from(source, dest, opts)
-  if written == nil then return nil, Failure.new(why) end
+  if written == nil then return nil, why end
   return written
 end
 

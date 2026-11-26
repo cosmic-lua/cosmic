@@ -427,7 +427,7 @@ end
 local function trusted(src: source.View, staged: boolean)
   local db, _ = database(src)
   if db == nil then return end
-  local named, _ = db:text_rows("SELECT value FROM meta WHERE key = 'analyzer'")
+  local named, _ = db:rows("SELECT value FROM meta WHERE key = 'analyzer'")
   local recorded: string? = nil
   if named ~= nil then
     local row = named[1]
@@ -470,7 +470,7 @@ local function listed(src: source.View, staged: boolean)
   -- Other code's rows are read none of: each query gives none.
   local own = 1
   if staged_by_other(src, db) then own = 0 end
-  local rows, trouble = db:text_rows(
+  local rows, trouble = db:rows(
     "SELECT path, file, kind, source_hash, origin FROM inputs WHERE ?1 = 1 " ..
       "ORDER BY path, " .. AnalysisSchema.declaration("kind") .. " DESC, file", { { integer = own } })
   if rows == nil then
@@ -486,7 +486,7 @@ local function listed(src: source.View, staged: boolean)
     files[found.file] = found
   end
   local requires: mut {string:mut {string}} = {}
-  local named_rows, _ = db:text_rows(
+  local named_rows, _ = db:rows(
     "SELECT source_hash, name FROM requires WHERE ?1 = 1 ORDER BY source_hash, ordinal",
     { { integer = own } })
   if named_rows ~= nil then
@@ -774,7 +774,7 @@ end
 
 --- One column of the first row `sql` finds given `value`, or nil.
 local function first(db: Sqlite.Handle, sql: string, value: string): string?
-  local rows, _ = db:text_rows(sql, { { text = value } })
+  local rows, _ = db:rows(sql, { { text = value } })
   if rows == nil then return nil end
   local row = rows[1]
   if row == nil then return nil end
@@ -974,9 +974,8 @@ local function spots_of(rows: Sqlite.Rows): {string:Spot}
   for _, row in ipairs(rows) do
     local symbol = row:text(1)
     if held[symbol] == nil then
-      held[symbol] = { line = math.tointeger(tonumber(row:text(2))) or 1,
-        column = math.tointeger(tonumber(row:text(3))) or 1, length = math.tointeger(tonumber(row:text(4))) or 1,
-        plain = row:text(5) == "1" }
+      held[symbol] = { line = row:integer(2), column = row:integer(3), length = row:integer(4),
+        plain = row:integer(5) == 1 }
     end
   end
   return held
@@ -985,13 +984,13 @@ end
 --- The places `db` holds of the text `hash`, by symbol (the first of each), and whether it holds a parse of it: its
 --- `places` or `parsed` rows. nil where the read fails.
 local function read_places(db: Sqlite.Handle, hash: string): {string:Spot}?, boolean
-  local rows, _ = db:text_rows(
+  local rows, _ = db:rows(
     "SELECT symbol, line, column, length, plain FROM places WHERE source_hash = ?1 ORDER BY ordinal",
     { { text = hash } })
   if rows == nil then return nil, false end
   local derived = #rows > 0
   if not derived then
-    local parsed, _ = db:text_rows("SELECT 1 FROM parsed WHERE source_hash = ?1", { { text = hash } })
+    local parsed, _ = db:rows("SELECT 1 FROM parsed WHERE source_hash = ?1", { { text = hash } })
     if parsed == nil then return nil, false end
     derived = #parsed > 0
   end
@@ -1000,7 +999,7 @@ end
 
 --- Whether `db` holds a parse of the text `hash`: the stage could read it, and so could the derivation here.
 local function parsed_in(db: Sqlite.Handle, hash: string): boolean
-  local parsed, _ = db:text_rows("SELECT 1 FROM parsed WHERE source_hash = ?1", { { text = hash } })
+  local parsed, _ = db:rows("SELECT 1 FROM parsed WHERE source_hash = ?1", { { text = hash } })
   return parsed ~= nil and #parsed > 0
 end
 
@@ -1032,7 +1031,7 @@ function source.requires_of(src: source.View, found: Module, text: string, hash:
   end
   local held = rows_for(src, found, text, hash, parsed, known)
   if held == nil or not parsed_in(held, hash) then return nil end
-  local rows, _ = held:text_rows("SELECT name FROM requires WHERE source_hash = ?1 ORDER BY ordinal",
+  local rows, _ = held:rows("SELECT name FROM requires WHERE source_hash = ?1 ORDER BY ordinal",
     { { text = hash } })
   if rows == nil then return nil end
   if held == src.scratch then src.tally.scratch_requires = src.tally.scratch_requires + 1 end
@@ -1204,18 +1203,18 @@ end
 --- the symbol's last name where it stands on that line, in the header's text as the tool carries it. nil where the tool
 --- carries no header of the module or no places.
 local function carried_origin(src: source.View, held: Sqlite.Handle, name: string): source.Placed?
-  local named, _ = held:text_rows("SELECT sha256 FROM origins WHERE module = ?1", { { text = name } })
+  local named, _ = held:rows("SELECT sha256 FROM origins WHERE module = ?1", { { text = name } })
   if named == nil then return nil end
   local first_row = named[1]
   if first_row == nil then return nil end
   local kept = src.carried_held[name]
   if kept ~= nil and kept.carried == first_row:text(1) then return kept end
-  local origin, _ = held:text_rows(
+  local origin, _ = held:rows(
     "SELECT sha256, file, CAST(inflate(source) AS TEXT) FROM origins WHERE module = ?1", { { text = name } })
   if origin == nil then return nil end
   local row = origin[1]
   if row == nil then return nil end
-  local rows, _ = held:text_rows(
+  local rows, _ = held:rows(
     "SELECT symbol, line, column, length, plain FROM places WHERE module = ?1 ORDER BY ordinal", { { text = name } })
   if rows == nil or #rows == 0 then return nil end
   local inflated = row:text(3)
@@ -1241,20 +1240,20 @@ local function carried_places(src: source.View, name: string): source.Placed?
   local databases = src.store or Store.databases()
   local held = databases[#databases]
   if held == nil then return nil end
-  local named, _ = held:text_rows("SELECT CAST(source_hash AS TEXT) FROM modules WHERE path = ?1",
+  local named, _ = held:rows("SELECT CAST(source_hash AS TEXT) FROM modules WHERE path = ?1",
     { { text = name } })
   if named == nil then return nil end
   local first_row = named[1]
   if first_row == nil then return carried_origin(src, held, name) end
   local kept = src.carried_held[name]
   if kept ~= nil and kept.carried == first_row:text(1) then return kept end
-  local module, _ = held:text_rows(
+  local module, _ = held:rows(
     "SELECT CAST(source_hash AS TEXT), file, CAST(inflate(source) AS TEXT) FROM modules WHERE path = ?1",
     { { text = name } })
   if module == nil then return nil end
   local row = module[1]
   if row == nil then return nil end
-  local rows, _ = held:text_rows(
+  local rows, _ = held:rows(
     "SELECT symbol, line, column, length, plain FROM places WHERE module = ?1 ORDER BY ordinal", { { text = name } })
   if rows == nil or #rows == 0 then return nil end
   local inflated = row:text(3)
@@ -1400,7 +1399,7 @@ local function prune_extracted(src: source.View, directory: string)
   local databases = src.store or Store.databases()
   local held = databases[#databases]
   if held == nil then return end
-  local rows, _ = held:text_rows("SELECT CAST(source_hash AS TEXT) FROM modules")
+  local rows, _ = held:rows("SELECT CAST(source_hash AS TEXT) FROM modules")
   if rows == nil then return end
   local named: mut {string:boolean} = {}
   for _, row in ipairs(rows) do named[row:text(1)] = true end
@@ -1486,9 +1485,9 @@ end
 --- The `members` rows of a text, by owner, with the docs of the same symbols, in `db`, which holds the parse of the text
 --- `hash`; nil where it holds none or cannot be read.
 local function read_members(db: Sqlite.Handle, hash: string): source.Members?
-  local parsed, _ = db:text_rows("SELECT 1 FROM parsed WHERE source_hash = ?1", { { text = hash } })
+  local parsed, _ = db:rows("SELECT 1 FROM parsed WHERE source_hash = ?1", { { text = hash } })
   if parsed == nil or #parsed == 0 then return nil end
-  local rows, _ = db:text_rows(
+  local rows, _ = db:rows(
     "SELECT owner, name, kind, scope, type, coalesce((SELECT text FROM docs WHERE docs.source_hash = members.source_hash " ..
       "AND docs.source_symbol IN (members.owner || '.' || members.name, members.owner || ':' || members.name) " ..
       "ORDER BY length(text) DESC LIMIT 1), '') FROM members WHERE source_hash = ?1 ORDER BY ordinal",
@@ -1507,14 +1506,14 @@ local function carried_members(src: source.View, name: string): source.Members?
   local databases = src.store or Store.databases()
   local held = databases[#databases]
   if held == nil then return nil end
-  local named, _ = held:text_rows("SELECT CAST(source_hash AS TEXT) FROM modules WHERE path = ?1",
+  local named, _ = held:rows("SELECT CAST(source_hash AS TEXT) FROM modules WHERE path = ?1",
     { { text = name } })
   if named == nil then return nil end
   local first_row = named[1]
   if first_row == nil then return nil end
   local kept = src.carried_rows[name]
   if kept ~= nil and kept.hash == first_row:text(1) then return kept.rows end
-  local rows, _ = held:text_rows(
+  local rows, _ = held:rows(
     "SELECT owner, name, kind, scope, type, doc FROM members WHERE module = ?1 ORDER BY ordinal", { { text = name } })
   if rows == nil or #rows == 0 then return nil end
   local made = members_of_rows(rows)

@@ -4,6 +4,7 @@
 --- seeded and not. build/rand_tool_test.tl starts the program for what
 --- a process alone shows.
 
+local Failure = require("cosmic.failure")
 local Cli = require("cosmic.cli")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
@@ -19,7 +20,7 @@ end
 
 local record Stand
   mut stdin?: string
-  entropy?: function(count: integer): string?, string
+  entropy?: function(count: integer): (string) | (nil, Failure)
   now_ns?: function(): integer
   out?: function(text: string): boolean, string
 end
@@ -89,20 +90,20 @@ end
 
 local function test_uuid_v4_is_made_of_entropy_alone()
   -- All bits set: the version and variant bits are forced, the rest kept.
-  local ran = run({ "uuid" }, { entropy = function(count: integer): string?, string
-    return string.rep("\255", count), ""
+  local ran = run({ "uuid" }, { entropy = function(count: integer): (string) | (nil, Failure)
+    return string.rep("\255", count)
   end })
   assert(ran.out == "ffffffff-ffff-4fff-bfff-ffffffffffff\n", ran.out)
-  local zero = run({ "uuid" }, { entropy = function(count: integer): string?, string
-    return string.rep("\0", count), ""
+  local zero = run({ "uuid" }, { entropy = function(count: integer): (string) | (nil, Failure)
+    return string.rep("\0", count)
   end })
   assert(zero.out == "00000000-0000-4000-8000-000000000000\n", zero.out)
 end
 
 local function test_uuid_v7_layout_and_bits()
   -- 1700000000123 ms, 456789 ns into it: 456789 * 4096 // 1e6 = 1871.
-  local ran = run({ "uuid", "--v7" }, { entropy = function(count: integer): string?, string
-    return string.rep("\255", count), ""
+  local ran = run({ "uuid", "--v7" }, { entropy = function(count: integer): (string) | (nil, Failure)
+    return string.rep("\255", count)
   end })
   assert(ran.code == 0, ran.err)
   local head = ("%012x"):format(1700000000123)
@@ -237,13 +238,13 @@ local function test_int_from_entropy_rejects_rather_than_wraps()
   -- be drawn again, not reduced modulo 3 to 0.
   local draws = { 3, 3, 1, 2, 0 }
   local calls = { value = 0 }
-  local ran = run({ "int", "0", "2", "-n", "3" }, { entropy = function(count: integer): string?, string
+  local ran = run({ "int", "0", "2", "-n", "3" }, { entropy = function(count: integer): (string) | (nil, Failure)
     calls.value = calls.value + 1
     local parts: mut {string} = {}
     for index = 1, count // 8 do
       parts[index] = string.pack("<i8", support.nth(draws, (index - 1) % 5 + 1))
     end
-    return table.concat(parts), ""
+    return table.concat(parts)
   end })
   assert(ran.out == "1\n2\n0\n" and calls.value == 1, ran.out .. tostring(calls.value))
 end
@@ -251,8 +252,8 @@ end
 local function test_int_from_entropy_reaches_every_value_and_no_seed_is_used()
   -- The entropy is a fixed stream, so the count below is fixed too.
   local source = Rand.new(11)
-  local ran = run({ "int", "-1", "1", "-n", "300" }, { entropy = function(count: integer): string?, string
-    return source:bytes(count), ""
+  local ran = run({ "int", "-1", "1", "-n", "300" }, { entropy = function(count: integer): (string) | (nil, Failure)
+    return source:bytes(count)
   end })
   local counts: mut {integer:integer} = {}
   for _, line in ipairs(lines(ran.out)) do
@@ -264,7 +265,7 @@ local function test_int_from_entropy_reaches_every_value_and_no_seed_is_used()
     assert(drawn ~= nil and drawn > 60, value)
   end
   -- Seeded runs never ask the entropy source.
-  local untouched = run({ "int", "1", "9", "--seed", "3" }, { entropy = function(_count: integer): string?, string
+  local untouched = run({ "int", "1", "9", "--seed", "3" }, { entropy = function(_count: integer): (string) | (nil, Failure)
     error("a seeded draw read the entropy source")
   end })
   assert(untouched.code == 0, untouched.err)
@@ -363,8 +364,8 @@ local function test_a_failed_write_to_standard_output_is_exit_5()
 end
 
 local function test_a_failing_entropy_source_is_exit_5_and_says_so()
-  local ran = run({ "uuid" }, { entropy = function(_count: integer): string?, string
-    return nil, "rand: entropy: no source"
+  local ran = run({ "uuid" }, { entropy = function(_count: integer): (string) | (nil, Failure)
+    return nil, Failure.new("rand: entropy: no source")
   end })
   assert(ran.code == 5 and ran.out == "", ran.out)
   assert(ran.err:find("entropy source failed: rand: entropy: no source", 1, true), ran.err)
@@ -386,7 +387,7 @@ local function test_v7_counter_carries_into_the_milliseconds_at_4095()
   -- same instant would be fraction 4096, which carries into the ms.
   local ns = 7000000000 + 999756
   local ran = run({ "uuid", "--v7", "-n", "3" }, { now_ns = function(): integer return ns end,
-    entropy = function(count: integer): string?, string return string.rep("\0", count), "" end })
+    entropy = function(count: integer): (string) | (nil, Failure) return string.rep("\0", count) end })
   local ids = lines(ran.out)
   local ms = ("%012x"):format(7000)
   local next_ms = ("%012x"):format(7001)
@@ -410,7 +411,7 @@ local function test_v7_refuses_a_clock_before_1970()
   end })
   assert(partial.code == 5 and #lines(partial.out) == 1, partial.out)
   local epoch = run({ "uuid", "--v7" }, { now_ns = function(): integer return 0 end,
-    entropy = function(count: integer): string?, string return string.rep("\0", count), "" end })
+    entropy = function(count: integer): (string) | (nil, Failure) return string.rep("\0", count) end })
   assert(epoch.code == 0 and epoch.out == "00000000-0000-7000-8000-000000000000\n", epoch.out .. epoch.err)
 end
 
@@ -434,11 +435,11 @@ end
 
 --- The entropy stand-in that hands out `Rand.new(seed)`'s words in
 --- order, so a source made from the same seed draws what a run does.
-local function entropy_of(seed: integer, reads?: mut {integer}): function(count: integer): string?, string
+local function entropy_of(seed: integer, reads?: mut {integer}): function(count: integer): (string) | (nil, Failure)
   local source = Rand.new(seed)
-  return function(count: integer): string?, string
+  return function(count: integer): (string) | (nil, Failure)
     if reads ~= nil then reads[#reads + 1] = count end
-    return source:bytes(count), ""
+    return source:bytes(count)
   end
 end
 
@@ -513,7 +514,7 @@ local function test_normal_and_gamma_from_entropy_use_its_words_as_they_come()
     assert(run({ "gamma", "-n", "3", "--shape", "2" }).out ~= run({ "gamma", "-n", "3", "--shape", "2" }).out)
   end
   -- Seeded runs never ask the entropy source.
-  local function forbidden(_count: integer): string?, string
+  local function forbidden(_count: integer): (string) | (nil, Failure)
     error("a seeded draw read the entropy source")
   end
   assert(run({ "normal", "--seed", "3" }, { entropy = forbidden }).code == 0)
@@ -559,7 +560,7 @@ local function test_normal_and_gamma_refuse_bad_parameters()
     { "gamma", "--shape", "1", "--hex" },
   }
   for _, words in ipairs(cases) do
-    local ran = run(words, { entropy = function(_count: integer): string?, string
+    local ran = run(words, { entropy = function(_count: integer): (string) | (nil, Failure)
       error("a refused command line read the entropy source")
     end })
     assert(ran.code == 2 and ran.out == "", table.concat(words, " "))
@@ -614,8 +615,8 @@ local function test_normal_and_gamma_count_is_bounded_like_int()
 end
 
 local function test_normal_and_gamma_report_an_entropy_failure_and_a_failed_write()
-  local broken = function(_count: integer): string?, string
-    return nil, "rand: entropy: no source"
+  local broken = function(_count: integer): (string) | (nil, Failure)
+    return nil, Failure.new("rand: entropy: no source")
   end
   local commands: {{string}} = { { "normal" }, { "gamma", "--shape", "3" } }
   for _, words in ipairs(commands) do

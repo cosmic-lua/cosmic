@@ -4,11 +4,13 @@
 local Fs = require("cosmic.fs")
 local VerifyCodesign = require("build.verify_codesign")
 local Fake = require("cosmic.fake")
+local Json = require("cosmic.json")
+local _ = require("build.tool_fake")
 local sys = require("cosmic.sys")
 
 --- A fake program built under `dir`, outside the PATH it searches.
 local function fake_under(dir: string): string
-  return (assert(Fake.build(dir .. "/fake")))
+  return (assert(Fake.build(dir .. "/fake", "build.tool_fake")))
 end
 
 --- A codesign in `dir`, the PATH each test searches, that appends its
@@ -16,7 +18,7 @@ end
 local function fake_codesign(probe: string, dir: string, status: integer): string
   local log = dir .. "/calls"
   assert(Fake.place(probe, dir .. "/codesign",
-    "append " .. log .. " $@\nexit " .. tostring(status)))
+    assert(Json.encode_any({ append_args = log, code = status }))))
   return log
 end
 
@@ -44,7 +46,7 @@ local function test_a_failed_verification_is_its_status(dir: string)
 end
 
 local function test_a_codesign_ended_by_a_signal_is_128_past_it(dir: string)
-  assert(Fake.place(fake_under(dir), dir .. "/codesign", "signal TERM"))
+  assert(Fake.place(fake_under(dir), dir .. "/codesign", '{"signal":"TERM"}'))
   assert(VerifyCodesign.verify("Darwin", "core", dir) == 143)
 end
 

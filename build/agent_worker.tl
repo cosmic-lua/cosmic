@@ -18,6 +18,10 @@
 ---     "ok": false, "output", "error"   it raised `error`, after writing `output`
 ---     "error": "..."                   the request could not be read
 ---
+--- A response of a snippet that ran may hold "changes", where it changed a file through Host.edit or Host.write:
+--- `[{"path":"a.md","edits":[{"old":"...","new":"..."}]}, {"path":"b.md","lines":2}, {"more":3}]`, each text the
+--- lines it changes with one of context, cut to 4KB, the whole at most 64KB, and "more" the count past that.
+---
 --- "output" is at most 64KB, its last part, as UTF-8 (a byte that begins no character is U+FFFD), and "cut": true
 --- says where more was written; "value" is at most 64KB of JSON, and a note where it is more. A snippet sets no
 --- global, which the checker refuses; what it keeps for the next it keeps with Host.store, or writes to a file. It ends at the end of standard
@@ -108,6 +112,74 @@ local record Channel
   mut arrived?: Poll.Notifier
   --- How many calls wait for their replies.
   mut waiting: integer
+  --- The files the request's snippet changed through Host.edit and Host.write, in order.
+  mut changes: mut {Host.Change}
+end
+
+-- The most bytes of an edit's old or new text an answer carries, once the lines both begin and end with are trimmed:
+-- the agent shows a few lines of each.
+local CHANGE_BYTES <const> = 4096
+
+-- The most bytes of changes an answer carries: past them, a change is only counted, so the line stays far below the
+-- 1MB the agent reads.
+local CHANGES_BYTES <const> = 64 * 1024
+
+--- The lines of `text`, split at each newline: "a\n" is "a" and "".
+local function lines_in(text: string): {string}
+  local out: mut {string} = {}
+  for line in (text .. "\n"):gmatch("([^\n]*)\n") do out[#out + 1] = line end
+  return out
+end
+
+--- `old` and `new` with the lines both begin and end with taken off, but one of each kept for context, each cut to
+--- CHANGE_BYTES at a character's end, as UTF-8.
+local function trimmed(old: string, new: string): (string, string)
+  local a, b = lines_in(old), lines_in(new)
+  local head = 0
+  while head < #a and head < #b and a[head + 1] == b[head + 1] do head = head + 1 end
+  local tail = 0
+  while tail < #a - head and tail < #b - head and a[#a - tail] == b[#b - tail] do
+    tail = tail + 1
+  end
+  local from = math.max(head, 1)
+  local function part(lines: {string}): string
+    local kept: mut {string} = {}
+    for i = from, math.min(#lines - tail + 1, #lines) do kept[#kept + 1] = lines[i]! end
+    return String.cut(String.as_utf8(table.concat(kept, "\n")), CHANGE_BYTES)
+  end
+  return part(a), part(b)
+end
+
+--- `changes` as JSON for the answer: `{path, edits = {{old, new}}}` or `{path, lines}`, each text [`trimmed`], the
+--- whole at most CHANGES_BYTES, and `{more = n}` last for the n past it.
+local function changes_of(changes: {Host.Change}): Json.Value
+  local out: mut {Json.Value} = {}
+  local spent, more = 0, 0
+  for _, c in ipairs(changes) do
+    local path = String.as_utf8(c.path)
+    local edits = c.edits
+    local size = #path + 32
+    local entry: Json.Value
+    if edits ~= nil then
+      local list: mut {Json.Value} = {}
+      for _, r in ipairs(edits) do
+        local old, new = trimmed(r.old, r.new)
+        size = size + #old + #new + 32
+        list[#list + 1] = { old = old, new = new }
+      end
+      entry = { path = path, edits = Json.array(list) }
+    else
+      entry = { path = path, lines = c.lines or 0 }
+    end
+    if spent + size > CHANGES_BYTES then
+      more = more + 1
+    else
+      spent = spent + size
+      out[#out + 1] = entry
+    end
+  end
+  if more > 0 then out[#out + 1] = { more = more } end
+  return Json.array(out)
 end
 
 --- The most bytes of a call's line: well within the line of 1MB the agent reads.
@@ -283,7 +355,7 @@ local function provide(modules: Modules, code: string): string?
 end
 
 --- The modules a snippet may use with no require, each by the name it is given: where a snippet reads a field of one
---- ([`Host.cat`], `Fs:...`), the require goes before its first line, on that line, so the lines the checker tells of
+--- ([`Host.read`], `Fs:...`), the require goes before its first line, on that line, so the lines the checker tells of
 --- stay the snippet's own.
 local PRELUDE <const>: {{string}} = { { "Host", "cosmic.agent.host" }, { "Fs", "cosmic.fs" }, { "Json", "cosmic.json" } }
 
@@ -380,6 +452,11 @@ local function answer_to(kept: Pipeline.Kept, modules: Modules, capture: Capture
   channel.id = id
   -- Each request starts the calls' state anew: what a cancelled call or a closed task of the last one left goes.
   channel.replies, channel.reading, channel.arrived, channel.waiting = {}, false, nil, 0
+  channel.changes = {}
+  -- Connected anew for each request: a snippet that connects Host itself changes only its own run.
+  Host.connect(transport_of(channel), function(change: Host.Change)
+    channel.changes[#channel.changes + 1] = change
+  end)
   local trouble = provide(modules, code)
   if trouble ~= nil then return { id = id, refused = Json.array({ trouble }) } end
   local made = snippet_check(kept, code)
@@ -404,6 +481,7 @@ local function answer_to(kept: Pipeline.Kept, modules: Modules, capture: Capture
   end)
   for k, v in pairs(answer) do ran[k] = v end
   ran["id"] = id
+  if #channel.changes > 0 then ran["changes"] = changes_of(channel.changes) end
   return ran
 end
 
@@ -458,8 +536,10 @@ function worker.main(): integer
   options.lax = true
   local kept = Pipeline.kept_alone(SNIPPET, options)
   local channel: Channel = { input = input, out = out, pending = "", id = Json.null, next_call = 1, replies = {},
-    reading = false, waiting = 0 }
-  Host.connect(transport_of(channel))
+    reading = false, waiting = 0, changes = {} }
+  Host.connect(transport_of(channel), function(change: Host.Change)
+    channel.changes[#channel.changes + 1] = change
+  end)
   while true do
     local line = line_of(channel)
     if line == nil then break end

@@ -121,10 +121,10 @@ local record Called
   mut trouble?: string
 end
 
--- TODO: once ci/cosmic-driver.pin carries Child.Result's `remains`, judge a command whose group
--- outlived SIGKILL as an error, as the old pinned release did by failing the run.
-
---- The outcome of a command that ran: how it ended, by `called`.
+--- The outcome of a command that ran: how it ended, by `called`. Where
+--- its settle left `remains` (its group alive after SIGKILL), they are
+--- the outcome's trouble, and a command that otherwise succeeded is an
+--- error, as the test runner fails a test whose worker left them.
 local function judged(called: Called, elapsed: integer): Runner.Outcome
   local raised = called.raised
   if raised ~= nil then
@@ -135,15 +135,19 @@ local function judged(called: Called, elapsed: integer): Runner.Outcome
     return { status = "start-error", code = 1,
       trouble = limited(called.trouble or "child operation failed"), elapsed_ns = elapsed }
   end
+  local remains = result.remains
+  local trouble = if remains ~= nil then limited(remains) else nil end
   local status, code = "exit", result.code or 1
   if result.timed_out then
     status, code = "timeout", 124
+  elseif result.ok and remains ~= nil then
+    status, code = "error", 1
   elseif result.ok then
     status, code = "success", 0
   elseif result.signal then
     status, code = "signal", Child.shell_status(result)
   end
-  return { result = result, status = status, code = code, elapsed_ns = elapsed }
+  return { result = result, status = status, code = code, trouble = trouble, elapsed_ns = elapsed }
 end
 
 function Runner.execute(request: Runner.Request): Runner.Outcome
@@ -333,16 +337,25 @@ end
 
 --- Ends `running` and its process group if it still runs, SIGTERM, a
 --- grace period, then SIGKILL, waits for it to go and records it as
---- "cancelled" (status 130). A command that already ended keeps its outcome.
+--- "cancelled" (status 130), with any `remains` its settle left. A
+--- command that already ended keeps its outcome.
 function Runner.stop(running: Runner.Running): Runner.Outcome
   local handle = running.handle
   if handle == nil then return Runner.reap(running) end
   local polled, _ = handle:try_wait()
   if polled ~= nil and polled.finished then return Runner.reap(running) end
-  local _, _ = handle:close()
+  local closed, _ = handle:close()
+  -- Only a close that worked has settled the child: a wait after a
+  -- failed one could block on a child that never ends.
+  local trouble = "stopped before it ended"
+  if closed then
+    local settled, _ = handle:wait()
+    local remains = if settled ~= nil then settled.remains else nil end
+    if remains ~= nil then trouble = limited(trouble .. "; " .. remains) end
+  end
   local elapsed = Clock.monotonic_ns() - running.recording.started
   return settle(running, { status = "cancelled", code = 130, elapsed_ns = elapsed,
-    trouble = "stopped before it ended" })
+    trouble = trouble })
 end
 
 --- Records `work`, done in this process, as one operation named `phase`,

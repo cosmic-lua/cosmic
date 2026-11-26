@@ -363,8 +363,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       end
     end
   end
-  local options: Http.Options = { timeout_ns = Http.FOREVER, script = to.script, roots = roots, ca = ca, pin = pins }
-  options.redirect_protocols = verb.redirect_protocols(url, parsed.set["--allow-downgrade"] == true) -- checked: field_fixed
+  local redirect_protocols = verb.redirect_protocols(url, parsed.set["--allow-downgrade"] == true)
   local function failed_status(status: integer): integer
     complain(shown .. ": HTTP " .. tostring(status))
     return bare.failed
@@ -411,14 +410,15 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     local s256, s512 = wants["sha256"], wants["sha512"]
     if s256 ~= nil then digests["sha256"] = s256 end
     if s512 ~= nil then digests["sha512"] = s512 end
-    options.digests = digests -- checked: field_fixed
     local function download(interrupted: function(): boolean): integer
-      options.cancelled = to.cancelled or interrupted -- checked: field_fixed
-      local downloaded, why = Http.download(url, target, options)
+      local downloaded, why = Http.download(url, target, {
+        timeout_ns = Http.FOREVER, script = to.script, roots = roots, ca = ca, pin = pins,
+        redirect_protocols = redirect_protocols, digests = digests, cancelled = to.cancelled or interrupted,
+      })
       if downloaded then return bare.ok end
       local status = why.code
       if why.kind == "library" and status ~= nil then return failed_status(status) end
-      complain(verb.refusal(tostring(why), options.redirect_protocols))
+      complain(verb.refusal(tostring(why), redirect_protocols))
       return if why.kind == "mismatch" then bare.failed else bare.undone end
     end
     -- Held for the download and closed however it leaves, a raise of
@@ -434,9 +434,12 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     return download(function(): boolean return guard:cancelled() ~= 0 end)
   end
 
-  local response, open_trouble = Http.open(url, options)
+  local response, open_trouble = Http.open(url, {
+    timeout_ns = Http.FOREVER, script = to.script, roots = roots, ca = ca, pin = pins,
+    redirect_protocols = redirect_protocols,
+  })
   if response == nil then
-    complain(shown .. ": " .. verb.refusal(tostring(open_trouble), options.redirect_protocols))
+    complain(shown .. ": " .. verb.refusal(tostring(open_trouble), redirect_protocols))
     return bare.undone
   end
   local ok2 = response.status >= 200 and response.status < 300
