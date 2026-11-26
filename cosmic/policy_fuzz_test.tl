@@ -33,8 +33,15 @@ end
 
 --- A policy as a table of the fields it names, each a draw from the pools
 --- above, mostly valid.
+
+--- `value` stored in `map` at `key`: a field of a generated policy, which
+--- is untyped data the decoder is to judge.
+local function put(map: mut {string:any}, key: string, value: any)
+  map[key] = value
+end
+
 local function gen_policy(src: Fuzz.Source): {string:any}
-  local fields: {string:any} = {}
+  local fields: mut {string:any} = {}
   fields.profiles = list(src, PROFILES, 3) -- checked: map_field
   fields.isolate = list(src, ISOLATES, 3) -- checked: map_field
   fields.loopback = list(src, ADDRESSES, 3) -- checked: map_field
@@ -54,15 +61,18 @@ local function gen_policy(src: Fuzz.Source): {string:any}
     end
     if #grants > 0 then fields.grants = grants end -- checked: map_field
   end
+  -- What the start sets up, under `setup`.
+  local setup: mut {string:any} = {}
   if src:int(0, 2) == 0 then
     local set_env: mut {string:string} = {}
     while Fuzz.more(src, 0, 3) do set_env[Fuzz.pick(src, NAMES)] = Fuzz.pick(src, PATHS) end
-    if next(set_env) ~= nil then fields.set_env = set_env end -- checked: map_field
+    if next(set_env) ~= nil then put(setup, "set_env", set_env) end
   end
   if src:int(0, 3) == 0 then
-    fields.set_env_digests = { [Fuzz.pick(src, NAMES)] = Fuzz.pick(src, DIGESTS) } -- checked: map_field
+    put(setup, "set_env_digests", { [Fuzz.pick(src, NAMES)] = Fuzz.pick(src, DIGESTS) })
   end
-  if src:int(0, 2) == 0 then fields.tmp = src:int(0, 4) ~= 0 end -- checked: map_field
+  if src:int(0, 2) == 0 then put(setup, "tmp", src:int(0, 4) ~= 0) end
+  if next(setup) ~= nil then put(fields, "setup", setup) end
   if src:int(0, 2) == 0 then
     fields.limits = { open_files = Fuzz.pick(src, NUMBERS), file_bytes = Fuzz.pick(src, NUMBERS), -- checked: map_field
       cpu_seconds = src:int(0, 1) == 0 and Fuzz.pick(src, NUMBERS) or nil, -- checked: and_ternary

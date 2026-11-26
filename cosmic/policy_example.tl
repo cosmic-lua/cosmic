@@ -32,7 +32,7 @@ end
 function Example.encode()
   local merged = assert(Sandbox.union({ grants = { { calls = "jit" }, { calls = "fork" } }, setup = { set_env = { TOKEN = "s3cret" } } }))
   local text = PolicyJson.encode(merged)
-  print(text) -- {"grants":[{"calls":"fork"},{"calls":"jit"}],"set_env_digests":{"TOKEN":"..."}}
+  print(text) -- {"grants":[{"calls":"fork"},{"calls":"jit"}],"setup":{"set_env_digests":{"TOKEN":"..."}}}
   assert(text:find('"grants":[{"calls":"fork"},{"calls":"jit"}]', 1, true) ~= nil and not text:find("s3cret", 1, true))
   assert(PolicyJson.encode((assert(PolicyJson.decode(text)))) == text)
 end

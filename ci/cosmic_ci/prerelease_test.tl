@@ -57,8 +57,8 @@ end
 local function test_the_smoke_policy_grants_the_tool_and_its_cache_alone()
   local launcher: {string: boolean} = { uname = true, id = true, mkdir = true, stat = true, mktemp = true, dd = true,
     head = true, sha256sum = true, chmod = true, ln = true, rm = true, rmdir = true }
-  for _, as_grants in ipairs({ true, false }) do
-    local text = Prerelease.smoke_policy_text("/runner/release/cosmic", "/tmp/smoke-cache", as_grants)
+  for _, in_setup in ipairs({ true, false }) do
+    local text = Prerelease.smoke_policy_text("/runner/release/cosmic", "/tmp/smoke-cache", in_setup)
     local decoded, trouble = Json.decode(text)
     local policy = assert(Json.object_of(decoded), tostring(trouble))
     local granted: mut {string: boolean} = {}
@@ -86,15 +86,11 @@ local function test_the_smoke_policy_grants_the_tool_and_its_cache_alone()
     for name in pairs(launcher) do
       assert(granted[name] == true, "the launcher's " .. name .. " is not granted")
     end
-    if as_grants then
-      assert(table.concat(calls, ",") == "fork,fattr" and policy["promises"] == nil, text)
-    else
-      assert(#calls == 0 and encoded(policy["promises"]) == '["fork","fattr"]', text)
-    end
+    assert(table.concat(calls, ",") == "fork,fattr" and policy["promises"] == nil, text)
     assert(encoded(policy["env"]) == '["PATH","HOME"]', text)
     assert(encoded(policy["profiles"]) == '["system"]', text)
-    -- What the start sets up is a `setup` of its own where calls are grants, as cosmic writes both now.
-    local set_env = if as_grants then assert(Json.object_of(policy["setup"]))["set_env"] else policy["set_env"] end
+    -- What the start sets up is a `setup` of its own, as cosmic writes it now.
+    local set_env = if in_setup then assert(Json.object_of(policy["setup"]))["set_env"] else policy["set_env"] end
     assert(encoded(set_env) == '{"COSMIC_PORTABLE_CACHE":"/tmp/smoke-cache"}', text)
     assert(policy["isolate"] == nil and policy["connect"] == nil, text)
   end
