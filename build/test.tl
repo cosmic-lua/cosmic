@@ -2694,6 +2694,16 @@ local function hold_checkout(ctx: Run): integer?
     return 1
   end
   ctx.own_tree = standing.own
+  -- The tree's tool in its ci/, which runs on the pinned release and whose fixtures run only under the CI driver: the
+  -- fixtures fail for want of the driver's environment, which reads as broken tests.
+  local here, _ = Fs.absolute(root)
+  if not standing.own and here ~= nil and Fs.basename(here) == "ci" then
+    local outer, _ = tree.standing(Fs.dirname(here))
+    if outer ~= nil and outer.own then
+      log:say("test: ci/ is the CI driver's project, which runs on the pinned release: run its tests as the queue " ..
+          "does, `../bin/cosmic-bootstrap test cosmic_ci`; fixtures/ runs only under the driver (ci/run-local)")
+    end
+  end
   local handle, open_trouble = work.open(root, nil, "test")
   if handle == nil then
     log:complain("test: " .. open_trouble)

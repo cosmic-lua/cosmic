@@ -14,6 +14,9 @@
 --- A second run changes nothing the first did not. CI's format-check step runs `cosmic fix --check .` over the whole
 --- tree.
 ---
+--- A run over the whole of cosmic's own tree (or `--changed`) also checks `ci/`, a project of its own the tree's checks
+--- read none of, with this tool and on the pinned release, beside its own checks ([`build.fix.ci_project`]).
+---
 --- It also lays out YAML in flow style ([`build.flow`]): a file it is named, and, in cosmic's own tree, the files under
 --- `.github/` (the workflows and actions) when a directory covering them is named. A file in block style is refused when
 --- named and passed over otherwise. A file that cannot be read ends the run.
@@ -53,6 +56,7 @@ local Store = require("cosmic.store")
 local String = require("cosmic.string")
 local Clock = require("cosmic.clock")
 local clock = require("build.clock")
+local CiProject = require("build.fix.ci_project")
 local docs = require("build.docs")
 local Doc = require("cosmic.doc")
 local flow = require("build.flow")
@@ -1190,6 +1194,8 @@ local record Fix
 
   -- The tree checks ([`run_tree_checks`]).
   mut findings?: {string}
+  --- The checks of `ci/` running beside the tree's ([`build.fix.ci_project`]).
+  mut ci?: CiProject.Started
 
   -- The links ([`check_links`]).
   mut linked_out?: fix.Linked
@@ -1265,9 +1271,9 @@ local function choose_files(ctx: Fix): integer?
     end
   end
   ctx.picked = picked
-  if picked.whole then
-    log:say("fix: ci/ is a project of its own and is not checked here: run `cosmic fix --check` with ci/ as the working " ..
-        "directory (CI's format phase does)")
+  -- ci/ is a project of its own, which the tree's own checks read none of: it is checked beside them, as CI does.
+  if picked.whole and CiProject.applies(assert(ctx.root)) then
+    ctx.ci = CiProject.start(assert(ctx.root), ctx.checking == true)
   end
   -- What the checks spanning files cover: a run of `--changed` lays out
   -- only some of it.
@@ -1766,6 +1772,14 @@ local function run_tree_checks(ctx: Fix)
   elseif ctx.unbuilt == nil and ci_tree(root) then
     for _, line in ipairs(tree_checks.named_plurals("ci/", named_files_of(root, picked.files))) do
       findings[#findings + 1] = line
+    end
+  end
+  local ci = ctx.ci
+  if ci ~= nil then
+    local found, passed = CiProject.finish(ci)
+    for _, line in ipairs(found) do findings[#findings + 1] = line end
+    if #found == 0 then
+      for _, line in ipairs(passed) do log:say(line) end
     end
   end
 end
