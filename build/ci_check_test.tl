@@ -1,7 +1,7 @@
 --- A project of its own inside the tree (`ci/`) names its modules from its own root: `cosmic_ci.a` is `cosmic_ci/a.tl` when
 --- `fix --check` runs with that directory as the working directory, and a type error in it fails there. The tree's own checks
---- read none of `ci/` ([`build.tree_checks.common`]'s `sources_of`); `ci/` itself is checked by the CI driver's format phase
---- (ci/cosmic_ci/orchestration.tl's `format_check`), which runs the same check with `ci/` as the working directory, since a
+--- read none of `ci/` ([`build.tree_checks.common`]'s `sources_of`); `ci/` itself is checked by the tree's run over the whole tree
+--- ([`build.fix.ci_project`]), which runs the same check with `ci/` as the working directory, since a
 --- cold build and check of all of `ci/` takes some 16 s, more than a unit test is given. This holds the shape to a project of
 --- two files.
 
