@@ -136,8 +136,10 @@ stack about 1000 times a second of CPU time, or of wall time with
 SQLite step or a string search is charged to that C function, under the
 Lua line that called it. [`core/profile.h`] says what the file holds. It
 never writes over a file that is there, nor through a symbolic link.
-`bin/cosmic bench/profile.tl <dir>/*.prof` prints the functions with the
-most time of their own and in their stack, and the lines.
+`cosmic profile <dir>` prints the spans, then the functions with the most
+time of their own and in their stack. `--by line` lists the lines,
+`--by process` the processes, and `--folded` prints folded stacks for a
+flame graph tool.
 
 `bin/cosmic bench/runtime.tl [name...]` times the standard library's hot
 paths (JSON, SQLite, streams, CSV) and prints nanoseconds per operation. It
