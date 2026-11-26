@@ -26,7 +26,7 @@ end
 local function keys(path: string): string
   local db = assert(Sqlite.open(path))
   local out: mut {string} = {}
-  for _, row in ipairs((assert(db:text_rows("SELECT key FROM check_memo_v1 ORDER BY key")))) do
+  for _, row in ipairs((assert(db:rows("SELECT key FROM check_memo_v1 ORDER BY key")))) do
     out[#out + 1] = row:text(1)
   end
   assert(db:close())

@@ -89,16 +89,13 @@ end
 ---     print(row:count(), row:integer(1), row:text(2), row:is_null(3), #row:blob(4))
 ---
 --- `rows` returns, and [`Handle.query`] reads, rows that keep each
---- column's SQLite type; [`Handle.text_rows`] returns rows whose every
---- column is text.
+--- column's SQLite type.
 local interface Row
   --- The number of columns.
   count: function(Row): integer
-  --- The type of the column: `"null"` for SQL NULL. A row from
-  --- [`Handle.text_rows`] has only `"text"` columns.
+  --- The type of the column: `"null"` for SQL NULL.
   kind: function(Row, integer): Kind
-  --- Whether the column is SQL NULL. Always false for a row from
-  --- [`Handle.text_rows`], which holds no NULL.
+  --- Whether the column is SQL NULL.
   is_null: function(Row, integer): boolean
   --- The column of an INTEGER cell. A number, text or NULL cell raises.
   integer: function(Row, integer): integer
@@ -106,12 +103,10 @@ local interface Row
   --- float (one beyond 2^53 rounds). A REAL cell is returned as stored,
   --- `-0.0` included. Text, a blob or NULL raises.
   number: function(Row, integer): number
-  --- The column of a TEXT cell, or of any column of a row from
-  --- [`Handle.text_rows`]. An integer, number, blob or NULL cell of a typed
-  --- row raises.
+  --- The column of a TEXT cell. An integer, number, blob or NULL cell
+  --- raises.
   text: function(Row, integer): string
-  --- The bytes of a BLOB cell. Any other cell raises, and so does a
-  --- column of a row from [`Handle.text_rows`].
+  --- The bytes of a BLOB cell. Any other cell raises.
   blob: function(Row, integer): string
   --- The bytes of a TEXT or BLOB cell, for a column that may hold
   --- either. An integer, number or NULL cell raises.
@@ -120,11 +115,10 @@ local interface Row
   --- or a number as SQLite writes it, the bytes of a text or a blob, and
   --- nil for NULL. It is how a cell of any type is shown.
   as_text: function(Row, integer): string?
-  --- Every column as `text` returns it, in order, as a new list: for a
-  --- row from [`Handle.text_rows`], its columns. A column of another type
-  --- raises.
+  --- Every column as `text` returns it, in order, as a new list. A
+  --- column of another type raises.
   texts: function(Row): {string}
-  --- Every column as `as_text` shows it, in order, as a new list, with
+  --- Every column as [`as_text`] shows it, in order, as a new list, with
   --- "" for NULL: how a row of any types is shown whole, as a test or a
   --- listing prints it. A program that reads a column reads it by its
   --- type instead.
@@ -286,19 +280,12 @@ function Stored.value(self: Stored, index: integer): raw_sqlite.Value
 end
 
 --- The row `statement` was just stepped to, as typed cells in column
---- order, or, `as_text`, as the bytes of each column, each a "text" cell.
---- Its columns are asked after each step: a schema change re-prepares the
---- statement, and its columns with it.
-local function cells_of(statement: raw_sqlite.Statement, as_text?: boolean): Row
+--- order. Its columns are asked after each step: a schema change
+--- re-prepares the statement, and its columns with it.
+local function cells_of(statement: raw_sqlite.Statement): Row
   -- The core builds the whole row in one call ([`raw_sqlite.Statement.row`]), as the loop over its columns here did.
-  local row: Stored = statement:row(stored_mt, as_text)
+  local row: Stored = statement:row(stored_mt)
   return row as Row -- checked: cast_refused
-end
-
---- The row `statement` was just stepped to, every column a "text" cell of
---- its bytes, as [`Handle.text_rows`] returns it.
-local function texts_of(statement: raw_sqlite.Statement): Row
-  return cells_of(statement, true)
 end
 
 --- The failure SQLite returned as `outcome`, its codes kept.
@@ -384,8 +371,8 @@ end
 
 --- Steps `statement` once and gives `project` the row it stands on: the
 --- projection, or `nil` and nil when the statement is done, or `nil` and
---- why when the step failed. [`Handle.rows`], [`Handle.text_rows`],
---- [`Handle.map`] and [`Handle.query`] all step through it, so they agree
+--- why when the step failed. [`Handle.rows`], [`Handle.map`] and
+--- [`Handle.query`] all step through it, so they agree
 --- on what a failure says.
 local function step_row<T>(statement: raw_sqlite.Statement,
                            project: function(raw_sqlite.Statement): T): T?, Failure?
@@ -954,20 +941,6 @@ local class Handle
     if opened == nil then return nil, trouble end
     local q: Query = { statement = opened, open = true, ended = false, failed = nil, kept = nil }
     return q
-  end
-
-  --- A direct text projection for callers whose SQL already defines the
-  --- coercion they want. Every column of every row is text, read with
-  --- `row:text(i)`: SQLite's byte representation is returned for every
-  --- value: NULL, empty text and empty blob all become `""`; integers
-  --- and floats use SQLite's text formatting; text and blobs remain byte
-  --- strings, including NUL. On such a row `kind` returns `"text"` for
-  --- every column and [`Row.is_null`] returns false, and `integer`,
-  --- `number` and `blob` raise: read those from [`Handle.rows`].
-  function text_rows(self, sql: string, values?: {raw_sqlite.Param}): ({Row}) | (nil, Failure)
-    local statement, trouble = prepared(self.connection, sql, values, false, true)
-    if statement == nil then return nil, trouble end
-    return each_row(statement, texts_of)
   end
 
   --- Brings the database's schema up to date: `steps[k]` makes version
