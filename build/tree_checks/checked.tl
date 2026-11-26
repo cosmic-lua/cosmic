@@ -254,7 +254,8 @@ end
 
 --- The salt of the digests of [`ShapeKey`], from the code that makes them.
 local function shaping_of(root: string, memo: Sqlite.Handle?): Shaping
-  return { memo = memo, salt = check_memo.salt(root, { "lang/lexer.tl", "build/shape_key.tl", "build/check_memo.tl" }, "shape 1") }
+  return { memo = memo, salt = check_memo.salt(root, { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "build/shape_key.tl", "build/check_memo.tl" },
+    "shape 2") }
 end
 
 --- The files of `files` that a lowering covers, each with the key its result is kept under: `salt`, its dialect and

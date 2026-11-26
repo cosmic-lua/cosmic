@@ -60,6 +60,8 @@ struct session {
   int fd;
   /* The errno a send or a receive last failed with, 0 for none. */
   int failure;
+  /* Whether a receive found the peer's socket ended (recv's 0). */
+  bool peer_gone;
   bool live;
   /* The name the client asked for (SNI), as it sent it; on a client's
    * session, the name it asked for. */
@@ -507,6 +509,7 @@ static int bio_recv (void *context, unsigned char *data, size_t size) {
   do {
     got = recv(s->fd, data, size, 0);
   } while (got < 0 && errno == EINTR);
+  if (got == 0 && size > 0) s->peer_gone = true;
   if (got >= 0) return (int)got;
   if (errno == EAGAIN || errno == EWOULDBLOCK) {
     return MBEDTLS_ERR_SSL_WANT_READ;
@@ -669,6 +672,7 @@ static int tls_session (lua_State *L) {
   s->config = c;
   s->fd = fd;
   s->failure = 0;
+  s->peer_gone = false;
   s->live = true;
   s->name_size = 0;
   s->ip_size = 0;
@@ -746,8 +750,24 @@ static int session_read (lua_State *L) {
   luaL_argcheck(L, max >= 1, 2, "must be positive");
   unsigned char data[16384];
   size_t want = max < (lua_Integer)sizeof data ? (size_t)max : sizeof data;
-  int got = mbedtls_ssl_read(&s->ssl, data, want);
-  if (got <= 0) return unfinished(L, s, got, false);
+  /* mbedtls_ssl_read answers 0 in two cases (ssl_msg.c): the peer's
+   * socket ended with no close_notify (it turns CONN_EOF into 0), or
+   * two empty application records came in a row. The second is no end:
+   * read again, each call taking at least a record or waiting. */
+  int got;
+  do {
+    got = mbedtls_ssl_read(&s->ssl, data, want);
+  } while (got == 0 && !s->peer_gone);
+  if (got == 0) {
+    /* A TCP end alone is no TLS end: an attacker can cut the socket
+     * where a close_notify cannot be forged, so what came may be cut
+     * short. Failed, not ended, so a caller cannot take it for one. */
+    lua_pushnil(L);
+    lua_pushliteral(L, "tls: the peer's socket ended with no close_notify");
+    lua_pushinteger(L, stop_failed);
+    return 3;
+  }
+  if (got < 0) return unfinished(L, s, got, false);
   lua_pushlstring(L, (const char *)data, (size_t)got);
   return 1;
 }

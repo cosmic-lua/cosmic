@@ -19,6 +19,7 @@
 --- column of the one that remains are those of its first byte, so a later
 --- stage never counts a dropped newline wrong.
 
+local Failure = require("cosmic.failure")
 local types = require("cosmic.template.types")
 
 --- Where the lexer is: the next byte to read, and the line it is on and
@@ -77,13 +78,13 @@ local function trimmed_end(text: string): string
 end
 
 --- `name:line:col: reason`.
-local function refuse(name: string, line: integer, col: integer, reason: string): string
-  return name .. ":" .. tostring(line) .. ":" .. tostring(col) .. ": " .. reason
+local function refuse(name: string, line: integer, col: integer, reason: string): Failure
+  return Failure.at(reason, line, col, name)
 end
 
 --- Reads the string whose opening `"` is at `cur`, moving `cur` past its
 --- closing one: its value, or nil and the reason it is refused.
-local function quoted(src: string, cur: Cursor, name: string): string?, string
+local function quoted(src: string, cur: Cursor, name: string): (string) | (nil, Failure)
   local col = cur.pos - cur.start + 1
   local out: mut {string} = {}
   local at = cur.pos + 1
@@ -99,7 +100,7 @@ local function quoted(src: string, cur: Cursor, name: string): string?, string
     out[#out + 1] = src:sub(at, stop - 1)
     if b == 34 then
       cur.pos = stop + 1
-      return table.concat(out), ""
+      return table.concat(out)
     end
     local escaped = src:sub(stop + 1, stop + 1)
     if escaped ~= '"' and escaped ~= "\\" then
@@ -117,7 +118,7 @@ end
 --- when a string in it is malformed or it never closes (at `line` and
 --- `col`, its `{{`).
 local function words(src: string, cur: Cursor, tokens: mut {types.Token}, name: string, open_line: integer,
-                     open_col: integer): boolean?, string
+                     open_col: integer): (boolean) | (nil, Failure)
   local n = #src
   while cur.pos <= n do
     local b = src:byte(cur.pos)
@@ -127,10 +128,10 @@ local function words(src: string, cur: Cursor, tokens: mut {types.Token}, name: 
       advance(src, cur, cur.pos + 1)
     elseif src:sub(cur.pos, cur.pos + 2) == "-}}" and (cur.pos == 1 or blank(src:byte(cur.pos - 1))) then
       cur.pos = cur.pos + 3
-      return true, ""
+      return true
     elseif src:sub(cur.pos, cur.pos + 1) == "}}" then
       cur.pos = cur.pos + 2
-      return false, ""
+      return false
     elseif b == 124 then
       tokens[#tokens + 1] = { kind = "pipe", value = "|", line = line, col = col }
       cur.pos = cur.pos + 1
@@ -178,8 +179,8 @@ end
 --- @param src string The template source
 --- @param name string The template's name, for messages
 --- @return types.Lexed|nil The items and the line count
---- @return string The reason, as `name:line:col: ...`, on failure
-function Lex.lex(src: string, name: string): types.Lexed?, string
+--- @return Failure The reason, as `name:line:col: ...`, on failure
+function Lex.lex(src: string, name: string): (types.Lexed) | (nil, Failure)
   local items: mut {types.Item} = {}
   local cur: Cursor = { pos = 1, line = 1, start = 1 }
   local n = #src
@@ -223,7 +224,7 @@ function Lex.lex(src: string, name: string): types.Lexed?, string
     items[#items + 1] = { action = true, text = "", tokens = tokens, line = line, col = col,
       end_line = cur.line }
   end
-  return { items = items, lines = cur.line }, ""
+  return { items = items, lines = cur.line }
 end
 
 return Lex

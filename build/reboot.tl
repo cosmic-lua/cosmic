@@ -1302,4 +1302,21 @@ function reboot.checkout_exit(argv: {string}, root: string, seen?: reboot.Seen):
   return reboot.stale_exit(argv, true, root, seen)
 end
 
+--- What a run that does not rebuild the tool (`cosmic --version`, `-e`, `-`) says where the tool is older than the
+--- checkout it was built from, or nil. Such a run uses the tool's own library and compiler, so after an edit to the
+--- checkout it answers from old code ([`reboot.stale_exit`] holds a run in a project to the checkout; these runs
+--- are held to none, by design). It only reads: the checkout's working database is read without writing it
+--- ([`work.tool_read_unwritten`]), no lock is taken or waited for and nothing is rebuilt. Nil for a release or a
+--- copy of a tool, which record no checkout ([`tree.checkout`]), and where the tool stands as the database
+--- records it. Where the database cannot say (it is missing, of another schema, or the tool moved on), the tool may
+--- be stale, and the note says "may".
+--- @param seen how a test has the check see the running tool ([`reboot.Seen`])
+function reboot.stale_note(seen?: reboot.Seen): string?
+  local home, _ = checkout_of(seen)
+  if home == nil then return nil end
+  if work.tool_read_unwritten(home, meta_of("boot_hash", seen) or "") == "fresh" then return nil end
+  return "this tool may be older than " .. home .. ", the checkout it was built from, so it may answer from " ..
+    "old code; `bin/cosmic fix <file>` there rebuilds it"
+end
+
 return reboot

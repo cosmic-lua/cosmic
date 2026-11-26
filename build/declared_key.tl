@@ -230,8 +230,8 @@ local record declared_key
     --- What names the tests whose specs are the same but for `id`:
     --- their module's path.
     group: string
-    --- The module's `graph_key` ([`build.positions`]): its key less the
-    --- compiler. For a test given the pure store, "pure": the store's bytes
+    --- The module's `graph_key` ([`build.positions`]): the sources of every
+    --- module it reaches, which its compile key holds by their shapes alone. For a test given the pure store, "pure": the store's bytes
     --- are in `closure_store`, and the graph's key moves with a comment.
     module_key: string
     runtime: string

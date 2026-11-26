@@ -185,6 +185,10 @@ local MEMBERS <const> = [[CREATE TABLE IF NOT EXISTS members (source_hash TEXT N
                                         PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]]
 local EXECUTABLE <const> = [[CREATE TABLE IF NOT EXISTS executable (source_hash TEXT PRIMARY KEY,
                                            lines TEXT NOT NULL) WITHOUT ROWID]]
+--- The digest of each source by what the modules that require it read of it ([`build.shape_key`]), which
+--- [`build.plans`] keys the compile of a module that requires it by in place of its text.
+local SHAPES <const> = [[CREATE TABLE IF NOT EXISTS shapes (source_hash TEXT PRIMARY KEY,
+                                       digest TEXT NOT NULL) WITHOUT ROWID]]
 
 --- The tables and the view of a parse, as one schema: [`build.work`]'s `Database` joins it, and a handle of that
 --- reads every table here. Alone it holds no `files`, which the `inputs` view reads.
@@ -204,7 +208,8 @@ local schema Analysis = DERIVED .. ";\n" ..
   GLOBALS .. ";\n" ..
   PLACES .. ";\n" ..
   MEMBERS .. ";\n" ..
-EXECUTABLE
+  EXECUTABLE .. ";\n" ..
+SHAPES
 
 local record analysis_schema
   --- The statements that create `derived` and `inputs`, then each of
@@ -454,7 +459,7 @@ end
 
 analysis_schema.tables = {
   "parsed", "requires", "tests", "catalog", "docs", "refs", "bound", "examples", "test_inputs", "links",
-  "stubs", "globals", "places", "members", "executable",
+  "stubs", "globals", "places", "members", "executable", "shapes",
 }
 
 analysis_schema.statements = {
@@ -475,6 +480,7 @@ analysis_schema.statements = {
   PLACES,
   MEMBERS,
   EXECUTABLE,
+  SHAPES,
 }
 
 return analysis_schema
