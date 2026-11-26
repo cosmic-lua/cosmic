@@ -238,11 +238,6 @@ local record Pipeline
   --- other. The module is retired, as a compile retires it, and its own standing recorded. `text` is read in place of the
   --- module's own where given: the repaired text of a source that does not parse ([`build.derivation`]'s `Broken`).
   examine: function(m: Module, built: Built, judged?: boolean, hints?: ErrorRender.Hints, text?: string): string
-
-  --- Takes from the scope errors of `result` the shadowing of `print` that every example of a guide makes ([`build.doctest`]
-  --- captures what it prints in a local of that name), as the fork's compile discounts it: the module is generated, and the
-  --- name is its own.
-  discounted: function(result: Driver.Outcome)
 end
 
 --- Whether the stub of the module `module` of the file `file` is held to its source's type: a standard-library module that
@@ -413,16 +408,6 @@ function Pipeline.build(db: Sqlite.Handle, options: Pipeline.Options, refusal?: 
     end
   end
   return Pipeline.over(entries, kinds, options), ""
-end
-
-function Pipeline.discounted(result: Driver.Outcome)
-  local kept: mut {Driver.Problem} = {}
-  for _, p in ipairs(result.scope_errors) do
-    if not (p.code == "shadows" and p.msg:find("shadows the global `print`", 1, true) ~= nil) then
-      kept[#kept + 1] = p
-    end
-  end
-  result.scope_errors = kept
 end
 
 --- The stub of each standard-library module of the tree that has a declaration-only one, as the source a build reads in place of
@@ -617,9 +602,6 @@ local function generated_of(m: Module, built: Pipeline.Built, facts?: boolean, j
   local result = build:result(named, true)
   if result == nil then
     return nil, m.file .. ": the new checker's build has no module " .. m.path
-  end
-  if m.generated == true then
-    Pipeline.discounted(result)
   end
   local lines: mut {string} = {}
   if result.broken then
