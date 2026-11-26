@@ -11,6 +11,7 @@ local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local searchable = require("build.searchable")
 local this_program = require("build.this_program")
+local sys = require("cosmic.sys")
 local ChildPolicy = require("build.child_policy_fixture")
 
 Test.policy{
@@ -69,4 +70,30 @@ local function test_a_session_with_an_unsandboxed_server_runs_unheld(tmp: string
   local ran = agent(tmp, { "ask", "--new", "--mcp", config, "hi" })
   assert(ran.code == 2 and ran.err:find("no credential", 1, true) ~= nil, tostring(ran.code) .. ": " .. ran.err)
   assert(ran.err:find("the session runs unheld: the MCP server mine runs unsandboxed", 1, true), ran.err)
+end
+
+--- A standard stream that is a file open for writing alone, which a
+--- child that nests may not hold, reaches the file through a pump.
+local function test_a_held_session_writes_to_a_file_open_for_writing_alone(tmp: string)
+  local base = assert(Fs.absolute(searchable.open(tmp)))
+  local work, home = base .. "/work", base .. "/home"
+  assert(Fs.mkdirs(work))
+  assert(Fs.mkdirs(home))
+  searchable.share(work)
+  searchable.share(home)
+  local log = base .. "/err.txt"
+  local fd = assert(sys.open(log, sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC, 0x1a4))
+  local env: mut {string: string} = { HOME = home }
+  for name, value in pairs(this_program.environment()) do
+    if name ~= "HOME" and name ~= "XDG_CACHE_HOME" then env[name] = value end
+  end
+  local started = this_program.program({ "agent", "ask", "--new", "hi" }, { env = env, cwd = work,
+    timeout_ns = Child.FOREVER, stdin = "null", stdout = "null", stderr = fd })
+  local result = assert(Child.run(started.argv, started.options))
+  local _, _ = sys.close(fd)
+  local said = assert(Fs.read(log))
+  if said:find("the session's sandbox", 1, true) ~= nil and ChildPolicy.unsandboxable(said) then
+    Test.skip(said)
+  end
+  assert(result.code == 2 and said:find("no credential", 1, true) ~= nil, tostring(result.code) .. ": " .. said)
 end

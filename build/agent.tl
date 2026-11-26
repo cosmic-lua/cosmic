@@ -32,10 +32,12 @@
 --- cosmic.agent.policy`'s Policy.session) that has what its tools and its
 --- MCP servers are granted, its sessions and cache, the instructions
 --- files and configs it reads, the API's host and the servers' at a
---- url, and nothing else; signals are passed on to it, and a standard
---- stream that is a file is copied through. With --sandbox off it runs
---- unheld, with your user's rights, as its tools do; with an MCP server
---- that runs unsandboxed too, and says so on standard error.
+--- url, and nothing else. A terminal reaches it through a pty of its own
+--- (as `cosmic sandbox` relays one), signals are passed on to it, and a
+--- standard stream that is a file is copied through. With --sandbox off
+--- it runs unheld, with your user's rights, as its tools do; with an MCP
+--- server that runs unsandboxed too, and says so on standard error. A
+--- host that cannot hold it (no user namespaces) refuses the session.
 ---
 --- The turn's answer goes to standard output. Each tool call, and what
 --- the model says on the way, go to standard error. `ask --json` and `rpc` print events instead, one JSON
@@ -102,8 +104,8 @@ local Sessions = require("cosmic.agent.sessions")
 local Show = require("cosmic.agent.show")
 local Signal = require("cosmic.signal")
 local Sqlite = require("cosmic.sqlite")
-local Stream = require("cosmic.stream")
 local Url = require("cosmic.url")
+local TermRelay = require("build.term_relay")
 local bare = require("build.bare")
 local verb_spec = require("build.verb_spec")
 
@@ -1018,15 +1020,30 @@ local function target_of(url: string): string?
   return host .. ":" .. tostring(port)
 end
 
---- The session's own policy ([`Policy.session`]) for `got` in `here`: nil
---- and "" where it runs unheld (--sandbox off, or an MCP server whose
---- config runs it unsandboxed), nil and why where a part of it cannot be
---- had; the run here then says why, or runs with the user's rights.
-local function session_policy(r: Run, got: Flags.Parsed, here: string): Sandbox.Policy?, string
+--- The variables the relay of a `connect` sets for its program, which
+--- the session reaches the network by.
+local RELAY_SETS <const>: {string: boolean} = {
+  ALL_PROXY = true, HTTPS_PROXY = true, HTTP_PROXY = true, NODE_USE_ENV_PROXY = true, NO_PROXY = true,
+  all_proxy = true, http_proxy = true, https_proxy = true, no_proxy = true,
+}
+
+--- What holds a session: its policy, or why there is none and whether
+--- the session then runs unheld rather than refused.
+local record Holding
+  policy?: Sandbox.Policy
+  why: string
+  unheld: boolean
+end
+
+--- The session's own policy ([`Policy.session`]) for `got` in `here`. It
+--- runs unheld under --sandbox off, with an MCP server whose config runs
+--- it unsandboxed, and where the run itself refuses its options (which it
+--- then says why); it is refused where a part of the policy cannot be had.
+local function session_policy(r: Run, got: Flags.Parsed, here: string): Holding
   local tools, _ = policy_of(r, got, here)
-  if tools == nil then return nil, "" end
+  if tools == nil then return { why = "", unheld = true } end
   local servers, _ = mcp_servers(r, got)
-  if servers == nil then return nil, "" end
+  if servers == nil then return { why = "", unheld = true } end
   local connect: mut {string} = {}
   local api = target_of(r.io.env("ANTHROPIC_BASE_URL") or "https://api.anthropic.com")
   if api ~= nil then connect[#connect + 1] = api end
@@ -1039,42 +1056,51 @@ local function session_policy(r: Run, got: Flags.Parsed, here: string): Sandbox.
     elseif server_policy ~= nil then
       held_servers[#held_servers + 1] = server_policy
     else
-      return nil, "the MCP server " .. server.name .. " runs unsandboxed, with the agent's rights"
+      return { why = "the MCP server " .. server.name .. " runs unsandboxed, with the agent's rights", unheld = true }
     end
   end
   local keeps: mut {string} = {}
   local data, data_why = Fs.data_dir("cosmic", { environment = r.environment })
-  if data == nil then return nil, "no data directory: " .. tostring(data_why) end
+  if data == nil then
+    return { why = "no data directory: " .. tostring(data_why), unheld = false }
+  end
   local cache, cache_why = Fs.cache_dir("agent", { environment = r.environment })
-  if cache == nil then return nil, "no cache directory: " .. tostring(cache_why) end
+  if cache == nil then
+    return { why = "no cache directory: " .. tostring(cache_why), unheld = false }
+  end
   for _, dir in ipairs({ data .. "/agent", cache }) do
     local made, made_why = Fs.mkdirs(dir, 0x1c0)
-    if not made then return nil, dir .. ": " .. tostring(made_why) end
+    if not made then return { why = dir .. ": " .. tostring(made_why), unheld = false } end
     keeps[#keeps + 1] = dir
   end
+  -- Each file by its real path, which the root binds; the identity
+  -- token's by its directory, where a token renamed over the old one (a
+  -- projected one is a link into a directory swapped whole) is still read
+  -- anew at each exchange.
+  local named: mut {string} = { got.values["--mcp"] or mcp_config(r), r.io.env("SSL_CERT_FILE") or "" }
+  for _, context in ipairs(Prompt.contexts(here)) do named[#named + 1] = context.path end
+  local token = r.io.env("ANTHROPIC_IDENTITY_TOKEN_FILE") or ""
+  if token ~= "" then
+    named[#named + 1] = Fs.dirname(if token:sub(1, 1) == "/" then token else here .. "/" .. token end)
+  end
   local reads: mut {string} = {}
-  for _, context in ipairs(Prompt.contexts(here)) do reads[#reads + 1] = context.path end
-  local files: mut {string} = { got.values["--mcp"] or mcp_config(r) }
-  for _, name in ipairs({ "ANTHROPIC_IDENTITY_TOKEN_FILE", "SSL_CERT_FILE" }) do
-    local file = r.io.env(name)
-    if file ~= nil and file ~= "" then files[#files + 1] = file end
-  end
-  for _, file in ipairs(files) do
-    local absolute = if file:sub(1, 1) == "/" then file else here .. "/" .. file end
-    local status, _ = Fs.status(absolute)
-    if status ~= nil and status.exists then reads[#reads + 1] = absolute end
-  end
-  local env: mut {string} = {}
-  -- Its relay sets the proxy variables, which the session reaches the
-  -- network by, and the policy sets COSMIC_AGENT_HELD.
-  for name, _ in pairs(Env.all()) do
-    if not name:upper():find("PROXY", 1, true) and name ~= "COSMIC_AGENT_HELD" then
-      env[#env + 1] = name
+  for _, file in ipairs(named) do
+    if file ~= "" then
+      local real, _ = Fs.absolute(if file:sub(1, 1) == "/" then file else here .. "/" .. file end)
+      if real ~= nil then
+        local status, _ = Fs.status(real)
+        if status ~= nil and status.exists then reads[#reads + 1] = real end
+      end
     end
   end
+  local env: mut {string} = {}
+  for name, _ in pairs(Env.all()) do
+    if RELAY_SETS[name] ~= true and name ~= "COSMIC_AGENT_HELD" then env[#env + 1] = name end
+  end
   table.sort(env)
-  return Policy.session(tools, { keeps = keeps, reads = reads, connect = connect, env = env,
+  local held_to, why = Policy.session(tools, { keeps = keeps, reads = reads, connect = connect, env = env,
     servers = held_servers })
+  return { policy = held_to, why = why, unheld = false }
 end
 
 --- Whether this process's descriptor `fd` may be handed as it is to a
@@ -1090,58 +1116,144 @@ local function handable(fd: integer): boolean
   return mode == 2
 end
 
---- The most bytes a held run passes on from its child's output in one round.
-local HELD_ROUND_BYTES <const> = 1024 * 1024
+--- The chunk a pump runs: it copies its standard input to its standard
+--- output, to the end of the input or until the output is gone.
+local PUMP <const> = 'local Stream = require("cosmic.stream") ' ..
+  'local _, _ = Stream.copy(Stream.from_fd(0), Stream.to_fd(1))'
+
+--- A FIFO at `path`, made and opened at both ends, each blocking: its
+--- reader and its writer, or nil and why.
+local function fifo(path: string): {integer}?, string
+  local made, make_why = sys.mkfifo(path, 0x180)
+  if not made then return nil, path .. ": " .. tostring(make_why) end
+  -- The writer opens at once only where a reader is open, and the reader
+  -- does without blocking only where it is told not to: the first reader
+  -- holds the FIFO open while the two blocking ends are opened.
+  local first, first_why = sys.open(path, sys.O_RDONLY | sys.O_NONBLOCK, 0)
+  if first == nil then return nil, path .. ": " .. tostring(first_why) end
+  local writer, writer_why = sys.open(path, sys.O_WRONLY, 0)
+  local reader, reader_why: integer?, string = nil, ""
+  if writer ~= nil then reader, reader_why = sys.open(path, sys.O_RDONLY, 0) end
+  local _, _ = sys.close(first)
+  if writer == nil then return nil, path .. ": " .. tostring(writer_why) end
+  if reader == nil then
+    local _, _ = sys.close(writer)
+    return nil, path .. ": " .. tostring(reader_why)
+  end
+  return { reader, writer }, ""
+end
+
+--- The plumbing of a held run: what its child is given for each of its
+--- standard streams, the pumps that copy between a FIFO and a stream that
+--- a child that nests may not hold, and the ends this process keeps until
+--- the child has ended.
+local record Plumbing
+  streams: mut {integer: integer}
+  pumps: mut {Child.Handle}
+  kept: mut {integer}
+end
+
+--- Ends `plumbing`'s pumps' input, so they finish, and waits for them.
+local function unplumb(plumbing: Plumbing)
+  for _, fd in ipairs(plumbing.kept) do local _, _ = sys.close(fd) end
+  for _, pump in ipairs(plumbing.pumps) do local _, _ = pump:wait() end
+end
+
+--- The plumbing of a held run of `program`: each standard stream that
+--- is a file open for reading or writing alone ([`handable`]) goes
+--- through a FIFO in `dir`, a pump of this program copying it; the rest,
+--- terminals among them, are the child's as they are. Nil and why where
+--- a pump cannot start.
+local function plumbed(program: string, dir: string): Plumbing?, string
+  local plumbing: Plumbing = { streams = {}, pumps = {}, kept = {} }
+  for number = 0, 2 do
+    if not handable(number) then
+      local ends, why = fifo(dir .. "/" .. tostring(number))
+      if ends == nil then
+        unplumb(plumbing)
+        return nil, why
+      end
+      local reader, writer = assert(ends[1]), assert(ends[2])
+      local inward = number == 0
+      local pump, pump_why = Child.start({ program, "-e", PUMP }, { timeout_ns = Child.FOREVER,
+        stdin = if inward then 0 else reader end, stdout = if inward then writer else number end })
+      -- The pump holds its end now: this process keeps the child's own
+      -- until the child has it, and closes the pump's, so the pump of
+      -- standard input ends the FIFO when it is done, and the child's
+      -- writes fail once the pump of an output is gone.
+      local _, _ = sys.close(if inward then writer else reader end)
+      local child_end = if inward then reader else writer end
+      plumbing.kept[#plumbing.kept + 1] = child_end
+      if pump == nil then
+        unplumb(plumbing)
+        return nil, "a pump of standard stream " .. tostring(number) .. ": " .. tostring(pump_why)
+      end
+      plumbing.pumps[#plumbing.pumps + 1] = pump
+      plumbing.streams[number] = child_end
+    end
+  end
+  return plumbing, ""
+end
 
 --- Runs `argv`, a session's command line, again in a child held to the
---- session's own policy, passing on SIGINT and SIGTERM: its exit code,
---- or nil where the session runs here (held already, on macOS, or with
---- no policy to hold it to, which `complain`s why where there is one).
+--- session's own policy: its exit code, or nil where the session runs
+--- here (held already, or on macOS, which has no nest). A terminal among
+--- the standard streams is relayed through a pty of the child's own
+--- ([`build.term_relay`]), which passes SIGINT and SIGTERM on; else this
+--- passes them on itself. Where the session cannot be held it runs
+--- unheld for --sandbox off and an MCP server that runs unsandboxed
+--- (saying why for the server), and is refused otherwise.
 local function held(r: Run, got: Flags.Parsed, argv: {string}): integer?
   if r.io.env("COSMIC_AGENT_HELD") == "1" or Sandbox.on_macos() then return nil end
   local here = cwd(r)
-  local held_to, why = session_policy(r, got, here)
+  local holding = session_policy(r, got, here)
+  local held_to = holding.policy
   if held_to == nil then
-    if why ~= "" then r.complain("the session runs unheld: " .. why) end
-    return nil
+    if holding.unheld then
+      if holding.why ~= "" then r.complain("the session runs unheld: " .. holding.why) end
+      return nil
+    end
+    r.complain("the session's sandbox: " .. holding.why)
+    return bare.refused
   end
   local program, missing = Proc.executable()
   if program == nil then
-    r.complain("the session runs unheld: " .. tostring(missing))
-    return nil
+    r.complain("the session's sandbox: this program: " .. tostring(missing))
+    return bare.refused
   end
-  -- A standard stream that is a file open for reading or writing alone
-  -- is passed on: standard input read whole and given, the output copied
-  -- out of a pipe as it comes.
-  local input: string?
-  if not handable(0) then
-    local read, read_why = Stream.read_all(Stream.from_fd(0))
-    if read == nil then
-      r.complain("standard input: " .. tostring(read_why))
+  local dir, dir_why = Fs.mkdtemp("agent-held-")
+  if dir == nil then
+    r.complain("the session's sandbox: " .. tostring(dir_why))
+    return bare.refused
+  end
+  local plumbing, plumb_why = plumbed(program, dir)
+  local _, _ = Fs.remove_tree(dir)
+  if plumbing == nil then
+    r.complain("the session's sandbox: " .. plumb_why)
+    return bare.refused
+  end
+  local command: {string} = { program, table.unpack(argv) }
+  local options: Child.Options = { policy = held_to, cwd = here, timeout_ns = Child.FOREVER,
+    stdin = plumbing.streams[0], stdout = plumbing.streams[1], stderr = plumbing.streams[2] }
+  local code = 1
+  if sys.isatty(0) or sys.isatty(1) or sys.isatty(2) then
+    local result, trouble = TermRelay.run(command, options)
+    unplumb(plumbing)
+    if result == nil then
+      r.complain("the session's sandbox: " .. trouble)
       return bare.refused
     end
-    input = read
+    return result.code or (128 + (result.signal or 0))
   end
-  local out_writer = if handable(1) then nil else Stream.to_fd(1) end
-  local err_writer = if handable(2) then nil else Stream.to_fd(2) end
   local guard, _ = Signal.guard()
-  local handle, trouble = Child.start({ program, table.unpack(argv) },
-    { policy = held_to, cwd = here, timeout_ns = Child.FOREVER, input = input,
-      stdout = if out_writer ~= nil then "stream" else "inherit" end,
-      stderr = if err_writer ~= nil then "stream" else "inherit" end })
+  local handle, trouble = Child.start(command, options)
   if handle == nil then
     if guard ~= nil then local _, _ = guard:close() end
+    unplumb(plumbing)
     r.complain("the session's sandbox: " .. tostring(trouble))
     return bare.refused
   end
-  local code = 1
-  local streaming = out_writer ~= nil or err_writer ~= nil
   while true do
-    if streaming then
-      local drained = handle:drain({ timeout_ns = HELD_POLL_NS, max_bytes = HELD_ROUND_BYTES, stdout = out_writer,
-        stderr = err_writer })
-      streaming = drained.kind ~= "eof" and drained.kind ~= "failed"
-    end
     local state, wait_trouble = handle:try_wait()
     if state == nil then
       r.complain("the session: " .. tostring(wait_trouble))
@@ -1151,19 +1263,14 @@ local function held(r: Run, got: Flags.Parsed, argv: {string}): integer?
     local result = state.result
     if state.finished and result ~= nil then
       code = result.code or (128 + (result.signal or 0))
-      -- What it wrote before it ended, still in the pipes.
-      while streaming do
-        local drained = handle:drain({ timeout_ns = HELD_POLL_NS, max_bytes = HELD_ROUND_BYTES, stdout = out_writer,
-          stderr = err_writer })
-        streaming = drained.kind == "limit"
-      end
       break
     end
     local taken = if guard ~= nil then guard:take() else 0 end
     if taken ~= 0 then local _, _ = handle:stop(taken) end
-    if not streaming then local _, _ = sys.nanosleep(HELD_POLL_NS) end
+    local _, _ = sys.nanosleep(HELD_POLL_NS)
   end
   if guard ~= nil then local _, _ = guard:release() end
+  unplumb(plumbing)
   return code
 end
 
