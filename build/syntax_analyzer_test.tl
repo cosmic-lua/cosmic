@@ -340,6 +340,24 @@ local function test_a_catalog_message_is_read_as_the_source_means_it()
   assert(support.nth(found.catalog, 3).message == "the first line break is the string's own", support.nth(found.catalog, 3).message)
 end
 
+--- A failure built by [`cosmic.failure`] is cataloged by its message, and one wrapped by `Failure.within` by its context:
+--- the words a program prints for it. Another call contributes nothing.
+local function test_a_catalog_message_is_read_through_a_failure_constructor()
+  local found = analyzed(lines(
+    "local function f(): nil, Failure",
+    "  return nil, Failure.new(\"store: the key is \" .. key)",
+    "end",
+    "local function g(why: Failure): nil, Failure",
+    "  return nil, Failure.within(why, \"sessions: store\")",
+    "end",
+    "local function h(): nil, Failure",
+    "  return nil, made(\"not cataloged here\")",
+    "end"))
+  assert(#found.catalog == 2, tostring(#found.catalog))
+  assert(support.nth(found.catalog, 1).message == "store: the key is ", support.nth(found.catalog, 1).message)
+  assert(support.nth(found.catalog, 2).message == "sessions: store", support.nth(found.catalog, 2).message)
+end
+
 --- The translation writes a metatable's `__close` as a method of the class, which is a metamethod row as the field is.
 local function test_a_method_named_for_a_metamethod_is_a_metamethod_row()
   local found = analyzed(lines(
