@@ -9,6 +9,8 @@ local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
 local Fake = require("cosmic.fake")
+-- Required, so the fake's main is of this test's closure.
+local _fake = require("build.proc_tool_fake")
 local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
 
@@ -71,7 +73,7 @@ local function test_exec_hands_on_sigpipe_at_its_default(tmp: string)
   -- The program it becomes, and the child it feeds: a fake, which
   -- starts with no descriptors and no environment handed it, and says
   -- which signals it arrived ignoring.
-  local probe = assert(Fake.build(tmp .. "/fake"))
+  local probe = assert(Fake.build(tmp .. "/fake", "build.proc_tool_fake"))
   local chunk = [[
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
@@ -80,11 +82,11 @@ local probe = ...
 if probe == nil then return 2 end
 -- Feeding a child its input is what makes this process ignore
 -- SIGPIPE, so a write to a child that has gone cannot end it.
-local fed = assert(Child.start({ probe, "exit 0" }, { timeout_ns = Child.FOREVER, input = "" }))
+local fed = assert(Child.start({ probe, "exit", "0" }, { timeout_ns = Child.FOREVER, input = "" }))
 assert(fed:wait())
 local own = assert(assert(Fs.read("/proc/self/status")):match("SigIgn:%s*(%x+)"))
 assert((math.tointeger(tonumber(own, 16)) or 0) & ]] .. "(1 << " .. tostring(sys.SIGPIPE - 1) .. ")" .. [[ ~= 0, "SIGPIPE is not ignored")
-local trouble = Proc.exec({ probe, "status-field SigIgn" }, { env = {} })
+local trouble = Proc.exec({ probe, "status-field", "SigIgn" }, { env = {} })
 print(tostring(trouble))
 require("cosmic.sys").exit(1)
 ]]
@@ -97,7 +99,7 @@ require("cosmic.sys").exit(1)
   assert(mask & (1 << (sys.SIGPIPE - 1)) == 0, "SIGPIPE arrived ignored: " .. ignored)
 end
 
---- What the program a chunk becomes prints for `env-of FOO`: `exec` is
+--- What the program a chunk becomes prints for its case `env-of FOO`: `exec` is
 --- the [`Proc.exec`] call it makes, `outer` the variable the chunk's own
 --- process has.
 local function becomes(tmp: string, probe: string, exec: string): string
@@ -121,12 +123,12 @@ local function test_exec_takes_argv_and_the_whole_environment(tmp: string)
     Test.skip("a native start has nothing to relaunch")
     return
   end
-  local probe = assert(Fake.build(tmp .. "/fake"))
-  local given = becomes(tmp, probe, 'Proc.exec({ probe, "env-of FOO" }, { env = { FOO = "given" } })')
+  local probe = assert(Fake.build(tmp .. "/fake", "build.proc_tool_fake"))
+  local given = becomes(tmp, probe, 'Proc.exec({ probe, "env-of", "FOO" }, { env = { FOO = "given" } })')
   assert(given == "FOO=given\n", given)
-  local replaced = becomes(tmp, probe, 'Proc.exec({ probe, "env-of FOO" }, { env = { OTHER = "x" } })')
+  local replaced = becomes(tmp, probe, 'Proc.exec({ probe, "env-of", "FOO" }, { env = { OTHER = "x" } })')
   assert(replaced == "FOO unset\n", replaced)
-  local inherited = becomes(tmp, probe, 'Proc.exec({ probe, "env-of FOO" })')
+  local inherited = becomes(tmp, probe, 'Proc.exec({ probe, "env-of", "FOO" })')
   assert(inherited == "FOO=outer\n", inherited)
   Test.raises(function() Proc.exec({}) end)
   local missing = tmp .. "/missing"

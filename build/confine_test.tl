@@ -10,6 +10,8 @@ local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local confine = require("build.confine")
 local Fake = require("cosmic.fake")
+-- Required, so the fake's main is of this test's closure.
+local _fake = require("build.confine_fake")
 local test_child = require("build.test_child")
 local this_program = require("build.this_program")
 
@@ -23,12 +25,12 @@ Test.policy{
   env = { "COSMIC_SANDBOX" },
 }
 
---- A fake program built under `tmp` ([`cosmic.fake`]), which runs
---- the script its first argument holds: a static executable that reads
+--- A fake program built under `tmp` from build/confine_fake.tl, which runs
+--- the case its first argument names: a static executable that reads
 --- only itself (and /proc, where it finds itself), so one confined needs
 --- nothing of the system's own.
 local function probe_in(tmp: string): string
-  return (assert(Fake.build(tmp .. "/fake")))
+  return (assert(Fake.build(tmp .. "/fake", "build.confine_fake")))
 end
 
 --- What a sandboxed worker's child says: whether its
@@ -56,8 +58,7 @@ test_child.register("worker", function(args: {string}): integer
   local process = require("cosmic.internal.process")
   local reads = { given, probe, "/proc" }
   local report = assert(sys.open(given .. "/../report", sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420))
-  local pid, trouble, errno = process.spawn(probe, { probe,
-    "cat " .. given .. "/f; print; present " .. hidden .. "/f && print hidden-seen || print hidden-absent" },
+  local pid, trouble, errno = process.spawn(probe, { probe, "given-hidden", given, hidden },
     {}, "/", nil, report, report, false, nil, { unveil = { reads = reads }, offline = true })
   if pid == nil then
     said[#said + 1] = "refused " .. tostring(sys.errno_name(errno)) .. ": " .. trouble

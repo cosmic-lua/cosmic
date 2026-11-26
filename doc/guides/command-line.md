@@ -158,5 +158,5 @@ them. `docs` takes
 words to search for, `sql` one statement, `refresh` the datasets to fetch,
 `bom` nothing, and `help` a verb.
 
-[`cosmic.child`]: ../../cosmic/child.tl
+[`cosmic.child`]: ../../cosmic/child/init.tl
 [`Proc.relaunch`]: ../../cosmic/proc.tl

@@ -32,7 +32,9 @@ local function test_a_secret_is_refused_where_time_shows_its_value()
       "Bigint.mod(m, secret)", "Bigint.compare(secret, m)", "Bigint.compare(m, secret)",
       "Bigint.powmod(secret, m, m)", "Bigint.powmod(m, m, secret)", "Bigint.pad(secret, 4)",
       "Bigint.secret_mod(m, secret)", "Bigint.secret_powmod(m, m, secret)" } do
-    local codes = codes_of("local _ = " .. call .. "\n")
+    -- sub and pad answer alternatives, which bind two names.
+    local binds = if call:find("^Bigint%.sub") or call:find("^Bigint%.pad") then "local _, _ = " else "local _ = " end
+    local codes = codes_of(binds .. call .. "\n")
     assert(codes == "not_assignable", call .. ": " .. codes)
   end
 end

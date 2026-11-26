@@ -7,6 +7,8 @@ local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local Fake = require("cosmic.fake")
+-- Required, so the fake's main is of this test's closure.
+local _fake = require("build.noexec_tool_fake")
 
 --- The declared scratch, and permission to create the root the unveiled
 --- child's sandbox is.
@@ -16,7 +18,7 @@ Test.policy{
 
 local function executable(tmp: string): string, string
   local ordinary = tmp .. "/ordinary"
-  assert(Fake.place(assert(Fake.build(tmp .. "/fake")), ordinary))
+  assert(Fake.place(assert(Fake.build(tmp .. "/fake", "build.noexec_tool_fake")), ordinary))
   local noexec = assert(Env.get("COSMIC_TEST_NOEXEC"))
   assert(noexec == "/noexec" and noexec ~= Env.get("TMPDIR"))
   local path = noexec .. "/program"
@@ -29,7 +31,7 @@ end
 local function refused(path: string)
   -- If exec unexpectedly succeeds, the native fake exits without
   -- a worker report; the test fails instead of losing the assertion.
-  local ok, trouble, errno = sys.execve(path, { path, "exit 97" }, {})
+  local ok, trouble, errno = sys.execve(path, { path, "exit", "97" }, {})
   assert(not ok and errno == sys.EACCES, trouble)
 end
 
@@ -41,17 +43,17 @@ local function test_noexec_files_and_symlink_aliases_refuse_native_exec(tmp: str
   local fd = assert(sys.open(path, sys.O_RDONLY))
   refused("/proc/self/fd/" .. tostring(fd))
   assert(sys.close(fd))
-  local result = assert(Child.run({ ordinary, "exit 0" }, { timeout_ns = Clock.seconds(10) }))
+  local result = assert(Child.run({ ordinary, "exit", "0" }, { timeout_ns = Clock.seconds(10) }))
   assert(result.ok)
   local copied = tmp .. "/copied"
   assert(Fs.write(copied, assert(Fs.read(path)), 0x1c0))
-  result = assert(Child.run({ copied, "exit 0" }, { timeout_ns = Clock.seconds(10) }))
+  result = assert(Child.run({ copied, "exit", "0" }, { timeout_ns = Clock.seconds(10) }))
   assert(result.ok)
 end
 
 local function test_noexec_is_inherited_through_an_explicit_child_sandbox(tmp: string)
   local ordinary, path = executable(tmp)
-  local result, trouble = Child.run({ ordinary, "cat " .. path }, {
+  local result, trouble = Child.run({ ordinary, "cat", path }, {
     cwd = "/",
     sandbox = { unveil = { reads = { ordinary, "/noexec", "/proc", "/dev/null" },
       writes = { tmp } }, offline = true },
@@ -60,7 +62,7 @@ local function test_noexec_is_inherited_through_an_explicit_child_sandbox(tmp: s
   assert(result ~= nil, trouble)
   assert(result.ok, result.stderr)
   local raw = require("cosmic.internal.process")
-  local pid, why, errno = raw.spawn(path, { path, "exit 0" }, nil, "/", nil, nil, nil,
+  local pid, why, errno = raw.spawn(path, { path, "exit", "0" }, nil, "/", nil, nil, nil,
     false, nil, { unveil = { reads = { "/noexec", "/proc", "/dev/null" } }, offline = true })
   if pid ~= nil then local _, _ = raw.waitpid(pid, false) end
   assert(pid == nil and errno == sys.EACCES, why)

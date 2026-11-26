@@ -667,7 +667,7 @@ written for Teal's own checker meets these forms, whose findings do not yet name
 - `readonly f: T` is refused; write `f: T`. A field is fixed unless it is declared `mut`.
 - `T...` as a parameter's type is `...: T`, and `? T` is a named optional parameter, `name?: T`.
 
-[`cosmic.child`]: ../../cosmic/child.tl
+[`cosmic.child`]: ../../cosmic/child/init.tl
 [`cosmic.failure`]: ../../cosmic/failure.tl
 [`cosmic.flags`]: ../../cosmic/flags.tl
 [`cosmic.log`]: ../../cosmic/log.tl

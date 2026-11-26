@@ -1,5 +1,5 @@
 --- What a policy refuses before any child exists, and what a platform with no
---- sandbox does, in [`Child.start`]'s `policy` (cosmic/child.tl): the tests
+--- sandbox does, in [`Child.start`]'s `policy` (cosmic/child/init.tl): the tests
 --- of cosmic/child_policy_test.tl, its isolation, `nest`, user and system
 --- siblings that hold on every platform, so they run on all of them. What a
 --- sandbox does to a live child is in those modules, which `requires` one.
@@ -47,7 +47,7 @@ end
 
 --- The fake, built in the test's directory, which is searchable.
 local function fake_of(tmp: string): string
-  return (assert(Fake.build(searchable.open(tmp) .. "/fake")))
+  return (assert(Fake.build(searchable.open(tmp) .. "/fake", ChildPolicy.FAKE)))
 end
 
 --- The directories a policy's `tmp` made that are still in the temporary directory.
@@ -82,7 +82,7 @@ local function test_a_start_under_a_policy_is_refused_where_the_platform_has_no_
   for i, policy in ipairs(policies) do
     -- It starts in the directory that holds the probe: under isolate file the
     -- start directory must be at, beneath or above a grant.
-    local result, why = Child.run({ probe, "print hi" }, { timeout_ns = Child.FOREVER, policy = policy, cwd = probe:match("^(.*)/") })
+    local result, why = Child.run({ probe, "print", "hi" }, { timeout_ns = Child.FOREVER, policy = policy, cwd = probe:match("^(.*)/") })
     assert(result == nil, "policy " .. tostring(i) .. " started a child where there is no sandbox")
     assert(ChildPolicy.unsandboxable(tostring(why)), "policy " .. tostring(i) .. ": " .. tostring(why))
   end
@@ -92,7 +92,7 @@ end
 --- the program `rx`, so a policy that grants nothing still starts it.
 local function test_the_start_grants_the_program_a_policy_does_not_name(tmp: string)
   local probe = fake_of(tmp)
-  local ran = assert(Child.run({ probe, "print hi" }, { timeout_ns = Child.FOREVER, policy = {}, stdout = "capture" }))
+  local ran = assert(Child.run({ probe, "print", "hi" }, { timeout_ns = Child.FOREVER, policy = {}, stdout = "capture" }))
   assert(ran.ok and ran.stdout == "hi\n", tostring(ran.stdout))
 end
 
@@ -101,7 +101,7 @@ end
 local function test_the_start_grants_an_interpreter_too(tmp: string)
   local probe = fake_of(tmp)
   assert(Fs.mkdirs(tmp .. "/scripts"))
-  assert(Fs.write(tmp .. "/scripts/run", "#!" .. probe .. "\nprint scripted\n", 493))
+  assert(Fs.write(tmp .. "/scripts/run", "#!" .. probe .. "\nscripted\n", 493))
   local policy: Sandbox.Policy = { grants = { { path = tmp .. "/scripts", letters = "r" } } }
   local ran = assert(Child.run({ tmp .. "/scripts/run" }, { timeout_ns = Child.FOREVER, policy = policy, stdout = "capture" }))
   assert(ran.ok and ran.stdout == "scripted\n", tostring(ran.stdout))
@@ -141,7 +141,7 @@ local function test_a_policy_that_is_not_met_fails_naming_the_field(tmp: string)
     { policy = { grants = grants(), set_env_digests = { X = string.rep("0", 64) } }, says = 'set_env_digests "X"' },
   }
   for _, case in ipairs(cases) do
-    local none, why = Child.start({ probe, "print hi" }, { timeout_ns = Child.FOREVER, policy = case.policy })
+    local none, why = Child.start({ probe, "print", "hi" }, { timeout_ns = Child.FOREVER, policy = case.policy })
     assert(none == nil, case.says)
     assert(why.message:find("^child: start: sandbox: ") and why.message:find(case.says, 1, true), why)
     assert(why.message:find("not yet available", 1, true) or why.message:find("cannot start", 1, true), why)
@@ -165,12 +165,12 @@ local function test_a_policy_with_connect_may_not_name_a_proxy_variable(tmp: str
       local base: Sandbox.Policy = { grants = itself(probe, { { connect = "example.com:443" } }) }
       local policy = if how == "env" then { ...base, env = { name } } else
         { ...base, set_env = { [name] = "http://elsewhere:1" } } end
-      local why = refused({ probe, "print hi" }, policy)
+      local why = refused({ probe, "print", "hi" }, policy)
       assert(why:find("^child: start: sandbox: " .. name .. " is set by the relay"), name .. ": " .. why)
       assert(why:find('connect "example.com:443"', 1, true) and why:find(how, 1, true), why)
     end
   end
-  local free, why = Child.run({ probe, "env-of HTTPS_PROXY" }, { timeout_ns = Child.FOREVER, policy = { grants = itself(probe),
+  local free, why = Child.run({ probe, "env-of", "HTTPS_PROXY" }, { timeout_ns = Child.FOREVER, policy = { grants = itself(probe),
     set_env = { HTTPS_PROXY = "http://mine:1" } }, stdout = "capture", cwd = probe:match("^(.*)/") })
   if free == nil then
     assert(ChildPolicy.unsandboxable(tostring(why)), why)
@@ -194,7 +194,7 @@ end
 local function test_a_program_without_the_relays_module_cannot_start_a_policy_with_connect(tmp: string)
   skip_where_seatbelt_holds("the relay's program")
   local probe = fake_of(tmp)
-  local why = refused({ probe, "print hi" }, { grants = itself(probe, { { connect = "example.com:443" } }) })
+  local why = refused({ probe, "print", "hi" }, { grants = itself(probe, { { connect = "example.com:443" } }) })
   assert(why:find("^child: start: sandbox: relay: this program does not carry cosmic.internal.relay_main"), why)
   assert(why:find("needs a program that has it", 1, true), why)
   assert(#sandbox_directories() == 0, "a start that failed left a directory behind")
@@ -222,7 +222,7 @@ local function test_a_policy_of_too_many_grants_fails_before_it_makes_anything(t
       local grant: Sandbox.Grant = { path = tmp .. "/g" .. tostring(i), letters = "r" }
       grants[#grants + 1] = grant
     end
-    local none, why = Child.start({ probe, "print hi" }, { timeout_ns = Child.FOREVER, policy = { grants = grants, tmp = true } })
+    local none, why = Child.start({ probe, "print", "hi" }, { timeout_ns = Child.FOREVER, policy = { grants = grants, tmp = true } })
     assert(none == nil, "a start over the most was made")
     assert(why.message:find("^child: start: sandbox: grants: "), why)
     assert(why.message:find("takes, " .. tostring(most) .. ";", 1, true), why)
@@ -234,7 +234,7 @@ local function test_from_needs_isolate_file_and_what_is_not_met_stays_refused(tm
   skip_where_seatbelt_holds("what is not met")
   local probe = fake_of(tmp)
   local function says(policy: Sandbox.Policy): string
-    return refused({ probe, "print hi" }, policy)
+    return refused({ probe, "print", "hi" }, policy)
   end
   local from = says({ grants = { { path = probe, letters = "rx" },
     { path = "/data", letters = "r", from = tmp } } })
@@ -321,7 +321,7 @@ end
 local function test_processes_without_isolation_fails_naming_what_it_needs(tmp: string)
   skip_where_seatbelt_holds("limits.processes")
   local probe = place(tmp)
-  local why = refused({ probe, "print hi" }, { grants = { { path = probe, letters = "rx" } },
+  local why = refused({ probe, "print", "hi" }, { grants = { { path = probe, letters = "rx" } },
     limits = { processes = 8 } })
   assert(why:find("^child: start: sandbox: limits.processes") and why:find("isolate", 1, true), why)
 end
@@ -333,7 +333,7 @@ local function test_processes_above_the_callers_hard_limit_fails_naming_it(tmp: 
   if hard == math.maxinteger then
     Test.skip("this process has no hard limit on processes to go above")
   end
-  local why = refused({ probe, "print hi" }, { isolate = { "proc" }, grants = {
+  local why = refused({ probe, "print", "hi" }, { isolate = { "proc" }, grants = {
     { path = probe, letters = "rx" }, { path = work, letters = "r" } },
     limits = { processes = hard + 1 } })
   if Sandbox.counts_per_namespace(assert(sys.uname()).release) then
