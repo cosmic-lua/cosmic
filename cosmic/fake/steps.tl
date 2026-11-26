@@ -4,6 +4,14 @@
 --- the status to end with. A step that fails says why on stderr, as
 --- `fake: <what>: <why>`, and returns 1.
 ---
+--- A probe -- a step that asks whether something can be done: connect,
+--- bind, start a child under a policy -- reports what it met on stdout
+--- instead, `connected` or the reason it was refused, and goes on:
+--- being refused is what the test checks, not a failure of the fake.
+--- A step that starts a child keeps its handle until the main ends;
+--- [`Steps.finish`] ends a main that started any by [`sys.exit`], so
+--- they run on.
+---
 ---     local Steps = require("cosmic.fake.steps")
 ---     local function main(argv: {string}): integer
 ---       return Steps.cat(argv[2]) or Steps.print("read") or 0
@@ -96,7 +104,7 @@ end
 --- Sets the mode bits of `path`, given in octal, as `chmod` does.
 function Steps.chmod(path: string, octal: string): integer?
   local bits = math.tointeger(tonumber(octal, 8))
-  if bits == nil then return Steps.fail("chmod", "no mode " .. octal) end
+  if bits == nil or bits < 0 then return Steps.fail("chmod", "no mode " .. octal) end
   local ok, trouble = Fs.chmod(path, bits)
   if not ok then return Steps.fail(path, tostring(trouble)) end
   return nil
@@ -387,6 +395,7 @@ end
 --- Starts `argv` up to `count` times, leaving each running, and says
 --- `started <n>`, and ` then <why>` where a start failed, to stdout.
 function Steps.start_count(count: integer, argv: {string}): integer?
+  if count < 0 then return Steps.fail("start-count", "no count " .. tostring(count)) end
   local made = 0
   local refusal = ""
   for _ = 1, count do
@@ -431,8 +440,6 @@ function Steps.getpgid(pid: integer): integer?
   return Steps.print("pgid " .. tostring(group))
 end
 
---- Listens on `address`, connects to it and takes the connection:
---- says `connected`, or why not, to stdout.
 local function round_trip(address: Net.Address): integer?
   local server, trouble = Net.listen(address, { timeout_ns = Clock.seconds(5) })
   if server == nil then return Steps.print(tostring(trouble)) end
@@ -450,12 +457,14 @@ local function round_trip(address: Net.Address): integer?
   return Steps.print("connected")
 end
 
---- [`round_trip`] over TCP on `host`, at a port the kernel picks.
+--- Listens over TCP on `host`, at a port the kernel picks, connects to
+--- it and takes the connection: says `connected`, or why not, to stdout.
 function Steps.loopback_tcp(host: string): integer?
   return round_trip(Net.tcp(host, 0))
 end
 
---- [`round_trip`] on the unix socket `path`.
+--- Listens on the unix socket `path`, connects to it and takes the
+--- connection: says `connected`, or why not, to stdout.
 function Steps.loopback_unix(path: string): integer?
   return round_trip(Net.unix(path))
 end
@@ -526,6 +535,7 @@ end
 --- `exit <status>` and what it printed, or why it did not start, to
 --- stdout.
 function Steps.run_isolated(argv: {string}, loopback?: {string}): integer?
+  if #argv == 0 then return Steps.fail("run-isolated", "no program") end
   local result, trouble = Child.run(argv, { timeout_ns = Child.FOREVER, policy = {
     isolate = { "file" }, loopback = loopback, grants = { { path = argv[1]!, letters = "rx" },
       { path = ".", letters = "r" } } }, stdout = "capture", stderr = "stdout" })
