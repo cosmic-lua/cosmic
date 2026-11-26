@@ -818,7 +818,7 @@ local record Types
     header_list: function(self: TestResponse, name: string): {string}
     --- The body as text.
     text: function(self: TestResponse): string
-    --- The body decoded as JSON; nil and why when it is none.
+    --- The body decoded as JSON; nil and a Failure when it is none.
     json: function(self: TestResponse): (Json.Value) | (nil, Failure)
   end
 end

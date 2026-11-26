@@ -99,7 +99,7 @@ local record Testing
     --- `conn` directly does not last past it.
     set_timeout: function(self: Loopback, wait_ns: integer?)
 
-    --- One request over the connection; nil and why when the server's reply
+    --- One request over the connection; nil and a Failure when the server's reply
     --- cannot be read.
     request: function(self: Loopback, method: string, path: string,
         opts?: Types.TestOptions): (Types.TestResponse) | (nil, Failure)
