@@ -53,6 +53,12 @@ end)
 decoder("flat unbase64", flat, bytes, function(text: string): string
   return assert(Codec.unbase64(text))
 end)
+-- The encoder, in GB/s of the bytes it reads (the cases above count the text they read).
+bench.case("flat base64 (encode)", function(n: integer)
+  for _ = 1, n do Codec.base64(bytes) end
+end, { bytes = #bytes, setup = function()
+  assert(Codec.base64(bytes) == flat, "base64 returned the wrong result")
+end })
 
 -- The encoder, in GB/s of the bytes it reads (the other cases count the text they read).
 decoder("flat base64 (encode)", bytes, flat, function(text: string): string
