@@ -484,7 +484,7 @@ branch's push runs nothing.
   queue's shares.
 - **a pull request** runs the lightest check, the `ci` check the merge
   queue requires of a pull request before it takes it: linux-x86_64's leg
-  boots the tree, runs its native suite, checks the bootstrap's scripts, and checks the tree's
+  boots the tree, runs its native suite, and checks the tree's
   format over the paths the pull request changed since its merge base with
   main (driver.tl changed-paths, `fix --check --changed`, which lays out
   only those and makes every check spanning files, the markers held to
