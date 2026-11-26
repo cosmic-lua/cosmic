@@ -50,6 +50,9 @@ local cases: {Case} = {
   -- The same bytes with no line endings: the decoder's own speed, the post's "without line endings" case.
   { name = "flat unbase64", input = flat,
     expect = bytes, decode = function(text: string): string return assert(Codec.unbase64(text)) end },
+  -- The encoder, in GB/s of the bytes it reads (the other cases count the text they read).
+  { name = "flat base64 (encode)", input = bytes,
+    expect = flat, decode = function(text: string): string return Codec.base64(text) end },
 }
 
 --- Times ten decodes of `c.input`, after one checked against `c.expect`, and prints the best and the median in GB/s.

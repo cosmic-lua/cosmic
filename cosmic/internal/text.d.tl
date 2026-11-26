@@ -14,6 +14,10 @@ local record text
   -- A new list of the strings of `list`, sorted by their bytes as
   -- `LC_ALL=C sort` orders them.
   sort: function(list: {string}): mut {string}
+  -- `bytes` as base64 text: the URL-safe alphabet where `url`, else the
+  -- standard one, with `=` padding to a multiple of four characters where
+  -- `padded`. No line breaks.
+  base64: function(bytes: string, url: boolean, padded: boolean): string
   -- Why [`unbase64`] refused a text: a length not a multiple of 4, one
   -- character over (unpadded), `=` out of place, a byte outside the
   -- alphabet, or nonzero bits in the last character.
