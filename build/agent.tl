@@ -1017,7 +1017,7 @@ local function policy(r: Run, got: Flags.Parsed): integer
   end
   local merged, merged_why = Sandbox.union(p)
   if merged == nil then
-    r.complain("policy: " .. merged_why)
+    r.complain("policy: " .. tostring(merged_why))
     return bare.failed
   end
   -- The grants below hold Host.bash; without --commands the worker runs no program, however much x they give.

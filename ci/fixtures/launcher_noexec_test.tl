@@ -21,6 +21,9 @@ Test.policy{
   },
   env = { "COSMIC_FIXTURE_TARGET" },
   profiles = { "system" },
+  requires = {
+    "env:COSMIC_FIXTURE_TARGET",
+  },
 }
 
 local setup, run = LauncherFixture.setup, LauncherFixture.run

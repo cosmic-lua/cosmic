@@ -53,6 +53,11 @@ Test.policy{
     "http_proxy",
     "no_proxy",
   },
+  requires = {
+    "env:COSMIC_FIXTURE_BUILD",
+    "env:COSMIC_FIXTURE_ROOT",
+    "env:COSMIC_FIXTURE_TARGET",
+  },
 }
 
 local junk_before <const> = 1000

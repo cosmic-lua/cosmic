@@ -260,12 +260,15 @@ end
 local record TreeTiming
   mut began: integer
   run_began: integer
+  --- The phase of the profile ([`Clock.phase`]) the check running now is.
+  step: Clock.Phase
 end
 
 --- Says on stderr which part of the tree checks begins and how long they
 --- have run, so that a part that takes minutes is not silent: [`tree_took`]
 --- speaks only once it is over. `step` is "n of m" for the memoed checks.
 local function tree_begin(timing: TreeTiming, name: string, step?: string)
+  timing.step:next(name)
   local _, _ = logger.summary("fix", "tree checks: " .. name .. (if step ~= nil then " (" .. step .. ")" else "" end) ..
       ", " .. progress.elapsed(Clock.monotonic_ns() - timing.run_began) .. " in")
 end
@@ -338,7 +341,9 @@ function tree_checks.whole(given: tree_checks.Whole): tree_checks.Found
   local findings: mut {string} = {}
   -- The markers hold the findings. They only fall, and a run that mends removes the stale ones.
   local sink: Ceilings.Sink = { unmarked = {}, stale = {}, mend = given.mends }
-  local timing: TreeTiming = { began = Clock.monotonic_ns(), run_began = Clock.monotonic_ns() }
+  local _whole <close> = Clock.phase("tree checks")
+  local step <close> = Clock.phase("tree checks")
+  local timing: TreeTiming = { began = Clock.monotonic_ns(), run_began = Clock.monotonic_ns(), step = step }
   tree_begin(timing, "making the projection")
   local db, projection_trouble = tree_build.projection(root, given.standing)
   if db == nil then

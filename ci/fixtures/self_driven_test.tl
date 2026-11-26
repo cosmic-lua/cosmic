@@ -57,6 +57,11 @@ Test.policy{
     "http_proxy",
     "no_proxy",
   },
+  requires = {
+    "env:COSMIC_FIXTURE_PRODUCT",
+    "env:COSMIC_FIXTURE_SOURCE",
+    "env:COSMIC_FIXTURE_SELF_BOOT",
+  },
 }
 
 -- The tree boots with any cosmic as its bootstrap: bin/zig runs

@@ -2710,6 +2710,16 @@ local function hold_checkout(ctx: Run): integer?
     return 1
   end
   ctx.own_tree = standing.own
+  -- The tree's tool in its ci/, which runs on the pinned release and whose fixtures run only under the CI driver: the
+  -- fixtures fail for want of the driver's environment, which reads as broken tests.
+  local here, _ = Fs.absolute(root)
+  if not standing.own and here ~= nil and Fs.basename(here) == "ci" then
+    local outer, _ = tree.standing(Fs.dirname(here))
+    if outer ~= nil and outer.own then
+      log:say("test: ci/ is the CI driver's project, which runs on the pinned release: run its tests as the queue " ..
+          "does, `../bin/cosmic-bootstrap test cosmic_ci`; fixtures/ runs only under the driver (ci/run-local)")
+    end
+  end
   local handle, open_trouble = work.open(root, nil, "test")
   if handle == nil then
     log:complain("test: " .. open_trouble)
@@ -3841,6 +3851,7 @@ local function run(argv: {string}): integer
   if code ~= nil then return code end
   -- From the lock taken, as the summary's own time is: a wait for another run is neither's.
   local mark = assert(ctx.started)
+  local phase <close> = Clock.phase("test building")
   code = read_identities(ctx)
   if code ~= nil then return code end
   code = choose_sandbox(ctx)
@@ -3849,6 +3860,7 @@ local function run(argv: {string}): integer
   if code ~= nil then return code end
   spent.building_ns = Clock.monotonic_ns() - mark
   mark = mark + spent.building_ns
+  phase:next("test keying")
   code = select_tests(ctx)
   if code ~= nil then return stopped_at(ctx, code) end
   code = open_records(ctx)
@@ -3861,13 +3873,16 @@ local function run(argv: {string}): integer
   look_up_verdicts(ctx)
   spent.keying_ns = Clock.monotonic_ns() - mark
   mark = mark + spent.keying_ns
+  phase:next("test running")
   code = execute(ctx)
   if code ~= nil then return code end
   spent.running_ns = Clock.monotonic_ns() - mark
   mark = mark + spent.running_ns
   spent.workers = assert(ctx.limits).jobs
+  phase:next("test settling")
   settle(ctx)
   spent.settling_ns = Clock.monotonic_ns() - mark
+  phase:next("test reporting")
   return report(ctx)
 end
 

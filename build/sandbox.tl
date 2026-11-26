@@ -415,7 +415,7 @@ local function policy_of(request: Request, database: string?): Sandbox.Policy?, 
   if database ~= nil then
     -- The text holds the file's digest as well as its path.
     local named, named_trouble = Sandbox.database(database)
-    if named == nil then return nil, named_trouble end
+    if named == nil then return nil, tostring(named_trouble) end
     local setup = fields.setup or {}
     setup.database = named
     fields.setup = setup

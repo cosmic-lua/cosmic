@@ -45,7 +45,7 @@ return function(argv: {string}): integer
   if argv[1] == "stack" then
     local held, why = Sandbox.restrict({ grants = grants })
     if not held then
-      print("restrict: " .. why)
+      print("restrict: " .. tostring(why))
       return 1
     end
   end

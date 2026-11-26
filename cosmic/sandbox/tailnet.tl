@@ -12,6 +12,7 @@
 ---     -- { "100.64.0.3:5432", "[fd7a:115c:a1e0::3]:5432" }
 --- @public
 
+local Failure = require("cosmic.failure")
 local Grant = require("cosmic.relay.grant")
 local rules = require("cosmic.sandbox.policy")
 local type Tailscale = require("cosmic.tailscale")
@@ -100,18 +101,18 @@ function tailnet.resolved(connect: {string}, status: Tailscale.Status): {string}
 end
 
 --- The node's status, asked of the daemon `daemon` names
---- ([`Tailscale.connect`]; the machine's own when nil). Nil and why where
+--- ([`Tailscale.connect`]; the machine's own when nil). Nil and a Failure where
 --- the daemon cannot be asked, or this node is not running.
-local function status_of(daemon?: Tailscale.Daemon): Tailscale.Status?, string
+local function status_of(daemon?: Tailscale.Daemon): (Tailscale.Status) | (nil, Failure)
   local Live = require("cosmic.tailscale")
   local ts, why = Live.connect(daemon)
-  if ts == nil then return nil, tostring(why) end
+  if ts == nil then return nil, Failure.new(tostring(why)) end
   local status, trouble = ts:status()
-  if status == nil then return nil, tostring(trouble) end
+  if status == nil then return nil, Failure.new(tostring(trouble)) end
   if status.backend_state ~= "Running" then
-    return nil, "tailscale: the node is " .. status.backend_state .. ", so it knows no peers"
+    return nil, Failure.new("tailscale: the node is " .. status.backend_state .. ", so it knows no peers")
   end
-  return status, ""
+  return status
 end
 
 --- The merged policy `merged` as the sandbox runs it: unchanged where
@@ -121,23 +122,23 @@ end
 --- why, naming the target, where they cannot be, where one names no peer
 --- (a typo, or a tag no node carries yet, which would start the program
 --- with less than it was meant to reach).
-function tailnet.policy(merged: rules.Policy, daemon?: Tailscale.Daemon): rules.Policy?, string
+function tailnet.policy(merged: rules.Policy, daemon?: Tailscale.Daemon): (rules.Policy) | (nil, Failure)
   local connect = rules.connects(merged)
-  if not tailnet.named(connect) then return merged, "" end
+  if not tailnet.named(connect) then return merged end
   local status, why = status_of(daemon)
   for _, target in ipairs(connect) do
     local read, _ = Grant.tailnet(target)
     if read ~= nil and read ~= false then
       if status == nil then
-        return nil, "sandbox: connect \"" .. target .. "\" names nodes of the tailnet, which tailscaled was asked " ..
-          "for: " .. (why:gsub("^tailscale: ", ""))
+        return nil, Failure.new("sandbox: connect \"" .. target .. "\" names nodes of the tailnet, which tailscaled was asked " ..
+            "for: " .. (tostring(why):gsub("^tailscale: ", "")))
       end
       if #tailnet.resolved({ target }, status) == 0 then
-        return nil, "sandbox: connect \"" .. target .. "\" names no peer of the tailnet that tailscaled lists"
+        return nil, Failure.new("sandbox: connect \"" .. target .. "\" names no peer of the tailnet that tailscaled lists")
       end
     end
   end
-  return rules.with_connect(merged, tailnet.resolved(connect, assert(status))), ""
+  return rules.with_connect(merged, tailnet.resolved(connect, assert(status)))
 end
 
 --- `policy` with the `connect` of `merged`, the policy [`tailnet.policy`]

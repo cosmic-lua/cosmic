@@ -75,6 +75,7 @@ extern int clone (int (*)(void *), void *, int, void *, ...);
 #include "memory.h"
 #include "crypto.h"
 #include "environment.h"
+#include "profile.h"
 #include "syscalls.h"
 #include "portable.h"
 #include "process.h"
@@ -2018,6 +2019,8 @@ COSMIC_SYSCALL(fork, 1) {
   fflush(NULL);
   pid_t pid = fork();
   error = errno;
+  /* Before a Landlock ruleset holds it, which could refuse the file. */
+  cosmic_profile_forked(pid);
 #if defined(__linux__)
   if (pid == 0) {
     /* The pairs are the parent's children, not this process's: a wait

@@ -858,25 +858,6 @@ function Orchestration.noexec_fixture(target: string): boolean
   return target == "x86_64-linux-musl" or target == "aarch64-linux-musl"
 end
 
---- The requirements a leg promises that the pinned driver's `cosmic test` does not know: a fixture runs on that
---- driver, and a held run there refuses a promise it cannot read (COSMIC_TEST_PROMISES), failing the fixture before it
---- starts. No fixture requires them.
--- TODO: drop this and [`driver_promises`] once ci/cosmic-driver.pin names a release whose `cosmic test` knows
--- `pinned_zig`, or one that leaves out a promised name it does not know (build/host_names.tl `read_promises`), which
--- spares every later name too.
-local DRIVER_UNKNOWN <const>: {string:boolean} = { pinned_zig = true }
-
---- `env` without the promises of [`DRIVER_UNKNOWN`].
-local function driver_promises(env: {string:string}): {string:string}
-  local list = env["COSMIC_TEST_PROMISES"]
-  if list == nil then return env end
-  local kept: mut {string} = {}
-  for name in list:gmatch("[^,]+") do
-    if DRIVER_UNKNOWN[name] ~= true then kept[#kept + 1] = name end
-  end
-  return Maps.with(env, { COSMIC_TEST_PROMISES = table.concat(kept, ",") })
-end
-
 --- `env`, an operation's environment, made a fixture's `cosmic test`'s:
 --- its temporary files under `tmpdir`.
 ---
@@ -915,9 +896,27 @@ end
 --- compiler cases' first rebuild, take a copy of the leg's
 --- ([`seed_compiles`]), and the other fixed-point cases share a file of
 --- their own, made afresh for each run (COSMIC_FIXTURE_SHARED_COMPILES).
+---
+--- Where the leg promises (COSMIC_TEST_PROMISES), each COSMIC_FIXTURE_* variable `env` sets is promised too (`env:`
+--- NAME): a fixture requires each it reads, and a held run fails one whose variable the driver did not set, rather
+--- than finding it n/a, which a plain `cosmic test` in ci/ does.
 function Orchestration.fixture(env: {string:string}, tmpdir: string,
                                compiles: string, verdicts?: string): {string:string}
-  local made = Maps.with(driver_promises(env), { TMPDIR = tmpdir, COSMIC_BUILD_CACHE = compiles })
+  local made = Maps.with(env, { TMPDIR = tmpdir, COSMIC_BUILD_CACHE = compiles })
+  local promised = env["COSMIC_TEST_PROMISES"]
+  if promised ~= nil then
+    local names: mut {string} = {}
+    for name, value in pairs(env) do
+      if String.starts_with(name, "COSMIC_FIXTURE_") and value ~= "" then
+        names[#names + 1] = "env:" .. name
+      end
+    end
+    table.sort(names)
+    local list: mut {string} = {}
+    if promised ~= "" then list[1] = promised end
+    for _, name in ipairs(names) do list[#list + 1] = name end
+    made = Maps.with(made, { COSMIC_TEST_PROMISES = table.concat(list, ",") })
+  end
   if verdicts ~= nil then
     return Orchestration.shares(Maps.with(made, { COSMIC_VERDICT_CACHE = verdicts }))
   end
@@ -1365,10 +1364,7 @@ local function snapshot(c: Context, diagnostics: string, label: string,
     end
   end
   write(out .. "/hashes.sha256", hashes)
-  -- TODO: use Fs.temp_dir once ci/cosmic-driver.pin names a release that has it.
-  local temporary_root = Env.read("TMPDIR") or ""
-  if temporary_root:sub(1, 1) ~= "/" then temporary_root = "/tmp" end
-  State.external_path(temporary_root .. "/probe", c.root)
+  State.external_path(Fs.temp_dir() .. "/probe", c.root)
   local inspect = assert(Fs.mkdtemp("cosmic-work-db-integrity-"))
   local integrity: Snapped = { status = 1 }
   local called, answer = pcall(function()
@@ -1782,17 +1778,12 @@ local function format_command(root: string): {string}
   command[#command + 1] = "--changed"
   command[#command + 1] = "--"
   for line in text:gmatch("[^\n]+") do
-    -- `ci/` is checked as the project it is ([`ci_command`]), and `eval/` by ci.yml's step of its own, which the tree's
-    -- run refuses a path of.
+    -- The tree's run refuses a path of `ci/`, which it checks as the project it is, with the tree's tool and the pinned
+    -- release (build/fix/ci_project.tl), and one of `eval/`, which ci.yml's step of its own checks.
     local own = line == "ci" or String.starts_with(line, "ci/") or line == "eval" or String.starts_with(line, "eval/")
     if not own then command[#command + 1] = line end
   end
   return command
-end
-
---- The check of `ci/` as a project of its own: `fix --check` of the tree's tool, run with `ci/` as the working directory.
-local function ci_command(root: string): {string}
-  return { BuildPaths.directory(root) .. "/bin/cosmic", "fix", "--check" }
 end
 
 --- The tree's format check (`fix --check .`, which also builds and
@@ -1814,9 +1805,7 @@ local function format_check(p: PlatformContext): integer
         "(COSMIC_CI_FORMAT=skip)\n")
     return 0
   end
-  local status = checked(p.operation, "format check", format_command(p.root))
-  if status ~= 0 then return status end
-  return checked(p.operation, "ci check", ci_command(p.root), nil, p.root .. "/ci")
+  return checked(p.operation, "format check", format_command(p.root))
 end
 
 local function phase_assemble(p: PlatformContext): integer

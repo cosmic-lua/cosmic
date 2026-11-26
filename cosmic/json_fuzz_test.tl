@@ -929,6 +929,11 @@ local function next_bytes(r: Recipe, n: integer): string
   return s .. string.rep("\0", n - #s)
 end
 
+--- A new table that any key can be put in.
+local function any_table(): mut {any: any} -- declared: key_type
+  return {}
+end
+
 local CHARS <const> = { "a", "Z", "0", " ", '"', "\\", "/", "\n", "\t", "\r", "\b", "\f", "\0", "\31", "\127",
   "\xc3\xa9", "\xe2\x82\xac", "\xf0\x9f\x98\x80" }
 
@@ -955,12 +960,12 @@ local function recipe_value(r: Recipe, depth: integer, parent?: {any: any}): any
     return table.concat(parts) -- checked: any_use
   end
   if op == 7 then
-    local t: mut {any: any} = {} -- declared: key_type
+    local t = any_table()
     for i = 1, next_byte(r) % 5 do t[i] = recipe_value(r, depth + 1, t) end
     return t
   end
   if op == 8 then
-    local t: mut {any: any} = {} -- declared: key_type
+    local t = any_table()
     for _ = 1, next_byte(r) % 5 do
       local key = recipe_value(r, 9, t)
       if key is string then t[key] = recipe_value(r, depth + 1, t) end
@@ -1190,5 +1195,210 @@ local function test_json_lines_are_total_and_round_trip(tmp: string)
       end
       return true, ""
     end,
+  })
+end
+
+--- Sorts keys that are all strings or all integers.
+local function sorted_keys(keys: mut {string | integer})
+  table.sort(keys, function(a: string | integer, b: string | integer): boolean
+    if a is string and b is string then return a < b end
+    if a is integer and b is integer then return a < b end
+    error("keys of two kinds")
+  end)
+end
+
+--- `k` when it is a string key.
+local function string_key(k: any): string?
+  if k is string then return k end
+  return nil
+end
+
+--- `k` when it is an integer key from 1 up.
+local function index_key(k: any): integer?
+  if k is integer and k >= 1 then return k end
+  return nil
+end
+
+--- How `t` encodes and what a walk over it visits, as cosmic/json.tl
+--- classified a table in Teal before core/json.c did: the reference the
+--- core's scan is held to, refusals and all.
+local function reference_classify<K is Key, V>(t: {K: V}, members: boolean, gaps: boolean): string, {string | integer}, integer
+  if Json.is_array(t) then
+    local extent = 0
+    local keys: mut {string | integer} = {}
+    if members then
+      local count = 0
+      for key in pairs(t) do
+        local k = index_key(key)
+        if k == nil then return "mixed", {}, 0 end
+        count = count + 1
+        if k > extent then extent = k end
+      end
+      if gaps and count ~= extent then
+        for key in pairs(t) do
+          local k = index_key(key)
+          if k ~= nil then keys[#keys + 1] = k end
+        end
+        sorted_keys(keys)
+      end
+    end
+    return "array", keys, extent
+  end
+  local keys: mut {string | integer} = {}
+  local strings, numbers, top = 0, 0, 0
+  for key in pairs(t) do
+    local name, index = string_key(key), index_key(key)
+    if name ~= nil then
+      strings = strings + 1
+      keys[#keys + 1] = name
+    elseif index ~= nil then
+      numbers = numbers + 1
+      if index > top then top = index end
+      keys[#keys + 1] = index
+    else
+      return "mixed", {}, 0
+    end
+  end
+  if strings > 0 and numbers > 0 then return "mixed", {}, 0 end
+  -- As many distinct keys from 1 up as the highest are exactly 1 to it,
+  -- whose one border `rawlen` is.
+  if numbers > 0 and top == numbers then return "array", {}, numbers end
+  sorted_keys(keys)
+  return if numbers > 0 then "hole" else "object" end, keys, 0
+end
+
+--- Keys whose first eight bytes agree, or that differ only past a zero
+--- byte, so that an order read from a key's head alone is caught.
+local NEAR_KEYS <const> = { "abcdefgh", "abcdefghi", "abcdefgh\0", "abcdefgh\0a", "abcdefg", "abcdefg\0",
+  "abcdefg\0\0", "", "\0", "\xff", "\xff\xff\xff\xff\xff\xff\xff\xff\x01", "b" }
+
+--- Puts integer keys a recipe's bytes name: from 1 up, with gaps, in
+--- runs past the core's few-key path, and below 1 when `low`.
+local function put_integers(r: Recipe, low: boolean, put: function(integer))
+  for _ = 1, next_byte(r) % 6 do
+    local op = next_byte(r) % 4
+    if op == 0 then
+      put(next_byte(r) % 8 + 1)
+    elseif op == 1 then
+      put(next_byte(r) % 90 + 1)
+    elseif op == 2 then
+      for i = 1, next_byte(r) % 100 + 1 do put(i) end
+    elseif low then
+      put(-(next_byte(r) % 3))
+    end
+  end
+end
+
+--- Puts string keys a recipe's bytes name: ones whose heads tie, any
+--- bytes, and runs past the core's few-key path.
+local function put_strings(r: Recipe, put: function(string))
+  for _ = 1, next_byte(r) % 6 do
+    local op = next_byte(r) % 3
+    if op == 0 then
+      put(assert(NEAR_KEYS[next_byte(r) % #NEAR_KEYS + 1]))
+    elseif op == 1 then
+      put(next_bytes(r, next_byte(r) % 10))
+    else
+      for i = 1, 60 + next_byte(r) % 20 do put("k" .. tostring(i * 7919 % 1000)) end
+    end
+  end
+end
+
+--- Puts keys of every kind a Lua table can hold that a recipe's bytes
+--- name, in any number past the core's few-key path.
+local function put_any(r: Recipe, put: function(any))
+  for _ = 1, next_byte(r) % 6 do
+    local op = next_byte(r) % 5
+    if op == 0 then
+      put_integers(r, true, function(k: integer) put(k) end)
+    elseif op == 1 then
+      put(next_byte(r) / 7 + 0.5)
+    elseif op == 2 then
+      put(next_byte(r) % 2 == 1)
+    elseif op == 3 then
+      put_strings(r, function(k: string) put(k) end)
+    else
+      put_integers(r, false, function(k: integer) put(k) end)
+    end
+  end
+end
+
+--- `layout` and `members` say of `t` what the Teal reference says, with
+--- the same keys in the same order; a table it calls mixed is one
+--- `encode` refuses and a step into it is refused.
+local function same_layout<K is Key, V>(t: {K: V}): boolean, string
+  local want = reference_classify(t, false, false)
+  local got = Json.layout(t)
+  if got ~= want then return false, ("layout %s, the reference %s"):format(got, want) end
+  Fuzz.label(got)
+  local count = 0
+  for _ in pairs(t) do count = count + 1 end
+  if count > 64 then Fuzz.label("many keys") end
+  -- An object of more keys than the core sorts on the stack.
+  if count > 64 and got == "object" then Fuzz.label("many string keys") end
+  for _, gaps in ipairs({ false, true }) do
+    local m = Json.members(t, gaps)
+    local layout, keys, extent = reference_classify(t, true, gaps)
+    if m.layout ~= layout or m.extent ~= extent or #m.keys ~= #keys then
+      return false, ("members(gaps=%s) %s %d keys extent %d, the reference %s %d keys extent %d"):format(
+        tostring(gaps), m.layout, #m.keys, m.extent, layout, #keys, extent)
+    end
+    for i, key in ipairs(keys) do
+      if m.keys[i] ~= key then
+        return false, ("members(gaps=%s) key %d is %s, the reference's %s"):format(tostring(gaps), i,
+          Json.quote(tostring(m.keys[i])), Json.quote(tostring(key)))
+      end
+    end
+  end
+  if got == "mixed" then
+    local text, _ = Json.encode_any(t)
+    if text ~= nil then return false, "encoded a table layout calls mixed: " .. text end
+    local outer: {string: {K: V}} = { t = t }
+    local value, _ = Json.get(outer, { "t" })
+    if value ~= nil then return false, "Json.get gave back a table layout calls mixed" end
+    local step, _ = Json.get(t, { 1 })
+    if step ~= nil then return false, "Json.get stepped into a table layout calls mixed" end
+  end
+  return true, ""
+end
+
+--- A table a recipe's bytes build, held to the reference: unmarked with
+--- keys of any kind, string keys alone or integer keys alone, some
+--- removed again, or marked.
+local function layout_holds(input: string): boolean, string
+  local r: Recipe = { bytes = input, at = 0 }
+  local kind = next_byte(r) % 4
+  if kind < 3 then
+    local t = any_table()
+    if kind == 0 then
+      put_any(r, function(k: any) t[k] = 1 end)
+    elseif kind == 1 then
+      put_strings(r, function(k: string) t[k] = 1 end)
+    else
+      put_integers(r, false, function(k: integer) t[k] = 1 end)
+    end
+    for _ = 1, next_byte(r) % 3 do
+      local victim: any = next(t)
+      if victim ~= nil then t[victim] = nil end
+    end
+    return same_layout(t)
+  end
+  -- Marked as an array when the keys first put leave no gap, else as
+  -- one with holes; either way given keys below 1 after.
+  local items: mut {integer: integer} = {}
+  put_integers(r, false, function(k: integer) items[k] = 1 end)
+  local t = assert(Json.with_holes(items))
+  put_integers(r, true, function(k: integer) items[k] = 1 end)
+  return same_layout(t)
+end
+
+--- The core's table scan classifies as the Teal it replaced did.
+local function test_layout_classifies_as_the_teal_reference(tmp: string)
+  Fuzz.run({
+    name = "json layout",
+    dir = tmp,
+    gen = function(src: Fuzz.Source): string return Fuzz.bytes(src, 40) end,
+    check = layout_holds,
+    requires = { "array", "object", "hole", "mixed", "many keys", "many string keys" },
   })
 end
