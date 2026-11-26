@@ -1543,8 +1543,8 @@ local function test_a_gating_download_is_tried_twice()
 end
 
 --- A pull request runs linux-x86_64's leg and macOS's suite, a light gate; the merge
---- queue and a push to main every leg but macOS, which the daily scheduled
---- run and a manual run add, the runs prerelease.yml publishes from. A leg has the same values whatever the
+--- queue every leg but macOS, and macOS's suite; a push to main, the daily scheduled
+--- run and a manual run of main all four. A leg has the same values whatever the
 --- run, every entry sets the same values, and alpine-x86_64,
 --- linux-x86_64's runner and target in the alpine image, is the only leg in
 --- that image.
@@ -1594,12 +1594,14 @@ local function test_each_kind_of_run_has_its_legs()
   for _, key in ipairs({ "runner", "target", "image" }) do
     assert(format[key] == assert(push["linux-x86_64"])[key], "the queue's format job runs on another host: " .. key)
   end
-  -- A push runs three legs whole and macOS's suite, which stands on the queue's verdicts and saves macOS's caches for
+  -- A push runs all four legs whole, macOS among them, so every commit that lands is tested on each platform within a
+  -- run (the queue runs macOS's suite alone). macOS's job stands on the queue's verdicts and saves macOS's caches for
   -- the queue's next runs, which otherwise only the daily run saved (the queue's macOS job booted cold, 7.3 of its
   -- 18.2 min on 45475769968).
   assert(names_of(push) == "alpine-x86_64 linux-aarch64 linux-x86_64 macos-aarch64", "a push's legs: " .. names_of(push))
   local push_mac = assert(push["macos-aarch64"])
-  for _, key in ipairs({ "part", "runner", "target", "image" }) do
+  assert(push_mac["part"] == "all", "a push runs part of macOS's leg: " .. tostring(push_mac["part"]))
+  for _, key in ipairs({ "runner", "target", "image" }) do
     assert(push_mac[key] == mac[key], "a push runs macOS otherwise than the queue: " .. key)
   end
   -- A suite job's zig build outputs are its boot's alone, saved apart (`<vendor>boot-`), so that the daily run, which
@@ -2162,7 +2164,7 @@ local function test_the_relay_saves_the_queues_verdicts_under_the_queues_name()
   local pushed: mut {string} = {}
   for _, leg in pairs(platform_legs("push")) do
     -- macOS's push job saves its own: no relay runs on a macOS runner.
-    if leg["part"] == "suite" then continue end
+    if leg["leg"] == "macos-aarch64" then continue end
     pushed[#pushed + 1] = assert(leg["leg"])
     assert(assert(queue_legs[assert(leg["leg"])])["part"] == "suite", "the queue runs no suite of " .. tostring(leg["leg"]))
   end
@@ -2323,9 +2325,9 @@ end
 --- fails on any that failed or was cancelled, but for a pull request's
 --- cancelled run, which skips it. The checked and narrowing jobs read as
 --- passed on a pull request, which skips them. On every
---- other run it compares the legs' products: the queue's and a push's three, the
---- scheduled and a manual run's four, which prerelease.yml publishes from
---- alone.
+--- other run it compares the legs' products: the queue's three, a push's, the
+--- scheduled and a manual run's four (prerelease.yml publishes from the
+--- last two).
 local function test_the_gate_needs_every_job_and_compares_the_legs_products()
   local jobs = ci_workflow().jobs
   local gate = job_of(jobs, "ci")
@@ -2346,7 +2348,7 @@ local function test_the_gate_needs_every_job_and_compares_the_legs_products()
   local compare = step_named(gate.steps, "compare the Cosmic bytes executed on every native host")
   assert(compare["if"] == PR_SKIPS and
       map_of(compare.env)["COSMIC_CI_PRODUCTS"] ==
-      "${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && " ..
+      "${{ (github.event_name == 'schedule' || github.event_name == 'push' || github.event_name == 'workflow_dispatch' && " ..
       "(github.ref == 'refs/heads/main' || inputs.macos)) && '4' || '3' }}",
     "the join compares other than main's products: " .. tostring(map_of(compare.env)["COSMIC_CI_PRODUCTS"]))
   local function count(legs: {string: {string: string}}): integer
