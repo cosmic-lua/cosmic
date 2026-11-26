@@ -394,7 +394,8 @@ local function test_a_write_from_a_base_is_a_write_of_the_whole(tmp: string)
 end
 
 --- An edit to one module's body leaves to the base each module whose key it
---- does not move: those that do not require the module, directly or not.
+--- does not move: every module but the one edited, since a module that requires it
+--- reads no body of it ([`build.shape_key`]).
 local function test_an_edit_to_one_module_takes_the_unrelated_from_the_base(tmp: string)
   write_tree(tmp .. "/t", initial, "")
   local handle = assert(work.open(tmp .. "/t"))
@@ -404,8 +405,8 @@ local function test_an_edit_to_one_module_takes_the_unrelated_from_the_base(tmp:
   end), "")
   local taken = write_both(handle, tmp .. "/out.db", tmp .. "/whole.db", "writer-test")
   same_bytes(tmp .. "/out.db", tmp .. "/whole.db", "body edit")
-  -- a1, b2 and main stand; c3 is edited, and d4 and e5 require it.
-  assert(taken == 3, "three of six modules stand, took " .. tostring(taken))
+  -- a1, b2, d4, e5 and main stand; c3 is edited, and d4 and e5 require it but read none of its bodies.
+  assert(taken == 5, "five of six modules stand, took " .. tostring(taken))
   assert(work.close(handle))
 end
 

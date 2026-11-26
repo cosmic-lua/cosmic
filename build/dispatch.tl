@@ -724,6 +724,16 @@ local function checkout_exit(argv: {string}, root: string): integer?
   return require("build.reboot").checkout_exit(argv, root)
 end
 
+--- Says on standard error where a run that holds the tool to no tree (`--version`, `-e`, `-`) uses a tool older than the
+--- checkout it was built from ([`reboot.stale_note`]). It reads and rebuilds nothing; a release, which records no
+--- checkout, loads nothing here.
+local function say_if_stale()
+  local built = require("cosmic.store").meta("built_from")
+  if built == nil or require("build.tree").checkout(built) == nil then return end
+  local note = require("build.reboot").stale_note()
+  if note ~= nil then log:complain(note) end
+end
+
 --- `cosmic --version`: the SHA-256 of the file this binary runs from,
 --- read in pieces, as a release's SHA256SUMS names it: `cosmic <hex>`.
 local function version(argv: {string}): integer
@@ -748,6 +758,7 @@ local function version(argv: {string}): integer
     log:complain("--version: " .. tostring(digest_trouble))
     return 1
   end
+  say_if_stale()
   log:say("cosmic " .. digest)
   return 0
 end
@@ -769,6 +780,7 @@ local function evaluate(argv: {string}, name?: string): integer
     log:complain("usage: cosmic -e '<chunk>' [args...]")
     return 2
   end
+  say_if_stale()
   local type importer = require("build.importer")
   local outcome: importer.Outcome = { refused = false }
   -- A chunk that requires a module of the working directory's tree is checked as a file at its root is.
