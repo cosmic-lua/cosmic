@@ -328,7 +328,7 @@ function Passkeys.middleware(opts: Passkeys.Options): Types.Middleware
 
   local function failed(req: Types.Request, why: Failure): Types.Response
     local sink = req.app.spec.sink
-    if sink ~= nil then sink:line("passkeys: " .. tostring(why)) end
+    if sink ~= nil then sink:line(tostring(why)) end
     return Response.problem(500, "the passkeys cannot be read")
   end
 
