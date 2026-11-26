@@ -259,7 +259,7 @@ end
 --- tools and its MCP servers have, what it keeps and reads, its API,
 --- and nest, in a root of its own, marked held.
 local function test_the_session_holds_what_its_tools_and_servers_have()
-  if Sandbox.on_macos() then return end
+  if Sandbox.on_macos() then Test.skip("macOS holds no session: it has no nest") end
   local work = scratch()
   local kept = scratch()
   local served = scratch()
