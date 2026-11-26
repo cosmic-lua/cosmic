@@ -433,10 +433,11 @@ local function test_depth_limits()
   Test.raises(function() local _, _ = Json.encode(1, fractional as Json.EncodeOptions) end) -- checked: cast_refused
 end
 
-local function test_pretty()
-  assert(encoded({ b = { 1, 2 }, a = {}, c = Json.array() }, { pretty = true }) == -- checked: literal_needs_type
-      '{\n  "a": {},\n  "b": [\n    1,\n    2\n  ],\n  "c": []\n}', "two spaces by default")
-  assert(encoded({ a = { 1 } }) == '{"a":[1]}', "compact without pretty")
+local function test_expanded()
+  assert(encoded({ b = { 1, 2 }, a = {}, c = Json.array() }, { layout = "expanded" }) == -- checked: literal_needs_type
+      '{\n  "a": {},\n  "b": [\n    1,\n    2\n  ],\n  "c": []\n}', "two spaces a level")
+  assert(encoded({ a = { 1 } }) == '{"a":[1]}', "compact by default")
+  assert(encoded({ a = { 1 } }, { layout = "compact" }) == '{"a":[1]}', "compact by name")
 end
 
 local function test_ascii_escapes_every_character_past_ascii()
@@ -450,8 +451,8 @@ local function test_ascii_escapes_every_character_past_ascii()
   assert(encoded("a\"\\\n\127\xc3\xa9z", ascii) == '"a\\"\\\\\\n\127\\u00e9z"', -- checked: not_assignable
     "ASCII escapes and DEL are as without the option")
   assert(encoded({ ["\xc3\xa9"] = { "\xe2\x82\xac" } }, ascii) == '{"\\u00e9":["\\u20ac"]}', "keys too") -- checked: not_assignable
-  assert(encoded({ a = "\xc3\xa9" }, { ascii = true, pretty = true }) == '{\n  "a": "\\u00e9"\n}',
-    "with pretty")
+  assert(encoded({ a = "\xc3\xa9" }, { ascii = true, layout = "expanded" }) == '{\n  "a": "\\u00e9"\n}',
+    "expanded")
   assert(encoded("\xc3\xa9", { ascii = false }) == '"\xc3\xa9"', "false leaves the text alone")
   assert(encoded("\xc3\xa9") == '"\xc3\xa9"', "off by default")
   assert(encoded("plain", ascii) == '"plain"') -- checked: not_assignable
@@ -553,12 +554,15 @@ end
 local function test_random_values_round_trip()
   local pick = generator(20260923)
   local keep = { null_value = Json.null }
+  local layouts: {Json.Layout} = { "expanded", "fractured" }
   for _ = 1, 500 do
     local value = random_value(pick, 0)
     local text = encoded(value)
     assert(same(decoded(text, keep), value), "round trip of " .. text) -- checked: not_assignable
-    local pretty = encoded(value, { pretty = true })
-    assert(same(decoded(pretty, keep), value), "pretty round trip of " .. pretty) -- checked: not_assignable
+    for _, layout in ipairs(layouts) do
+      local laid = encoded(value, { layout = layout, width = 30 })
+      assert(same(decoded(laid, keep), value), layout .. " round trip of " .. laid) -- checked: not_assignable
+    end
     local ascii = encoded(value, { ascii = true })
     assert(not ascii:find("[\128-\255]"), "ascii text is ASCII: " .. ascii)
     assert(same(decoded(ascii, keep), value), "ascii round trip of " .. ascii) -- checked: not_assignable
@@ -841,7 +845,7 @@ local function test_format_keeps_order_and_numbers()
   local text = '{ "b" : 1.50, "a": [ ], "c": {"x": [123456789012345678901234567890, -0, "\\u00e9\\/"], "e": {}} }'
   assert(assert(Json.format(text)) == '{"b":1.50,"a":[],"c":{"x":[123456789012345678901234567890,-0,"\u{e9}/"],"e":{}}}',
     assert(Json.format(text)))
-  assert(assert(Json.format(text, { pretty = true })) == [[
+  assert(assert(Json.format(text, { layout = "expanded" })) == [[
 {
   "b": 1.50,
   "a": [],

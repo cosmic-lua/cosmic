@@ -527,7 +527,7 @@ function bom.cyclonedx(rows: {bom.Row}, subject: string, version: string): strin
     metadata = { component = { type = "application", ["bom-ref"] = subject,
       name = subject, version = version } },
     components = Json.array(components),
-  }, { pretty = true })
+  }, { layout = "expanded" })
   if written == nil then return nil, tostring(why) end
   return written, ""
 end

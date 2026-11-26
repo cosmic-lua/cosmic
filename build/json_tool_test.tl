@@ -13,7 +13,7 @@ Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx
 local function test_it_reads_standard_input_and_prints_no_summary(tmp: string)
   local ran = tool_fixture.cosmic(tmp, { "json", "$.a[1]" }, '{"a": [1, {"b": "c"}]}')
   assert(ran.code == 0, ran.err)
-  assert(ran.out == '{\n  "b": "c"\n}\n', ran.out)
+  assert(ran.out == '{"b": "c"}\n', ran.out)
   assert(ran.err == "", ran.err)
   local dash = tool_fixture.cosmic(tmp, { "json", "-r", "$.a", "-" }, '{"a": "text"}')
   assert(dash.code == 0 and dash.out == "text\n", dash.out)

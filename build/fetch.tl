@@ -452,7 +452,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     if as_json then
       local encoded, encode_trouble = Json.encode({
         status = response.status, url = bare.redact_url(response.url), headers = response.headers,
-      }, { pretty = true })
+      }, { layout = "expanded" })
       if encoded == nil then
         complain(tostring(encode_trouble))
         done(response)

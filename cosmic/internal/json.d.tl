@@ -45,19 +45,23 @@ local record json
                   duplicate_keys?: boolean, big_as_string?: boolean): boolean, string
   -- The value `text` holds, read as `check` reads it, written again as
   -- RFC 8259 text: its members in the text's order and its numbers as
-  -- written (a JSON5 form as RFC 8259 writes the number), laid out
-  -- two spaces a level with `pretty`; or, with `canonical`, in RFC
-  -- 8785's form. nil and a message when the text does not read, or
-  -- holds NaN or an infinity.
+  -- written (a JSON5 form as RFC 8259 writes the number), laid out as
+  -- `encode` lays it out by `layout` and `width`; or, with `canonical`,
+  -- in RFC 8785's form. nil and a message when the text does not read,
+  -- or holds NaN or an infinity.
   format: function(text: string, max_depth?: integer, json5?: boolean,
                    lone_surrogates?: boolean, hash_comments?: boolean,
-                   duplicate_keys?: boolean, pretty?: boolean,
-                   canonical?: boolean): string?, string
+                   duplicate_keys?: boolean, layout?: string,
+                   canonical?: boolean, width?: integer): string?, string
   -- `value` as JSON text. nil and a message when it holds something
   -- JSON cannot say, naming where: `... at pointer "/users/2/name"`. Keys are
-  -- sorted by their bytes; `pretty` lays it out two spaces a level. Raises
-  -- when `max_depth` is outside 1 to `depth_limit`.
-  encode: function(value: any, pretty?: boolean, max_depth?: integer, ascii?: boolean): string?, string
+  -- sorted by their bytes. `layout` is "compact" (the default), "expanded"
+  -- (two spaces a level) or "fractured" (FracturedJson's layout, in lines
+  -- of `width` characters, 120 when absent). Raises when `max_depth` is
+  -- outside 1 to `depth_limit`, `layout` is another word, or `width` is
+  -- less than 1.
+  encode: function(value: any, layout?: string, max_depth?: integer, ascii?: boolean,
+                   width?: integer): string?, string
   -- Marks `t`, or a new table, as a JSON array and gives it back. Raises
   -- when `t` has another metatable.
   array: function(): {any}

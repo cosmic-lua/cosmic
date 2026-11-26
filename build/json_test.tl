@@ -48,10 +48,25 @@ local function file(tmp: string, text?: string): string
   return path
 end
 
-local function test_a_found_value_prints_as_indented_json(tmp: string)
+--- A value prints laid out as FracturedJson lays it out: on one line
+--- when it fits, its rows lined up in columns when they are alike.
+local function test_a_found_value_prints_as_fractured_json(tmp: string)
   local ran = run({ "$.users[0]", file(tmp) })
   assert(ran.code == 0 and ran.err == "", ran.err)
-  assert(ran.out == '{\n  "id": 1,\n  "name": "ann"\n}\n', ran.out)
+  assert(ran.out == '{"id": 1, "name": "ann"}\n', ran.out)
+  local whole = run({ file(tmp) })
+  assert(whole.out == [[
+{
+  "a key"  : {"x y": true},
+  "empty"  : {},
+  "n"      : 3,
+  "name"   : "cosmic",
+  "none"   : [],
+  "nothing": null,
+  "tags"   : ["lua", "teal"],
+  "users"  : [ {"id": 1, "name": "ann"}, {"id": 2, "name": "bo"} ]
+}
+]], whole.out)
   local scalar = run({ "$.n", file(tmp) })
   assert(scalar.code == 0 and scalar.out == "3\n", scalar.out)
 end
@@ -175,7 +190,7 @@ end
 --- file, whatever else it begins with.
 local function test_a_lone_word_is_the_path_only_when_it_begins_with_a_dollar(tmp: string)
   local path = file(tmp, '{"a": 1}')
-  assert(run({ path }).out == '{\n  "a": 1\n}\n')
+  assert(run({ path }).out == '{"a": 1}\n')
   assert(run({ "--exists", "./doc.json" }, "{}").code == 5, "./doc.json is a file, not read from stdin")
   assert(run({ "$.a" }, '{"a": 1}').out == "1\n")
   assert(run({ "$[0]" }, '[5, 6]').out == "5\n")

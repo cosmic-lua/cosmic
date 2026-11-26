@@ -378,7 +378,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   if request.raw and value is string then
     return written(to.out(value .. "\n"))
   end
-  local encoded, encode_trouble = Json.encode_any(value, { pretty = not request.compact })
+  local encoded, encode_trouble = Json.encode_any(value, { layout = if request.compact then "compact" else "fractured" end })
   if encoded == nil then
     complain(place .. ": " .. plain(tostring(encode_trouble)))
     return bare.failed
