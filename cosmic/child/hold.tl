@@ -661,6 +661,19 @@ function Hold.relaunch_of(user: MappedUser?, database?: string): Proc.Relaunch?,
   return { argv = argv, env = launched.env, fds = fds, cwd = launched.cwd }, ""
 end
 
+--- The variables by which a portable relaunch names its descriptors.
+local HANDED <const>: {string} = { "COSMIC_PORTABLE_ARTIFACT_FD", "COSMIC_PORTABLE_CORE_FD" }
+
+--- `found`, a portable relaunch, started by path: no descriptor handed,
+--- and none named, so its startup opens the artifact `--artifact` names
+--- and the core it runs as itself.
+function Hold.by_path(found: Proc.Relaunch): Proc.Relaunch
+  local env: mut {string:string} = {}
+  for name, value in pairs(found.env) do env[name] = value end
+  for _, name in ipairs(HANDED) do env[name] = nil end
+  return { argv = found.argv, env = env, fds = {}, cwd = found.cwd }
+end
+
 --- Whether the file at `path`, the database a policy's program runs on,
 --- is the one `database` names: true where it hashes to the policy's
 --- `sha256`, or where the policy holds none; otherwise false and why.
