@@ -77,7 +77,9 @@ function Example.passkeys()
   local key, id = Key.generate("ed25519"), assert(Rand.entropy(16))
   local none: {string: Json.Value} = {}
   local function challenge_of(res: Web.TestResponse): string
-    local options = assert(Json.to_object((res:json())))
+    local body, why = res:json()
+    assert(body ~= nil, tostring(why))
+    local options = assert(Json.to_object(body))
     local challenge = options["challenge"]
     assert(challenge is string)
     return (assert(Codec.unbase64url(challenge)))
@@ -94,7 +96,9 @@ function Example.passkeys()
   local begun = first:post("/auth/passkey/register/begin", { json = none })
   local challenge = challenge_of(begun)
   -- The authenticator keeps the user handle with the passkey.
-  local user_id = assert(Json.to_object(assert(Json.to_object((begun:json())))["user"]))["id"]
+  local begun_body, why = begun:json()
+  assert(begun_body ~= nil, tostring(why))
+  local user_id = assert(Json.to_object(assert(Json.to_object(begun_body))["user"]))["id"]
   assert(user_id is string)
   local handle = assert(Codec.unbase64url(user_id))
   -- Drawn at random, not the name: nobody can name it to sign up.
