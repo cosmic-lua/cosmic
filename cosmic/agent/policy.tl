@@ -463,7 +463,9 @@ function Policy.session(tools: Sandbox.Policy, session: Policy.Session): Sandbox
     for _, target in ipairs(Sandbox.connects(policy)) do
       grants[#grants + 1] = { connect = target }
     end
-    for _, profile in ipairs(Sandbox.profiles(policy)) do grants[#grants + 1] = { profile = profile } end
+    for _, profile in ipairs(Sandbox.profiles(policy)) do
+      grants[#grants + 1] = { profile = profile }
+    end
   end
   for _, dir in ipairs(session.keeps) do grants[#grants + 1] = { path = dir, letters = "rwc" } end
   for _, file in ipairs(session.reads) do grants[#grants + 1] = { path = file, letters = "r" } end
