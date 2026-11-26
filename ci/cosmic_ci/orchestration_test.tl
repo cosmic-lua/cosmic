@@ -6,6 +6,7 @@ local Hash = require("cosmic.hash")
 local CiWorkflow = require("cosmic_ci.ci_workflow")
 local Proc = require("cosmic.proc")
 local Shape = require("cosmic.shape")
+local Capabilities = require("cosmic_ci.capabilities")
 local Fixture = require("cosmic_ci.fixture")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
@@ -647,14 +648,16 @@ local function test_an_unsandboxed_fixture_neither_reads_nor_writes_shared_verdi
   assert(fixture["COSMIC_FIXTURE_SOURCE"] == tmp .. "/source")
 end
 
---- A fixture runs on the pinned driver, whose held `cosmic test` refuses a promise it does not know: the fixture's
---- environment keeps the leg's other promises and drops `pinned_zig`, which the tree's own suites are given.
-local function test_a_fixture_is_not_promised_what_the_driver_does_not_know(tmp: string)
+--- A fixture keeps its leg's promises and is promised each COSMIC_FIXTURE_* variable its environment sets (`env:`),
+--- which a fixture requires of each it reads: a held run fails one the driver did not set.
+local function test_a_fixture_is_promised_its_variables(tmp: string)
   local Orchestration = require("cosmic_ci.orchestration")
   local env: {string:string} = { COSMIC_CI_REQUIRE_SANDBOX = "1",
-    COSMIC_TEST_PROMISES = "all_cores,pinned_zig,sandbox", COSMIC_TEST_LEG = "linux-x86_64" }
+    COSMIC_TEST_PROMISES = "all_cores,pinned_zig,sandbox", COSMIC_TEST_LEG = "linux-x86_64",
+    COSMIC_FIXTURE_TARGET = "x86_64-linux-musl", COSMIC_FIXTURE_ROOT = "/r", COSMIC_FIXTURE_EMPTY = "" }
   local fixture = Orchestration.fixture(env, tmp .. "/tmp", tmp .. "/fixture-compiles.db")
-  assert(fixture["COSMIC_TEST_PROMISES"] == "all_cores,sandbox", fixture["COSMIC_TEST_PROMISES"])
+  assert(fixture["COSMIC_TEST_PROMISES"] ==
+      "all_cores,pinned_zig,sandbox,env:COSMIC_FIXTURE_ROOT,env:COSMIC_FIXTURE_TARGET", fixture["COSMIC_TEST_PROMISES"])
   assert(fixture["COSMIC_TEST_LEG"] == "linux-x86_64")
   local none = Orchestration.fixture({}, tmp .. "/tmp", tmp .. "/fixture-compiles.db")
   assert(none["COSMIC_TEST_PROMISES"] == nil, "a fixture is promised what its leg did not promise")
@@ -1725,8 +1728,14 @@ end
 
 --- What the checked job's leg promises and `checked`, which the run's core
 --- does not have: the phase leaves that one out.
-local narrowing_promised <const> = "all_cores,pinned_zig,sandbox,landlock,userns,nest,own_proc,proc,unix_socket,path:/bin/sh," ..
-  "path:/bin/cat,path:/proc/thread-self/children,path:/usr/bin/env,path:/etc/passwd"
+--- Read from capabilities.json, so a promise added there does not fail this test (#4259).
+local narrowing_promised <const> = (function(): string
+  local kept: mut {string} = {}
+  for _, name in ipairs(assert(Capabilities.legs()["linux-x86_64-checked-narrowing"])) do
+    if name ~= "checked" then kept[#kept + 1] = name end
+  end
+  return table.concat(kept, ",")
+end)()
 
 --- Runs the `checked-narrowing` phase of a fixture checkout for each of
 --- `cases` and holds what the fixture's tool was run as, and whether the
@@ -1886,7 +1895,7 @@ local function test_a_leg_is_given_the_requirements_it_promises()
 end
 
 --- A fixture runner is given its leg's promises as a candidate
---- suite is, Unix sockets among them, but those the driver does not know.
+--- suite is, Unix sockets among them.
 local function test_a_fixture_is_given_its_legs_promises(tmp: string)
   local Orchestration = require("cosmic_ci.orchestration")
   for _, source in ipairs({ "format", "runtime" }) do
@@ -1900,8 +1909,9 @@ local function test_a_fixture_is_given_its_legs_promises(tmp: string)
     assert(candidate:find(",unix_socket,", 1, true), candidate)
     local fixture = Orchestration.fixture_run(source, env, tmp .. "/tmp", tmp .. "/c.db")
     local given = "," .. assert(fixture["COSMIC_TEST_PROMISES"]) .. ","
-    -- All but `pinned_zig`, which the driver a fixture runs on does not know.
-    assert(given == (candidate:gsub(",pinned_zig,", ",")), "the fixture changed its leg's promises: " .. given)
+    -- All of them, and the `env:` of each COSMIC_FIXTURE_* variable it is given.
+    assert((given:gsub("env:COSMIC_FIXTURE_[%w_]+,", "")) == candidate,
+      "the fixture changed its leg's promises: " .. given)
     assert(fixture["COSMIC_TEST_LEG"] == "linux-x86_64-checked")
     assert(fixture["COSMIC_SANDBOX"] == "must", "fixture confinement is no longer held")
     assert(fixture["COSMIC_TEST_SANDBOX"] == (if source == "runtime" then "1" else "0" end))
