@@ -1080,7 +1080,9 @@ static void push_transfer_error (lua_State *L, struct transfer *t) {
  * kind of failure rather than reading its message: the kinds callers
  * need, and "failed" for every other. */
 static const char *transfer_code (CURLcode result) {
-  return result == CURLE_COULDNT_CONNECT ? "couldnt_connect" : "failed";
+  if (result == CURLE_COULDNT_CONNECT) return "couldnt_connect";
+  if (result == CURLE_OPERATION_TIMEDOUT) return "timed_out";
+  return "failed";
 }
 
 /* ---- teardown ------------------------------------------------------ */

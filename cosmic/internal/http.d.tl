@@ -119,7 +119,8 @@ local record http
   --
   -- A request curl itself failed (not one refused up front, as above)
   -- also returns a third value naming the failure: "couldnt_connect"
-  -- when it could not connect, "failed" for any other.
+  -- when it could not connect, "timed_out" when a time limit ran out,
+  -- "failed" for any other.
   open: function(url: string, opts?: Options): Handle?, string, string?
 
   -- What the shared transfers wait on, for a caller that waits itself:

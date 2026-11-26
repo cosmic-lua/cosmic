@@ -97,9 +97,11 @@ end
 
 --- The [`Failure`] for the words a request's failure gave: kind
 --- "timeout" for [`Poll.TIMEOUT`], "cancelled" for [`Poll.CANCELLED`] and
---- for "interrupted" (a signal a [`Signal.guard`] caught), else "other".
-local function failure_of(why: string): Failure
-  if why == Poll.TIMEOUT then return Failure.timeout(why) end
+--- for "interrupted" (a signal a [`Signal.guard`] caught), "timeout" too
+--- where curl names its `code` "timed_out" (a limit of the transfer ran
+--- out), else "other".
+local function failure_of(why: string, code?: string): Failure
+  if why == Poll.TIMEOUT or code == "timed_out" then return Failure.timeout(why) end
   if why == Poll.CANCELLED or why == "interrupted" then return Failure.cancelled(why) end
   return Failure.new(why)
 end
@@ -1116,15 +1118,15 @@ end
 
 --- [`Http.open`]'s work, which each public entry point that opens
 --- calls itself (`CALLER`), sending `sent`'s method and body.
-local function opened(url: string, opts: Http.Options, sent: Sent?): Response?, string
+local function opened(url: string, opts: Http.Options, sent: Sent?): (Response) | (nil, Failure)
   local escaped, refused = sendable(url)
   if escaped == nil then
-    return nil, refused
+    return nil, failure_of(refused)
   end
   url = escaped
   local raw, unmade = raw_options(opts, sent, true)
   if raw == nil then
-    return nil, unmade
+    return nil, failure_of(unmade)
   end
   local policy = retry_of(opts, CALLER - 1)
   local pacer = pace_of(opts, CALLER - 1)
@@ -1137,7 +1139,7 @@ local function opened(url: string, opts: Http.Options, sent: Sent?): Response?, 
   while true do
     if pacer ~= nil then
       local turned, why = take_turn(pacer, cancelled)
-      if not turned then return nil, why end
+      if not turned then return nil, failure_of(why) end
     end
     local handle, trouble, code = http.open(url, raw)
     if handle ~= nil and raw.wait == false then
@@ -1157,9 +1159,9 @@ local function opened(url: string, opts: Http.Options, sent: Sent?): Response?, 
     end
     if handle == nil then
       if opts.via ~= nil then
-        return nil, socket_trouble(opts.via, trouble, code)
+        return nil, failure_of(socket_trouble(opts.via, trouble, code), code)
       end
-      return nil, trouble
+      return nil, failure_of(trouble, code)
     end
     local again = false
     if policy ~= nil and attempt < policy.attempts and policy.statuses[handle:status()] == true then
@@ -1169,19 +1171,23 @@ local function opened(url: string, opts: Http.Options, sent: Sent?): Response?, 
         handle:close()
         if wait > 0 or cancelled ~= nil then
           local waited, why = pause(wait, cancelled)
-          if not waited then return nil, why end
+          if not waited then return nil, failure_of(why) end
         end
         again = true
       end
     end
     if not again then
-      if opts.decompress == true then return decoded(respond(handle)) end
-      return respond(handle), ""
+      if opts.decompress == true then
+        local response, why = decoded(respond(handle))
+        if response == nil then return nil, failure_of(why) end
+        return response
+      end
+      return respond(handle)
     end
     attempt = attempt + 1
     if opts.script ~= nil then
       raw, unmade = raw_options(opts, sent, true, first)
-      if raw == nil then return nil, unmade end
+      if raw == nil then return nil, failure_of(unmade) end
     end
   end
 end
@@ -1265,13 +1271,14 @@ end
 --- the byte; a user name or password goes in through [`Url.escape`].
 --- A failure is nil and a [`Failure`]: of kind "cancelled" when a caught
 --- signal or `opts.cancelled` stopped it, "timeout" when the wait of a
---- [`Poll`] task ran out ([`Poll.TIMEOUT`]), else "other". A transfer past `opts.timeout_ns` is
---- "other" for now, its message curl's ("Operation timed out after ...").
+--- [`Poll`] task ran out ([`Poll.TIMEOUT`]) or a limit such as
+--- `opts.timeout_ns` did (its message curl's, "Operation timed out after
+--- ..."), else "other".
 function Http.open(url: string, opts: Http.OpenOptions): (Response) | (nil, Failure)
   stated(opts)
   local response, trouble = opened(url, opts, { method = opts.method, body = opts.body })
   if response == nil then
-    return nil, failure_of(trouble)
+    return nil, trouble
   end
   return response
 end
@@ -1286,7 +1293,7 @@ function Http.get(url: string, opts: Http.GetOptions): (Http.Body) | (nil, Failu
   local limit = body_limit(opts.max_bytes)
   local response, trouble = opened(url, opts, nil)
   if response == nil then
-    return nil, failure_of(trouble)
+    return nil, trouble
   end
   local body, why = whole(response, limit, opts.decompress == true, "GET")
   if body == nil then return nil, failure_of(why) end
@@ -1323,7 +1330,7 @@ function Http.request(method: string, url: string, opts: Http.RequestOptions): (
   local limit = body_limit(opts.max_bytes)
   local response, trouble = opened(url, opts, { method = method, body = opts.body })
   if response == nil then
-    return nil, failure_of(trouble)
+    return nil, trouble
   end
   local body, why = whole(response, limit, opts.decompress == true, method)
   if body == nil then return nil, failure_of(why) end
@@ -1460,7 +1467,7 @@ local function downloading(url: string, path: string,
   local _, _ = raw_options(opts)
   local response, open_trouble = opened(url, opts, nil)
   pending.response = response
-  if response == nil then return { kind = "failed", reason = open_trouble } end
+  if response == nil then return { kind = "failed", reason = tostring(open_trouble) } end
   if response.status < 200 or response.status >= 300 then
     return { kind = "http_status", status = response.status, reason = "HTTP " .. tostring(response.status) }
   end
