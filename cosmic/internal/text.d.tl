@@ -18,6 +18,12 @@ local record text
   -- standard one, with `=` padding to a multiple of four characters where
   -- `padded`. No line breaks.
   base64: function(bytes: string, url: boolean, padded: boolean): string
+  -- `bytes` as lowercase hexadecimal, two digits a byte.
+  hex: function(bytes: string): string
+  -- The bytes the hex digits of `text` spell, in either case; `text` is of
+  -- even length (else it raises). Else nil and the 1-based place of the first
+  -- byte that is no hex digit.
+  unhex: function(text: string): string?, integer
   -- Why [`unbase64`] refused a text: a length not a multiple of 4, one
   -- character over (unpadded), `=` out of place, a byte outside the
   -- alphabet, or nonzero bits in the last character.

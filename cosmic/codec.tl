@@ -1,6 +1,5 @@
 --- Byte-to-text encodings: hexadecimal and base64 (RFC 4648). The
---- hex codecs are Teal and take any bytes; the base64 codecs run in the
---- core. Decoders are strict and total: for text
+--- codecs run in the core and take any bytes. Decoders are strict and total: for text
 --- that no encoder here would write -- a character outside the
 --- alphabet, a bad length, misplaced padding, or nonzero trailing bits
 --- -- they return nil and a [`Failure`] rather than a guess, so every string
@@ -47,42 +46,11 @@ local function refuse(why: string): nil, Failure
   return nil, Failure.new("codec: " .. why)
 end
 
---- Every byte's two lowercase hex digits, by the byte: `gsub` takes the
---- table as its replacement, one lookup per byte.
-local hex_of: mut {string:string} = {}
-for byte = 0, 255 do
-  hex_of[string.char(byte)] = ("%02x"):format(byte)
-end
-
---- [`hex_bytes`]'s table, once built.
-local byte_of_hex: {string:string}? = nil
-
---- Every pair of hex digits, either case, to the byte it spells, built
---- on first use: most programs that load this module (through
---- [`cosmic.hash`]) decode no hex.
-local function hex_bytes(): {string:string}
-  local found = byte_of_hex
-  if found == nil then
-    local made: mut {string:string} = {}
-    for byte = 0, 255 do
-      local ch = string.char(byte)
-      local lower = ("%02x"):format(byte)
-      made[lower] = ch
-      made[lower:upper()] = ch
-      made[lower:sub(1, 1):upper() .. lower:sub(2, 2)] = ch
-      made[lower:sub(1, 1) .. lower:sub(2, 2):upper()] = ch
-    end
-    byte_of_hex = made
-    found = made
-  end
-  return found
-end
-
 --- Bytes as lowercase hexadecimal, two digits per byte.
 --- @param s string The bytes to encode
 --- @return string Twice as many hex digits
 function Codec.hex(s: string): string
-  return (s:gsub(".", hex_of))
+  return raw.hex(s)
 end
 
 --- The bytes hexadecimal text spells, reading either case. Returns
@@ -93,11 +61,11 @@ function Codec.unhex(s: string): (string) | (nil, Failure)
   if #s % 2 ~= 0 then
     return refuse(("hex text of odd length %d"):format(#s))
   end
-  local at = s:find("[^0-9a-fA-F]")
-  if at ~= nil then
+  local bytes, at = raw.unhex(s)
+  if bytes == nil then
     return refuse(("byte 0x%02x at %d is not a hex digit"):format(byte_at(s, at), at))
   end
-  return (s:gsub("..", hex_bytes()))
+  return bytes
 end
 
 --- The bytes `s` spells in base64, decoded by the core: the URL-safe
