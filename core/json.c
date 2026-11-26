@@ -1432,7 +1432,7 @@ static int put_value (struct encoding *e, int idx, int depth) {
 /* FracturedJson's layout (https://github.com/j-brooke/FracturedJson),
  * written again here from its rules: compact text, as this file's
  * writers write it, laid out for people to read. cosmic/json.tl's
- * [`Json.Layout`] says what each rule does; the limits below are
+ * [`Json.TextLayout`] says what each rule does; the limits below are
  * FracturedJson's defaults, but for the indent, two spaces as
  * `expanded` writes it. Its input is this file's own compact text, so a
  * byte out of place is a fault of this file, refused all the same. */

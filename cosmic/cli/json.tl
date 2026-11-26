@@ -3,7 +3,7 @@
 --- export, what is under `users[0]`. It reads the file, or standard input
 --- when the file is `-` or absent. It prints the value at the path laid
 --- out for reading, as FracturedJson lays it out (what fits on a line on
---- one, rows that are alike in aligned columns: [`Json.Layout`]'s
+--- one, rows that are alike in aligned columns: [`Json.TextLayout`]'s
 --- `"fractured"`), or on one line with `--compact`. With `-r`, a string
 --- prints as its text.
 ---

@@ -554,7 +554,7 @@ end
 local function test_random_values_round_trip()
   local pick = generator(20260923)
   local keep = { null_value = Json.null }
-  local layouts: {Json.Layout} = { "expanded", "fractured" }
+  local layouts: {Json.TextLayout} = { "expanded", "fractured" }
   for _ = 1, 500 do
     local value = random_value(pick, 0)
     local text = encoded(value)

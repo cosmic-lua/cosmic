@@ -865,7 +865,7 @@ local function text_holds(input: string): boolean, string
       if assert(Json.format(compact, { json5 = json5 })) ~= compact then
         return false, where .. ": format is no fixed point: " .. compact
       end
-      local layouts: {Json.Layout} = { "expanded", "fractured" }
+      local layouts: {Json.TextLayout} = { "expanded", "fractured" }
       for _, layout in ipairs(layouts) do
         local laid, _ = Json.format(input, { json5 = json5, layout = layout, width = 40 })
         if laid == nil or assert(Json.format(laid, { json5 = json5 })) ~= compact then
@@ -988,7 +988,7 @@ end
 
 local function recipe_options(r: Recipe): Json.EncodeOptions
   local bits = next_byte(r)
-  local layouts: {Json.Layout} = { "compact", "expanded", "fractured", "fractured" }
+  local layouts: {Json.TextLayout} = { "compact", "expanded", "fractured", "fractured" }
   local opts: Json.EncodeOptions = { layout = layouts[(bits & 1) + (bits >> 6 & 2) + 1], width = ((bits >> 3) & 7) * 10 + 1 }
   if bits & 2 ~= 0 then opts.max_depth = next_byte(r) % 8 + 1 end
   opts.ascii = bits & 4 ~= 0

@@ -96,7 +96,7 @@
 ---
 --- Text can be handled as text, without building a value:
 --- [`Json.check`] says whether `decode` would read it, [`Json.format`]
---- writes it again compact or laid out (any [`Json.Layout`]), its members in their order and
+--- writes it again compact or laid out (any [`Json.TextLayout`]), its members in their order and
 --- its numbers as they were written, and [`Json.canonical`] writes the
 --- one text RFC 8785 makes of it, for a digest or a signature that two
 --- programs must agree on.
@@ -136,7 +136,7 @@ local String = require("cosmic.string")
 
 local record Json
   --- How [`Json.encode`] and [`Json.format`] lay their text out.
-  enum Layout
+  enum TextLayout
     --- On one line, with no space (the default).
     "compact"
     --- Over lines, one member or element to a line, indented by two
@@ -178,7 +178,7 @@ local record Json
   --- What `encode` may be told. Every field is optional.
   record EncodeOptions
     --- How to lay the text out (default `"compact"`).
-    layout?: Json.Layout
+    layout?: Json.TextLayout
     --- The most characters a line of `"fractured"` text holds, indent
     --- included, where its values allow (default 120). A value longer
     --- than that is still written whole. Raises when it is less than 1.
@@ -200,7 +200,7 @@ local record Json
   record FormatOptions
     --- How to lay the text out, as `encode` takes it (default
     --- `"compact"`).
-    layout?: Json.Layout
+    layout?: Json.TextLayout
     --- The most characters a line of `"fractured"` text holds, as
     --- `encode` takes it. [`Json.canonical`] takes neither: its text is
     --- always compact.
