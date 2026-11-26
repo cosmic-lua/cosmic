@@ -141,7 +141,7 @@ local function test_grants_past_the_most_with_the_starts_own_are_refused(tmp: st
     assert(Fs.mkdirs(dir))
     grants[#grants + 1] = { path = dir, letters = "r" }
   end
-  local program = assert(Fake.build(base .. "/fake"))
+  local program = assert(Fake.build(base .. "/fake", Fake.REPLY))
   local refused, why = Child.layers({ program }, { policy = { grants = grants }, timeout_ns = Child.FOREVER })
   assert(refused == nil and why:find("past the most a start takes, " .. tostring(confine.unveil_max), 1, true) ~= nil, why)
   local started, failure = Child.run({ program }, { policy = { grants = grants }, timeout_ns = Child.FOREVER })
