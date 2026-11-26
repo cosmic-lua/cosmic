@@ -16,7 +16,6 @@ local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 local protocol = require("build.lsp.protocol")
 local session_fixture = require("build.lsp.session_fixture")
-local this_program = require("build.this_program")
 local unix_socket = require("build.unix_socket")
 local tool_fixture = require("build.tool_fixture")
 
@@ -120,7 +119,7 @@ end
 local function listening(tmp: string, words: {string}): Listening
   local err = tmp .. "/lsp.err"
   local fd = assert(Fs.open_write(err))
-  local start = this_program.program(words, { timeout_ns = Child.FOREVER, cwd = tmp, stdout = fd, stderr = fd })
+  local start = Test.cosmic(words, { timeout_ns = Child.FOREVER, cwd = tmp, stdout = fd, stderr = fd })
   local handle = assert(Child.start(start.argv, start.options))
   assert(Fs.close(fd))
   local deadline = Clock.monotonic_ns() + Clock.seconds(30)
@@ -223,7 +222,7 @@ end
 local function test_a_listener_beyond_the_loopback_is_warned_of(tmp: string)
   local err = tmp .. "/lsp.err"
   local fd = assert(Fs.open_write(err))
-  local start = this_program.program({ "lsp", "--listen", "0.0.0.0:0" }, { timeout_ns = Child.FOREVER, cwd = tmp, stdout = fd, stderr = fd })
+  local start = Test.cosmic({ "lsp", "--listen", "0.0.0.0:0" }, { timeout_ns = Child.FOREVER, cwd = tmp, stdout = fd, stderr = fd })
   local handle = assert(Child.start(start.argv, start.options))
   assert(Fs.close(fd))
   local deadline = Clock.monotonic_ns() + Clock.seconds(30)
@@ -313,7 +312,7 @@ end
 
 local function test_a_request_over_standard_input_is_answered_while_dependents_are_checked()
   local root, opening = helped()
-  local started = this_program.program({ "lsp" }, {
+  local started = Test.cosmic({ "lsp" }, {
     cwd = root, stdin = "stream", stdout = "stream", stderr = "capture", timeout_ns = Clock.seconds(60),
   })
   local handle <close> = assert(Child.start(started.argv, started.options))

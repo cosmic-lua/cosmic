@@ -16,7 +16,6 @@ local sys = require("cosmic.sys")
 local searchable = require("build.searchable")
 local test_child = require("build.test_child")
 local testing = require("cosmic.internal.testing")
-local this_program = require("build.this_program")
 local ChildPolicy = require("build.child_policy_fixture")
 
 --- The temporary directory, which a start's root is built in; this
@@ -100,7 +99,7 @@ local function test_a_nested_program_cannot_widen_what_it_was_given(tmp: string)
       { path = "/ro", letters = "r", from = work .. "/ro" },
       { path = "/rw", letters = "rwc", from = work .. "/rw" },
       { path = work, letters = "r" }, { calls = "fork" }, { calls = "nest" } } }
-  local started = this_program.program(test_child.words(work, "cosmic.child_policy_nest_calls_test", "nested calls"),
+  local started = Test.cosmic(test_child.words(work, "cosmic.child_policy_nest_calls_test", "nested calls"),
     { timeout_ns = Child.FOREVER, policy = policy, cwd = work, stdout = "capture", stderr = "stdout" })
   local result, why = Child.run(started.argv, started.options)
   if result == nil then

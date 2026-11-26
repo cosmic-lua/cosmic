@@ -7,7 +7,7 @@
 --- how the source chunks the bytes.
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (cosmic/fuzz.tl).
 
-local ChunkedReaderFixture = require("build.chunked_reader_fixture")
+local Stream = require("cosmic.stream")
 local Fuzz = require("cosmic.fuzz")
 local Multipart = require("cosmic.http.multipart")
 
@@ -114,7 +114,7 @@ end
 --- `step` from each part.
 local function read_all(text: string, boundary: string, chunk: integer, step: integer): Outcome
   local out: Outcome = { parts = {}, failure = "", total = 0 }
-  local reader, bad = Multipart.reader(ChunkedReaderFixture.drip(text, chunk), { boundary = boundary, max_parts = 8,
+  local reader, bad = Multipart.reader(Stream.from_string(text, chunk), { boundary = boundary, max_parts = 8,
     max_header_bytes = 256, max_header_lines = 6 })
   if reader == nil then
     out.failure = tostring(bad)

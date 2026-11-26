@@ -405,6 +405,8 @@ local closed_writer <const> = "stream: the writer is closed"
 
 local class FromStringReader is Stream.Reader
   data: string
+  --- The most bytes a read returns.
+  most: integer
   mut at: integer
   mut closed: boolean
 
@@ -414,6 +416,7 @@ local class FromStringReader is Stream.Reader
     if at > #data then return false end
     local want = max_bytes or (#data - at + 1)
     if want <= 0 then return false end
+    if want > self.most then want = self.most end
     -- Clamped before it is added, so a huge `max_bytes` cannot wrap `stop`.
     if want > #data - at + 1 then want = #data - at + 1 end
     local stop = at + want - 1
@@ -439,9 +442,21 @@ local class FromStringReader is Stream.Reader
   end
 end
 
---- A Reader over bytes already in memory.
-function Stream.from_string(s: string): Stream.Reader
-  local r: FromStringReader = { data = s, at = 1, closed = false }
+--- A Reader over bytes already in memory. With `chunk`, no read returns
+--- more than `chunk` bytes, whatever its `max_bytes`: a test of a reader
+--- that takes a [`Stream.Reader`] hands it its input a few bytes at a
+--- time, as a socket or a pipe would.
+---
+---     local r = Stream.from_string("abcdef", 4)
+---     assert(r:read() == "abcd" and r:read() == "ef" and r:read() == false)
+--- @param s the bytes it reads
+--- @param chunk the most bytes a read returns, at least 1; none for no limit
+--- @return the reader
+function Stream.from_string(s: string, chunk?: integer): Stream.Reader
+  if chunk ~= nil and chunk < 1 then
+    error("stream: from_string's chunk is " .. tostring(chunk) .. ", not at least 1", 2)
+  end
+  local r: FromStringReader = { data = s, most = chunk or math.maxinteger, at = 1, closed = false }
   return r
 end
 

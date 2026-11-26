@@ -8,7 +8,6 @@ local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
-local this_program = require("build.this_program")
 local rebuild_lock = require("build.rebuild_lock")
 local Fake = require("cosmic.fake")
 local Json = require("cosmic.json")
@@ -41,7 +40,7 @@ Test.policy{
 local function test_main_exits_127_for_no_zig_and_126_for_an_unrunnable_one(tmp: string)
   local script = assert(Fs.absolute("build/zig.tl"))
   local function run(): Child.Result
-    local started = this_program.program({ "--standalone", script, "version" }, {
+    local started = Test.cosmic({ "--standalone", script, "version" }, {
       env = { COSMIC_ZIG = "zig-for-test", PATH = tmp, XDG_CACHE_HOME = tmp .. "/cache" },
       stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30),
     })
@@ -81,7 +80,7 @@ end
 --- them.
 local function test_the_fetch_script_refuses_missing_words()
   local script = assert(Fs.absolute("build/zig_fetch.tl"))
-  local started = this_program.program({ "--standalone", script, "/cache" }, {
+  local started = Test.cosmic({ "--standalone", script, "/cache" }, {
     env = {}, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30),
   })
   local result = assert(Child.run(started.argv, started.options))
@@ -112,7 +111,7 @@ end
 -- pid 0 (its binding refuses 0 as out of range): today a program has
 -- neither, and /proc/self/stat, which names both, is Linux's alone.
 local function build_with_fake(tmp: string, script: string, group: boolean): Child.Result
-  local started = this_program.program({ "--standalone", script, "build" }, { timeout_ns = Child.FOREVER,
+  local started = Test.cosmic({ "--standalone", script, "build" }, { timeout_ns = Child.FOREVER,
     env = { COSMIC_ZIG = "zig-for-test", PATH = tmp, XDG_CACHE_HOME = tmp .. "/cache" },
     stdout = "capture", stderr = "capture",
   })
@@ -167,7 +166,7 @@ local function test_a_boot_holds_the_lock_and_hands_it_on(tmp: string)
   local env: mut {string:string} = { COSMIC_ZIG = "zig-for-test", PATH = tmp, XDG_CACHE_HOME = tmp .. "/cache" }
   local build_home = Env.get("COSMIC_BUILD_HOME")
   if build_home ~= nil then env["COSMIC_BUILD_HOME"] = build_home end
-  local started = this_program.program({ "--standalone", script, "build", "boot" }, { timeout_ns = Child.FOREVER,
+  local started = Test.cosmic({ "--standalone", script, "build", "boot" }, { timeout_ns = Child.FOREVER,
     env = env,
     stdout = "capture", stderr = "capture",
   })
@@ -199,7 +198,7 @@ local function test_other_subcommands_accept_cache_directories_not_yet_created(t
   local probe = assert(Fake.build(tmp .. "/fake", "build.tool_fake"))
   assert(Fake.place(probe, tmp .. "/zig-for-test", "{}"))
   local project, shared = tmp .. "/new-project", tmp .. "/new-global"
-  local started = this_program.program({ "--standalone", script, "version" }, {
+  local started = Test.cosmic({ "--standalone", script, "version" }, {
     env = { COSMIC_ZIG = tmp .. "/zig-for-test", COSMIC_ZIG_CACHE = project,
       COSMIC_ZIG_GLOBAL_CACHE = shared }, stdout = "capture", stderr = "capture",
     timeout_ns = Clock.seconds(30),
@@ -215,7 +214,7 @@ local function test_a_build_repairs_a_manifest_whose_contents_do_not_match_its_n
   local probe = assert(Fake.build(tmp .. "/fake", "build.tool_fake"))
   assert(Fake.place(probe, tmp .. "/zig-for-test", "{}"))
   local project = tmp .. "/project"
-  local started = this_program.program({ "--standalone", script, "build" }, {
+  local started = Test.cosmic({ "--standalone", script, "build" }, {
     env = { COSMIC_ZIG = tmp .. "/zig-for-test", COSMIC_ZIG_CACHE = project,
       COSMIC_ZIG_GLOBAL_CACHE = tmp .. "/global", COSMIC_BUILD_HOME = tmp .. "/builds" },
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30),
@@ -239,7 +238,7 @@ local function test_boot_refuses_an_install_prefix_that_would_name_another_lock(
       { "build", "boot", "-p", tmp .. "/other" } }) do
     local words = { "--standalone", script }
     for _, word in ipairs(args) do words[#words + 1] = word end
-    local started = this_program.program(words, {
+    local started = Test.cosmic(words, {
       env = { COSMIC_ZIG = tmp .. "/zig-for-test" },
       stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30),
     })

@@ -18,8 +18,8 @@ Test.policy{ requires = { "checked" }, profiles = { "cosmic" } }
 
 local process = require("cosmic.internal.process")
 
---- This program again, past its launcher, as build.this_program's
---- `program` starts it, handed the chunk `chunk`. A test's worker
+--- This program again, past its launcher, as [`Test.cosmic`]
+--- starts it, handed the chunk `chunk`. A test's worker
 --- always runs from a portable artifact.
 local function spawn_again(chunk: string): integer
   local relaunch = assert(Proc.relaunch())

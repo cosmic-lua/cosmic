@@ -618,7 +618,7 @@ return function(): integer
   }
   local ok, trouble = Web.serve(app, { listeners = { Net.tcp("127.0.0.1", 8080) } })
   if not ok then
-    log:complain(trouble)
+    log:complain(tostring(trouble))
     return 1
   end
   return 0

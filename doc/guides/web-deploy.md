@@ -244,7 +244,7 @@ return function(): integer
     limits = { body_bytes = 1024 * 1024 },
   })
   if not ok then
-    log:complain(trouble)
+    log:complain(tostring(trouble))
     return 1
   end
   return 0

@@ -15,7 +15,6 @@ local Stream = require("cosmic.stream")
 local Tailscale = require("cosmic.tailscale")
 local Test = require("cosmic.test")
 local _ = require("build.standalone")
-local this_program = require("build.this_program")
 local type Failure = require("cosmic.failure")
 
 Test.policy{ profiles = { "cosmic" }, loopback = { "127.0.0.1" }, requires = { "unix_socket" } }
@@ -191,7 +190,7 @@ end
     handle = function(req: Server.Request): Server.Reply return answer(d, req) end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       local where = Array.at(addresses, 1).path or ""
-      local started = this_program.program({ "--standalone", script, where },
+      local started = Test.cosmic({ "--standalone", script, where },
         { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
       local result = assert(Child.run(started.argv, started.options))
       -- The streams end with the child; the stand-in sees each at its

@@ -19,7 +19,6 @@ local _sqlite = require("cosmic.sqlite")
 local _store = require("cosmic.store")
 local test_child = require("build.test_child")
 local Test = require("cosmic.test")
-local this_program = require("build.this_program")
 local SeatbeltFixture = require("build.seatbelt_fixture")
 
 --- The program is this one, which a test starts only with `tool`; its
@@ -77,8 +76,8 @@ end
 --- Runs `chunk`, after `PRELUDE`, in a child of this program, and returns
 --- what it printed, once it has ended well.
 local function in_child(chunk: string): Said
-  local started = this_program.program({ "-e", PRELUDE .. chunk }, {
-    env = this_program.environment(), stdout = "capture", stderr = "stdout",
+  local started = Test.cosmic({ "-e", PRELUDE .. chunk }, {
+    env = Test.environment(), stdout = "capture", stderr = "stdout",
     timeout_ns = Clock.seconds(60) })
   local result = assert(Child.run(started.argv, started.options))
   local said: Said = { lines = {}, raw = result.stdout or "" }
@@ -121,8 +120,8 @@ end)
 
 local function test_the_store_loads_a_module_after_the_restriction(tmp: string)
   SeatbeltFixture.macos_only("a process")
-  local started = this_program.program(test_child.words(tmp, "cosmic.sandbox_restrict_seatbelt_test", "store after restriction"), {
-    env = this_program.environment(), stdout = "capture", stderr = "stdout", timeout_ns = Clock.seconds(60) })
+  local started = Test.cosmic(test_child.words(tmp, "cosmic.sandbox_restrict_seatbelt_test", "store after restriction"), {
+    env = Test.environment(), stdout = "capture", stderr = "stdout", timeout_ns = Clock.seconds(60) })
   local result = assert(Child.run(started.argv, started.options))
   local out = result.stdout or ""
   assert(result.code == 0, out)

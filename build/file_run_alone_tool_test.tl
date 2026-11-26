@@ -5,14 +5,13 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
-local this_program = require("build.this_program")
 
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 --- The environment of a file run that neither forces `--standalone` nor forbids it, as a shell gives one (a worker's
 --- children are given COSMIC_STANDALONE=1), whose tree, where one is built, is under `home`.
 local function file_run_environment(home: string): mut {string:string}
-  local env = this_program.environment()
+  local env = Test.environment()
   env["COSMIC_STANDALONE"] = ""
   env["COSMIC_BUILD_HOME"] = home
   return env
@@ -38,7 +37,7 @@ return function(argv: {string}): integer
 end
 ]]))
   local resolved = assert(Fs.absolute(script))
-  local started = this_program.program({ script, "one", "two" }, { cwd = dir, env = file_run_environment(home),
+  local started = Test.cosmic({ script, "one", "two" }, { cwd = dir, env = file_run_environment(home),
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local result = assert(Child.run(started.argv, started.options))
   assert(result.code == 3 and result.stdout == "one,two|" .. resolved .. "|script\n",
@@ -48,7 +47,7 @@ end
 
   local env = file_run_environment(home)
   env["COSMIC_STANDALONE"] = "0"
-  local in_tree = this_program.program({ script, "one", "two" }, { cwd = dir, env = env,
+  local in_tree = Test.cosmic({ script, "one", "two" }, { cwd = dir, env = env,
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
   local built = assert(Child.run(in_tree.argv, in_tree.options))
   assert(built.code == 3 and built.stdout == "one,two|" .. resolved .. "|script\n",
@@ -71,7 +70,7 @@ return function(): integer
   return 0
 end
 ]]))
-  local started = this_program.program({ script }, { cwd = dir, env = file_run_environment(home),
+  local started = Test.cosmic({ script }, { cwd = dir, env = file_run_environment(home),
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
   local result = assert(Child.run(started.argv, started.options))
   assert(result.code == 0 and result.stdout == "word\n", tostring(result.stdout) .. tostring(result.stderr))

@@ -17,7 +17,6 @@ local RelayWire = require("cosmic.internal.relay_wire")
 local TypeWatch = require("build.type_watch")
 local confine = require("build.confine")
 local connect = require("build.sandbox_connect")
-local this_program = require("build.this_program")
 
 --- Each child only runs a chunk through this program's core, and the relay
 --- is a listener of this test's own.
@@ -33,7 +32,7 @@ end
 local function test_a_process_started_under_the_stand_in_is_as_declared(tmp: string)
   honest("build.confine", function()
     local ran = confine.call(function() -- checked: not_assignable
-      local started = this_program.program({ "-e", "return" }, { timeout_ns = Child.FOREVER, stdout = "capture" })
+      local started = Test.cosmic({ "-e", "return" }, { timeout_ns = Child.FOREVER, stdout = "capture" })
       assert(Child.run(started.argv, started.options))
     end, nil, { tmp })
     assert(ran.ok, tostring(ran.produced))

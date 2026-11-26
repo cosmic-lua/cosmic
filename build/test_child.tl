@@ -8,7 +8,7 @@
 ---       return 0
 ---     end)
 ---     ...
----     local started = this_program.program(test_child.words(tmp, "build.thing_test", "sleeper", { "arg" }))
+---     local started = Test.cosmic(test_child.words(tmp, "build.thing_test", "sleeper", { "arg" }))
 ---
 --- The child loads the module (so its top level runs again, in the child, registering the same names) and calls the
 --- one child by name with the words after the chunk. `cosmic -e` checks the chunk it is handed as Teal, so a child
