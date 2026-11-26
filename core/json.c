@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "bytes.h"
 #include "fail.h"
 #include "fault.h"
 #include "guard.h"
@@ -1098,7 +1099,7 @@ static int json_decode_lines (lua_State *L) {
   const char *at = text + from - 1, *end = text + len;
   bool done = false;
   while (count < most) {
-    const char *nl = memchr(at, '\n', (size_t)(end - at));
+    const char *nl = cosmic_find_byte(at, '\n', (size_t)(end - at));
     const char *stop = nl != NULL ? nl : end;
     number++;
     if (!blank(at, (size_t)(stop - at))) {
