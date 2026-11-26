@@ -12,6 +12,8 @@ local confine = require("build.confine")
 local fixture = require("build.must_confine_fixture")
 local test_child = require("build.test_child")
 local Fake = require("cosmic.fake")
+-- Required, so the fake's main is of this test's closure.
+local _fake = require("build.confine_fake")
 local support = require("build.test_support_fixture")
 local type raw_process = require("cosmic.internal.process")
 
@@ -24,12 +26,12 @@ Test.policy{
   grants = { { path = "o/bin", letters = "rx" }, { calls = "nest" } },
 }
 
---- A fake program built under `tmp` ([`cosmic.fake`]), which runs
---- the script its first argument holds: a static executable that reads
+--- A fake program built under `tmp` from build/confine_fake.tl, which runs
+--- the case its first argument names: a static executable that reads
 --- only itself (and /proc, where it finds itself), so one confined
 --- needs nothing of the system's own.
 local function probe_in(tmp: string): string
-  return (assert(Fake.build(tmp .. "/fake")))
+  return (assert(Fake.build(tmp .. "/fake", "build.confine_fake")))
 end
 
 --- Whether a process `probe` confined to itself alone, started under
@@ -40,7 +42,7 @@ local function sees(probe: string, own: string, hidden: string): boolean
   local code: support.Cell<integer> = {}
   local ran = confine.call(function() -- checked: not_assignable
     confine.confine({ reads = { probe } })
-    local r = assert(Child.run({ probe, "exists " .. hidden .. " 3" }, { timeout_ns = Child.FOREVER }))
+    local r = assert(Child.run({ probe, "exists", hidden }, { timeout_ns = Child.FOREVER }))
     confine.confine(nil)
     code.value = r.code
   end, nil, { own })
@@ -79,8 +81,7 @@ local function test_a_confined_process_has_what_it_was_given(tmp: string)
   local code: support.Cell<integer> = {}
   local ran = confine.call(function() -- checked: not_assignable
     confine.confine({ reads = { given, probe } })
-    local r = assert(Child.run({ probe,
-      "exists " .. hidden .. "/f 3; copy " .. given .. "/f out" }, { timeout_ns = Child.FOREVER }))
+    local r = assert(Child.run({ probe, "exists-or-copy", hidden .. "/f", given .. "/f", "out" }, { timeout_ns = Child.FOREVER }))
     confine.confine(nil)
     code.value = r.code
   end, nil, { own })
@@ -106,7 +107,7 @@ local function test_a_process_a_library_declares_in_a_sandbox_is_held_by_it(tmp:
   local ran = confine.call(function() -- checked: not_assignable
     local inner = confine.call(function() -- checked: not_assignable
       confine.declaring({ reads = { probe }, writes = {} }, function()
-        code.value = assert(Child.run({ probe, "exists " .. hidden .. " 3" }, { timeout_ns = Child.FOREVER })).code
+        code.value = assert(Child.run({ probe, "exists", hidden }, { timeout_ns = Child.FOREVER })).code
       end)
     end, nil, { own })
     assert(inner.ok, tostring(inner.produced))
@@ -133,7 +134,7 @@ local function test_a_confined_process_has_somewhere_to_write(tmp: string)
     confine.confine({ reads = { probe } })
     for _, environment in ipairs({ {} as {string:string}, { TMPDIR = chosen }, -- checked: cast_refused, literal_needs_type
         if inherited ~= nil then { TMPDIR = inherited } else nil end }) do
-      local r = assert(Child.run({ probe, "write /tmp/f x && cat /tmp/f; env-of TMPDIR" },
+      local r = assert(Child.run({ probe, "tmp-write-and-env" },
         { timeout_ns = Child.FOREVER, env = environment, stdout = "capture" }))
       table.insert(said, assert(r.stdout))
     end
@@ -166,9 +167,7 @@ local function test_a_confined_process_has_its_portable_cache_by_where_it_leads(
   local ran = confine.call(function() -- checked: not_assignable
     confine.confine({ reads = { real .. "/core", probe } })
     for _, cache in ipairs({ tmp .. "/linked/cache", resolved, tmp .. "/linked/fresh/cache" }) do
-      local r = assert(Child.run({ probe,
-        "mkdirs $COSMIC_PORTABLE_CACHE && ls $COSMIC_PORTABLE_CACHE; " ..
-          "print $COSMIC_PORTABLE_CACHE" },
+      local r = assert(Child.run({ probe, "cache-dir" },
         { timeout_ns = Child.FOREVER, env = { COSMIC_PORTABLE_CACHE = cache }, stdout = "capture" }))
       table.insert(said, assert(r.stdout))
     end
@@ -227,10 +226,10 @@ local function test_an_unconfinable_process_starts_unconfined(tmp: string)
   local sandboxed = refusing_sandboxes(function()
     ran.value = confine.call(function() -- checked: not_assignable
       confine.confine({ reads = { probe } })
-      assert(Child.run({ probe, "cwd where" }, { timeout_ns = Child.FOREVER }))
+      assert(Child.run({ probe, "cwd", "where" }, { timeout_ns = Child.FOREVER }))
       many[#many + 1] = probe
       confine.confine({ reads = many })
-      assert(Child.run({ probe, "exit 0" }, { timeout_ns = Child.FOREVER }))
+      assert(Child.run({ probe, "exit", "0" }, { timeout_ns = Child.FOREVER }))
       confine.confine(nil)
     end, nil, { own })
   end)
@@ -284,13 +283,13 @@ test_child.register("raw_refusals", function(args: {string}): integer
   refusing_sandboxes(function()
     print(said("passed_over", confine.call(function(...: any): any...
       confine.must_confine({ reads = { probe } })
-      local ran, _ = Child.run({ probe, "write " .. tmp .. "/ran ran" }, { timeout_ns = Child.FOREVER })
+      local ran, _ = Child.run({ probe, "write", tmp .. "/ran", "ran" }, { timeout_ns = Child.FOREVER })
       confine.confine(nil)
       assert(ran == nil, "an unconfined process ran in its place")
     end, nil, { tmp })))
     print(said("raised_too", confine.call(function(...: any): any...
       confine.must_confine({ reads = { probe } })
-      local _, _ = Child.run({ probe, "exit 0" }, { timeout_ns = Child.FOREVER })
+      local _, _ = Child.run({ probe, "exit", "0" }, { timeout_ns = Child.FOREVER })
       confine.confine(nil)
       error("its own failure")
     end, nil, { tmp })))
@@ -298,13 +297,13 @@ test_child.register("raw_refusals", function(args: {string}): integer
   local promises: raw_process.Sandbox = { promises = {} }
   print(said("promises_alone", confine.call(function(...: any): any...
     confine.must_confine({ reads = { probe } })
-    local _, _ = process.spawn(probe, { probe, "exit 0" }, nil, nil, nil, nil, nil, false, nil, promises)
+    local _, _ = process.spawn(probe, { probe, "exit", "0" }, nil, nil, nil, nil, nil, false, nil, promises)
     confine.confine(nil)
   end, nil, { tmp })))
   local grants: raw_process.Sandbox = { grants = {}, promises = {} }
   print(said("grants_alone", confine.call(function(...: any): any...
     confine.must_confine({ reads = { probe } })
-    local _, _ = process.spawn(probe, { probe, "exit 0" }, nil, nil, nil, nil, nil, false, nil, grants)
+    local _, _ = process.spawn(probe, { probe, "exit", "0" }, nil, nil, nil, nil, nil, false, nil, grants)
     confine.confine(nil)
   end, nil, { tmp })))
   local held = { taken = process.spawn }
@@ -314,7 +313,7 @@ test_child.register("raw_refusals", function(args: {string}): integer
   local stale = assert(held["taken"])
   print(said("stale", confine.call(function(...: any): any...
     confine.must_confine({ reads = { probe } })
-    local _, _ = stale(probe, { probe, "exit 0" }, nil, nil, nil, nil, nil, false)
+    local _, _ = stale(probe, { probe, "exit", "0" }, nil, nil, nil, nil, nil, false)
     confine.confine(nil)
   end, nil, { tmp })))
   return 0

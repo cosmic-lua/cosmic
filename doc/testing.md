@@ -575,8 +575,10 @@ local program = assert(Fake.build(tmp .. "/fake", "build.git_fake"))
 assert(Fake.place(program, tmp .. "/bin/git", "abc1234"))
 ```
 
-A fake built with no module runs a small script of commands
-instead. That command language is going away.
+A fake that only answers by its first argument needs no module of its
+own: [`Fake.reply`] places the reply fake ([`Fake.REPLY`]) with a
+table of answers. The tree's own tests build their fakes from the
+steps of build/fake_steps.tl, one case per first argument.
 
 ## host requirements
 
@@ -1427,6 +1429,7 @@ Other rules:
 [`FactWraps.once`]: ../lang/fact_wraps.tl
 [`Fake.given`]: ../cosmic/fake.tl
 [`Fake.place`]: ../cosmic/fake.tl
+[`Fake.reply`]: ../cosmic/fake.tl
 [`Fs.mkdtemp`]: ../cosmic/fs.tl
 [`Fuzz.label`]: ../build/fuzz/init.tl
 [`Fuzz.more`]: ../build/fuzz/init.tl

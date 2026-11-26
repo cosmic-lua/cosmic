@@ -46,7 +46,7 @@ end
 --- refused: it has no boot ruleset to give it up.
 local function test_a_host_program_keeps_rx_on_itself(tmp: string)
   skip_on_macos()
-  local program = assert(Fake.build(searchable.open(tmp) .. "/fake"))
+  local program = assert(Fake.build(searchable.open(tmp) .. "/fake", Fake.REPLY))
   local layers = layers_of({ program }, { grants = { { path = tmp, letters = "r" } } })
   local real = assert(sys.realpath(program))
   local listed: mut {string} = {}
@@ -78,7 +78,7 @@ end
 --- in a user namespace; the rest of the namespaces come with unveiling.
 local function test_a_loopback_is_inet_in_a_network_of_its_own(tmp: string)
   skip_on_macos()
-  local program = assert(Fake.build(searchable.open(tmp) .. "/fake"))
+  local program = assert(Fake.build(searchable.open(tmp) .. "/fake", Fake.REPLY))
   local layers = layers_of({ program }, { loopback = { "127.0.0.2" } })
   assert(table.concat(layers.sockets, " ") == "inet", table.concat(layers.sockets, " "))
   local named = table.concat(layers.namespaces, " ")

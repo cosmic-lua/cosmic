@@ -847,7 +847,10 @@ local function type_test(declared: Ast.Type, value: Output, y: integer, operand?
     -- A record the value may be is a table, and the one its tag names, or the one with a field only it has, where
     -- the value may be another.
     local field = tag[1] or ""
-    put(out, "(type(")
+    -- Only a test of a field after the table test needs the parentheses. The plain table test is written as the test
+    -- of a type with no tag is, so the Lua is the same whether or not the compile was given the declarations that tag
+    -- it: the boot compiles the seed with none ([`core/bridge.lua`]), and `cosmic compile` with the binary's.
+    put(out, if field ~= "" then "(type(" else "type(" end)
     add_child(out, value, "", G.indent)
     put(out, ") == \"table\"")
     if field ~= "" then
@@ -877,7 +880,7 @@ local function type_test(declared: Ast.Type, value: Output, y: integer, operand?
         put(out, read .. "] == true")
       end
     end
-    put(out, ")")
+    if field ~= "" then put(out, ")") end
     return out
   end
   local class = class_named(t)
@@ -942,8 +945,9 @@ end
 local function is_test(node: Ast.IsTest, value: Output): Output
   local value_node = node.value
   local members = union_members(node.type, 32)
-  if members == nil and G.tags[node.type.id] ~= nil and not ((value_node.kind == "Name")) then
-    -- The tag test reads the value twice: it is held in the parameter of a function called on the spot.
+  local tag = G.tags[node.type.id]
+  if members == nil and tag ~= nil and (tag[1] or "") ~= "" and not ((value_node.kind == "Name")) then
+    -- The test of a tag field reads the value twice: it is held in the parameter of a function called on the spot.
     local held_out = new(line_of(node.value.last + 1))
     put(held_out, "(function(__v) return ")
     add_child(held_out, type_test(node.type, text(value.y, "__v"), value.y), "", G.indent)

@@ -45,18 +45,18 @@ end
 local function test_nest_holds_files_by_the_root_alone(tmp: string)
   local at = ChildPolicy.nest_placed(tmp)
   local policy: Sandbox.Policy = { isolate = { "file" }, grants = ChildPolicy.with(at.grants, { calls = "nest" }) }
-  local read = ChildPolicy.under(at.probe, policy, at.work, "cat ro/a")
+  local read = ChildPolicy.under(at.probe, policy, at.work, { "cat", "ro/a" })
   assert(read.code == 0 and read.said == "alpha\n", tostring(read.code) .. ": " .. read.said)
   -- Not granted, so not there; read-only where not granted `w`.
-  local other = ChildPolicy.under(at.probe, policy, at.work, "cat " .. at.extra .. "/e")
+  local other = ChildPolicy.under(at.probe, policy, at.work, { "cat", at.extra .. "/e" })
   assert(other.code == 1 and other.said:find("No such file or directory", 1, true) ~= nil, other.said)
-  local ro = ChildPolicy.under(at.probe, policy, at.work, "create ro/b x")
+  local ro = ChildPolicy.under(at.probe, policy, at.work, { "create", "ro/b", "x" })
   assert(ro.code == 1 and ro.said:find("Read-only file system", 1, true) ~= nil, ro.said)
-  local rw = ChildPolicy.under(at.probe, policy, at.work, "create rw/b x && cat rw/b")
+  local rw = ChildPolicy.under(at.probe, policy, at.work, { "create-and-cat", "rw/b", "x" })
   assert(rw.code == 0 and rw.said == "x\n", tostring(rw.code) .. ": " .. rw.said)
   -- What Landlock refused to run is held by the mount: a grant without `x`
   -- is noexec, read-only or not, and the program's own is not.
-  local mounts = ChildPolicy.under(at.probe, policy, at.work, "cat /proc/self/mountinfo")
+  local mounts = ChildPolicy.under(at.probe, policy, at.work, { "cat", "/proc/self/mountinfo" })
   assert(mounts.code == 0, mounts.said)
   local read_only = options_at(mounts.said, at.work)
   assert(read_only ~= nil and read_only:find("ro", 1, true) ~= nil and read_only:find("noexec", 1, true) ~= nil,
@@ -66,7 +66,7 @@ local function test_nest_holds_files_by_the_root_alone(tmp: string)
     tostring(writable))
   local program = options_at(mounts.said, at.probe)
   assert(program ~= nil and not program:find("noexec", 1, true), tostring(program))
-  local held = ChildPolicy.under(at.probe, policy, at.work, "status-field Seccomp")
+  local held = ChildPolicy.under(at.probe, policy, at.work, { "status-field", "Seccomp" })
   assert(held.said:find("Seccomp:\t2", 1, true), held.said)
 end
 
@@ -78,7 +78,7 @@ local function test_nest_hands_no_directory_nor_half_open_file(tmp: string)
   local writing = assert(sys.open(at.extra .. "/e", sys.O_WRONLY))
   local both = assert(sys.open(at.extra .. "/e", sys.O_RDWR))
   local function start(held: Sandbox.Policy, fds: {integer:integer | string}): string
-    local handle, why = Child.start({ at.probe, "print hi" }, { timeout_ns = Child.FOREVER, policy = held, cwd = at.work, fds = fds })
+    local handle, why = Child.start({ at.probe, "print", "hi" }, { timeout_ns = Child.FOREVER, policy = held, cwd = at.work, fds = fds })
     if handle ~= nil then
       local _, _ = handle:close()
       return ""
@@ -111,7 +111,7 @@ local function test_nest_refuses_the_runtimes_own_descriptors_rather_than_raisin
   end
   local at = ChildPolicy.nest_placed(tmp)
   local policy: Sandbox.Policy = { isolate = { "file" }, grants = ChildPolicy.with(at.grants, { calls = "nest" }) }
-  local handle, why = Child.start({ at.probe, "print hi" },
+  local handle, why = Child.start({ at.probe, "print", "hi" },
     { timeout_ns = Child.FOREVER, policy = policy, cwd = at.work, fds = launched.fds })
   if handle ~= nil then
     local _, _ = handle:close()

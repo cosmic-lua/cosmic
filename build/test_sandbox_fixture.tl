@@ -7,6 +7,8 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Fake = require("cosmic.fake")
+-- Required, so the fake's main is of each test's closure.
+local _ = require("build.test_sandbox_fake")
 local this_program = require("build.this_program")
 
 local record test_sandbox_fixture
@@ -93,8 +95,8 @@ end
 ]]))
 end
 
---- Makes `root`, a tree for a suite, with a fake program
---- ([`cosmic.fake`]) at bin/probe for its tests to start, which
+--- Makes `root`, a tree for a suite, with a fake program built from
+--- build/test_sandbox_fake.tl at bin/probe for its tests to start, which
 --- declare it -- not this program, which would take `tool` -- in the
 --- tree, since a sandboxed worker has a /tmp of its own over this
 --- test's.
@@ -103,7 +105,7 @@ end
 function test_sandbox_fixture.suite_tree(tmp: string, root: string)
   assert(Fs.mkdirs(root .. "/suite"))
   assert(Fs.mkdirs(root .. "/bin"))
-  assert(Fake.place(assert(Fake.build(tmp .. "/fake")), root .. "/bin/probe"))
+  assert(Fake.place(assert(Fake.build(tmp .. "/fake", "build.test_sandbox_fake")), root .. "/bin/probe"))
 end
 
 --- Makes `root` as [`suite_tree`] does, with `hidden`, a directory outside it,
@@ -135,8 +137,7 @@ Test.policy {
 local function test_view(tmp: string)
   local here = assert(sys.getcwd())
   -- What a process it starts sees, with the worker's environment.
-  local child = assert(Child.run({ "bin/probe",
-    "cat-quiet suite/data.txt; cat-quiet suite/secret.txt; print /$DECLARED_VAR/$UNDECLARED_VAR" },
+  local child = assert(Child.run({ "bin/probe", "view" },
     { timeout_ns = Child.FOREVER, stdout = "capture" }))
   local data, _ = Fs.read(here .. "/suite/data.txt")
   local secret, _ = Fs.read(here .. "/suite/secret.txt")
