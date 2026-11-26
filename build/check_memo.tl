@@ -55,9 +55,10 @@ local record check_memo
   get: function(db: Sqlite.Handle, kind: string, key: string): string?
   --- Keeps `value` under `key` for `kind`, marked used.
   put: function(db: Sqlite.Handle, kind: string, key: string, value: string)
-  --- Drops the rows of `kind` that this run did not use and commits.
+  --- Drops the rows of `kind` that this run did not use and commits. A run that judged only some files (`partial`)
+  --- drops none: the rows of the rest are the next whole run's.
   --- `now_ns` is the time the shared rows are stamped with and aged by, the clock's by default.
-  finish: function(db: Sqlite.Handle, kind: string, now_ns?: integer)
+  finish: function(db: Sqlite.Handle, kind: string, now_ns?: integer, partial?: boolean)
   --- Where the rows every checkout shares are kept, read from `environment` (the process's by default): `checks.db` in
   --- the cache directory's `build`; nil where `COSMIC_BUILD_CACHE` is `0` or there is no cache directory.
   shared_path: function(environment?: {string:string}): string?
@@ -294,8 +295,10 @@ function check_memo.put(db: Sqlite.Handle, kind: string, key: string, value: str
   owe(kind, key, value)
 end
 
-function check_memo.finish(db: Sqlite.Handle, kind: string, now_ns?: integer)
-  local _, _ = db:run("DELETE FROM check_memo WHERE kind = ?1 AND used = 0", { { text = kind } })
+function check_memo.finish(db: Sqlite.Handle, kind: string, now_ns?: integer, partial?: boolean)
+  if partial ~= true then
+    local _, _ = db:run("DELETE FROM check_memo WHERE kind = ?1 AND used = 0", { { text = kind } })
+  end
   local _, _ = db:run("COMMIT")
   local open = shared
   if open == nil then return end
