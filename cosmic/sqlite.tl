@@ -124,6 +124,11 @@ local interface Row
   --- row from [`Handle.text_rows`], its columns. A column of another type
   --- raises.
   texts: function(Row): {string}
+  --- Every column as `as_text` shows it, in order, as a new list, with
+  --- "" for NULL: how a row of any types is shown whole, as a test or a
+  --- listing prints it. A program that reads a column reads it by its
+  --- type instead.
+  as_texts: function(Row): {string}
   --- The parameter that binds this column back as it is, of the type
   --- `kind` names: `{ integer = n }`, `{ number = x }`, `{ text = s }`,
   --- `{ blob = b }`, and `{}` for NULL. It is how a row is copied to
@@ -152,6 +157,7 @@ local record Stored is {any}
   bytes: function(Stored, integer): string
   as_text: function(Stored, integer): string?
   texts: function(Stored): {string}
+  as_texts: function(Stored): {string}
   value: function(Stored, integer): raw_sqlite.Value
 end
 
@@ -259,6 +265,12 @@ function Stored.texts(self: Stored): {string}
       error(mismatch("texts", index, kind, "text"), 2)
     end
   end
+  return out
+end
+
+function Stored.as_texts(self: Stored): {string}
+  local out: mut {string} = {}
+  for index = 1, #self // 2 do out[index] = self:as_text(index) or "" end
   return out
 end
 

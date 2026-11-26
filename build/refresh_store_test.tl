@@ -67,7 +67,7 @@ local function carried(path: string): Sqlite.Handle
 end
 
 local function rows(db: Sqlite.Handle, sql: string): Sqlite.Rows
-  return (assert(db:text_rows(sql)))
+  return (assert(db:rows(sql)))
 end
 
 --- The first row `sql` selects from `db`, which the case knows is there.
@@ -149,14 +149,14 @@ local function test_a_new_bundle_replaces_the_roots(tmp: string)
   local file = tmp .. "/smaller.txt"
   assert(Fs.write(file, smaller))
   local before = carried(path)
-  local count = assert(math.tointeger(tonumber(first_row(before, "SELECT count(*) FROM ca_roots"):text(1))),
+  local count = assert(first_row(before, "SELECT count(*) FROM ca_roots"):integer(1),
     "the root count is an integer")
   assert(before:close())
 
   local out = tmp .. "/refreshed"
   assert(refresh.binary(path, out, { datasets.cacert }, { cacert = file })) -- checked: map_field
   local after = carried(out)
-  assert(first_row(after, "SELECT count(*) FROM ca_roots"):text(1) == tostring(count - 1))
+  assert(first_row(after, "SELECT count(*) FROM ca_roots"):integer(1) == count - 1)
   local component = first_row(after, "SELECT version, url, sha256 FROM components WHERE name = 'cacert'")
   -- certdata.txt names no version of its own.
   assert(component:text(1) == "sha256:" .. Hash.hex_sha256(smaller):sub(1, 12), component:text(1))
@@ -191,7 +191,7 @@ local function test_a_tzdata_sdist_replaces_the_zones(tmp: string)
   local was, now = rows(before, query), rows(after, query)
   assert(#now == #was, tostring(#now) .. " zones, not " .. tostring(#was))
   for i, row in ipairs(was) do
-    assert(support.nth(now, i):text(1) == row:text(1) and support.nth(now, i):text(2) == row:text(2) and support.nth(now, i):text(3) == row:text(3), row:text(2))
+    assert(support.nth(now, i):as_text(1) == row:as_text(1) and support.nth(now, i):as_text(2) == row:as_text(2) and support.nth(now, i):as_text(3) == row:as_text(3), row:as_text(2))
   end
   local component = first_row(after, "SELECT version, sha256 FROM components WHERE name = 'tzdata'")
   assert(component:text(1) == "2099.1", component:text(1))

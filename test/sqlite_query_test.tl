@@ -133,7 +133,7 @@ end
 --- not the day before it.
 local function test_datetime_floor_of_a_24_hour_time_is_the_next_day()
   local db = assert(Sqlite.memory())
-  local rows = assert(db:text_rows("SELECT datetime('2025-04-30 24:00:00', 'floor')"))
+  local rows = assert(db:rows("SELECT datetime('2025-04-30 24:00:00', 'floor')"))
   local row = rows[1]
   assert(row, "the statement yields a row")
   assert(row:text(1) == "2025-05-01 00:00:00", row:text(1))

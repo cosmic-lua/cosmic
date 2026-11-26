@@ -29,7 +29,7 @@ local stamp_keys <const>: {string} = { "stamp_analyzer", "stamp_coded", "stamp_e
 local function held(db: Sqlite.Handle): {string:string}
   local out: mut {string:string} = {}
   for _, key in ipairs(stamp_keys) do
-    local rows = assert(db:text_rows("SELECT value FROM meta WHERE key = ?1", { { text = key } }))
+    local rows = assert(db:rows("SELECT value FROM meta WHERE key = ?1", { { text = key } }))
     local row = rows[1]
     out[key] = if row ~= nil then row:text(1) else "" end
   end

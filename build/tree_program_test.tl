@@ -123,7 +123,7 @@ local function test_the_guides_and_templates_are_the_modules_the_stage_derives_f
   local handle = assert(work.open(root))
   assert(work.stage(handle, { own = false }))
   assert(importer.derive(handle))
-  local rows = assert(handle.db:text_rows("SELECT file, path, source, origin FROM derived ORDER BY file"))
+  local rows = assert(handle.db:rows("SELECT file, path, source, origin FROM derived ORDER BY file"))
   local derived: mut {{string}} = {}
   for _, row in ipairs(rows) do
     if row:text(4) == "doctest" or row:text(4) == "template" then

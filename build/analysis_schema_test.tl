@@ -25,7 +25,7 @@ local function test_the_view_and_teal_kinds_of_a_path_agree(_: string)
   for _, path in ipairs(paths) do
     assert(db:run("INSERT INTO files (path, sha256, data) VALUES (?1, 'h', '')", { { text = path } }))
   end
-  local rows = assert(db:text_rows("SELECT file, kind FROM inputs"))
+  local rows = assert(db:rows("SELECT file, kind FROM inputs"))
   assert(#rows == #paths, "the view reads " .. tostring(#rows) .. " of " .. tostring(#paths) .. " files")
   local seen: mut {string: boolean} = {}
   for _, row in ipairs(rows) do
@@ -88,7 +88,7 @@ local function test_a_declaration_is_a_binding_only_given_the_line_on_a_line_of_
     assert(db:run("INSERT INTO files (path, sha256, data) VALUES (?1, 'h', ?2)",
       { { text = case.path }, { text = case.text } }))
   end
-  local rows = assert(db:text_rows("SELECT file, kind FROM inputs"))
+  local rows = assert(db:rows("SELECT file, kind FROM inputs"))
   local said: mut {string: string} = {}
   for _, row in ipairs(rows) do said[row:text(1)] = row:text(2) end
   for _, case in ipairs(cases) do
@@ -134,7 +134,7 @@ local function test_the_declaration_predicate_selects_what_the_comparisons_did(_
           { text = kind } }))
   end
   local function selected(where: string): string
-    local rows = assert(db:text_rows("SELECT path FROM inputs WHERE " .. where .. " ORDER BY path"))
+    local rows = assert(db:rows("SELECT path FROM inputs WHERE " .. where .. " ORDER BY path"))
     local out: mut {string} = {}
     for _, row in ipairs(rows) do out[#out + 1] = row:text(1) end
     return table.concat(out, " ")
@@ -195,9 +195,9 @@ local function test_the_sql_and_teal_static_assets_agree(_: string)
     else
       assert(asset.program == case[2] and asset.path == case[3], path .. ": " .. asset.program .. " " .. asset.path)
     end
-    local rows = assert(db:text_rows("SELECT " .. analysis_schema.static_files("?1"), { { text = path } }))
+    local rows = assert(db:rows("SELECT " .. analysis_schema.static_files("?1"), { { text = path } }))
     local expected = if asset ~= nil then "1" else "0" end
-    assert(assert(rows[1]):text(1) == expected, path .. ": the SQL says otherwise")
+    assert(assert(rows[1]):as_text(1) == expected, path .. ": the SQL says otherwise")
   end
 end
 

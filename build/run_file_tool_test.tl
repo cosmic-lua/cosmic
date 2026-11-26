@@ -402,9 +402,9 @@ local function builds_of(root: string): integer
   local Sqlite = require("cosmic.sqlite")
   local layout = require("build.paths").resolve(root, this_program.environment())
   local db = assert(Sqlite.open(layout.working))
-  local rows = assert(db:text_rows("SELECT count(*) FROM builds"))
+  local rows = assert(db:rows("SELECT count(*) FROM builds"))
   local _, _ = db:close()
-  return assert(math.tointeger(tonumber(assert(rows[1]):text(1))))
+  return assert(rows[1]):integer(1)
 end
 
 --- A run of a tree nothing in has moved since its last good run runs the projection that run wrote, building nothing;

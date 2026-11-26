@@ -57,6 +57,7 @@ local docs = require("build.docs")
 local Doc = require("cosmic.doc")
 local flow = require("build.flow")
 local laid = require("build.fix.laid")
+local FixRewrites = require("build.fix.rewrites")
 local Format = require("build.fix.format")
 local link_files = require("build.link_files")
 local link_resolve = require("build.link_resolve")
@@ -1589,6 +1590,45 @@ local function find_unbuilt(ctx: Fix)
   ctx.unbuilt = unbuilt
 end
 
+--- Where the build refused a run over some paths, writes the checker's rewrites of its errors into the Teal files named
+--- ([`build.fix.rewrites`]), laid out, and builds again: a file whose errors were all mechanical builds now. Each
+--- rewrite is told; `--check` writes none, and tells what it would make. A run over the whole tree leaves them to a run
+--- that names the files: there the tree checks build it, not this.
+local function make_rewrites(ctx: Fix)
+  local picked = assert(ctx.picked)
+  if ctx.unbuilt == nil or picked.whole then return end
+  local root = assert(ctx.root)
+  -- Only a file the build refused for what it holds has errors to rewrite; a run that names none builds nothing more.
+  local refused: mut {string: boolean} = {}
+  for _, file in ipairs(rebuild.refused()) do refused[file] = true end
+  local names: mut {string} = {}
+  for _, file in ipairs(picked.files) do
+    local named = under(root, file)
+    if named ~= nil and refused[named] == true then names[#names + 1] = named end
+  end
+  if #names == 0 then return end
+  local checking = ctx.checking == true
+  local made = FixRewrites.make(root, assert(ctx.standing).own, names, checking, function(text: string, file: string): string?
+    return Format.format(text, file).text
+  end)
+  for _, line in ipairs(made.told) do
+    log:say("fix: " .. (if checking then "would rewrite " else "rewrote " end) .. line)
+  end
+  for _, line in ipairs(made.notes) do log:say("fix: " .. line) end
+  local failures = copied(assert(ctx.failures))
+  for _, line in ipairs(made.failures) do failures[#failures + 1] = line end
+  ctx.failures = failures
+  if #made.written == 0 then return end
+  local changed = copied(assert(ctx.changed))
+  local listed: mut {string: boolean} = {}
+  for _, file in ipairs(changed) do listed[under(root, file) or file] = true end
+  for _, file in ipairs(made.written) do
+    if listed[file] ~= true then changed[#changed + 1] = file end
+  end
+  ctx.changed = changed
+  find_unbuilt(ctx)
+end
+
 --- The text of `file`, the tree at `root`'s, written with `edit` made to it; the file is listed in `changed` where its
 --- text changed. A file that cannot be read or written is a failure.
 local function edit_marked(root: string, file: string, edit: function(text: string): string, changed: mut {string},
@@ -2024,6 +2064,7 @@ local function fix_verb(argv: {string}): integer
   Memprobe.mark("fix: Teal read")
   check_alone(ctx)
   find_unbuilt(ctx)
+  make_rewrites(ctx)
   run_tree_checks(ctx)
   Memprobe.mark("fix: tree checks done")
   check_links(ctx)

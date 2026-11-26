@@ -19,10 +19,10 @@ Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx
 --- deflated: the file's own bytes show none of it.
 local function carries(path: string, needle: string): boolean
   local db = assert(Sqlite.open(path))
-  local rows = assert(db:text_rows(
+  local rows = assert(db:rows(
     "SELECT count(*) FROM modules WHERE instr(chunk(bytecode), CAST(?1 AS BLOB)) > 0", { { text = needle } }))
   assert(db:close())
-  return assert(rows[1]):text(1) ~= "0"
+  return assert(rows[1]):integer(1) ~= 0
 end
 
 --- The module under test: `hello` takes nil out of `name` with an `assert`, and the checker takes the `assert` for what it
@@ -102,7 +102,7 @@ end
 --- The rows of `type_violations` the project's last checked run kept.
 local function violations(root: string): Sqlite.Rows
   local db = assert(Sqlite.open(assert(build_paths.directory(root)) .. "/build.db"))
-  local rows = assert(db:text_rows(
+  local rows = assert(db:rows(
     "SELECT kind, site, target, declared, actual, count FROM type_violations ORDER BY site"))
   assert(db:close())
   return rows
@@ -126,8 +126,8 @@ local function test_a_checked_run_reports_a_false_value_and_changes_no_verdict(t
   local rows = violations(root)
   assert(#rows == 1, tostring(#rows) .. " rows")
   local row = Array.at(rows, 1)
-  assert(table.concat(row:texts(), " | ") == "parameter | greet_test.tl:5 | parameter name of function (greet.tl:6) | string|nil | integer | 1",
-    table.concat(row:texts(), " | "))
+  assert(table.concat(row:as_texts(), " | ") == "parameter | greet_test.tl:5 | parameter name of function (greet.tl:6) | string|nil | integer | 1",
+    table.concat(row:as_texts(), " | "))
 
   -- The same variable asks for the same.
   local variable, variable_text = invoke(root, tmp, { "test" }, { COSMIC_TEST_CHECK_TYPES = "1" })
@@ -197,10 +197,10 @@ local function test_a_checked_run_counts_the_tests_that_met_a_violation(tmp: str
   assert(checked.ok, text)
   assert(text:find("run-time types: 1 test met one (", 1, true), text)
   local db = assert(Sqlite.open(assert(build_paths.directory(root)) .. "/build.db"))
-  local rows = assert(db:text_rows("SELECT test, kind, count FROM type_violation_tests"))
+  local rows = assert(db:rows("SELECT test, kind, count FROM type_violation_tests"))
   assert(db:close())
   assert(#rows == 1, tostring(#rows) .. " rows")
-  local row = assert(rows[1]):texts()
+  local row = assert(rows[1]):as_texts()
   assert(assert(row[1]):find("test_hello_with_a_value_of_another_kind", 1, true) ~= nil, row[1])
   assert(row[2] == "parameter" and row[3] == "1", table.concat(row, " | "))
 end

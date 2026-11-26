@@ -25,7 +25,7 @@ test_child.register("shadowing", function(argv: {string}): integer
   local binary = assert(databases[#databases])
   local wrappers: mut {string} = {}
   local ordinary: string? = nil
-  for _, row in ipairs((assert(binary:text_rows(
+  for _, row in ipairs((assert(binary:rows(
       "SELECT path FROM modules WHERE kind = 'module' ORDER BY path")))) do
     local name = row:text(1)
     local _, extra = search(name)

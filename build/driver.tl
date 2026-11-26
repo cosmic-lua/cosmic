@@ -397,11 +397,11 @@ end
 --- ([`build.removed_fix`]), else the fix the checker wrote.
 local function error_of(result: Driver.Outcome, stage: string, code: string, msg: string, fix: string, y: integer, x: integer,
                         offset: integer, length: integer, argument?: Check.Argument,
-                        other?: Scopes.Place): Driver.Problem
+                        other?: Scopes.Place, rewrite?: Check.Rewrite): Driver.Problem
   local instead = RemovedFix.fix({ tokens = result.chunk.tokens, scoped = result.scoped }, code, offset, length)
   return {
     kind = "error", stage = stage, code = code, msg = msg, fix = instead or fix, y = y, x = x, offset = offset,
-    length = length, other = other, removed = instead ~= nil, argument = argument,
+    length = length, other = other, removed = instead ~= nil, argument = argument, rewrite = rewrite,
   }
 end
 
@@ -965,7 +965,7 @@ function Driver.new(options: Driver.Options): Driver.Build
             msg = msg .. meant(result, e.offset)
           end
           table.insert(result.bodies, error_of(result, "checked", code, msg, e.fix, e.y, e.x, e.offset, e.length,
-            e.argument, e.other))
+            e.argument, e.other, e.rewrite))
         end
         local exempt: {integer: boolean} = {}
         if source.tests then

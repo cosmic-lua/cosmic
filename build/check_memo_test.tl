@@ -63,8 +63,8 @@ local function test_a_row_one_checkout_wrote_stands_in_another_of_the_same_code(
   check_memo.finish(first, "c")
   -- Neither written there, nor taken where the file holds one.
   local file = assert(Sqlite.open(path, { writable = true }))
-  local written = assert(assert(file:text_rows("SELECT count(*) FROM check_memo_v1 WHERE kind = 'c'"))[1])
-  assert(written:text(1) == "0", "a row whose key names its checkout was written to the shared file")
+  local written = assert(assert(file:rows("SELECT count(*) FROM check_memo_v1 WHERE kind = 'c'"))[1])
+  assert(written:integer(1) == 0, "a row whose key names its checkout was written to the shared file")
   assert(file:run("INSERT INTO check_memo_v1 (code, kind, key, value, used_ns) VALUES ('a', 'c', 'two', 'x', 1)"))
   assert(file:close())
   local second = assert(Sqlite.memory())

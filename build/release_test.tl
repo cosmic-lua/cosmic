@@ -576,7 +576,7 @@ end
 local function presenting(label: string): string
   local databases = Store.databases()
   local own = assert(databases[#databases])
-  local rows = assert(own:text_rows(
+  local rows = assert(own:rows(
     "SELECT hex(der) FROM ca_roots WHERE label = ?1", { { text = label } }))
   local der = assert(Codec.unhex(assert(rows[1]):text(1)))
   local function message(kind: integer, body: string): string

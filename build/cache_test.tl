@@ -323,7 +323,7 @@ local function test_declared_format_without_parts_is_supported_without_migration
   local result = trim(path, "verdicts", 5)
   assert(result.complete and support.nth(result.report.files, 1).removed == 1)
   db = assert(Sqlite.open(path))
-  assert(#assert(db:text_rows("PRAGMA table_info(declared_v1)")) == 6)
+  assert(#assert(db:rows("PRAGMA table_info(declared_v1)")) == 6)
   assert(db:close())
 end
 

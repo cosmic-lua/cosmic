@@ -127,7 +127,7 @@ local function harness_copy(): Sqlite.Handle, test_key.Harness
       { { text = row:text(1) }, { text = row:text(2) }, { blob = row:blob(3) },
         { blob = row:blob(4) } }))
   end
-  for _, row in ipairs((assert(db:text_rows("SELECT path, requires FROM imports")))) do
+  for _, row in ipairs((assert(db:rows("SELECT path, requires FROM imports")))) do
     assert(copy:run("INSERT INTO imports VALUES (?1, ?2)",
       { { text = row:text(1) }, { text = row:text(2) } }))
   end
@@ -346,7 +346,7 @@ local function test_the_harness_holds_what_it_runs_requires()
   named["build.harness_epoch"] = true
   local by_value = assert(test_key.value_imports(db))
   local tree: mut {string:boolean} = {}
-  for _, row in ipairs((assert(db:text_rows("SELECT path FROM modules")))) do
+  for _, row in ipairs((assert(db:rows("SELECT path FROM modules")))) do
     tree[row:text(1)] = true
   end
   local missing: mut {string} = {}

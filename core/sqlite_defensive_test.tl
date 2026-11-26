@@ -7,7 +7,7 @@ local Sqlite = require("cosmic.sqlite")
 
 --- The one text cell `sql` returns on `db`.
 local function answer(db: Sqlite.Handle, sql: string): string
-  return assert(assert(db:text_rows(sql))[1]):text(1)
+  return assert(assert(db:rows(sql))[1]):as_text(1) or ""
 end
 
 local function test_a_handle_cannot_write_its_schema()
