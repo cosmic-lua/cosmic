@@ -27,6 +27,14 @@ local record SyntaxLinkText
   --- The links of `source`'s comments, `chunk` its tree, as the build records them: every link but a definition,
   --- whose target a reference link carries.
   found: function(chunk: Ast.Chunk, scoped: Scopes.Scoped, source: string): {LinkText.Found}
+
+  --- A set of names of its own that holds every name of `everywhere` too, as a comment's [`LinkText.Declared`] names
+  --- inherit what every comment of the file sees.
+  seeing: function(everywhere: {string: boolean}): mut {string: boolean}
+end
+
+function SyntaxLinkText.seeing(everywhere: {string: boolean}): mut {string: boolean}
+  return setmetatable({}, { __index = everywhere }) -- checked: setmetatable_call -- untyped: call
 end
 
 function SyntaxLinkText.comments_of(tokens: Lexer.Tokens): {LinkText.Comment}
@@ -211,7 +219,7 @@ function SyntaxLinkText.declarations(chunk: Ast.Chunk, scoped: Scopes.Scoped): L
       return known
     end
     local in_scope = Lexical.in_scope(held(), y, x, doc_line)
-    local here: mut {string: boolean} = setmetatable({}, { __index = everywhere }) -- checked: setmetatable_call -- untyped: call
+    local here = SyntaxLinkText.seeing(everywhere)
     local aliases: mut {string: string} = {}
     -- A name bound here is no alias of the top level's, whatever it is bound to.
     for name, module in pairs(top_aliases) do
@@ -229,7 +237,7 @@ function SyntaxLinkText.declarations(chunk: Ast.Chunk, scoped: Scopes.Scoped): L
     seen[place] = known
     return known
   end
-  return { at = at, module_level = module_level }
+  return { at = at, module_level = module_level, everywhere = everywhere }
 end
 
 function SyntaxLinkText.found(chunk: Ast.Chunk, scoped: Scopes.Scoped, source: string): {LinkText.Found}
