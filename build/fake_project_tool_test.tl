@@ -14,12 +14,16 @@ local this_program = require("build.this_program")
 --- The program itself, which this test starts.
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
---- The fake's main: it reads the clock, which only the library holds.
+--- The fake's main: it reads the clock, which only the library holds,
+--- and its pid by [`cosmic.sys`], a binding the core preloads, which no
+--- database holds.
 local main = table.concat({
   "local Clock = require(\"cosmic.clock\")",
+  "local sys = require(\"cosmic.sys\")",
   "",
   "return function(_: {string}): integer",
   "  local _ = Clock.monotonic_ns()",
+  "  local _ = sys.getpid()",
   "  print(\"ran\")",
   "  return 0",
   "end",
