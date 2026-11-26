@@ -5,7 +5,7 @@
 
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
-local Steps = require("build.fake_steps")
+local Steps = require("cosmic.fake.steps")
 
 --- Each case, handed the words past its name.
 local cases: {string:function({string}): integer} = {

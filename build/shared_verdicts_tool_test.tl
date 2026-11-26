@@ -183,6 +183,7 @@ local function test_a_rebooted_run_stands_on_the_first_ones_verdicts(tmp: string
   local env, said, _ = seeded(tmp)
   tmp = assert(Fs.absolute(tmp))
   env["COSMIC_REBOOTED"] = "1"
+  env["COSMIC_REBOOTED_TOOL"] = tmp .. "/rebooted/o/bin/cosmic"
   env["OLDPWD"] = tmp .. "/elsewhere"
   checkout(tmp .. "/rebooted", "one\n")
   said("rebooted", tmp .. "/rebooted", "0 ran, 5 stood")

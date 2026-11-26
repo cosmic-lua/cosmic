@@ -2,7 +2,7 @@
 --- core/children_darwin_test.tl, run as a [`cosmic.fake`] main. Its first argument
 --- names the case and the rest are that case's words.
 
-local Steps = require("build.fake_steps")
+local Steps = require("cosmic.fake.steps")
 
 --- Each case, handed the words past its name.
 local cases: {string:function({string}): integer} = {
