@@ -108,6 +108,9 @@ local Hold = require("cosmic.child.hold")
 local type Held = Hold.Held
 local type MappedUser = Hold.MappedUser
 local RELAY_MAIN = Hold.RELAY_MAIN
+--- The most grants spawn takes, as hold.tl counts them (`GRANT_MAX` in
+--- core/sandbox.h, which is `UNVEIL_MAX`).
+local MAX_GRANTS <const> = raw.UNVEIL_MAX
 local beneath = Hold.beneath
 local database_holds = Hold.database_holds
 local effective_group = Hold.effective_group
@@ -2638,13 +2641,6 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
     return nil, "sandbox: this program runs from descriptors of its artifact and core, " ..
       "which the \"nest\" promise refuses a child"
   end
-  -- TODO: [`unmet`] counts the grants before these two are added, so a
-  -- start at the most raises inside spawn rather than refusing with a
-  -- message: "too many grants" where the grants are handed to it
-  -- (core/sandbox_rules.c's `read_grants`), and under `nest`, which hands
-  -- none, "too many unveiled paths" for the root they are bound into.
-  -- The fix: count the grants after adding these two, and refuse with
-  -- the count and the most.
   local core_grant: Rules.Path?
   if found ~= nil then
     relaunch = found
@@ -2904,6 +2900,25 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
     -- opens SQLite on the descriptor it checked (the TODO in open_database).
     local holds, held_why = database_holds(assert(merged.database), relaunch.argv[3]) -- checked: index_may_be_nil
     if not holds then return nil, "sandbox: " .. held_why end
+  end
+  -- What spawn is handed, counted once every path the start adds is in:
+  -- its core's, a database's, the program's start files, the directory
+  -- `tmp` makes, and under `isolate` file the root's own /proc. A start
+  -- past the most is refused here, with the count, and not raised inside
+  -- spawn ("too many grants", "too many unveiled paths").
+  local made_tmp = if merged.tmp == true and not file then 1 else 0 end
+  local handed = (if nest then 0 else #grants end) + made_tmp
+  -- The boot ruleset counts only where it is sent: a cosmic child, not under `nest`.
+  local laid = if relaunch ~= nil and not nest then #layer + made_tmp else 0 end
+  -- A root's reads, writes and binds are one list of spawn's (core/spawn.c `read_unveil`).
+  local unveiled = 0
+  if root ~= nil then unveiled = #root.reads + #(root.writes or {}) + #(root.binds or {}) end
+  local most_held = math.max(handed, laid, unveiled)
+  if most_held > MAX_GRANTS then
+    return nil, "sandbox: grants: with the paths the start adds (the program's start files, its core, a " ..
+      "database and " .. (if file then "the sandbox's /proc" else "tmp's directory" end) .. ", where it has " ..
+      "them), the start holds " .. tostring(most_held) .. ", past the most a start takes, " .. tostring(MAX_GRANTS) ..
+      "; grant a directory above them instead"
   end
   return { path = path, env = env, tmp = "", wants_tmp = merged.tmp == true and not file, -- checked: nil_not_allowed
     layer = if relaunch ~= nil and not nest then layer else nil end,
