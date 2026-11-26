@@ -64,6 +64,13 @@ local record tree_checks
   --- What [`tree_checks.read_off`] keeps of a file's parse for the plurals check: the plurals found in one text.
   type Plurals = tree_docs.Plurals
 
+  --- What the checks of the tree keep of a file's parse ([`tree_checks.knows`]): what it requires and, for a test
+  --- file, its early returns.
+  record Known
+    requires: {string}
+    returns?: {{string}}
+  end
+
   --- What a run of every check of the tree is given ([`tree_checks.whole`]).
   record Whole
     --- The root of cosmic's own tree.
@@ -232,6 +239,19 @@ end
 --- Keeps what `chunk`, `cosmic fix`'s parse of `source` as the text of `file`, tells the checks of the tree, so that they
 --- do not parse the file again: what it requires, a test's early returns, and the plurals of its texts, which it
 --- returns (nil for none) for the caller to pass to [`tree_checks.whole`].
+--- Keeps what the text `source` of `file` requires, and its early returns, for the checks of the tree later in the run,
+--- as [`tree_checks.read_off`] does from a parse: what a memo of that read holds ([`build.fix.read_memo`]).
+function tree_checks.knows(source: string, file: string, requires: {string}, returns?: {{string}})
+  tree_common.knows(source, file, requires, returns)
+end
+
+--- What [`tree_checks.read_off`] or [`tree_checks.knows`] kept of the text `source` of `file`, nil where it kept none.
+function tree_checks.known_of(source: string, file: string): tree_checks.Known?
+  local requires, returns = tree_common.known_of(source, file)
+  if requires == nil then return nil end
+  return { requires = requires, returns = returns }
+end
+
 function tree_checks.read_off(file: string, source: string, chunk: Ast.Chunk): tree_checks.Plurals?
   tree_common.knows_parse(source, file, chunk)
   while file:sub(1, 2) == "./" do file = file:sub(3) end

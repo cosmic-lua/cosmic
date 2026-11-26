@@ -44,6 +44,7 @@
 --- repository) only `node_modules/` is.
 
 local build_paths = require("build.paths")
+local check_memo = require("build.check_memo")
 local Verb = require("cosmic.cli.fix")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
@@ -57,6 +58,7 @@ local docs = require("build.docs")
 local Doc = require("cosmic.doc")
 local flow = require("build.flow")
 local laid = require("build.fix.laid")
+local ReadMemo = require("build.fix.read_memo")
 local FixRewrites = require("build.fix.rewrites")
 local Format = require("build.fix.format")
 local link_files = require("build.link_files")
@@ -1131,13 +1133,36 @@ end
 --- notes compare (`ready`), and, where the tree checks will run, the plurals they look for (`plurals`, by the file's path
 --- from the root). `chunk` is the new checker's tree of `source`, as written.
 function fix.read_off(file: string, chunk: Ast.Chunk, source: string, facts: mut {string: links.Facts},
-                      ready: mut {string: {near.Candidate}}, plurals: mut {string: tree_checks.Plurals}?)
-  facts[file] = SyntaxLinks.facts(chunk, SyntaxNode.scope(chunk, file), source)
-  if compared(file) then ready[file] = candidates_from(chunk, source) end
+                      ready: mut {string: {near.Candidate}}, plurals: mut {string: tree_checks.Plurals}?): ReadMemo.Read
+  local read: ReadMemo.Read = {
+    settled = SyntaxLinks.settled(chunk, SyntaxNode.scope(chunk, file)),
+    candidates = if compared(file) then candidates_from(chunk, source) else nil end,
+    plurals = if plurals ~= nil then tree_checks.read_off(file, source, chunk) else nil end,
+  }
   if plurals ~= nil then
-    local found = tree_checks.read_off(file, source, chunk)
+    -- What the tree checks keep of the parse goes into the memo too.
+    local known = tree_checks.known_of(source, file)
+    if known ~= nil then read.requires, read.returns = known.requires, known.returns end
+  end
+  fix.take_read(file, source, read, facts, ready, plurals)
+  return read
+end
+
+--- Takes what was read off `file`, whose text is `source` ([`fix.read_off`], or a memo of it), into the tables a run
+--- keeps of every file.
+function fix.take_read(file: string, source: string, read: ReadMemo.Read, facts: mut {string: links.Facts},
+                       ready: mut {string: {near.Candidate}}, plurals: mut {string: tree_checks.Plurals}?)
+  facts[file] = SyntaxLinks.facts_of(read.settled, source)
+  local candidates = read.candidates
+  if candidates ~= nil then ready[file] = candidates end
+  local requires = read.requires
+  if plurals ~= nil and requires ~= nil then
+    tree_checks.knows(source, file, requires, read.returns)
+  end
+  local found = read.plurals
+  if plurals ~= nil and found ~= nil then
     while file:sub(1, 2) == "./" do file = file:sub(3) end
-    if found ~= nil then plurals[file] = found end
+    plurals[file] = found
   end
 end
 
@@ -1456,6 +1481,9 @@ local function copied(list: {string}): mut {string}
   return out
 end
 
+--- The kind of the check memo that keeps what was read off each Teal file ([`build.fix.read_memo`]).
+local READS <const> = "read"
+
 --- Lays out each Teal file ([`build.fix.format`]), keeping what the parse of its text gives the later phases. A plain run
 --- writes the layout of a file that is not laid out and lists it as changed. `--check` writes nothing and fails on the
 --- files that are not laid out, naming them ([`build.fix.laid`] holds what a file laid out costs a later run). A file the
@@ -1499,11 +1527,28 @@ local function lay_out_teal(ctx: Fix)
   if kept ~= nil then
     local _ = laid.fan(kept, pairs_of)
   end
+  -- What was read off each file is kept too, by its path and text, so a file laid out as it stands is not parsed again.
+  -- A run over the whole tree reads the plurals of every file, so only its reads are kept whole.
+  local reads_kept = false
+  local read_salt = ""
+  if memo ~= nil and kept ~= nil then
+    local prepared, _ = check_memo.prepare(memo, READS, true)
+    reads_kept = prepared
+    read_salt = ReadMemo.salt(assert(ctx.root))
+  end
   local unlaid: mut {string} = {}
   for _, file in ipairs(files) do
     local source = read[file]
     local read_trouble = unread[file]
-    if source == nil then
+    local read_key = if reads_kept then check_memo.key(read_salt, "tl", file .. "\0" .. (source or "")) else "" end
+    local held: ReadMemo.Read? = nil
+    if reads_kept and source ~= nil then
+      local text = check_memo.get(assert(memo), READS, read_key)
+      if text ~= nil then held = ReadMemo.decode(text, source) end
+    end
+    if source ~= nil and held ~= nil and laid.format(kept, source, file).text == source then
+      fix.take_read(file, source, held, facts, ready, plurals)
+    elseif source == nil then
       failures[#failures + 1] = read_trouble or file .. ": not read"
     else
       local chunk, refusal = SyntaxNode.parse(source, file)
@@ -1520,9 +1565,15 @@ local function lay_out_teal(ctx: Fix)
         end
         chunk = done.chunk
         local text = done.text
-        fix.read_off(file, chunk, text, facts, ready, plurals)
+        local made = fix.read_off(file, chunk, text, facts, ready, plurals)
+        if reads_kept and plurals ~= nil and done.state == "laid" then
+          check_memo.put(assert(memo), READS, read_key, ReadMemo.encode(made))
+        end
       end
     end
+  end
+  if reads_kept then
+    check_memo.finish(assert(memo), READS, nil, not (picked.whole == true and picked.every == nil and #failures == 0), true)
   end
   if kept ~= nil then
     laid.finish(kept, picked.whole == true and picked.every == nil and #failures == 0)
