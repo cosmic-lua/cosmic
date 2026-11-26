@@ -989,7 +989,7 @@ function relay_wire.socks_client_greeting(with_password?: boolean): string
 end
 
 --- The username and password message (RFC 1929) a client sends once the
---- server has chosen method 2. Nil and why for a username or a password
+--- server has chosen method 2. Nil and a Failure for a username or a password
 --- that is empty or over 255 bytes.
 --- @param user the username
 --- @param password the password
@@ -1007,7 +1007,7 @@ end
 --- address type 1 for a dotted IPv4 literal, 4 for an IPv6 one (without
 --- brackets), and otherwise 3, with `host` as the domain name for the
 --- relay to resolve and judge, which is sent as it is (the relay applies
---- the name rules). Nil and why for an empty host, a name over 255 bytes or
+--- the name rules). Nil and a Failure for an empty host, a name over 255 bytes or
 --- a port outside 1 to 65535.
 --- @param host the host: a name or an address literal
 --- @param port the port
