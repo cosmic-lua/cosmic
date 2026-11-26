@@ -1772,8 +1772,9 @@ local function test_mains_push_repeats_nothing_the_queue_checked()
   local check, leg_check_at = step_running(steps, "cosmic-driver test cosmic_ci")
   assert(check["if"] == "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || " ..
       "(github.event_name == 'merge_group' && matrix.leg == 'macos-aarch64' && steps.changed.outputs.driver != 'skip')" and
-      map_of(check.env)["COSMIC_TEST_SANDBOX"] == "0",
-    "the legs check the pinned driver on other runs: " .. tostring(check["if"]))
+      map_of(check.env)["COSMIC_TEST_SANDBOX"] == "${{ runner.os == 'Linux' && '1' || '0' }}" and
+      map_of(check.env)["COSMIC_SANDBOX"] == "${{ runner.os == 'Linux' && 'must' || '' }}",
+    "the legs check the pinned driver on other runs, sandboxed on Linux: " .. tostring(check["if"]))
   assert(leg_changed_at < leg_check_at, "the macOS leg asks of the paths changed after its check")
   local driver = job_of(jobs, "driver")
   assert(driver["if"] == QUEUE_REF .. " && (github.event_name == 'merge_group' || github.event_name == 'pull_request')" and
@@ -1790,7 +1791,8 @@ local function test_mains_push_repeats_nothing_the_queue_checked()
     assert((s.run or ""):find("platform boot", 1, true) == nil, "the driver's job boots the tree")
   end
   local queued = step_running(own, "cosmic-driver test cosmic_ci")
-  assert(queued["if"] == "steps.changed.outputs.driver != 'skip'" and map_of(queued.env)["COSMIC_TEST_SANDBOX"] == "0",
+  assert(queued["if"] == "steps.changed.outputs.driver != 'skip'" and map_of(queued.env)["COSMIC_TEST_SANDBOX"] == "1" and
+      map_of(queued.env)["COSMIC_SANDBOX"] == "must",
     "the queue checks the pinned driver otherwise: " .. tostring(queued["if"]))
   local _, check_at = step_named(own, "check the pinned CI driver")
   local _, placed_at = step_named(own, "move the tree to a path of its own")
