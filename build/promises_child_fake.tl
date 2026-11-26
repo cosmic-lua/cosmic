@@ -2,7 +2,7 @@
 --- main under each set of promises the test checks. Its first argument
 --- names the case and the rest are that case's words.
 
-local Steps = require("build.fake_steps")
+local Steps = require("cosmic.fake.steps")
 
 local int = Steps.int
 
@@ -18,7 +18,7 @@ local cases: {string:function({string}): integer} = {
     local dir = words[1]!
     return Steps.print("hello") or Steps.write(dir .. "/f", "world") or
       Steps.append(dir .. "/f", "again") or Steps.cat(dir .. "/f") or Steps.mkdirs(dir .. "/d/e") or
-      Steps.mkfifo(dir .. "/fifo") or Steps.mode(dir .. "/f") or Steps.ls(dir .. "/d") or
+      Steps.mkfifo(dir .. "/fifo") or Steps.mode(dir .. "/f") or Steps.list(dir .. "/d") or
       Steps.status_field("Seccomp") or Steps.status_field("NoNewPrivs") or 0
   end,
   -- Sends signal `words[1]` to pid `words[2]`, or to itself.
