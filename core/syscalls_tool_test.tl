@@ -15,7 +15,6 @@ local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local type raw_process = require("cosmic.internal.process")
 local confine = require("build.confine")
-local this_program = require("build.this_program")
 local Fake = require("cosmic.fake")
 -- Required, so the fake's main is of this test's closure.
 local _fake = require("build.syscalls_tool_fake")
@@ -91,9 +90,9 @@ local function test_a_confined_child_ends_with_its_parent(tmp: string)
   local probe = probe_in(tmp)
   if not process.subreaper() then Test.skip("no subreaper to be") end
   local report = create(tmp .. "/parent")
-  local started = this_program.program(test_child.words(tmp, "core.syscalls_tool_test", "confined",
+  local started = Test.cosmic(test_child.words(tmp, "core.syscalls_tool_test", "confined",
     { table.concat(probe_reads(probe), ":") }))
-  local parent = assert(process.spawn(assert(started.argv[1], "this_program.program puts the executable first"), started.argv, started.options.env, tmp,
+  local parent = assert(process.spawn(assert(started.argv[1], "Test.cosmic puts the executable first"), started.argv, started.options.env, tmp,
     nil, report, report, false,
     TestSandboxFixture.spawn_fds(started)))
   local said = ""
@@ -135,12 +134,12 @@ end
 --- program, reading and connecting.
 local function test_an_offline_child_s_loopback_is_up(tmp: string)
   local report = create(tmp .. "/report")
-  local started = this_program.program({ "-e",
+  local started = Test.cosmic({ "-e",
     'local Fs = require("cosmic.fs") local Net = require("cosmic.net") local Clock = require("cosmic.clock") ' ..
       'local t = assert(Fs.read("/proc/self/net/fib_trie")) ' ..
       'if t:find("127.0.0.1", 1, true) ~= nil then print("up") else print("down") end ' ..
       'local _, why = Net.connect(Net.tcp("127.0.0.1", 1), { timeout_ns = Clock.seconds(5) }) print(why)' })
-  local pid, trouble, errno = process.spawn(assert(started.argv[1], "this_program.program puts the executable first"), started.argv, started.options.env,
+  local pid, trouble, errno = process.spawn(assert(started.argv[1], "Test.cosmic puts the executable first"), started.argv, started.options.env,
     tmp, nil, report, report, false,
     TestSandboxFixture.spawn_fds(started),
     { offline = true })

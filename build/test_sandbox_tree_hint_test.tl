@@ -9,7 +9,6 @@ local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local confine = require("build.confine")
 local sys = require("cosmic.sys")
-local this_program = require("build.this_program")
 
 --- `cosmic test` with sandboxed workers, nested in this test's own sandbox
 --- (`nests`), and the variables that hold a run to sandboxing, which a
@@ -53,14 +52,14 @@ local function test_url()
   error("http://example.com/fixture.txt: No such file or directory")
 end
 ]]))
-  local env = this_program.environment()
+  local env = Test.environment()
   env["COSMIC_VERDICT_CACHE"] = "0"
   env["COSMIC_TEST_ALL"] = nil
   env["COSMIC_SANDBOX"] = nil
   env["COSMIC_TEST_SANDBOX"] = nil
   local output = tmp .. "/out"
   local fd = assert(Fs.open_write(output))
-  local started = this_program.program({ "test", "--all" }, {
+  local started = Test.cosmic({ "test", "--all" }, {
     cwd = root, env = env, stdout = fd, stderr = fd, process_group = true,
     timeout_ns = Clock.seconds(100),
   })

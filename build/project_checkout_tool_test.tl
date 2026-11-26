@@ -13,7 +13,6 @@ local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 local artifact = require("build.artifact")
 local paths = require("build.paths")
-local this_program = require("build.this_program")
 local tree = require("build.tree")
 
 --- The program itself, rewritten as a host program of its core that
@@ -40,7 +39,7 @@ end
 --- (`COSMIC_AUTO_BOOT=0`) and unsandboxed, as a sandbox nested in this
 --- test's own may be refused: its exit status and what it said.
 local function invoke(program: string, root: string, tmp: string, words: {string}): integer, string, string
-  local env = this_program.environment()
+  local env = Test.environment()
   env["COSMIC_AUTO_BOOT"] = "0"
   env["COSMIC_TEST_SANDBOX"] = "0"
   env["COSMIC_VERDICT_CACHE"] = "0"

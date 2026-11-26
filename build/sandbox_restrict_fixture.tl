@@ -7,7 +7,6 @@
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Test = require("cosmic.test")
-local this_program = require("build.this_program")
 
 local record sandbox_restrict_fixture
   --- What a child said: its lines, `name=value`, by name, and how it ended.
@@ -62,8 +61,8 @@ local _, _, _, _, _, _ = Child, Net, Store.alone, reads, writes, limit
 --- @param chunk the Teal source the child runs
 --- @return what it said
 function sandbox_restrict_fixture.in_child(chunk: string): sandbox_restrict_fixture.Said
-  local started = this_program.program({ "-e", PRELUDE .. chunk }, {
-    env = this_program.environment(), stdout = "capture", stderr = "stdout",
+  local started = Test.cosmic({ "-e", PRELUDE .. chunk }, {
+    env = Test.environment(), stdout = "capture", stderr = "stdout",
     timeout_ns = Clock.seconds(60) })
   local result = assert(Child.run(started.argv, started.options))
   local said: sandbox_restrict_fixture.Said = { code = result.code or -1, lines = {}, raw = result.stdout or "" }

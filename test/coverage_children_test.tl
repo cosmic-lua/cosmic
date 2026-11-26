@@ -10,7 +10,6 @@ local Coverage = require("cosmic.coverage")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local confine = require("build.confine")
-local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
 
@@ -38,11 +37,10 @@ return function(): integer
   return 0
 end
 ]]))
-  -- TODO: start this program through [`this_program.program`], in this
-  -- parent and in test_processes_confined_apart_report_apart's, once it
-  -- moves to [`cosmic.test`] (the TODO above it in
-  -- build/this_program.tl): a file run cannot reach build/,
-  -- so each relaunches by hand.
+  -- TODO: start this program through [`Test.cosmic`], in this
+  -- parent and in test_processes_confined_apart_report_apart's, now
+  -- that it is in [`cosmic.test`], which a file run reaches; each still
+  -- relaunches by hand, as it did while the call lived in build/.
   assert(Fs.write(tmp .. "/parent/parent.tl", [[
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
@@ -51,7 +49,7 @@ local Env = require("cosmic.env")
 local Proc = require("cosmic.proc")
 return function(argv: {string}): integer
   Coverage.children((argv[1] or ""))
-  -- This program again, past its launcher, as `this_program.program`
+  -- This program again, past its launcher, as `Test.cosmic`
   -- starts it (a file run cannot reach build/), in an empty environment
   -- but for how to start the core and where to build its file: only the
   -- core can carry the directory.
@@ -76,9 +74,9 @@ return function(argv: {string}): integer
   return 0
 end
 ]]))
-  local started = this_program.program({ "parent.tl", reports,
+  local started = Test.cosmic({ "parent.tl", reports,
     tmp .. "/child/child.tl", tmp .. "/child" },
-    { env = this_program.environment(), cwd = tmp .. "/parent", stdout = "capture",
+    { env = Test.environment(), cwd = tmp .. "/parent", stdout = "capture",
       stderr = "capture", timeout_ns = Clock.seconds(60) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stderr))
@@ -146,8 +144,8 @@ return function(argv: {string}): integer
   return 0
 end
 ]]))
-  local started = this_program.program({ "parent.tl", reports, table.concat(reads, "\n") },
-    { env = this_program.environment(), cwd = tmp .. "/parent", stdout = "capture",
+  local started = Test.cosmic({ "parent.tl", reports, table.concat(reads, "\n") },
+    { env = Test.environment(), cwd = tmp .. "/parent", stdout = "capture",
       stderr = "capture", timeout_ns = Clock.seconds(60) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stderr))
@@ -190,9 +188,9 @@ local function test_a_process_of_another_build_does_not_report(tmp: string)
       tmp .. "/unsigned" }) do
     local dir = assert(value:match("[^:]*$"), "a value ends in a path")
     assert(Fs.mkdirs(dir))
-    local env = this_program.environment()
+    local env = Test.environment()
     env.COSMIC_COVERAGE_CHILDREN = value -- checked: map_field
-    local started = this_program.program({ "-e", "return 0" },
+    local started = Test.cosmic({ "-e", "return 0" },
       { env = env, cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
     local r = assert(Child.run(started.argv, started.options))
     assert(r.ok, tostring(r.stderr))

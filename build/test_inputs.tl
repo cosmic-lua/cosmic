@@ -32,7 +32,7 @@
 
 local sys = require("cosmic.sys")
 local confine = require("build.confine")
-local this_program = require("build.this_program")
+local Test = require("cosmic.test")
 local cache_names = require("build.cache_names")
 local CodeWalk = require("build.code_walk")
 local type PolicyRules = require("build.policy_rules")
@@ -109,10 +109,10 @@ end
 --- test of the sandbox itself confines what it starts (COSMIC_SANDBOX,
 --- [`confine.must_confine`]), and what a process of the program
 --- running the tests reads to run at all
---- ([`this_program.runtime_environment`]).
+--- ([`Test.runtime_environment`]).
 local pinned_env: mut {string} = { "FUZZ_SEED", "FUZZ_ITERS", "FUZZ_SECONDS", "FUZZ_CASE",
   "COSMIC_SANDBOX" }
-for _, name in ipairs(this_program.runtime_environment) do pinned_env[#pinned_env + 1] = name end
+for _, name in ipairs(Test.runtime_environment) do pinned_env[#pinned_env + 1] = name end
 
 --- The modules of the tree a process of this program runs before the
 --- chunk `cosmic -e` hands it runs ([`build.dispatch`]'s `evaluate`), and

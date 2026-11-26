@@ -10,7 +10,6 @@ local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 local searchable = require("build.searchable")
-local this_program = require("build.this_program")
 
 Test.policy{
   profiles = { "cosmic" },
@@ -79,8 +78,8 @@ local function test_a_withheld_source_is_said_so_and_not_taken_for_absent(tmp: s
 
   searchable.open(tmp)
   searchable.share(path)
-  local started = this_program.program({ "sandbox", "--database", path, "--", (assert(Proc.executable())) }, {
-    cwd = tmp, env = this_program.environment(), stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(120),
+  local started = Test.cosmic({ "sandbox", "--database", path, "--", (assert(Proc.executable())) }, {
+    cwd = tmp, env = Test.environment(), stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(120),
   })
   local ran = assert(Child.run(started.argv, started.options))
   if ran.code == 125 and ((ran.stderr or ""):find("Landlock", 1, true) or (ran.stderr or ""):find("seccomp", 1, true) or

@@ -12,7 +12,6 @@
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
-local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
 
@@ -45,13 +44,13 @@ end
 --- What `cosmic test` in `root` printed and its status, run unsandboxed
 --- with `extra` set in its environment.
 local function run(root: string, extra?: {string:string}): string, integer
-  local env = this_program.environment()
+  local env = Test.environment()
   env["COSMIC_TEST_SANDBOX"] = "0"
   env["COSMIC_SANDBOX"] = nil
   env["COSMIC_CI_REQUIRE_SANDBOX"] = nil
   env["COSMIC_TEST_PROMISES"], env["COSMIC_TEST_LEG"] = nil, nil
   for name, value in pairs(extra or {}) do env[name] = value end
-  local started = this_program.program({ "test" }, {
+  local started = Test.cosmic({ "test" }, {
     cwd = root, env = env, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(90),
   })
   local result = assert(Child.run(started.argv, started.options))

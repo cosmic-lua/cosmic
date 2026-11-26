@@ -6,7 +6,6 @@
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
-local this_program = require("build.this_program")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local _ = require("build.standalone")
@@ -48,7 +47,7 @@ return function(argv: {string}): integer
 end
 ]]))
   local marker = tmp .. "/marker"
-  local started = this_program.program({ "--standalone", script, marker },
+  local started = Test.cosmic({ "--standalone", script, marker },
     { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })
   local child = assert(Child.start(started.argv, started.options))
   for _ = 1, 2000 do
