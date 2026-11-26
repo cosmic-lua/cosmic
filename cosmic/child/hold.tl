@@ -150,8 +150,9 @@ local nests = Hold.nests
 
 --- A policy's fields not yet met, by what each would need.
 function Hold.unmet(merged: Rules.Policy): string
+  local setup = merged.setup or {}
   local file = isolates(merged, "file")
-  local held = #(Rules.paths(merged)) + (if merged.tmp == true and not file then 1 else 0 end)
+  local held = #(Rules.paths(merged)) + (if setup.tmp == true and not file then 1 else 0 end)
   local most = if file then MAX_ISOLATED_GRANTS else MAX_GRANTS end
   if held > most then
     return "grants: the policy holds " .. tostring(held) ..
@@ -173,7 +174,7 @@ function Hold.unmet(merged: Rules.Policy): string
     return "limits.processes counts the processes of a user namespace of the sandbox's own, " ..
       "which isolate \"proc\" or \"file\" makes: add one"
   end
-  for name, _ in pairs(merged.set_env_digests or {}) do
+  for name, _ in pairs(setup.set_env_digests or {}) do
     return "set_env_digests \"" .. name .. "\" holds a digest, not the value to set; the " ..
       "policy cannot start a program"
   end
@@ -235,6 +236,7 @@ end
 --- without `x` is noexec. Nil and why where a grant cannot be placed.
 function Hold.root_of(merged: Rules.Policy, base: string, idmap: {integer: boolean}, nest: boolean,
                       tmp_exec: boolean): raw_process.Unveil?, string
+  local setup = merged.setup or {}
   local binds: mut {raw_process.Bind} = {}
   local reads: mut {string} = {}
   local proc = true
@@ -244,7 +246,7 @@ function Hold.root_of(merged: Rules.Policy, base: string, idmap: {integer: boole
       return nil, "grant \"/proc\" has from, but /proc is the sandbox's own: grant its " ..
         "contents at another name"
     end
-    if merged.tmp == true and (name == "/tmp" or name == "/") then
+    if setup.tmp == true and (name == "/tmp" or name == "/") then
       return nil, "grant \"" .. grant.path .. "\" is the name of the sandbox's own /tmp, " ..
         "which tmp makes: grant what is beneath it, or leave tmp out, or grant \"/tmp\" " ..
         "itself with no `from`, for its letters"
@@ -257,7 +259,7 @@ function Hold.root_of(merged: Rules.Policy, base: string, idmap: {integer: boole
   end
   if proc then reads[1] = "/proc" end
   local tmp: integer?
-  if merged.tmp == true then tmp = TMP_BYTES end
+  if setup.tmp == true then tmp = TMP_BYTES end
   return { reads = reads, writes = {}, binds = binds, tmp = tmp, tmp_exec = tmp_exec or nil }, "" -- checked: or_mix
 end
 
@@ -379,10 +381,11 @@ local effective_group = Hold.effective_group
 --- map one -- it needs CAP_SETUID, CAP_SETGID and CAP_SETFCAP, and a user
 --- namespace that maps the user.
 function Hold.mapped_user(merged: Rules.Policy): MappedUser?, string
+  local setup = merged.setup or {}
   local platform, _, _ = raw.sandbox_platform()
   local own = effective_user()
   if not platform and own == 0 then
-    local merged_user = merged.user
+    local merged_user = setup.user
     if merged_user ~= nil then
       return nil, "user " .. tostring(merged_user) .. ": a program runs as a user of the policy's only " ..
         "where it is sandboxed, on Linux"
@@ -391,10 +394,10 @@ function Hold.mapped_user(merged: Rules.Policy): MappedUser?, string
   end
   if own ~= 0 then
     local group = effective_group()
-    local merged_group = merged.group
-    local merged_user = merged.user
+    local merged_group = setup.group
+    local merged_user = setup.user
     if merged_user ~= nil and (merged_user ~= own or (merged_group ~= nil and merged_group ~= group)) then
-      local merged_group2 = merged.group
+      local merged_group2 = setup.group
       return nil, "user " .. tostring(merged_user) .. (if merged_group2 ~= nil then ", group " .. tostring(merged_group2) else "" end) ..
         ": only a root caller chooses the user its program runs as, and this process is user " ..
         tostring(own) .. ", group " .. tostring(group) .. ", which its program runs as: name that or none"
@@ -418,9 +421,9 @@ function Hold.mapped_user(merged: Rules.Policy): MappedUser?, string
     return nil, "this process's user and group maps cannot be read, so the user a program " ..
       "of a policy runs as (never root) cannot be chosen: /proc/self/uid_map"
   end
-  local user = merged.user
+  local user = setup.user
   if user ~= nil then
-    local group = merged.group or user
+    local group = setup.group or user
     if not Rules.maps_id(uid_map, user) or not Rules.maps_id(gid_map, group) then
       return nil, "user " .. tostring(user) .. " and group " .. tostring(group) .. ": this " ..
         "process's user namespace does not map both, so its program cannot run as them"
@@ -463,7 +466,8 @@ end
 --- grant. A grant that does not exist is left for the start's own report.
 function Hold.reached_by(merged: Rules.Policy, base: string, file: boolean,
                          user: MappedUser): {integer: boolean}?, string
-  if merged.tmp == true and not file then
+  local setup = merged.setup or {}
+  if setup.tmp == true and not file then
     local tmpdir = Fs.temp_dir()
     local real, _ = sys.realpath(tmpdir)
     local above = if real ~= nil then unsearchable_above(real .. "/.", user) else "" end
@@ -773,10 +777,11 @@ end
 --- Why a policy with `connect` may not have the environment it names, or
 --- "": the proxy variables the relay sets are not the policy's to set.
 function Hold.reserved_by_relay(merged: Rules.Policy): string
+  local setup = merged.setup or {}
   if #Rules.connects(merged) == 0 then return "" end
   local variables: mut {string} = {}
   for _, name in ipairs(merged.env or {}) do variables[#variables + 1] = name end
-  for name, _ in pairs(merged.set_env or {}) do variables[#variables + 1] = name end
+  for name, _ in pairs(setup.set_env or {}) do variables[#variables + 1] = name end
   table.sort(variables)
   local reserved = RelayConfig.reserved(variables)
   if reserved == "" then return "" end
@@ -804,8 +809,7 @@ end
 --- copied here too.
 function Hold.grants_replaced(p: Rules.Policy, grants: {Rules.Grant}): Rules.Policy
   return { profiles = p.profiles, grants = grants, isolate = p.isolate, loopback = p.loopback, env = p.env,
-    set_env = p.set_env, set_env_digests = p.set_env_digests, tmp = p.tmp, limits = p.limits, user = p.user,
-    group = p.group, database = p.database }
+    setup = p.setup, limits = p.limits }
 end
 
 --- `p` with `extra` grants beside its own, every other field as it is:

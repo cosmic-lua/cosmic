@@ -48,7 +48,7 @@ local function test_the_sandbox_holds_the_tools()
   local p = assert(Policy.of(dir, { mode = "write", network = false, grants = {} }))
   local names, _ = sys.uname()
   assert(names ~= nil, "uname")
-  local env = p.set_env
+  local env = assert(p.setup).set_env
   if names.sysname == "Darwin" then
     assert(env == nil)
   else
@@ -217,22 +217,22 @@ local function test_the_cert_file_goes_with_the_network()
   assert(Fs.write(cert, "-----BEGIN CERTIFICATE-----\n"))
   local real = assert(Fs.absolute(cert))
   local p = assert(Policy.of(dir, { mode = "write", network = true, grants = {}, cert_file = cert }))
-  assert((p.set_env or {})["SSL_CERT_FILE"] == real)
+  assert((assert(p.setup).set_env or {})["SSL_CERT_FILE"] == real)
   local granted = false
   for _, g in ipairs(Sandbox.paths(p)) do
     if g.path == real and g.letters == "r" then granted = true end
   end
   assert(granted)
   local offline = assert(Policy.of(dir, { mode = "write", network = false, grants = {}, cert_file = cert }))
-  assert((offline.set_env or {})["SSL_CERT_FILE"] == nil)
+  assert((assert(offline.setup).set_env or {})["SSL_CERT_FILE"] == nil)
   -- One not there, or a directory, is given as none; one where the agent keeps its sessions is refused.
   local missing = assert(Policy.of(dir, { mode = "write", network = true, grants = {}, cert_file = certs .. "/none" }))
-  assert((missing.set_env or {})["SSL_CERT_FILE"] == nil)
+  assert((assert(missing.setup).set_env or {})["SSL_CERT_FILE"] == nil)
   local p_dir = assert(Policy.of(dir, { mode = "write", network = true, grants = {}, cert_file = certs }))
-  assert((p_dir.set_env or {})["SSL_CERT_FILE"] == nil)
+  assert((assert(p_dir.setup).set_env or {})["SSL_CERT_FILE"] == nil)
   local connected = assert(Policy.of(dir, { mode = "write", network = false, connect = { "example.com:443" },
     grants = {}, cert_file = cert }))
-  assert((connected.set_env or {})["SSL_CERT_FILE"] == real)
+  assert((assert(connected.setup).set_env or {})["SSL_CERT_FILE"] == real)
   local p_kept, kept_why = Policy.of(dir, { mode = "write", network = true, grants = {}, cert_file = cert,
     kept_out = { certs } })
   assert(p_kept == nil and kept_why:find("keeps its sessions", 1, true) ~= nil, kept_why)

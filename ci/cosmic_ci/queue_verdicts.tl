@@ -593,10 +593,10 @@ end
 
 --- The texts of column 1 of `sql`'s rows on `db`, nil and why.
 local function column(db: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): {string}?, string
-  local rows, trouble = db:text_rows(sql, values)
+  local rows, trouble = db:rows(sql, values)
   if rows == nil then return nil, tostring(trouble) end
   local out: mut {string} = {}
-  for _, row in ipairs(rows) do out[#out + 1] = row:text(1) end
+  for _, row in ipairs(rows) do out[#out + 1] = row:as_text(1) or "" end
   return out, ""
 end
 
@@ -615,7 +615,7 @@ local function merged(into: string, from: string): integer?, string
     local begun, begin_trouble = db:exec("BEGIN IMMEDIATE")
     if not begun then return nil, tostring(begin_trouble) end
     local function within(): integer?, string
-      local made, made_trouble = db:text_rows("SELECT name, sql FROM queue.sqlite_schema " ..
+      local made, made_trouble = db:rows("SELECT name, sql FROM queue.sqlite_schema " ..
           "WHERE type IN ('table', 'index') AND sql IS NOT NULL AND name NOT LIKE 'sqlite_%' " ..
           "AND name NOT IN (SELECT name FROM main.sqlite_schema) ORDER BY type = 'index', name")
       if made == nil then return nil, tostring(made_trouble) end

@@ -1174,8 +1174,9 @@ end
 
 --- What of this process's environment says how it was started and
 --- nothing a test is given: the marker a tool that rebuilt itself sets
---- for the process it re-enters ([`build.reboot`]), which a run started
---- after a rebuild holds and one started fresh does not, and the
+--- for the process it re-enters, with the path of the tool it entered
+--- ([`build.reboot`]), which a run started after a rebuild holds and one
+--- started fresh does not, and the
 --- directory the invoking shell was in before its last `cd`, and the
 --- command it last ran (`_`, which a shell sets to the program it
 --- starts: /usr/bin/timeout for `timeout 30 cosmic test`). Kept, each
@@ -1183,7 +1184,9 @@ end
 --- run again after a rebuild, a `cd`, or a run started another way. So too
 --- the shell's depth (`SHLVL`): a run from a script, rather than a
 --- terminal, would run such a test again.
-local launch_only: {string:boolean} = { COSMIC_REBOOTED = true, OLDPWD = true, SHLVL = true, _ = true }
+local launch_only: {string:boolean} = {
+  COSMIC_REBOOTED = true, COSMIC_REBOOTED_TOOL = true, OLDPWD = true, SHLVL = true, _ = true,
+}
 
 --- The environment a worker starts with: this process's, less
 ---
@@ -2951,7 +2954,7 @@ function test_key.prepare(rec: Recording, job: Job, forks?: {string}): Prepared
       return cannot(made_trouble, true, nil)
     end
     policy = made
-    policy.database = if sealed ~= nil then { path = sealed } else nil end -- checked: field_fixed
+    policy.setup = { tmp = (policy.setup or {}).tmp, database = if sealed ~= nil then { path = sealed } else nil end } -- checked: field_fixed
     if hold == "forbid" then
       local ran, ran_trouble = test_policy.runs(policy)
       if ran == nil then

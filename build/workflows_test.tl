@@ -1772,8 +1772,9 @@ local function test_mains_push_repeats_nothing_the_queue_checked()
   local check, leg_check_at = step_running(steps, "cosmic-driver test cosmic_ci")
   assert(check["if"] == "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || " ..
       "(github.event_name == 'merge_group' && matrix.leg == 'macos-aarch64' && steps.changed.outputs.driver != 'skip')" and
-      map_of(check.env)["COSMIC_TEST_SANDBOX"] == "0",
-    "the legs check the pinned driver on other runs: " .. tostring(check["if"]))
+      map_of(check.env)["COSMIC_TEST_SANDBOX"] == "${{ runner.os == 'Linux' && '1' || '0' }}" and
+      map_of(check.env)["COSMIC_SANDBOX"] == "${{ runner.os == 'Linux' && 'must' || '' }}",
+    "the legs check the pinned driver on other runs, sandboxed on Linux: " .. tostring(check["if"]))
   assert(leg_changed_at < leg_check_at, "the macOS leg asks of the paths changed after its check")
   local driver = job_of(jobs, "driver")
   assert(driver["if"] == QUEUE_REF .. " && (github.event_name == 'merge_group' || github.event_name == 'pull_request')" and
@@ -1790,7 +1791,8 @@ local function test_mains_push_repeats_nothing_the_queue_checked()
     assert((s.run or ""):find("platform boot", 1, true) == nil, "the driver's job boots the tree")
   end
   local queued = step_running(own, "cosmic-driver test cosmic_ci")
-  assert(queued["if"] == "steps.changed.outputs.driver != 'skip'" and map_of(queued.env)["COSMIC_TEST_SANDBOX"] == "0",
+  assert(queued["if"] == "steps.changed.outputs.driver != 'skip'" and map_of(queued.env)["COSMIC_TEST_SANDBOX"] == "1" and
+      map_of(queued.env)["COSMIC_SANDBOX"] == "must",
     "the queue checks the pinned driver otherwise: " .. tostring(queued["if"]))
   local _, check_at = step_named(own, "check the pinned CI driver")
   local _, placed_at = step_named(own, "move the tree to a path of its own")
@@ -2312,15 +2314,17 @@ local function test_the_queue_runs_the_checked_suite_in_three_shares()
 end
 
 --- The gate (`ci`, the one check a ruleset requires) needs every job and
---- fails on any that failed or was cancelled; the checked and narrowing
---- jobs read as passed on a pull request, which skips them. On every
+--- fails on any that failed or was cancelled, but for a pull request's
+--- cancelled run, which skips it. The checked and narrowing jobs read as
+--- passed on a pull request, which skips them. On every
 --- other run it compares the legs' products: the queue's and a push's three, the
 --- scheduled and a manual run's four, which prerelease.yml publishes from
 --- alone.
 local function test_the_gate_needs_every_job_and_compares_the_legs_products()
   local jobs = ci_workflow().jobs
   local gate = job_of(jobs, "ci")
-  assert(table.concat(needs_of(gate), ",") == "queue-ref,platform,checked,narrowing,driver" and gate["if"] == "always()",
+  assert(table.concat(needs_of(gate), ",") == "queue-ref,platform,checked,narrowing,driver" and
+      gate["if"] == "always() && !(cancelled() && github.event_name == 'pull_request')",
     "the gate needs " .. table.concat(needs_of(gate), ","))
   local passed = step_named(gate.steps, "every job passed")
   local env = map_of(passed.env)

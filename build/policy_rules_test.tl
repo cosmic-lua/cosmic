@@ -70,13 +70,10 @@ local CASES: {Case} = {
   { body = 'Test.policy{ limits = { nope = 3 } }', refused = "limits takes open_files", inputs = "" },
   { body = 'Test.policy{ limits = { open_files = "x" } }', refused = "limits takes open_files", inputs = "" },
   { body = 'Test.policy{ limits = 3 }', refused = "limits takes a table", inputs = "" },
-  { body = "Test.policy{ tmp = true }", refused = "", inputs = "2|||||false|false|false|false|false|false|||" },
-  { body = "Test.policy{ tmp = false }", refused = "tmp = false", inputs = "" },
-  { body = "Test.policy{ tmp = 3 }", refused = "takes true or false", inputs = "" },
-  { body = "Test.policy{ user = 3, group = 4 }", refused = "is refused", inputs = "" },
-  { body = 'Test.policy{ user = "x" }', refused = "takes a whole number", inputs = "" },
-  { body = 'Test.policy{ database = "d" }', refused = "database is refused", inputs = "" },
-  { body = "Test.policy{ database = 4 }", refused = "takes a string written out", inputs = "" },
+  { body = "Test.policy{ tmp = true }", refused = "has no field tmp: what a worker's start sets up", inputs = "" },
+  { body = "Test.policy{ setup = { tmp = true } }", refused = "has no field setup", inputs = "" },
+  { body = "Test.policy{ user = 3, group = 4 }", refused = "has no field", inputs = "" },
+  { body = 'Test.policy{ database = "d" }', refused = "has no field database", inputs = "" },
   { body = "Test.policy{ timeout = 90 }", refused = "", inputs = "2|||||false|false|false|false|false|false|||" .. "|timeout 90" },
   { body = "Test.policy{ timeout = 0 }", refused = "timeout takes a whole number of seconds from 1 to 3600", inputs = "" },
   { body = "Test.policy{ timeout = 3601 }", refused = "from 1 to 3600", inputs = "" },
@@ -122,7 +119,7 @@ local function test_the_analyzer_applies_the_rules_to_each_policy()
   assert(accepted >= 12 and refused >= 40, tostring(accepted) .. " accepted, " .. tostring(refused) .. " refused")
 end
 
---- `cpu_features` is a flag of its own: it is read into the declaration, `tmp` is not, and a value that is no
+--- `cpu_features` is a flag of its own: it is read into the declaration, `store_text` is not, and a value that is no
 --- boolean is refused.
 local function test_cpu_features_is_read_into_the_declaration()
   local function read(body: string): PolicyRules.Declared?, string
@@ -134,7 +131,7 @@ local function test_cpu_features_is_read_into_the_declaration()
   local on = assert(read("Test.policy{ cpu_features = true }"))
   assert(on.cpu_features == true)
   assert(assert(read("Test.policy{ cpu_features = false }")).cpu_features == false)
-  assert(assert(read("Test.policy{ tmp = true }")).cpu_features == false)
+  assert(assert(read("Test.policy{ store_text = true }")).cpu_features == false)
   assert(assert(read("Test.policy{}")).cpu_features == false)
   local _, why = read("Test.policy{ cpu_features = 3 }")
   assert(why:find("takes true or false", 1, true) ~= nil, why)
@@ -152,7 +149,7 @@ local function test_store_text_is_read_into_the_declaration()
   assert(on.store_text == true and on.cpu_features ~= true and not on.store)
   assert(assert(read("Test.policy{ store_text = false }")).store_text == false)
   assert(assert(read("Test.policy{ cpu_features = true }")).store_text == false)
-  assert(assert(read("Test.policy{ tmp = true }")).store_text == false)
+  assert(assert(read("Test.policy{ cpu_features = true }")).store_text == false)
   local _, why = read("Test.policy{ store_text = 3 }")
   assert(why:find("takes true or false", 1, true) ~= nil, why)
 end

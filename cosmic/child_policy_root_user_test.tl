@@ -139,7 +139,7 @@ local function test_a_root_caller_s_named_user_owns_its_files_from_start_to_star
   assert(Fs.write(dir .. "/inside", "secret\n"))
   assert(sys.chown(dir, named, named) and sys.chown(dir .. "/inside", named, named))
   assert(sys.chmod(dir, octal("700")) and sys.chmod(dir .. "/inside", octal("600")))
-  local policy: Sandbox.Policy = { user = named, grants = { { path = at.probe, letters = "rx" },
+  local policy: Sandbox.Policy = { setup = { user = named }, grants = { { path = at.probe, letters = "rx" },
     { path = dir, letters = "rwc" }, { path = "/proc", letters = "r" } } }
   for round = 1, 2 do
     local result, why = Child.run({ at.probe, "uid-read-append", dir, tostring(round) }, { timeout_ns = Child.FOREVER, policy = policy, cwd = at.work, stdout = "capture",
@@ -161,7 +161,7 @@ local function test_a_root_caller_may_not_name_a_user_of_the_pool(tmp: string)
   skip_unless_root()
   local at = ChildPolicy.placed(tmp)
   local first = pool()
-  local why = ChildPolicy.refused(at.probe, { user = first + 7, grants = { { path = at.probe, letters = "rx" } } },
+  local why = ChildPolicy.refused(at.probe, { setup = { user = first + 7 }, grants = { { path = at.probe, letters = "rx" } } },
     at.work)
   assert(why:find("^child: start: sandbox: user ") and why:find("of the pool", 1, true), why)
 end
@@ -169,7 +169,7 @@ end
 local function test_a_root_caller_s_named_user_and_group_hold_under_isolation(tmp: string)
   skip_unless_root()
   local at = ChildPolicy.placed(tmp)
-  local ran = ChildPolicy.under(at.probe, { isolate = { "proc" }, user = 4242, group = 4343, grants = {
+  local ran = ChildPolicy.under(at.probe, { isolate = { "proc" }, setup = { user = 4242, group = 4343 }, grants = {
     { path = at.probe, letters = "rx" }, { path = at.work, letters = "r" } } }, at.work,
     { "status-field", "Uid", "Gid" })
   assert(ran.code == 0, ran.said)
@@ -205,7 +205,7 @@ end
 local function test_a_root_caller_s_tmp_is_its_child_s_to_write(tmp: string)
   skip_unless_root()
   local at = ChildPolicy.placed(tmp)
-  local ran = ChildPolicy.under(at.probe, { isolate = { "proc" }, tmp = true, grants = {
+  local ran = ChildPolicy.under(at.probe, { isolate = { "proc" }, setup = { tmp = true }, grants = {
     { path = at.probe, letters = "rx" }, { path = at.work, letters = "r" } } }, at.work,
     { "tmp-create-and-cat" })
   assert(ran.code == 0 and ran.said == "x\n", tostring(ran.code) .. ": " .. ran.said)
@@ -250,7 +250,7 @@ local function test_a_root_caller_s_named_user_meets_its_own_files_as_the_owner_
   owned("shut", 4242, "600")
   owned("grouped", 4242, "660")
   owned("third", 3000, "666")
-  local policy: Sandbox.Policy = { isolate = { "file" }, user = 4242, grants = {
+  local policy: Sandbox.Policy = { isolate = { "file" }, setup = { user = 4242 }, grants = {
     { path = at.probe, letters = "rx" }, { path = at.work, letters = "r" },
     { path = dir, letters = "rw" } } }
   local ran = ChildPolicy.under(at.probe, policy, at.work, { "read-append-read", dir })
@@ -348,11 +348,11 @@ local function test_a_root_caller_s_tmp_beneath_a_directory_it_cannot_search_fai
   local tmpdir = assert(sys.getenv("TMPDIR"))
   assert(sys.chmod(tmpdir, octal("700")))
   local grants: {Sandbox.Grant} = { { path = at.probe, letters = "rx" }, { path = at.work, letters = "r" } }
-  local why = ChildPolicy.refused(at.probe, { isolate = { "proc" }, tmp = true, grants = grants }, at.work)
+  local why = ChildPolicy.refused(at.probe, { isolate = { "proc" }, setup = { tmp = true }, grants = grants }, at.work)
   assert(why:find("^child: start: sandbox: tmp makes its directory in TMPDIR", 1) and
       why:find(tmpdir, 1, true) and why:find("isolate", 1, true), why)
   -- Under isolate file /tmp is the sandbox's own tmpfs, whatever TMPDIR is.
-  local ran = ChildPolicy.under(at.probe, { isolate = { "file" }, tmp = true, grants = grants }, at.work,
+  local ran = ChildPolicy.under(at.probe, { isolate = { "file" }, setup = { tmp = true }, grants = grants }, at.work,
     { "create", "/tmp/made", "z" })
   assert(ran.code == 0, ran.said)
 end

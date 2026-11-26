@@ -366,8 +366,7 @@ local function emit_example(out: mut {string}, file: string, example: Example)
         quote(f.content) .. ")")
   end
   if example.has_output then
-    out[#out + 1] = "  local print, __doctest_get = __doctest_capture()"
-    out[#out + 1] = "  local _ = print"
+    out[#out + 1] = "  local __doctest_get = __doctest_capture()"
   end
   for _, statement in ipairs(example.statements) do
     emit_indented(out, statement)
@@ -545,10 +544,7 @@ function generate.from_blocks(blocks: {Block}, file: string, prose?: string): st
   if needs_fs then
     -- Not `Fs`, which a doc's entry would choose for its own
     -- `require("cosmic.fs")`: declaring it again there would shadow this
-    -- local. tl's warning for shadowing a local carries a source
-    -- position, so [`build.pipeline`]'s `discounted` (which matches only the
-    -- message for the global `print`, see `__doctest_capture` below)
-    -- would not drop it.
+    -- local.
     out[#out + 1] = 'local __doctest_fs = require("cosmic.fs")'
     out[#out + 1] = ""
     out[#out + 1] =
@@ -575,35 +571,32 @@ function generate.from_blocks(blocks: {Block}, file: string, prose?: string): st
   end
 
   if needs_capture then
-    -- What it caught is a field of a record, which a closure may write and the new checker takes (an array written, or a
-    -- local a closure assigns, it refuses), as a guide's example is a project's code and no ceiling holds it. One text,
-    -- since each line written to `out` is a write the checker counts.
+    -- The example calls the global `print`, as a reader's program does, so the checker reads it as written: a local
+    -- `print` would be a function of the program, which a loop's proof of its keys does not see through.
     out[#out + 1] = [==[
-local record __doctest_caught
-  mut text: string
-end
+local __doctest_sys = require("cosmic.sys")
+local __doctest_out = require("cosmic.fs")
 
---- A fresh `print` and a way to read back everything it caught, one
---- pair per running example. `core/surface.c`'s `surface_print` is a
---- plain global -- tab-separating its arguments and ending every call
---- in one newline -- and this mirrors that exactly.
-local function __doctest_capture(): function(...: any), function(): string
-  local caught: __doctest_caught = { text = "" }
-  local into = function(...: any): ()
-    local line = ""
-    local n = select("#", ...)
-    for i = 1, n do
-      if i > 1 then
-        line = line .. "\t"
-      end
-      line = line .. tostring((select(i, ...)))
-    end
-    caught.text = caught.text .. line .. "\n"
+--- Points descriptor 1 at a file of a fresh directory, so that what the
+--- running example writes to its standard output (`core/surface.c`'s
+--- `print` writes each call there) is caught; and a way to put
+--- descriptor 1 back and read what was caught. An example that raises
+--- leaves descriptor 1 at the file: the test fails, and its worker is
+--- a fork of its own, whose report goes another way.
+local function __doctest_capture(): function(): string
+  local dir = assert(__doctest_out.mkdtemp("doctest-output-"))
+  local path = dir .. "/stdout"
+  local file = assert(__doctest_sys.open(path, __doctest_sys.O_CREAT | __doctest_sys.O_WRONLY | __doctest_sys.O_TRUNC, 384))
+  local saved = assert(__doctest_sys.dup(1))
+  assert(__doctest_sys.dup2(file, 1))
+  assert(__doctest_sys.close(file))
+  return function(): string
+    assert(__doctest_sys.dup2(saved, 1))
+    assert(__doctest_sys.close(saved))
+    local text = assert(__doctest_out.read(path))
+    assert(__doctest_out.remove_tree(dir))
+    return text
   end
-  local get = function(): string
-    return caught.text
-  end
-  return into, get
 end
 ]==]
     out[#out + 1] = ""

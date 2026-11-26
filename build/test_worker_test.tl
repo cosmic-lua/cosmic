@@ -331,13 +331,13 @@ local function test_a_nesting_worker_is_handed_no_descriptor_of_the_program()
     })
   end
   local nesting = started({ "fork", "nest" })
-  local env = assert(assert(nesting.options.policy).set_env)
+  local env = assert(assert(assert(nesting.options.policy).setup).set_env)
   assert(env["COSMIC_PORTABLE_ARTIFACT_FD"] == nil and env["COSMIC_PORTABLE_CORE_FD"] == nil)
   assert(env["COSMIC_PORTABLE_CORE_LENGTH"] == "9", "the rest of the contract stays")
   assert(assert(nesting.options.fds)[254] == nil and assert(nesting.options.fds)[255] == nil)
   assert(assert(nesting.options.fds)[worker.report_fd] == "capture")
   local plain = started({ "fork" })
-  assert(assert(assert(plain.options.policy).set_env)["COSMIC_PORTABLE_ARTIFACT_FD"] == "254")
+  assert(assert(assert(assert(plain.options.policy).setup).set_env)["COSMIC_PORTABLE_ARTIFACT_FD"] == "254")
   assert(assert(plain.options.fds)[254] == 7 and assert(plain.options.fds)[255] == 8)
 end
 

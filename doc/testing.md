@@ -264,9 +264,10 @@ The rules:
   naming it. These fields are refused:
 
   - a grant to write, run, or connect to (`{ connect = "host:port" }`),
-  - `isolate`, `limits`, `set_env`, `set_env_digests` and `database`,
-  - `tmp = false`,
-  - `user` and `group`.
+  - `isolate` and `limits`,
+  - `setup` and its fields (`set_env`, `set_env_digests`, `tmp`, `user`,
+    `group`, `database`): the harness chooses what a worker's start sets
+    up.
 
   [`Test.policy`]'s doc lists them.
 - Narrow a test before declaring a large set.
@@ -577,8 +578,9 @@ assert(Fake.place(program, tmp .. "/bin/git", "abc1234"))
 
 A fake that only answers by its first argument needs no module of its
 own: [`Fake.reply`] places the reply fake ([`Fake.REPLY`]) with a
-table of answers. The tree's own tests build their fakes from the
-steps of build/fake_steps.tl, one case per first argument.
+table of answers. A main that does more is made of the steps of
+[`cosmic.fake.steps`], one case per first argument, as the tree's own
+fakes are.
 
 ## host requirements
 
@@ -1416,7 +1418,8 @@ Other rules:
 [`Check.Checked.narrowed`]: ../lang/check/init.tl
 [`ci/cosmic_ci/capabilities.json`]: ../ci/cosmic_ci/capabilities.json
 [`ci/README.md`]: ../ci/README.md
-[`cosmic.fake`]: ../cosmic/fake.tl
+[`cosmic.fake.steps`]: ../cosmic/fake/steps.tl
+[`cosmic.fake`]: ../cosmic/fake/init.tl
 [`cosmic.fuzz`]: ../cosmic/fuzz.tl
 [`cosmic.internal.symbols`]: ../cosmic/internal/symbols.tl
 [`cosmic.layout`]: ../cosmic/layout.tl
@@ -1434,9 +1437,9 @@ Other rules:
 [`declared_key.host_split`]: ../build/declared_key.tl
 [`doc/performance.md`]: performance.md
 [`FactWraps.once`]: ../lang/fact_wraps.tl
-[`Fake.given`]: ../cosmic/fake.tl
-[`Fake.place`]: ../cosmic/fake.tl
-[`Fake.reply`]: ../cosmic/fake.tl
+[`Fake.given`]: ../cosmic/fake/init.tl
+[`Fake.place`]: ../cosmic/fake/init.tl
+[`Fake.reply`]: ../cosmic/fake/init.tl
 [`Fs.mkdtemp`]: ../cosmic/fs.tl
 [`Fuzz.label`]: ../cosmic/fuzz.tl
 [`Fuzz.more`]: ../cosmic/fuzz.tl
