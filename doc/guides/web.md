@@ -467,7 +467,7 @@ do
   assert(Web.header(res, "HX-Trigger") == '{"saved":{"id":7}}')
   local refused, why = Htmx.apply(Web.empty(200), { redirect = "https://evil.example/" })
   assert(refused == nil)
-  assert(why:find("same-origin", 1, true))
+  assert(tostring(why):find("same-origin", 1, true))
   local app = Web.app{ routes = { Web.post("/login", function(req: Web.Request): Web.Response
     return (assert(Htmx.redirect_to(req, "/")))
   end) } }
@@ -822,7 +822,7 @@ Each guide below builds a small project of its own and can be read alone.
 [`Assets.directory`]: ../../cosmic/web/assets.tl
 [`Assets.embedded`]: ../../cosmic/web/assets.tl
 [`Assets.memory`]: ../../cosmic/web/assets.tl
-[`cosmic.child`]: ../../cosmic/child.tl
+[`cosmic.child`]: ../../cosmic/child/init.tl
 [`cosmic.http.server`]: ../../cosmic/http/server.tl
 [`cosmic.layout`]: ../../cosmic/layout.tl
 [`cosmic.web.htmx`]: ../../cosmic/web/htmx.tl

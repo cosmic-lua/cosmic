@@ -71,9 +71,14 @@ end
 function parses_fixture.rows(db: Sqlite.Handle): string
   local out: mut {{string}} = {}
   for _, name in ipairs(analysis_schema.tables) do
-    local rows = assert(db:text_rows("SELECT * FROM " .. name .. " ORDER BY 1, 2"))
+    local rows = assert(db:rows("SELECT * FROM " .. name .. " ORDER BY 1, 2"))
     out[#out + 1] = { name .. " " .. tostring(#rows) }
-    for _, row in ipairs(rows) do out[#out + 1] = row:texts() end
+    for _, row in ipairs(rows) do
+      -- A parse table holds integers beside its texts, each said as text here.
+      local cells: mut {string} = {}
+      for i = 1, row:count() do cells[i] = row:as_text(i) or "" end
+      out[#out + 1] = cells
+    end
   end
   return written(out)
 end

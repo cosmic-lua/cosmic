@@ -1,4 +1,4 @@
---- [`Child.start`]'s `policy` with `connect` (cosmic/child.tl), on live
+--- [`Child.start`]'s `policy` with `connect` (cosmic/child/init.tl), on live
 --- children: the network relay it starts for the grants (cosmic/internal/relay_main.tl,
 --- this program's core on a database sealed for it), the proxy environment
 --- the program is given, and what the relay does to a flow it is asked for.

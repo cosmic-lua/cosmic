@@ -1,5 +1,5 @@
 --- What a policy refuses before any child exists, and what a platform with no
---- sandbox does, in [`Child.start`]'s `policy` (cosmic/child.tl): the tests
+--- sandbox does, in [`Child.start`]'s `policy` (cosmic/child/init.tl): the tests
 --- of cosmic/child_policy_test.tl, its isolation, `nest`, user and system
 --- siblings that hold on every platform, so they run on all of them. What a
 --- sandbox does to a live child is in those modules, which `requires` one.

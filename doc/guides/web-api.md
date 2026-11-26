@@ -278,7 +278,7 @@ test: 3 tests passed
 
 [`Cors.middleware`]: ../../cosmic/web/cors.tl
 [`Cors.trusted`]: ../../cosmic/web/cors.tl
-[`cosmic.child`]: ../../cosmic/child.tl
+[`cosmic.child`]: ../../cosmic/child/init.tl
 [`cosmic.web.cors`]: ../../cosmic/web/cors.tl
 [`cosmic.web`]: ../../cosmic/web/init.tl
 [`Hash.equal`]: ../../cosmic/hash.tl

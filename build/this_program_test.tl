@@ -162,6 +162,11 @@ local function test_program_under_a_policy_leaves_the_relaunch_to_the_start()
     local opts = started.options
     assert(opts.policy == policy and opts.cwd == "/w")
     assert(opts.env == nil, "the policy's env and set_env are the whole environment")
+    -- Layers alone are held as a policy is, and carried to the start.
+    local layers: {Sandbox.Policy} = { policy }
+    local layered = this_program.program({ "-e", "x" }, { timeout_ns = Child.FOREVER, layers = layers })
+    assert(layered.options.layers == layers and layered.options.env == nil and #layered.argv == 3,
+      table.concat(layered.argv, " "))
     assert(assert(opts.fds)[3] == 1 and assert(opts.fds)[254] == nil)
     -- The relaunch's descriptors are not this start's to refuse.
     assert(assert(this_program.program({}, { timeout_ns = Child.FOREVER, policy = policy, fds = { [254] = "capture" } }).options.fds)[254] ==

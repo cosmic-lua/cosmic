@@ -682,7 +682,7 @@ local function file_check_sources(databases: {Sqlite.Handle}, checks: {string}):
   local out: mut {string: boolean} = {}
   local found: mut {string: boolean} = {}
   for _, db in ipairs(databases) do
-    local rows, _ = db:text_rows(query)
+    local rows, _ = db:rows(query)
     for _, row in ipairs(rows or {}) do
       found[row:text(1)] = true
       out[row:text(2)] = true

@@ -286,7 +286,7 @@ end
 --- read. Raises why where the binary holds a module without its source
 --- ([`Store.withheld`]), which is neither.
 function reboot.carries_tree_code(handle: work.Handle): boolean
-  local rows, _ = handle.db:text_rows(
+  local rows, _ = handle.db:rows(
     "SELECT path, source_hash FROM inputs WHERE (origin = 'tree' " ..
       "AND kind IN ('module', 'main')) OR origin = 'vendor' ORDER BY path")
   if rows == nil or #rows == 0 then
@@ -622,7 +622,7 @@ local function replaced(root: string, out: string): boolean
     local _, _ = Fs.remove(probe)
     return false
   end
-  local rows, _ = db:text_rows("SELECT key, value FROM meta")
+  local rows, _ = db:rows("SELECT key, value FROM meta")
   local _, _ = db:close()
   local _, _ = Fs.remove(probe)
   if rows == nil then
@@ -630,7 +630,8 @@ local function replaced(root: string, out: string): boolean
   end
   local carried: mut {string:string} = {}
   for _, row in ipairs(rows) do
-    carried[row:text(1)] = row:text(2)
+    -- A meta value is a blob column of any type a binary wrote.
+    carried[row:text(1)] = row:as_text(2) or ""
   end
   -- The running tool's own, not a database a verb attached before
   -- [`stale_exit`] ran (the projection, whose meta Store.meta finds first).

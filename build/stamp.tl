@@ -69,7 +69,7 @@ local content_sql <const> = "SELECT lower(hex(sha256(" ..
   "FROM decls), ''))))"
 
 function stamp.content(db: Sqlite.Handle): string?, string
-  local rows, trouble = db:text_rows(content_sql)
+  local rows, trouble = db:rows(content_sql)
   if rows == nil then return nil, tostring(trouble) end
   local row = rows[1]
   if row == nil then return nil, "the digest of a database's rows answered no row" end
@@ -78,11 +78,12 @@ end
 
 --- The value of `db`'s `meta` row `key`, or nil for none.
 local function meta_of(db: Sqlite.Handle, key: string): string?
-  local rows, _ = db:text_rows("SELECT value FROM meta WHERE key = ?1", { { text = key } })
+  local rows, _ = db:rows("SELECT value FROM meta WHERE key = ?1", { { text = key } })
   if rows == nil then return nil end
   local row = rows[1]
   if row == nil then return nil end
-  return row:text(1)
+  -- A meta value is a blob column of any type a binary wrote.
+  return row:as_text(1)
 end
 
 --- Whether `db`'s stamps are of its rows.

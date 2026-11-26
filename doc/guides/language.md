@@ -395,11 +395,21 @@ print(count("[1, 2, 3]"))
 nothing reports. Four ways to read that name the case instead (`index_may_be_nil`, `cosmic docs index_may_be_nil`).
 
 A loop `for i = 1, #xs do` counts the keys of `xs`, and in its body `xs[i]` is a `T`. It holds when the loop starts at a
-literal of 1 or more, steps by 1 or not at all, and runs to `#xs` of a local `xs`, and the body cannot change `xs`: it
-calls no function but one of `math` whose every argument is the loop variable, a literal, or an expression of operators other than `and` and `or`, with any call inside it held to the same rule (so `table.remove`, `table.insert`, `table.move`, a call that is given `xs`
-and a method call all end it), assigns neither `xs` nor `i`, and writes `xs` only at `xs[i]`. A function made in the body
-may run later, when `xs` is shorter, so a read inside one is still `T?`. `xs` is a name, not a field: `r.items` is not
-counted, so copy it to a local. `ipairs` gives a `T` as well.
+literal of 1 or more, steps by 1 or not at all, and runs to `#xs` of a local `xs`, and the body cannot change `xs`:
+
+- It calls only functions that run no code of the program. `assert` and `type` run none, whatever they are given.
+  `print`, `tostring`, `tonumber`, `select`, `rawlen`, `string.*`, `math.*`, `utf8.*`, `table.concat`,
+  `table.unpack` and a string's methods run none when given strings, numbers, booleans, enums or arrays and maps of
+  them. A function or a class value may run code (a class's `__tostring` runs in `tostring`), so a call given one ends
+  it. So does any other call: a function the program declares, `table.insert`, `table.remove`, `pcall`, `ipairs`, or
+  a method of a record.
+- It compares with `<`, `<=`, `>` or `>=` only where one side is a literal, the loop variable, a unary operation or
+  an operation other than a comparison, `and` or `or`: a metamethod may run in `v > best`, but not in `v > 0`.
+- It has no `for ... in` loop and no `<close>` local. It assigns neither `xs` nor `i`, writes `xs` only at `xs[i]`,
+  writes nil to no table (any table may be `xs` under another name), and gives each target of an assignment a value.
+
+A function made in the body may run later, when `xs` is shorter, so a read inside one is still `T?`. `xs` is a name,
+not a field: `r.items` is not counted, so copy it to a local. `ipairs` gives a `T` as well.
 
 The loop holds the keys beside its index too. In `for i = a, #xs - b do`, with `a` and `b` literals, `xs[i - c]` and
 `xs[i + c]` are a `T` for a literal `c` where the bounds of the loop keep the key inside the array: for `xs[i - c]`, `a - c`
@@ -420,8 +430,8 @@ print(total)
 ```
 
 A test of the index says it for one read: in the block of `if i >= 1 and i <= #xs then`, `xs[i]` is a `T` for an integer
-local `i`. The condition and the block are held to the rule of the loop's body: they call nothing but `math`, shorten
-nothing, and assign neither `xs` nor `i`.
+local `i`. The condition and the block are held to the rule of the loop's body: they call only functions that run no
+code of the program, shorten nothing, and assign neither `xs` nor `i`.
 
 ```teal
 local heights = { 1.0, 4.0, 1.0, 4.0 }

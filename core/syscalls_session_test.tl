@@ -8,6 +8,8 @@ local Test = require("cosmic.test")
 local confine = require("build.confine")
 local this_program = require("build.this_program")
 local Fake = require("cosmic.fake")
+-- Required, so the fake's main is of this test's closure.
+local _fake = require("build.syscalls_session_fake")
 local test_child = require("build.test_child")
 
 -- TODO: start the session with cosmic once cosmic.sys carries setsid,
@@ -75,9 +77,7 @@ test_child.register("autogroup", function(args: {string}): integer
   local program = assert(reads[1])
   local before = read("/proc/self/autogroup")
   local sandbox: raw_process.Sandbox = { unveil = { reads = reads }, offline = true }
-  local pid, trouble = process.spawn(program, { program,
-    "append /proc/1/autogroup 19 && print init-set || print init-kept; sleep 200; " ..
-      "append /proc/self/autogroup 19; cat /proc/self/autogroup" },
+  local pid, trouble = process.spawn(program, { program, "autogroup" },
     nil, "/", nil, nil, nil, false, nil, sandbox)
   if pid == nil then
     print("refused " .. tostring(trouble))
@@ -99,13 +99,13 @@ end)
 --- checked only in a run as root -- not CI's, which runs unprivileged,
 --- nor ci/run-local's, as nobody. Run in a session of this test's own,
 --- so a failure changes nothing of the runner's. The child is a
---- fake program ([`cosmic.fake`]), given only itself, /proc and
+--- fake program built from build/syscalls_session_fake.tl, given only itself, /proc and
 --- /dev/null. Where the kernel has no autogroup, or the host no setsid
 --- program, there is nothing to check.
 local function test_a_confined_child_s_autogroup_is_not_its_parent_s(tmp: string)
   if sys.stat("/proc/self/autogroup") == nil then Test.skip("this kernel has no autogroup") end
   if setsid_program() == nil then Test.skip("this host has no setsid program") end
-  local probe = assert(Fake.build(tmp .. "/fake"))
+  local probe = assert(Fake.build(tmp .. "/fake", "build.syscalls_session_fake"))
   local reads: mut {string} = { probe }
   for _, path in ipairs({ "/proc", "/dev/null" }) do
     if sys.stat(path) ~= nil then reads[#reads + 1] = path end

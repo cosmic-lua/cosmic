@@ -655,7 +655,7 @@ local function run_here(argv: {string}, opts: Child.Options): Child.Result?, str
   if not (sys.isatty(0) or sys.isatty(1) or sys.isatty(2)) then return run_child(argv, opts) end
   local terminal: TermRelay.Terminal?
   local notes: Notes?
-  local policy = opts.policy
+  local policy, _ = Child.policy_of(opts)
   local connects = policy ~= nil and #Sandbox.connects(policy) > 0
   if opts.relay_log == "inherit" and connects and sys.isatty(2) then
     local made, why = notes_pipe()

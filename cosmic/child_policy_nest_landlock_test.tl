@@ -1,4 +1,4 @@
---- [`Child.start`]'s `policy` with the `nest` promise (cosmic/child.tl), where
+--- [`Child.start`]'s `policy` with the `nest` promise (cosmic/child/init.tl), where
 --- what the kernel is asked to hold is held by Landlock: a start without
 --- `nest` handed a directory, and a fake ([`cosmic.fake`]) that starts
 --- a sandbox of its own, which Landlock holds inside the root of the first.

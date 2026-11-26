@@ -81,6 +81,7 @@
 local raw = require("cosmic.internal.bigint")
 
 local String = require("cosmic.string")
+local Failure = require("cosmic.failure")
 
 --- A secret: a number that the functions for secrets return, held at
 --- the fixed width each gives. Only those functions, and
@@ -168,14 +169,16 @@ function Bigint.add(a: string, b: string): string
   return raw.add(a, b)
 end
 
---- `a` minus `b`, and "". nil and a message when `b` is the larger: a
+--- `a` minus `b`; nil and a [`Failure`] when `b` is the larger: a
 --- byte string is never a negative number, and the difference does not
 --- wrap. To subtract modulo `m`, add `m` to `a` first, or use
 --- [`Bigint.secret_submod`].
 ---
 ---     local difference = assert(Bigint.sub(Bigint.add(a, m), Bigint.mod(b, m)))
-function Bigint.sub(a: string, b: string): string?, string
-  return raw.sub(a, b)
+function Bigint.sub(a: string, b: string): (string) | (nil, Failure)
+  local difference, why = raw.sub(a, b)
+  if difference == nil then return nil, Failure.new(why) end
+  return difference
 end
 
 --- `a` modulo `modulus`: the remainder, from zero to `modulus` less one.
@@ -269,22 +272,22 @@ function Bigint.compare(a: string, b: string): integer
   return raw.compare(a, b)
 end
 
---- `number` in exactly `width` bytes, zero bytes on the left, and "": the
---- form a protocol hashes or sends a number in. nil and a message when
+--- `number` in exactly `width` bytes, zero bytes on the left: the form a
+--- protocol hashes or sends a number in. nil and a [`Failure`] when
 --- the number needs more bytes than `width`. Zero fits in a width of 0,
 --- as "". Raises on a negative width. It reads no limit: a string of any
 --- length is a number here, and the result is `width` bytes however
 --- large, so `width` is the caller's own and never a peer's.
 ---
 ---     local sent = assert(Bigint.pad(public, #prime))
-function Bigint.pad(number: string, width: integer): string?, string
+function Bigint.pad(number: string, width: integer): (string) | (nil, Failure)
   if width < 0 then error("bigint: pad's width must be 0 or more", 2) end
   local first = number:find("[^\0]")
   local digits = if first == nil then "" else number:sub(first) end
   if #digits > width then
-    return nil, "bigint: the number needs " .. String.counted(#digits, "byte") .. ", more than " .. tostring(width)
+    return nil, Failure.new("bigint: the number needs " .. String.counted(#digits, "byte") .. ", more than " .. tostring(width))
   end
-  return string.rep("\0", width - #digits) .. digits, ""
+  return string.rep("\0", width - #digits) .. digits
 end
 
 return Bigint
