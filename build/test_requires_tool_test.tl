@@ -128,6 +128,38 @@ local function test_c() assert(true) end
   end
 end
 
+--- `env:` follows the run: without the variable the module is not
+--- applicable and never loads; with it the module runs, and its worker
+--- sees the variable. A variable the runner holds but gives no worker
+--- (SHLVL, of its own launch) is absent for it.
+local function test_an_env_requirement_runs_only_where_the_run_sets_it(tmp: string)
+  local root = project(tmp)
+  assert(Fs.write(root .. "/fixture_test.tl", [[
+local Test = require("cosmic.test")
+local Env = require("cosmic.env")
+Test.policy { env = { "COSMIC_FIXTURE_DEMO" }, requires = { "env:COSMIC_FIXTURE_DEMO" } }
+assert(Env.get("COSMIC_FIXTURE_DEMO") == "given", "the worker was not given the variable")
+local function test_a() assert(true) end
+local function test_b() assert(true) end
+]]))
+  local out, code = run(root)
+  assert(code == 0, out)
+  assert(out:find("test: N/A  fixture_test: 2 tests, requires env:COSMIC_FIXTURE_DEMO: " ..
+      "this run's environment has no COSMIC_FIXTURE_DEMO\n", 1, true), out)
+  assert(out:find(", 2 n/a (this platform has none of what they check), ", 1, true), out)
+  assert(Fs.write(root .. "/kept_test.tl", [[
+local Test = require("cosmic.test")
+Test.policy { env = { "SHLVL" }, requires = { "env:SHLVL" } }
+local function test_c() assert(true) end
+error("a module whose variable no worker is given must not load")
+]]))
+  out, code = run(root, { COSMIC_FIXTURE_DEMO = "given", SHLVL = "2" })
+  assert(code == 0, out)
+  assert(out:find("3 tests passed in 2 modules; 2 ran, 0 stood, 1 n/a ", 1, true), out)
+  assert(out:find("test: N/A  kept_test: 1 test, requires env:SHLVL: ", 1, true), out)
+  assert(not out:find("must not load", 1, true), out)
+end
+
 --- A probe that cannot tell (a file the run may not read) fails the modules
 --- that name it, saying why, and the rest of the run goes on.
 local function test_a_probe_that_raises_fails_its_modules_alone(tmp: string)

@@ -179,7 +179,6 @@ local function test_a_bad_name_is_refused_naming_the_rule()
     { name = "program:a/b", says = "no \"/\"" },
     { name = "env", says = "needs an argument" },
     { name = "env:", says = "a variable's name" },
-    { name = "env:path", says = "a variable's name" },
     { name = "env:1A", says = "a variable's name" },
     { name = "env:A-B", says = "a variable's name" },
     { name = "sandbox:1", says = "takes no argument" },
@@ -519,6 +518,9 @@ local function test_check_refuses_what_the_worker_could_not_use()
   local unpassed, why = host_names.check({ "env:COSMIC_FIXTURE_ROOT" }, { env = { "PATH" } })
   assert(not unpassed and why:find('needs env = { "COSMIC_FIXTURE_ROOT" }', 1, true) ~= nil, why)
   assert(host_names.check({ "env:COSMIC_FIXTURE_ROOT" }, { env = { "COSMIC_FIXTURE_ROOT" } }))
+  assert(host_names.check({ "env:http_proxy" }, { env = { "http_proxy" } }), "a lower-case name")
+  local given, said = host_names.check({ "env:TMPDIR" }, { env = { "TMPDIR" } })
+  assert(not given and said:find("the runner gives every worker itself", 1, true) ~= nil, said)
 end
 
 --- `env:` is present in a run whose environment holds the variable, empty

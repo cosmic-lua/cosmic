@@ -55,9 +55,9 @@
 ---   which may have no loopback up, is never probed;
 --- - `path:<absolute path>`: a file or directory of the host;
 --- - `program:<name>`: a program the PATH finds ([`Proc.find`]);
---- - `env:<NAME>`: the runner's environment holds NAME, which `check`
----   holds the module to pass to its workers. Without it the outcome is
----   `na`.
+--- - `env:<NAME>`: a worker's environment would hold NAME
+---   ([`Context`]'s `getenv`), which `check` holds the module to pass.
+---   Without it the outcome is `na`.
 ---
 --- Every probe runs in the process that asks (the runner's), not in a
 --- worker: `path:` and `program:` use its filesystem, which a
@@ -70,7 +70,8 @@
 --- a `platform` requirement is one the platform never has, the outcome is
 --- `na`; otherwise `skipped`. Whether a platform has a requirement at all
 --- is the platform's own to say ([`confine.sandbox_platform`], which is
---- Linux's), never a probe's.
+--- Linux's), never a probe's; whether a run has an `env:` variable is
+--- what its workers' environment holds.
 ---
 --- A held run (`COSMIC_TEST_SANDBOX=1`, `COSMIC_SANDBOX=must`,
 --- `COSMIC_CI_REQUIRE_SANDBOX=1`) fails a module for an absence only of a
@@ -223,8 +224,10 @@ local record host_requires
     --- ([`Proc.find`]). A run whose workers are sandboxed gives theirs
     --- ([`build.test_sandbox`]'s `path`), which is not the runner's.
     path?: string
-    --- Reads a variable of the runner's environment for `env:`;
-    --- [`cosmic.sys`]'s `getenv` by default.
+    --- Reads a variable of a worker's environment for `env:`: the
+    --- runner's view of it ([`build.test_key`]'s `worker_view`), which
+    --- leaves out what no worker is given; [`cosmic.sys`]'s `getenv` by
+    --- default.
     getenv?: function(name: string): string?
     --- Reads a file for the settings `userns` and `nest` read, which a
     --- test stands in for.

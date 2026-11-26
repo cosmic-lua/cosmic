@@ -48,14 +48,13 @@
 --- state by skipping where `root` is present.
 ---
 --- Its class says what an absence means. A `platform` requirement is one
---- only some platforms have (Landlock, /proc and a user namespace are
---- Linux's; a portable artifact is no native start's): where the platform
---- never has it the outcome is `na`, a test that has nothing to check
---- there; where the platform could and this host refuses it, `skipped`. A
---- `host` requirement (a path, a program, root) is any platform's to have
---- or lack, so its absence is always `skipped`. `env:` is of the
---- `platform` class: a run without the variable is not one its tests
---- have anything to check in, and its "platform" is that run.
+--- only some platforms, or some runs, have (Landlock, /proc and a user
+--- namespace are Linux's; a portable artifact is no native start's; an
+--- `env:` variable is the run's that sets it): where the platform or the
+--- run never has it the outcome is `na`, a test that has nothing to
+--- check there; where the platform could and this host refuses it,
+--- `skipped`. A `host` requirement (a path, a program, root) is any
+--- platform's to have or lack, so its absence is always `skipped`.
 
 local record host_names
   --- The table's names, sorted: `landlock` is also written `landlock:N`,
@@ -64,6 +63,11 @@ local record host_names
 
   --- The operating systems `os:` accepts, each with the `sysname` [`cosmic.sys`]'s `uname` returns for it.
   systems: {string:string}
+
+  --- The variables the runner sets in each worker's environment itself
+  --- ([`build.test_sandbox`]'s `environment`), whatever its own holds:
+  --- an `env:` of one says nothing of the run.
+  runner_given: {string:boolean}
 
   --- The keys of `systems`, sorted.
   mut system_names: mut {string}
@@ -133,6 +137,8 @@ local shapes: {string:Shape} = {
 }
 
 host_names.systems = { linux = "Linux", darwin = "Darwin" }
+host_names.runner_given = { PATH = true, HOME = true, TMPDIR = true, TZ = true,
+  COSMIC_AUTO_BOOT = true, COSMIC_BUILD_HOME = true }
 host_names.system_names = {}
 for name in pairs(host_names.systems) do
   host_names.system_names[#host_names.system_names + 1] = name
@@ -148,7 +154,7 @@ table.sort(host_names.names)
 --- a `landlock:N` whose N is not a positive integer of at most four digits,
 --- a `path:` that is not absolute, a `program:` that names a path, an `os:`
 --- that is not one of `system_names`, an `env:` whose name is not a
---- variable's (upper case letters, digits and `_`, not first a digit).
+--- variable's (letters, digits and `_`, not first a digit).
 --- @param name a requirement as written
 --- @return its table name and argument, or nil and why it is refused
 function host_names.parse(name: string): host_names.Spec?, string
@@ -185,8 +191,8 @@ function host_names.parse(name: string): host_names.Spec?, string
       return nil, string.format("%q: `os:` takes one of %s", name, table.concat(host_names.system_names, ", "))
     end
   elseif base == "env" then
-    if not argument:match("^[A-Z_][A-Z0-9_]*$") then
-      return nil, string.format("%q: `env:` takes a variable's name: upper case letters, digits and \"_\", not first a digit", name)
+    if not argument:match("^[A-Za-z_][A-Za-z0-9_]*$") then
+      return nil, string.format("%q: `env:` takes a variable's name: letters, digits and \"_\", not first a digit", name)
     end
   elseif base == "program" then
     if argument == "" or argument:find("/", 1, true) ~= nil or argument:find("\0", 1, true) ~= nil then
@@ -284,7 +290,8 @@ end
 --- what its module grants, not what the runner found), or a `program:` has
 --- not the profile "system" and the variable PATH in `env` (the worker runs
 --- what its own search list finds), or an `env:` names a variable `env`
---- does not pass (the worker would not see it).
+--- does not pass (the worker would not see it) or one the runner gives
+--- every worker itself (`runner_given`), which no run lacks.
 --- @param declared the names a policy's `requires` holds
 --- @param inputs the rest of the policy
 --- @return true, or false and why
@@ -320,6 +327,10 @@ function host_names.check(declared: {string}, inputs: host_names.Inputs): boolea
             "so the worker can find and run what the runner found", name)
       end
     elseif spec.base == "env" then
+      if host_names.runner_given[spec.argument] == true then
+        return false, string.format("requires: %q names a variable the runner gives every worker " ..
+            "itself, so no run is without it", name)
+      end
       local passed = false
       for _, variable in ipairs(inputs.env or {}) do
         if variable == spec.argument then passed = true end
