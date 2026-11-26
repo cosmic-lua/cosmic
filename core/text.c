@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "bytes.h"
 #include "lauxlib.h"
 
 /* `lines(text, bare)`: the lines of `text` as a new list, each without its
@@ -16,7 +17,7 @@ static int text_lines (lua_State *L) {
   /* A first pass counts the lines, so the list is made at its size. */
   size_t count = 0;
   for (const char *at = text, *end = text + len; at < end; count++) {
-    const char *nl = memchr(at, '\n', (size_t)(end - at));
+    const char *nl = cosmic_find_byte(at, '\n', (size_t)(end - at));
     if (nl == NULL) break;
     at = nl + 1;
   }
@@ -26,7 +27,7 @@ static int text_lines (lua_State *L) {
   const char *at = text, *end = text + len;
   lua_Integer i = 0;
   while (at < end) {
-    const char *nl = memchr(at, '\n', (size_t)(end - at));
+    const char *nl = cosmic_find_byte(at, '\n', (size_t)(end - at));
     const char *stop = nl != NULL ? nl : end;
     size_t n = (size_t)(stop - at);
     if (bare && n > 0 && at[n - 1] == '\r') n--;
@@ -51,7 +52,7 @@ static int text_newlines (lua_State *L) {
   if (i <= j) {
     const char *at = text + i - 1, *end = text + j;
     const char *nl;
-    while (at < end && (nl = memchr(at, '\n', (size_t)(end - at))) != NULL) {
+    while (at < end && (nl = cosmic_find_byte(at, '\n', (size_t)(end - at))) != NULL) {
       count++;
       last = (lua_Integer)(nl - text) + 1;
       at = nl + 1;

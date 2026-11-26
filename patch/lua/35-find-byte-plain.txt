@@ -1,0 +1,7 @@
+file: src/lstrlib.c
+note: lmemfind finds each candidate first byte with core/bytes.h's scan, not musl's memchr, which reads a word at a step; Stream.lines cuts each line with this search. It passes the scan the bytes left, as it passed memchr, so the scan reads nothing past the subject.
+--- find
+    while (l1 > 0 && (init = (const char *)memchr(s1, *s2, l1)) != NULL) {
+--- replace
+    while (l1 > 0 && (init = cosmic_find_byte(s1, *s2, l1)) != NULL) {
+--- end

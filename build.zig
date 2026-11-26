@@ -1829,7 +1829,9 @@ fn vendorLibraries(
     const lua_flags: []const []const u8 =
         if (configuration.sanitize) &lua_checked else &lua_base;
     const lua_src = lua.path(b, "src");
-    vendorPart(b, &libraries, configuration, target, "lua", &.{lua_src}).addCSourceFiles(.{
+    // The core's directory is on the path for core/bytes.h alone, which
+    // string.find's plain search scans with (patch/lua/34-find-byte-include.txt).
+    vendorPart(b, &libraries, configuration, target, "lua", &.{ lua_src, b.path("core") }).addCSourceFiles(.{
         .root = lua_src,
         .files = &lua_sources,
         .flags = lua_flags,
