@@ -4,8 +4,8 @@
 --- of such types, a union of such types with no `nil`, or `V` itself; a record, a class or an interface is none of them, with
 --- an array part or not. The relation decides it by reading the alias one level at a time, so a comparison that did not
 --- read it (or read it for ever) would differ from the definition on some type here. `FUZZ_SEED` and `FUZZ_ITERS` pick the
---- inputs (build/fuzz/init.tl).
-local Fuzz = require("build.fuzz")
+--- inputs (cosmic/fuzz.tl).
+local Fuzz = require("cosmic.fuzz")
 local Programs = require("lang.relation_programs")
 local Test = require("cosmic.test")
 local Types = require("lang.types")

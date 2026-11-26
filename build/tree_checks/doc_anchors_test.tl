@@ -54,3 +54,25 @@ local function test_an_anchor_beside_a_real_member_is_allowed(dir: string)
   local found = tree_docs.anchors(db, { "cosmic.verbs Verbs", "cosmic.shapes Shapes" })
   assert(#found == 0, table.concat(found, "\n"))
 end
+
+--- A record of documented strings that a field of another record holds (`examples?: {Example}`) is handed out with
+--- that record, so it is no anchor and may share a field's name with one.
+local function test_a_record_a_field_holds_is_no_anchor(dir: string)
+  local db = fixture.database(dir, {
+    ["cosmic/verbs.tl"] = anchor("Verbs", "about"),
+    ["cosmic/thing.tl"] = source(
+      "local record Thing",
+      "  record Example",
+      "    --- what it shows",
+      "    about: string",
+      "  end",
+      "  record Command",
+      "    --- its examples",
+      "    examples?: {Example}",
+      "  end",
+      "end",
+      "return Thing"),
+  })
+  local found = tree_docs.anchors(db, { "cosmic.verbs Verbs" })
+  assert(#found == 0, table.concat(found, "\n"))
+end

@@ -3,9 +3,9 @@
 --- bytes, returning a policy or a refusal under the module's name; a
 --- policy it takes merges and encodes, and its encoding decodes and
 --- encodes to the same text again. `FUZZ_SEED` and `FUZZ_ITERS` pick
---- the inputs (build/fuzz/init.tl).
+--- the inputs (cosmic/fuzz.tl).
 
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Json = require("cosmic.json")
 local Sandbox = require("cosmic.sandbox")
 local PolicyJson = require("cosmic.policy")

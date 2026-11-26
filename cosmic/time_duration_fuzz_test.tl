@@ -3,10 +3,10 @@
 --- is total -- any bytes, and any mutation of a well-formed duration,
 --- parse to a duration or a failure and never raise, and a duration it
 --- accepts formats to text that parses to the same one. `FUZZ_SEED` and
---- `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
+--- `FUZZ_ITERS` pick the inputs (cosmic/fuzz.tl).
 
 local Array = require("cosmic.array")
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Time = require("cosmic.time")
 
 local NS <const> = 1000000000

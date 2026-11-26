@@ -4,10 +4,10 @@
 --- the leaf, at a place a `$..*` query selects. The paths
 --- themselves are read by cosmic.json, fuzzed in
 --- cosmic/json_path_fuzz_test.tl. `FUZZ_SEED` and `FUZZ_ITERS` pick the
---- inputs (build/fuzz/init.tl).
+--- inputs (cosmic/fuzz.tl).
 
 local Array = require("cosmic.array")
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Json = require("cosmic.json")
 local json_query = require("build.json_query")
 

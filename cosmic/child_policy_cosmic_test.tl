@@ -78,13 +78,21 @@ local function test_a_descriptor_the_relaunch_hands_on_is_refused(tmp: string)
   assert(result == nil and why.message:find("relaunch", 1, true) ~= nil, tostring(why))
 end
 
-local function test_this_program_under_nest_is_refused(tmp: string)
+--- This program under `nest`, in a root of its own: a portable artifact
+--- is handed no descriptor of its artifact or core, which the root's
+--- owner could open again for writing through /proc/self/fd, and opens
+--- both by their paths there.
+local function test_this_program_runs_under_nest(tmp: string)
   local work = scripted(tmp, 'print("ran")\n')
   local result, why = Child.run({ (assert(Proc.executable())), work .. "/run.tl" },
-    { timeout_ns = Child.FOREVER, policy = { isolate = { "file" },
+    { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "stdout", policy = { isolate = { "file" },
       grants = { { path = work, letters = "rwc" }, { calls = "nest" } } }, cwd = work })
-  assert(result == nil and why.message:find("nest", 1, true) ~= nil and why.message:find("artifact and core", 1, true) ~= nil,
-    tostring(why))
+  if result == nil then
+    assert(ChildPolicy.unsandboxable(tostring(why)), "the start was refused: " .. tostring(why))
+    Test.skip(tostring(why))
+    return
+  end
+  assert(result.code == 0 and result.stdout == "ran\n", tostring(result.code) .. ": " .. tostring(result.stdout))
 end
 
 --- A file this program runs under a policy is run as `--standalone`

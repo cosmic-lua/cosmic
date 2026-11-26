@@ -891,7 +891,7 @@ test. Report it with the smallest program that shows it.
   element a length test proved (above).
 - The check is a call of the hook per narrowed read, which costs. A fuzz
   property's instruction budget allows a checked run four times as many
-  instructions ([`build.fuzz`]).
+  instructions ([`cosmic.fuzz`]).
 - The tests that compare a module's bytecode with the binary's skip in a
   checked run (a TODO beside each).
 
@@ -943,9 +943,9 @@ holds one piece of work to a multiple of another ([`lang.speed`]) reads
 ## fuzz tests
 
 A parser that reads untrusted bytes gets a `*_fuzz_test.tl` beside it,
-driving [`build.fuzz`]'s `run`. A generator draws each input from a
+driving [`cosmic.fuzz`]'s `run`. A generator draws each input from a
 seeded source. A check must hold for all of them. The module doc of
-[`build.fuzz`] has the full contract.
+[`cosmic.fuzz`] has the full contract.
 
 - `FUZZ_SEED` and `FUZZ_ITERS` (64 by default) choose the inputs.
 - `FUZZ_SECONDS` bounds the seconds a property spends drawing (none by
@@ -1372,7 +1372,6 @@ Other rules:
 [`build.compile_grammar`]: ../build/compile_grammar.tl
 [`build.confine`]: ../build/confine.tl
 [`build.example_checks`]: ../build/example_checks.tl
-[`build.fuzz`]: ../build/fuzz/init.tl
 [`build.harness_epoch_test`]: ../build/harness_epoch_test.tl
 [`build.harness_epoch`]: ../build/harness_epoch.tl
 [`build.host_names`]: ../build/host_names.tl
@@ -1412,6 +1411,7 @@ Other rules:
 [`ci/cosmic_ci/capabilities.json`]: ../ci/cosmic_ci/capabilities.json
 [`ci/README.md`]: ../ci/README.md
 [`cosmic.fake`]: ../cosmic/fake.tl
+[`cosmic.fuzz`]: ../cosmic/fuzz.tl
 [`cosmic.internal.symbols`]: ../cosmic/internal/symbols.tl
 [`cosmic.layout`]: ../cosmic/layout.tl
 [`cosmic.sandbox`]: ../cosmic/sandbox/init.tl
@@ -1432,8 +1432,8 @@ Other rules:
 [`Fake.place`]: ../cosmic/fake.tl
 [`Fake.reply`]: ../cosmic/fake.tl
 [`Fs.mkdtemp`]: ../cosmic/fs.tl
-[`Fuzz.label`]: ../build/fuzz/init.tl
-[`Fuzz.more`]: ../build/fuzz/init.tl
+[`Fuzz.label`]: ../cosmic/fuzz.tl
+[`Fuzz.more`]: ../cosmic/fuzz.tl
 [`importer.checked_tool`]: ../build/importer.tl
 [`Json.diff`]: ../cosmic/json.tl
 [`lang.boundary_checks`]: ../lang/boundary_checks.tl

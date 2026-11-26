@@ -6,7 +6,7 @@
 local Sqlite = require("cosmic.sqlite")
 
 local function scalar(db: Sqlite.Handle, sql: string): string?, string
-  local rows, trouble = db:text_rows(sql)
+  local rows, trouble = db:rows(sql)
   if rows == nil then
     return nil, tostring(trouble)
   end
@@ -14,7 +14,7 @@ local function scalar(db: Sqlite.Handle, sql: string): string?, string
   if #rows ~= 1 or row == nil or row:count() ~= 1 then
     return nil, "query returned an unexpected shape"
   end
-  return row:text(1), ""
+  return row:as_text(1) or "", ""
 end
 
 return function(argv: {string}): integer
@@ -43,7 +43,7 @@ return function(argv: {string}): integer
   local coverage, coverage_trouble = scalar(db, "SELECT count(*) FROM coverage")
   local by_test, by_test_trouble =
     scalar(db, "SELECT count(*) FROM hits_by_test")
-  local integrity, integrity_trouble = db:text_rows("PRAGMA integrity_check")
+  local integrity, integrity_trouble = db:rows("PRAGMA integrity_check")
   local closed, close_trouble = db:close()
   -- The first of these that says anything, the page count's before the rest.
   local trouble = ""

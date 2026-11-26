@@ -163,9 +163,10 @@ local function next_place(chunk: Ast.Chunk, stats: {Ast.Stat}, index: integer, c
 end
 
 --- A `return nil, $MSG`-shaped statement's message expression, reduced to whatever of it is a literal: a plain string
---- leaf reads as its own text, a `..` concatenation reads as both sides joined the same way, and anything else (a
---- call, a variable) contributes nothing. A message built entirely from such a case reduces to `""`, which nothing is
---- cataloged for.
+--- leaf reads as its own text, a `..` concatenation reads as both sides joined the same way, a [`cosmic.failure`]
+--- constructor (`Failure.new($MSG)`, `Failure.at($MSG, ...)` and the like) reads as its message, `Failure.within(why,
+--- $CONTEXT)` as its context, and anything else (another call, a variable) contributes nothing. A message built
+--- entirely from such a case reduces to `""`, which nothing is cataloged for.
 local function static_text(chunk: Ast.Chunk, node: Ast.Node?): string
   if node == nil then
     return ""
@@ -174,6 +175,14 @@ local function static_text(chunk: Ast.Chunk, node: Ast.Node?): string
     return node.value
   elseif (node.kind == "Binary") and node.op == ".." then
     return static_text(chunk, node.left) .. static_text(chunk, node.right)
+  elseif (node.kind == "Call") then
+    local callee = node.callee
+    if (callee.kind == "Field") and (callee.object.kind == "Name") and callee.object.text == "Failure" then
+      if callee.name == "within" then
+        return static_text(chunk, node.args[2])
+      end
+      return static_text(chunk, node.args[1])
+    end
   end
   return ""
 end

@@ -108,7 +108,11 @@ local Hold = require("cosmic.child.hold")
 local type Held = Hold.Held
 local type MappedUser = Hold.MappedUser
 local RELAY_MAIN = Hold.RELAY_MAIN
+--- The most grants spawn takes, as hold.tl counts them (`GRANT_MAX` in
+--- core/sandbox.h, which is `UNVEIL_MAX`).
+local MAX_GRANTS <const> = raw.UNVEIL_MAX
 local beneath = Hold.beneath
+local by_path = Hold.by_path
 local database_holds = Hold.database_holds
 local effective_group = Hold.effective_group
 local grants_replaced = Hold.grants_replaced
@@ -2634,23 +2638,35 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
   -- (no `w`, no `c`), and once the child makes a user namespace of its own
   -- the kernel locks those binds (MNT_LOCK_READONLY, MNT_LOCKED).
   -- A portable artifact hands its artifact and core as descriptors, which
-  -- [`nest_descriptors`] must refuse.
-  -- TODO: run a portable artifact under `nest` too, once its
-  -- relaunch runs on a database (a core and a file, no descriptor), or
-  -- nest_descriptors can hand its descriptors of read-only regular
-  -- files, which a child may reopen for writing through /proc/self/fd
-  -- where its user may.
+  -- [`nest_descriptors`] must refuse: a file open for reading alone may be
+  -- opened again for writing through /proc/self/fd where its owner may.
+  -- Under `nest` it is handed none, and its startup opens the artifact by
+  -- its path and the core by itself (core/startup.c's [`by_path`]), in the
+  -- root, which binds both read-only and locks the binds as a database's.
   if found ~= nil and nest and next(found.fds) ~= nil then
-    return nil, "sandbox: this program runs from descriptors of its artifact and core, " ..
-      "which the \"nest\" promise refuses a child"
+    found = by_path(found)
+    -- It opens its artifact itself, which the root then must hold. This
+    -- comes before the core's grant, which is told apart from the
+    -- policy's by its own table.
+    local named_artifact = found.argv[3]
+    if found.argv[2] ~= "--artifact" or named_artifact == nil then
+      return nil, "sandbox: this program's relaunch names no artifact to open by its path"
+    end
+    -- The launcher names it as it was run (`$PWD/$0`, which may hold `..`
+    -- or a link); the root binds the real path, which is what it opens.
+    local artifact, artifact_trouble = sys.realpath(named_artifact)
+    if artifact == nil then
+      return nil, "sandbox: " .. named_artifact .. ": " .. artifact_trouble
+    end
+    local words: mut {string} = {}
+    for i, word in ipairs(found.argv) do
+      words[#words + 1] = if i == 3 then artifact else word end
+    end
+    found = { argv = words, env = found.env, fds = found.fds, cwd = found.cwd }
+    local widened, widen_trouble = Rules.union(merged, { grants = { { path = artifact, letters = "r" } } })
+    if widened == nil then return nil, "sandbox: " .. widen_trouble end
+    merged = widened
   end
-  -- TODO: [`unmet`] counts the grants before these two are added, so a
-  -- start at the most raises inside spawn rather than refusing with a
-  -- message: "too many grants" where the grants are handed to it
-  -- (core/sandbox_rules.c's `read_grants`), and under `nest`, which hands
-  -- none, "too many unveiled paths" for the root they are bound into.
-  -- The fix: count the grants after adding these two, and refuse with
-  -- the count and the most.
   local core_grant: Rules.Path?
   if found ~= nil then
     relaunch = found
@@ -2910,6 +2926,25 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
     -- opens SQLite on the descriptor it checked (the TODO in open_database).
     local holds, held_why = database_holds(assert(setup_of(merged).database), relaunch.argv[3]) -- checked: index_may_be_nil
     if not holds then return nil, "sandbox: " .. held_why end
+  end
+  -- What spawn is handed, counted once every path the start adds is in:
+  -- its core's, a database's, the program's start files, the directory
+  -- `tmp` makes, and under `isolate` file the root's own /proc. A start
+  -- past the most is refused here, with the count, and not raised inside
+  -- spawn ("too many grants", "too many unveiled paths").
+  local made_tmp = if setup_of(merged).tmp == true and not file then 1 else 0 end
+  local handed = (if nest then 0 else #grants end) + made_tmp
+  -- The boot ruleset counts only where it is sent: a cosmic child, not under `nest`.
+  local laid = if relaunch ~= nil and not nest then #layer + made_tmp else 0 end
+  -- A root's reads, writes and binds are one list of spawn's (core/spawn.c `read_unveil`).
+  local unveiled = 0
+  if root ~= nil then unveiled = #root.reads + #(root.writes or {}) + #(root.binds or {}) end
+  local most_held = math.max(handed, laid, unveiled)
+  if most_held > MAX_GRANTS then
+    return nil, "sandbox: grants: with the paths the start adds (the program's start files, its core, a " ..
+      "database and " .. (if file then "the sandbox's /proc" else "tmp's directory" end) .. ", where it has " ..
+      "them), the start holds " .. tostring(most_held) .. ", past the most a start takes, " .. tostring(MAX_GRANTS) ..
+      "; grant a directory above them instead"
   end
   return { path = path, env = env, tmp = "", wants_tmp = setup_of(merged).tmp == true and not file, -- checked: nil_not_allowed
     layer = if relaunch ~= nil and not nest then layer else nil end,

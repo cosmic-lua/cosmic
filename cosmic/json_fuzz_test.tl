@@ -3,14 +3,14 @@
 --- text RFC 8259 reads, JSON5 reads the same; encode is total on any
 --- Lua value, and what it writes decodes back to the same value; the
 --- depth limits hold exactly; and JSON Lines is total and round-trips.
---- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
+--- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (cosmic/fuzz.tl).
 ---
 --- yyjson itself is fuzzed upstream. What these reach is this tree's
 --- own C in core/json.c -- the walk from yyjson's document into Lua
 --- values, the encoder, its error paths -- and the Teal above it.
 
 local Array = require("cosmic.array")
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Json = require("cosmic.json")
 local type Failure = require("cosmic.failure")
 local String = require("cosmic.string")

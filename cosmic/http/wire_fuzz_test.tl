@@ -6,9 +6,9 @@
 --- place would not; and a reply is written with no body where it may
 --- carry none, and with a Content-Length equal to the bytes sent, given
 --- one by the handler or not.
---- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
+--- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (cosmic/fuzz.tl).
 
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Stream = require("cosmic.stream")
 local wire = require("cosmic.http.wire")
 local type Failure = require("cosmic.failure")

@@ -140,14 +140,21 @@ local insert_modules =
   "JOIN kept_bytecode b ON b.key = p.key " ..
   "ORDER BY p.path"
 
---- The import edges among shipped modules: what each planned module
---- requires, kept only where the name is itself a planned module.
-local insert_imports =
-  "INSERT OR IGNORE INTO out.imports (path, requires) " ..
-  "SELECT p.path, r.name FROM plan p " ..
-  "JOIN inputs i ON i.path = p.path AND " .. AnalysisSchema.not_declaration("i.kind") .. " " ..
-  "JOIN requires r ON r.source_hash = i.source_hash " ..
-  "WHERE r.name IN (SELECT path FROM plan) ORDER BY p.path, r.ordinal"
+--- The import edges of shipped modules: what each planned module
+--- requires, kept where the name is itself a planned module. A project
+--- keeps its edges to the standard library too, whose modules only the
+--- binary holds, so that a closure ([`Store.closure`]) from a project's
+--- module reaches what it requires there; only a public `cosmic.*`
+--- name, as a project's module may require no other.
+local function insert_imports(own: boolean): string
+  local library = if own then "" else
+    " OR (r.name GLOB 'cosmic.*' AND r.name NOT GLOB 'cosmic.internal.*')" end
+  return "INSERT OR IGNORE INTO out.imports (path, requires) " ..
+    "SELECT p.path, r.name FROM plan p " ..
+    "JOIN inputs i ON i.path = p.path AND " .. AnalysisSchema.not_declaration("i.kind") .. " " ..
+    "JOIN requires r ON r.source_hash = i.source_hash " ..
+    "WHERE (r.name IN (SELECT path FROM plan)" .. library .. ") ORDER BY p.path, r.ordinal"
+end
 
 --- Every edge of the source the checker reads for a planned module or a
 --- declaration ([`build.schema`]'s `decl_imports`), so the edges include
@@ -834,7 +841,7 @@ local function project(handle: work.Handle,
   statements[#statements + 1] = prune_kept_bytecode
   statements[#statements + 1] = fill_kept_bytecode(reusing)
   statements[#statements + 1] = choose(reusing, insert_modules_reusing, insert_modules)
-  statements[#statements + 1] = insert_imports
+  statements[#statements + 1] = insert_imports(work.standing(handle).own)
   statements[#statements + 1] = insert_decl_imports
   statements[#statements + 1] = insert_bound
   statements[#statements + 1] =

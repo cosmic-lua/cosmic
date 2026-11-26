@@ -2,8 +2,8 @@ local Array = require("cosmic.array")
 local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
-local Fuzz = require("build.fuzz")
-local shrink = require("build.fuzz.shrink")
+local Fuzz = require("cosmic.fuzz")
+local shrink = require("cosmic.internal.fuzz_shrink")
 
 --- The report [`Fuzz.run`] raises for `p`, which must fail.
 local function report(p: Fuzz.Property): string
