@@ -74,6 +74,12 @@ local record Fixture
   end
 end
 
+-- TODO: have each module of fixtures/ require `env:` of each variable it
+-- reads here (`requires = { "env:COSMIC_FIXTURE_TARGET" }`), so a plain
+-- `cosmic test` in ci/ finds it n/a, once ci/cosmic-driver.pin names a
+-- release whose build/host_names.tl knows `env:`; the fixtures without
+-- a variable (identity_test, performance_test, runtime_test) require
+-- COSMIC_FIXTURE_FIGURES, which every fixture run sets.
 function Fixture.required(name: string): string
   return (assert(Env.get(name), "fixture environment is missing " .. name))
 end
