@@ -43,6 +43,7 @@
 --- the relay's policy for that status decides whether they connect.
 
 local String = require("cosmic.string")
+local Failure = require("cosmic.failure")
 local Grant = require("cosmic.relay.grant")
 
 local record relay_wire
@@ -100,8 +101,8 @@ local record relay_wire
   record ResponseCloser
     --- The bytes to send the program for the next bytes the origin sent:
     --- held back until a head is whole, then the head rewritten and what
-    --- follows as it came. nil and why for a reply that is no HTTP response.
-    feed: function(ResponseCloser, chunk: string): string?, string
+    --- follows as it came. nil and a Failure for a reply that is no HTTP response.
+    feed: function(ResponseCloser, chunk: string): (string) | (nil, Failure)
   end
 
   --- The SOCKS5 method selection, replied to with [`socks_method_reply`].
@@ -322,52 +323,26 @@ local function ipv4(text: string): boolean
 end
 
 --- The sixteen bytes of `text`, an IPv6 address without brackets or a zone,
---- or nil and why.
-local function ipv6_bytes(text: string): {integer}?, string
+--- or nil and a Failure.
+local function ipv6_bytes(text: string): ({integer}) | (nil, Failure)
   local bytes = text:find(":", 1, true) and Grant.address(text) or nil
   if bytes == nil or #bytes ~= 16 then
     if text:find("[^%x:%.]") ~= nil or text:find(":", 1, true) == nil then
-      return nil, "not an IPv6 address (a zone, or a character an address does not hold)"
+      return nil, Failure.new("not an IPv6 address (a zone, or a character an address does not hold)")
     end
-    return nil, "not an IPv6 address"
+    return nil, Failure.new("not an IPv6 address")
   end
-  return bytes, ""
+  return bytes
 end
 
 --- `text`, an IPv6 address without brackets or a zone, in RFC 5952's
---- form, or nil and why.
-local function ipv6(text: string): string?, string
+--- form, or nil and a Failure.
+local function ipv6(text: string): (string) | (nil, Failure)
   local bytes, bad = ipv6_bytes(text)
   if bytes == nil then
     return nil, bad
   end
-  return Grant.ipv6_text(bytes), ""
-end
-
---- [`Grant.name`], with why as text, as the wire's refusals carry it.
-local function dns_name(text: string): string?, string
-  local name, why = Grant.name(text)
-  if name == nil then return nil, tostring(why) end
-  return name, ""
-end
-
---- A host in the form a grant is matched in and its kind, or nil, nil and why.
-local function bare_host(text: string): string?, relay_wire.Kind?, string
-  if ipv4(text) then
-    return text, "ipv4", ""
-  end
-  local name, why = dns_name(text)
-  if name == nil then
-    return nil, nil, why
-  end
-  return name, "name", ""
-end
-
---- [`Grant.port`], with why as text.
-local function port_of(text: string): integer?, string
-  local port, why = Grant.port(text)
-  if port == nil then return nil, tostring(why) end
-  return port, ""
+  return Grant.ipv6_text(bytes)
 end
 
 --- A `host:port` authority taken apart.
@@ -377,17 +352,17 @@ local record Authority
   mut port: integer
 end
 
---- `text` as a `host:port` authority, or nil and why.
-local function authority(text: string): Authority?, string
+--- `text` as a `host:port` authority, or nil and a Failure.
+local function authority(text: string): (Authority) | (nil, Failure)
   if text:find("@", 1, true) then
-    return nil, "userinfo is not allowed in a CONNECT target"
+    return nil, Failure.new("userinfo is not allowed in a CONNECT target")
   end
   local out: Authority = { host = "", kind = "name", port = 0 }
   local rest: string
   if text:sub(1, 1) == "[" then
     local close = text:find("]", 1, true)
     if close == nil then
-      return nil, "unclosed [ in the CONNECT target"
+      return nil, Failure.new("unclosed [ in the CONNECT target")
     end
     local canonical, why = ipv6(text:sub(2, close - 1))
     if canonical == nil then
@@ -395,29 +370,33 @@ local function authority(text: string): Authority?, string
     end
     out.host, out.kind, rest = canonical, "ipv6", text:sub(close + 1)
     if rest:sub(1, 1) ~= ":" then
-      return nil, "CONNECT target has no port after the ]"
+      return nil, Failure.new("CONNECT target has no port after the ]")
     end
     rest = rest:sub(2)
   else
     local colon = text:find(":", 1, true)
     if colon == nil then
-      return nil, "CONNECT target has no port (host:port)"
+      return nil, Failure.new("CONNECT target has no port (host:port)")
     end
     if text:find(":", colon + 1, true) then
-      return nil, "an IPv6 address needs brackets in a CONNECT target"
+      return nil, Failure.new("an IPv6 address needs brackets in a CONNECT target")
     end
-    local name, kind, why = bare_host(text:sub(1, colon - 1))
-    if name == nil or kind == nil then
-      return nil, why
+    local host = text:sub(1, colon - 1)
+    if ipv4(host) then
+      out.host, out.kind = host, "ipv4"
+    else
+      local name, why = Grant.name(host)
+      if name == nil then return nil, why end
+      out.host, out.kind = name, "name"
     end
-    out.host, out.kind, rest = name, kind, text:sub(colon + 1)
+    rest = text:sub(colon + 1)
   end
-  local port, why = port_of(rest)
+  local port, why = Grant.port(rest)
   if port == nil then
     return nil, why
   end
   out.port = port
-  return out, ""
+  return out
 end
 
 --- A reader's refusal of a CONNECT head.
@@ -522,7 +501,7 @@ function relay_wire.connect_reader(): relay_wire.ConnectReader
       written:find(":", 1, true) ~= nil end
     local found, trouble = authority(if has_port then written else written .. ":80" end)
     if found == nil then
-      return finish(refused(trouble, 400))
+      return finish(refused(tostring(trouble), 400))
     end
     st.host, st.kind, st.port = found.host, found.kind, found.port
     st.forward_line = method .. " " .. path .. " " .. version
@@ -547,7 +526,7 @@ function relay_wire.connect_reader(): relay_wire.ConnectReader
       end
       local found, trouble = authority(target)
       if found == nil then
-        return finish(refused(trouble, 400))
+        return finish(refused(tostring(trouble), 400))
       end
       st.host, st.kind, st.port = found.host, found.kind, found.port
       return nil
@@ -681,12 +660,12 @@ end
 function relay_wire.response_closer(): relay_wire.ResponseCloser
   local held = ""
   local done = false
-  local failed: string? = nil
+  local failed: Failure? = nil
   return {
-    feed = function(_: relay_wire.ResponseCloser, chunk: string): string?, string
+    feed = function(_: relay_wire.ResponseCloser, chunk: string): (string) | (nil, Failure)
       local why = failed
       if why ~= nil then return nil, why end
-      if done then return chunk, "" end
+      if done then return chunk end
       -- The search starts 3 bytes back, where an end split across feeds may begin.
       local from = math.max(1, #held - 2)
       held = held .. chunk
@@ -695,19 +674,19 @@ function relay_wire.response_closer(): relay_wire.ResponseCloser
         local ends = held:find("\r\n\r\n", from, true)
         if ends == nil then
           if #held > MAX_HEAD then
-            failed = ("the origin's response head is longer than %s"):format(String.counted(MAX_HEAD, "byte"))
+            failed = Failure.new(("the origin's response head is longer than %s"):format(String.counted(MAX_HEAD, "byte")))
             return nil, assert(failed)
           end
-          return table.concat(out), ""
+          return table.concat(out)
         end
         local head, rest = held:sub(1, ends + 3), held:sub(ends + 4)
         if ends + 3 > MAX_HEAD then
-          failed = ("the origin's response head is longer than %s"):format(String.counted(MAX_HEAD, "byte"))
+          failed = Failure.new(("the origin's response head is longer than %s"):format(String.counted(MAX_HEAD, "byte")))
           return nil, assert(failed)
         end
         local status = head:match("^HTTP/1%.[01] (%d%d%d)")
         if status == nil then
-          failed = "the origin's answer is not an HTTP/1 response"
+          failed = Failure.new("the origin's answer is not an HTTP/1 response")
           return nil, assert(failed)
         end
         if status:sub(1, 1) == "1" and status ~= "101" then
@@ -725,7 +704,7 @@ function relay_wire.response_closer(): relay_wire.ResponseCloser
           lines[#lines + 1] = "Connection: close"
           out[#out + 1] = table.concat(lines, "\r\n") .. "\r\n\r\n" .. rest
           held, done = "", true
-          return table.concat(out), ""
+          return table.concat(out)
         end
       end
     end,
@@ -897,7 +876,7 @@ local function read_request(buf: string): relay_wire.SocksRequest
     end
     local text, why = ipv6(table.concat(g, ":"))
     if text == nil then
-      return socks_refused("failure", why)
+      return socks_refused("failure", tostring(why))
     end
     host, kind, at = text, "ipv6", 21
   elseif atyp == 3 then
@@ -911,9 +890,9 @@ local function read_request(buf: string): relay_wire.SocksRequest
     if size < 5 + length then
       return { status = "more", consumed = 0 }
     end
-    local name, why = dns_name(buf:sub(6, 5 + length))
+    local name, why = Grant.name(buf:sub(6, 5 + length))
     if name == nil then
-      return socks_refused("failure", why)
+      return socks_refused("failure", tostring(why))
     end
     host, kind, at = name, "name", 6 + length
   else
@@ -1010,53 +989,53 @@ function relay_wire.socks_client_greeting(with_password?: boolean): string
 end
 
 --- The username and password message (RFC 1929) a client sends once the
---- server has chosen method 2. Nil and why for a username or a password
+--- server has chosen method 2. Nil and a Failure for a username or a password
 --- that is empty or over 255 bytes.
 --- @param user the username
 --- @param password the password
 --- @return the message, or nil
---- @return why, when there is none
-function relay_wire.socks_client_auth(user: string, password: string): string?, string
-  if user == "" then return nil, "the username is empty" end
-  if password == "" then return nil, "the password is empty" end
-  if #user > 255 then return nil, "the username is longer than 255 bytes" end
-  if #password > 255 then return nil, "the password is longer than 255 bytes" end
-  return "\1" .. string.char(#user) .. user .. string.char(#password) .. password, ""
+--- @return a Failure, when there is none
+function relay_wire.socks_client_auth(user: string, password: string): (string) | (nil, Failure)
+  if user == "" then return nil, Failure.new("the username is empty") end
+  if password == "" then return nil, Failure.new("the password is empty") end
+  if #user > 255 then return nil, Failure.new("the username is longer than 255 bytes") end
+  if #password > 255 then return nil, Failure.new("the password is longer than 255 bytes") end
+  return "\1" .. string.char(#user) .. user .. string.char(#password) .. password
 end
 
 --- The CONNECT request a SOCKS5 client sends for `host` and `port`: an
 --- address type 1 for a dotted IPv4 literal, 4 for an IPv6 one (without
 --- brackets), and otherwise 3, with `host` as the domain name for the
 --- relay to resolve and judge, which is sent as it is (the relay applies
---- the name rules). Nil and why for an empty host, a name over 255 bytes or
+--- the name rules). Nil and a Failure for an empty host, a name over 255 bytes or
 --- a port outside 1 to 65535.
 --- @param host the host: a name or an address literal
 --- @param port the port
 --- @return the request, or nil
---- @return why, when there is none
-function relay_wire.socks_client_request(host: string, port: integer): string?, string
+--- @return a Failure, when there is none
+function relay_wire.socks_client_request(host: string, port: integer): (string) | (nil, Failure)
   if math.type(port) ~= "integer" or port < 1 or port > 65535 then
-    return nil, "the port is not a number from 1 to 65535"
+    return nil, Failure.new("the port is not a number from 1 to 65535")
   end
   local tail = string.pack(">I2", port)
   local four = octets(host)
   if four ~= nil then
     local a, b, c, d = four[1], four[2], four[3], four[4]
     if a ~= nil and b ~= nil and c ~= nil and d ~= nil then
-      return "\5\1\0\1" .. string.char(a, b, c, d) .. tail, ""
+      return "\5\1\0\1" .. string.char(a, b, c, d) .. tail
     end
   end
   local six, _ = ipv6_bytes(host)
   if six ~= nil then
-    return "\5\1\0\4" .. string.char(table.unpack(six)) .. tail, ""
+    return "\5\1\0\4" .. string.char(table.unpack(six)) .. tail
   end
   if host == "" then
-    return nil, "the host is empty"
+    return nil, Failure.new("the host is empty")
   end
   if #host > 255 then
-    return nil, "the host name is longer than 255 bytes"
+    return nil, Failure.new("the host name is longer than 255 bytes")
   end
-  return "\5\1\0\3" .. string.char(#host) .. host .. tail, ""
+  return "\5\1\0\3" .. string.char(#host) .. host .. tail
 end
 
 --- The method choice at the start of `buf`, whole.
@@ -1228,42 +1207,42 @@ end
 local ENCRYPTED <const>: {integer: boolean} = { [0xfe0d] = true, [0xffce] = true, [0xff02] = true, [0xff03] = true }
 
 --- The server name in the body of a ClientHello message (what follows its
---- four-byte header), or nil and why not.
-local function hello_name(body: string): ServerName?, string
+--- four-byte header), or nil and a Failure saying why not.
+local function hello_name(body: string): (ServerName) | (nil, Failure)
   local size = #body
   if size < 35 then
-    return nil, "ClientHello shorter than its fixed fields"
+    return nil, Failure.new("ClientHello shorter than its fixed fields")
   end
   local at = 35
   local session = String.byte_at(body, at)
   if session > 32 or at + session > size then
-    return nil, "ClientHello session id past its end"
+    return nil, Failure.new("ClientHello session id past its end")
   end
   at = at + 1 + session
   if at + 1 > size then
-    return nil, "ClientHello cipher suites past its end"
+    return nil, Failure.new("ClientHello cipher suites past its end")
   end
   local suites = u16(body, at)
   if suites < 2 or suites % 2 == 1 or at + 1 + suites > size then
-    return nil, "ClientHello cipher suites past its end or odd"
+    return nil, Failure.new("ClientHello cipher suites past its end or odd")
   end
   at = at + 2 + suites
   if at > size then
-    return nil, "ClientHello compression methods past its end"
+    return nil, Failure.new("ClientHello compression methods past its end")
   end
   local methods = String.byte_at(body, at)
   if methods < 1 or at + methods > size then
-    return nil, "ClientHello compression methods past its end"
+    return nil, Failure.new("ClientHello compression methods past its end")
   end
   at = at + 1 + methods
   if at == size + 1 then
-    return { name = "", encrypted = false }, ""
+    return { name = "", encrypted = false }
   end
   if at + 1 > size then
-    return nil, "ClientHello extensions length cut short"
+    return nil, Failure.new("ClientHello extensions length cut short")
   end
   if u16(body, at) ~= size - at - 1 then
-    return nil, "ClientHello extensions length does not reach the end of the hello"
+    return nil, Failure.new("ClientHello extensions length does not reach the end of the hello")
   end
   at = at + 2
   local seen: mut {integer: boolean} = {}
@@ -1271,15 +1250,15 @@ local function hello_name(body: string): ServerName?, string
   local encrypted = false
   while at <= size do
     if at + 3 > size then
-      return nil, "ClientHello extension header past its end"
+      return nil, Failure.new("ClientHello extension header past its end")
     end
     local kind = u16(body, at)
     local length = u16(body, at + 2)
     if at + 3 + length > size then
-      return nil, "ClientHello extension past its end"
+      return nil, Failure.new("ClientHello extension past its end")
     end
     if seen[kind] == true then
-      return nil, "ClientHello repeats an extension"
+      return nil, Failure.new("ClientHello repeats an extension")
     end
     seen[kind] = true
     if ENCRYPTED[kind] == true then
@@ -1288,26 +1267,26 @@ local function hello_name(body: string): ServerName?, string
     if kind == 0 then
       local list = body:sub(at + 4, at + 3 + length)
       if #list < 2 or u16(list, 1) ~= #list - 2 or #list == 2 then
-        return nil, "server_name extension whose list length does not match"
+        return nil, Failure.new("server_name extension whose list length does not match")
       end
       local entry = 3
       while entry <= #list do
         if entry + 2 > #list then
-          return nil, "server_name entry past its end"
+          return nil, Failure.new("server_name entry past its end")
         end
         local entry_length = u16(list, entry + 1)
         if entry + 2 + entry_length > #list then
-          return nil, "server_name entry past its end"
+          return nil, Failure.new("server_name entry past its end")
         end
         if list:byte(entry) ~= 0 then
-          return nil, "server_name entry of a type that is not host_name"
+          return nil, Failure.new("server_name entry of a type that is not host_name")
         end
         if found ~= "" then
-          return nil, "server_name names two hosts"
+          return nil, Failure.new("server_name names two hosts")
         end
-        local name, why = dns_name(list:sub(entry + 3, entry + 2 + entry_length))
+        local name, why = Grant.name(list:sub(entry + 3, entry + 2 + entry_length))
         if name == nil then
-          return nil, "server_name is not a host name: " .. why
+          return nil, Failure.within(why, "server_name is not a host name")
         end
         found = name
         entry = entry + 3 + entry_length
@@ -1315,7 +1294,7 @@ local function hello_name(body: string): ServerName?, string
     end
     at = at + 4 + length
   end
-  return { name = found, encrypted = encrypted }, ""
+  return { name = found, encrypted = encrypted }
 end
 
 local function malformed(why: string): relay_wire.Hello
@@ -1443,7 +1422,7 @@ function relay_wire.hello_reader(): relay_wire.HelloReader
     end
     local server, why = hello_name(table.concat(st.parts):sub(5))
     if server == nil then
-      return finish(malformed(why))
+      return finish(malformed(tostring(why)))
     end
     local name, encrypted = server.name, server.encrypted
     local consumed = st.base + pos + 4 + length
