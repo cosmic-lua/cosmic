@@ -1,43 +1,18 @@
 --- Run-time microbenchmarks of the stdlib's hot paths: `bin/cosmic bench/runtime.tl [name...]`.
---- Each case runs its body in batches until a batch takes 50 ms, then times five batches of that size and prints the
---- fastest and the median per operation. It measures; it gates nothing, and no test reads its numbers.
-local Clock = require("cosmic.clock")
+--- [`bench.harness`] times each case and takes its options: `--json`, `--rounds`, `--against <old-binary>`.
+local Bench = require("bench.harness")
 local Csv = require("cosmic.csv")
 local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
 local Stream = require("cosmic.stream")
 
-local record Case
-  name: string
-  run: function(n: integer)
-end
-
-local cases: mut {Case} = {}
+local bench = Bench.new("runtime")
+local case = bench.case
 
 local function decoded(text: string): Json.Value
   local value, why = Json.decode(text)
   if value == nil then error(tostring(why)) end
   return value
-end
-
-local function case(name: string, run: function(n: integer))
-  cases[#cases + 1] = { name = name, run = run }
-end
-
-local function batch(c: Case, n: integer): integer
-  collectgarbage("collect")
-  local start = Clock.monotonic_ns()
-  c.run(n)
-  return Clock.monotonic_ns() - start
-end
-
-local function measure(c: Case)
-  local n = 1
-  while batch(c, n) < 50 * 1000 * 1000 do n = n * 2 end
-  local times: mut {number} = {}
-  for i = 1, 5 do times[i] = batch(c, n) / n end
-  table.sort(times)
-  print(string.format("%-28s %12.0f ns/op  (median %.0f, n=%d)", c.name, assert(times[1]), assert(times[3]), n))
 end
 
 -- JSON: one small object, and an array of 1000 records.
@@ -143,12 +118,4 @@ case("csv.parse 1000 rows", function(n: integer)
   for _ = 1, n do assert(#assert(Csv.parse(csv_text)) == 1001) end
 end)
 
-local wanted: mut {string: boolean} = {}
-for _, name in ipairs(arg) do wanted[name] = true end
-for _, c in ipairs(cases) do
-  local selected = next(wanted) == nil
-  for name in pairs(wanted) do
-    if c.name:find(name, 1, true) ~= nil then selected = true end
-  end
-  if selected then measure(c) end
-end
+return function(argv: {string}): integer return bench.main(argv) end
