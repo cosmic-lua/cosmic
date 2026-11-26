@@ -340,7 +340,62 @@ static int text_base64 (lua_State *L) {
   return 1;
 }
 
+/* `hex(bytes)`: `bytes` as lowercase hexadecimal, two digits a byte. */
+static int text_hex (lua_State *L) {
+  static const char digits[] = "0123456789abcdef";
+  size_t len = 0;
+  const unsigned char *in = (const unsigned char *)luaL_checklstring(L, 1, &len);
+  luaL_Buffer b;
+  char *out = luaL_buffinitsize(L, &b, len * 2);
+  for (size_t i = 0; i < len; i++) {
+    out[2 * i] = digits[in[i] >> 4];
+    out[2 * i + 1] = digits[in[i] & 15];
+  }
+  luaL_pushresultsize(&b, len * 2);
+  return 1;
+}
+
+/* The value of each byte as a hex digit, or -1 for a byte that is none. Filled
+ * when the table opens. */
+static int8_t hex_values[256];
+
+static void hex_tables (void) {
+  memset(hex_values, -1, sizeof hex_values);
+  for (int i = 0; i < 10; i++) hex_values['0' + i] = (int8_t)i;
+  for (int i = 0; i < 6; i++) hex_values['a' + i] = hex_values['A' + i] = (int8_t)(10 + i);
+}
+
+/* Where `unhex` refused a text: nil and the 1-based place of the byte. */
+static int hex_refuse (lua_State *L, size_t at) {
+  lua_pushnil(L);
+  lua_pushinteger(L, (lua_Integer)at);
+  return 2;
+}
+
+/* `unhex(text)`: the bytes the hex digits of `text` spell, in either case.
+ * `text` must be of even length (the caller checks). Returns the bytes, or
+ * nil and the 1-based place of the first byte that is no hex digit. */
+static int text_unhex (lua_State *L) {
+  size_t len = 0;
+  const unsigned char *in = (const unsigned char *)luaL_checklstring(L, 1, &len);
+  luaL_argcheck(L, len % 2 == 0, 1, "an even number of digits");
+  luaL_Buffer b;
+  char *out = luaL_buffinitsize(L, &b, len / 2);
+  for (size_t i = 0; i < len; i += 2) {
+    int high = hex_values[in[i]];
+    int low = hex_values[in[i + 1]];
+    if ((high | low) < 0) {
+      return hex_refuse(L, high < 0 ? i + 1 : i + 2);
+    }
+    out[i / 2] = (char)((high << 4) | low);
+  }
+  luaL_pushresultsize(&b, len / 2);
+  return 1;
+}
+
 static const luaL_Reg module[] = {
+  {"hex", text_hex},
+  {"unhex", text_unhex},
   {"base64", text_base64},
   {"lines", text_lines},
   {"newlines", text_newlines},
@@ -351,6 +406,7 @@ static const luaL_Reg module[] = {
 
 int cosmic_open_text (lua_State *L) {
   base64_tables();
+  hex_tables();
   luaL_newlib(L, module);
   return 1;
 }
