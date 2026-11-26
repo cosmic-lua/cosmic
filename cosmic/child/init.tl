@@ -108,6 +108,9 @@ local Hold = require("cosmic.child.hold")
 local type Held = Hold.Held
 local type MappedUser = Hold.MappedUser
 local RELAY_MAIN = Hold.RELAY_MAIN
+--- The most grants spawn takes, as hold.tl counts them (`GRANT_MAX` in
+--- core/sandbox.h, which is `UNVEIL_MAX`).
+local MAX_GRANTS <const> = raw.UNVEIL_MAX
 local beneath = Hold.beneath
 local database_holds = Hold.database_holds
 local effective_group = Hold.effective_group
