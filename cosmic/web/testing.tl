@@ -377,15 +377,15 @@ local function send(client: Testing.Client, method: string, path: string, opts: 
   local answered: mut {Response} = {}
   Poll.within(function()
     local reply = client.app.handle(raw)
-    local trouble = Server.check(reply, method)
-    if trouble ~= "" then
+    local sendable, trouble = Server.check(reply, method)
+    if not sendable then
       local unsent = if type(reply) == "table" then reply.body else nil end
       if unsent ~= nil then
         if not unsent is string then
           local _, _ = unsent:close()
         end
       end
-      error("web: test client: the server would answer 500 for this reply: " .. trouble, 0)
+      error("web: test client: the server would answer 500 for this reply: " .. tostring(trouble), 0)
     end
     local lines = lines_of(reply)
     local body = ""
