@@ -11,7 +11,7 @@ local Example = {} -- checked: literal_needs_type
 function Example.stop()
   local session, trouble = Coverage.start()
   if session == nil then
-    print(trouble)
+    print(tostring(trouble))
     return
   end
   local hits = assert(Coverage.stop(session))
