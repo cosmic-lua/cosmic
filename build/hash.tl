@@ -366,7 +366,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       elseif request.json then
         -- Only `--json` writes JSON, so only it loads the module.
         local Json = require("cosmic.json")
-        local row, refused = Json.encode({ path = name, algorithm = label, digest = digest }, { pretty = false })
+        local row, refused = Json.encode({ path = name, algorithm = label, digest = digest }, { layout = "compact" })
         if row == nil then
           complain(Json.quote(name) .. ": --json cannot write this path: " .. tostring(refused))
           code = bare.undone

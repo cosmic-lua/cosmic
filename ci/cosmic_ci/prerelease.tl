@@ -128,11 +128,16 @@ function Prerelease.sums(digest: string): string
 end
 
 --- source.json for the staged release: the object laid out as `jq -n`
---- lays it out, keys in byte order.
+--- lays it out, keys in byte order. The layout is written here, each value
+--- encoded alone: this file runs on the pinned release and on the tree,
+--- whose [`Json.EncodeOptions`] name the layout differently (`pretty`,
+--- `layout`).
 function Prerelease.source_json(commit: string, digest: string, run_url: string): string
-  local text = assert(Json.encode({ commit = commit, digest = digest, run_url = run_url },
-    { pretty = true }))
-  return text .. "\n"
+  local function member(key: string, value: string): string
+    return "  " .. assert(Json.encode(key)) .. ": " .. assert(Json.encode(value))
+  end
+  return "{\n" .. member("commit", commit) .. ",\n" .. member("digest", digest) .. ",\n" ..
+    member("run_url", run_url) .. "\n}\n"
 end
 
 function Prerelease.notes(commit: string, digest: string, run_url: string): string

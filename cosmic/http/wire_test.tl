@@ -9,6 +9,13 @@ local DATE <const> = "Thu, 01 Jan 1970 00:00:00 GMT"
 
 local LIMITS <const>: wire.Limits = { head_bytes = 1024, body_bytes = 100 }
 
+--- Why [`wire.check`] refuses `reply`, "" where it does not.
+local function trouble_of(reply: wire.Reply): string
+  local ok, why = wire.check(reply)
+  if ok then return "" end
+  return tostring(why)
+end
+
 --- What reading `text` as one request's head gives.
 local function read(text: string, limits?: wire.Limits): wire.Read
   return wire.read_head(wire.input(Stream.from_string(text)), limits or LIMITS)
@@ -242,36 +249,36 @@ end
 
 --- What the writer refuses, for which the server sends 500.
 local function test_check_refuses_what_cannot_be_sent()
-  assert(wire.check({ date = DATE, status = 200, headers = { ["X-Ok"] = "fine" } }) == "")
-  assert(wire.check({ date = DATE, status = 99 }) ~= "")
-  assert(wire.check({ date = DATE, status = 200, headers = { ["Bad Name"] = "x" } }) ~= "")
-  assert(wire.check({ date = DATE, status = 200, headers = { X = "a\nb" } }) ~= "")
-  assert(wire.check({ date = DATE, status = 200, headers = { X = "a\0b" } }) ~= "")
+  assert(trouble_of({ date = DATE, status = 200, headers = { ["X-Ok"] = "fine" } }) == "")
+  assert(trouble_of({ date = DATE, status = 99 }) ~= "")
+  assert(trouble_of({ date = DATE, status = 200, headers = { ["Bad Name"] = "x" } }) ~= "")
+  assert(trouble_of({ date = DATE, status = 200, headers = { X = "a\nb" } }) ~= "")
+  assert(trouble_of({ date = DATE, status = 200, headers = { X = "a\0b" } }) ~= "")
   for _, owned in ipairs({ "Date", "content-length", "Transfer-Encoding", "CONNECTION" }) do
-    assert(wire.check({ date = DATE, status = 200, headers = { [owned] = "x" } }) ~= "", owned)
+    assert(trouble_of({ date = DATE, status = 200, headers = { [owned] = "x" } }) ~= "", owned)
   end
-  assert(wire.check({ date = DATE, status = 304, body = "x" }) ~= "")
-  assert(wire.check({ date = DATE, status = 204, body = Stream.from_string("") }) ~= "")
-  assert(wire.check({ date = DATE, status = 204, body = "" }) == "")
-  assert(wire.check({ date = DATE, status = 200, body = "x", length = 2 }) ~= "")
-  assert(wire.check({ date = DATE, status = 200, body = Stream.from_string("x"), length = -1 }) ~= "")
+  assert(trouble_of({ date = DATE, status = 304, body = "x" }) ~= "")
+  assert(trouble_of({ date = DATE, status = 204, body = Stream.from_string("") }) ~= "")
+  assert(trouble_of({ date = DATE, status = 204, body = "" }) == "")
+  assert(trouble_of({ date = DATE, status = 200, body = "x", length = 2 }) ~= "")
+  assert(trouble_of({ date = DATE, status = 200, body = Stream.from_string("x"), length = -1 }) ~= "")
 end
 
 --- What a list of header values may and may not be.
 local function test_check_takes_lists_of_header_values()
-  assert(wire.check({ date = DATE, status = 200, headers = { ["Set-Cookie"] = { "a=1", "b=2" } } }) == "")
-  assert(wire.check({ date = DATE, status = 200, headers = { ["Set-Cookie"] = {} } }) == "")
-  assert(wire.check({ date = DATE, status = 200, headers = { ["Set-Cookie"] = { "a=1", "b\rc" } } }) ~= "")
-  assert(wire.check({ date = DATE, status = 200, headers = { ["Set-Cookie"] = { "a\0" } } }) ~= "")
+  assert(trouble_of({ date = DATE, status = 200, headers = { ["Set-Cookie"] = { "a=1", "b=2" } } }) == "")
+  assert(trouble_of({ date = DATE, status = 200, headers = { ["Set-Cookie"] = {} } }) == "")
+  assert(trouble_of({ date = DATE, status = 200, headers = { ["Set-Cookie"] = { "a=1", "b\rc" } } }) ~= "")
+  assert(trouble_of({ date = DATE, status = 200, headers = { ["Set-Cookie"] = { "a\0" } } }) ~= "")
   for _, owned in ipairs({ "Date", "content-length", "Transfer-Encoding", "CONNECTION" }) do
-    assert(wire.check({ date = DATE, status = 200, headers = { [owned] = { "x" } } }) ~= "", owned)
+    assert(trouble_of({ date = DATE, status = 200, headers = { [owned] = { "x" } } }) ~= "", owned)
   end
 end
 
 --- `reply`, checked and sent: the bytes written.
 local function sent_bytes(reply: wire.Reply): string
   reply.version, reply.date = "HTTP/1.1", DATE
-  local why = wire.check(reply)
+  local why = trouble_of(reply)
   assert(why == "", why)
   local sink = Stream.collect()
   local _ = wire.send(sink, reply)
@@ -362,7 +369,7 @@ local function test_a_given_content_length_is_held_to_the_body()
       says = "too large" },
   }
   for i, case in ipairs(refused) do
-    local why = wire.check(case.reply)
+    local why = trouble_of(case.reply)
     assert(why:find(case.says, 1, true) ~= nil, tostring(i) .. ": " .. why)
   end
 end

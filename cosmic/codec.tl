@@ -1,5 +1,5 @@
 --- Byte-to-text encodings: hexadecimal and base64 (RFC 4648). The
---- encoders are Teal and take any bytes; the base64 decoders run in the
+--- hex codecs are Teal and take any bytes; the base64 codecs run in the
 --- core. Decoders are strict and total: for text
 --- that no encoder here would write -- a character outside the
 --- alphabet, a bad length, misplaced padding, or nonzero trailing bits
@@ -100,80 +100,6 @@ function Codec.unhex(s: string): (string) | (nil, Failure)
   return (s:gsub("..", hex_bytes()))
 end
 
---- One base64 alphabet's encoding tables: `char` maps a 6-bit value to
---- its character and `pair` a 12-bit value to its two characters.
-local record Alphabet
-  char: mut {integer:string}
-  pair: mut {integer:string}
-end
-
-local function alphabet(chars: string): Alphabet
-  local a: Alphabet = { char = {}, pair = {} }
-  for i = 1, 64 do
-    a.char[i - 1] = chars:sub(i, i)
-  end
-  for v = 0, 4095 do
-    local high = assert(a.char[v >> 6], "char holds every index 0 to 63")
-    local low = assert(a.char[v & 63], "char holds every index 0 to 63")
-    a.pair[v] = high .. low
-  end
-  return a
-end
-
-local standard_alphabet: Alphabet? = nil
-local url_alphabet: Alphabet? = nil
-
---- The standard base64 alphabet's tables, built on first use.
-local function standard(): Alphabet
-  local a = standard_alphabet
-  if a == nil then
-    a = alphabet("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/")
-    standard_alphabet = a
-  end
-  return a
-end
-
---- The URL- and filename-safe base64 alphabet's tables, built on first use.
-local function url(): Alphabet
-  local a = url_alphabet
-  if a == nil then
-    a = alphabet("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_")
-    url_alphabet = a
-  end
-  return a
-end
-
---- `s` in `a`'s alphabet, `=`-padded to a multiple of four characters
---- when `pad`.
-local function encode(a: Alphabet, s: string, pad: boolean): string
-  local pair = a.pair
-  local out: mut {string} = {}
-  local n = #s
-  local whole = n - n % 3
-  for i = 1, whole, 3 do
-    local b1, b2, b3 = s:byte(i, i + 2)
-    assert(b1 and b2 and b3, "i + 2 is at most whole, which is at most #s")
-    local v = (b1 << 16) | (b2 << 8) | b3
-    local first, second = assert(pair[v >> 12]), assert(pair[v & 4095])
-    out[#out + 1] = first
-    out[#out + 1] = second
-  end
-  local left = n - whole
-  if left == 1 then
-    local v = byte_at(s, n) << 4
-    local first = assert(pair[v])
-    out[#out + 1] = first
-    if pad then out[#out + 1] = "==" end
-  elseif left == 2 then
-    local v = (byte_at(s, n - 1) << 10) | (byte_at(s, n) << 2)
-    local first, second = assert(pair[v >> 6]), assert(a.char[v & 63])
-    out[#out + 1] = first
-    out[#out + 1] = second
-    if pad then out[#out + 1] = "=" end
-  end
-  return table.concat(out)
-end
-
 --- The bytes `s` spells in base64, decoded by the core: the URL-safe
 --- alphabet where `url`, else the standard one. `padded` says whether `s`
 --- must carry `=` padding to a multiple of four characters or must carry
@@ -201,7 +127,7 @@ end
 --- @param s string The bytes to encode
 --- @return string The base64 text
 function Codec.base64(s: string): string
-  return encode(standard(), s, true)
+  return raw.base64(s, false, true)
 end
 
 --- The bytes standard, padded base64 spells. Strict: returns nil and
@@ -228,7 +154,7 @@ end
 --- @param s string The bytes to encode
 --- @return string The base64url text, without `=` padding
 function Codec.base64url(s: string): string
-  return encode(url(), s, false)
+  return raw.base64(s, true, false)
 end
 
 --- The bytes unpadded base64url spells. Strict like [`Codec.unbase64`],

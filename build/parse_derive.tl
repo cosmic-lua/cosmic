@@ -13,6 +13,7 @@
 --- they share with a compile from here.
 local Ast = require("lang.ast")
 local Declarations = require("lang.declarations")
+local ShapeKey = require("build.shape_key")
 local SourceParse = require("build.source_parse")
 local Sqlite = require("cosmic.sqlite")
 local SyntaxDerivation = require("build.syntax_derivation")
@@ -201,6 +202,11 @@ function ParseDerive.derive(db: Sqlite.Handle, own: boolean, fresh: {Derivation.
       if not put then
         restore_collector(previous)
         return false, why
+      end
+      -- What a compile of a module that requires this one reads of it ([`build.plans`]), from the parse at hand.
+      if source.dialect == "tl" then
+        local _, _ = db:run("INSERT OR REPLACE INTO shapes (source_hash, digest) VALUES (?1, ?2)",
+          { { text = one.source_hash }, { text = ShapeKey.parsed(read.chunk) } })
       end
       tally.parsed = tally.parsed + 1
       made[#made + 1] = { source_hash = one.source_hash, mapped = one.mapped }

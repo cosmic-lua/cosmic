@@ -41,6 +41,7 @@
 --- Every refusal reads `name:line:col: reason`, where line and column are
 --- the offending word's, or its action's `{{` for one about the block.
 
+local Failure = require("cosmic.failure")
 local lex = require("cosmic.template.lex")
 local types = require("cosmic.template.types")
 
@@ -58,8 +59,8 @@ local record Parser
 end
 
 --- `name:line:col: reason`.
-local function refuse(p: Parser, line: integer, col: integer, reason: string): string
-  return p.name .. ":" .. tostring(line) .. ":" .. tostring(col) .. ": " .. reason
+local function refuse(p: Parser, line: integer, col: integer, reason: string): Failure
+  return Failure.at(reason, line, col, p.name)
 end
 
 --- Whether `s` is a dotted run of identifiers, `min` names at least.
@@ -105,7 +106,7 @@ local function fields(path: string): {string}
 end
 
 --- The path `token` spells, from dot, `$` or a variable, with no stages.
-local function path_of(p: Parser, token: types.Token): types.Pipeline?, string
+local function path_of(p: Parser, token: types.Token): (types.Pipeline) | (nil, Failure)
   local result: types.Pipeline = { head = "dot", name = "", path = {}, stages = {} }
   if token.kind == "variable" then
     local name = token.value:match("^%$([%a_][%w_]*)") or ""
@@ -124,30 +125,30 @@ local function path_of(p: Parser, token: types.Token): types.Pipeline?, string
       "'" .. token.value .. "' is not a field path such as . or .a.b, nor a variable such as $ or $x.a" ..
         trim_hint(token) end)
   end
-  return result, ""
+  return result
 end
 
 --- Why the variable `path` starts from, which `token` spells, is not seen
---- here, or "".
-local function unseen(p: Parser, path: types.Pipeline, token: types.Token): string
+--- here, or nil.
+local function unseen(p: Parser, path: types.Pipeline, token: types.Token): Failure?
   if path.head == "variable" and p.visible[path.name] == nil then
     return refuse(p, token.line, token.col, "'$" .. path.name .. "' is not declared here: a variable is seen only in the body of " ..
         "the {{range}} that binds it, as {{range $x := .list}}")
   end
-  return ""
+  return nil
 end
 
 --- The argument `token` spells after a stage: a string, a number, or a
 --- path.
-local function argument(p: Parser, token: types.Token): types.Arg?, string
+local function argument(p: Parser, token: types.Token): (types.Arg) | (nil, Failure)
   if token.kind == "string" then
-    return { kind = "string", text = token.value }, ""
+    return { kind = "string", text = token.value }
   elseif token.kind == "word" then
     local v = token.value
     -- An integer is one Lua reads as an integer, with no leading zero.
     local whole = v:find("^%-?[1-9]%d*$") ~= nil or v == "0"
     if (whole and math.tointeger(tonumber(v)) ~= nil) or v:find("^%-?%d+%.%d+$") ~= nil then
-      return { kind = "number", text = v }, ""
+      return { kind = "number", text = v }
     end
     return nil, refuse(p, token.line, token.col, "'" .. v .. "' is not an argument: a stage takes strings (\"x\"), " ..
         "numbers (2, -1, 0.5) and paths (.a, $, $x.a) after the value piped to it" .. trim_hint(token))
@@ -157,15 +158,15 @@ local function argument(p: Parser, token: types.Token): types.Arg?, string
     return nil, why
   end
   local hidden = unseen(p, path, token)
-  if hidden ~= "" then
+  if hidden ~= nil then
     return nil, hidden
   end
-  return { kind = "path", text = "", path = path }, ""
+  return { kind = "path", text = "", path = path }
 end
 
 --- The pipeline `tokens[first ..]` spell, which is all that is left of
 --- the action; `ranged` when it is a range's list.
-local function pipeline(p: Parser, item: types.Item, first: integer, ranged: boolean): types.Pipeline?, string
+local function pipeline(p: Parser, item: types.Item, first: integer, ranged: boolean): (types.Pipeline) | (nil, Failure)
   local tokens = item.tokens
   local head = tokens[first]
   if head == nil then
@@ -195,7 +196,7 @@ local function pipeline(p: Parser, item: types.Item, first: integer, ranged: boo
     end
   end
   local hidden = unseen(p, result, head)
-  if hidden ~= "" then
+  if hidden ~= nil then
     return nil, hidden
   end
   local stages = result.stages
@@ -250,7 +251,7 @@ local function pipeline(p: Parser, item: types.Item, first: integer, ranged: boo
     stages[#stages + 1] = { module_path = module_path, func = func, line = stage.line, col = stage.col, args = args }
     pipe = next_token
   end
-  return result, ""
+  return result
 end
 
 --- What a range binds: the words naming its index and its element (nil
@@ -263,14 +264,14 @@ end
 
 --- Reads the bindings that open the range action `item`, `$x :=` or
 --- `$i, $x :=`, if it has any.
-local function bindings(p: Parser, item: types.Item): Bound?, string
+local function bindings(p: Parser, item: types.Item): (Bound) | (nil, Failure)
   local tokens = item.tokens
   local one, after = tokens[2], tokens[3]
   if one ~= nil and one.kind == "variable" and after ~= nil and (after.kind == "field" or after.kind == "variable") then
     return nil, refuse(p, after.line, after.col, "expected := after " .. one.value .. ", as {{range $x := .list}}")
   end
   if one == nil or one.kind ~= "variable" or after == nil or (after.kind ~= "comma" and after.kind ~= "declare") then
-    return { first = 2 }, ""
+    return { first = 2 }
   end
   local names: mut {types.Token} = { one }
   if after.kind == "comma" then
@@ -301,9 +302,9 @@ local function bindings(p: Parser, item: types.Item): Bound?, string
     here[name] = word
   end
   if #names == 2 then
-    return { index = names[1], element = names[2], first = 6 }, ""
+    return { index = names[1], element = names[2], first = 6 }
   end
-  return { element = names[1], first = 4 }, ""
+  return { element = names[1], first = 4 }
 end
 
 --- The first word of an action, or "" when it has none.
@@ -315,11 +316,11 @@ local function keyword(item: types.Item): string
   return ""
 end
 
-local nodes: function(p: Parser): {types.Node}?, string
+local nodes: function(p: Parser): ({types.Node}) | (nil, Failure)
 
 --- Parses the block action at the next item (`if`, `range` or `with`)
 --- through its `{{end}}`.
-local function block(p: Parser, open: types.Item): types.Node?, string -- checked: not_assigned
+local function block(p: Parser, open: types.Item): (types.Node) | (nil, Failure) -- checked: not_assigned
   local word = keyword(open)
   p.pos = p.pos + 1
   local bound: Bound = { first = 2 }
@@ -379,7 +380,7 @@ local function block(p: Parser, open: types.Item): types.Node?, string -- checke
       end
       node.close_line = close.line
       p.depth = p.depth - 1
-      return node, ""
+      return node
     end
     if seen_else then
       return nil, refuse(p, close.line, close.col, "{{else}} after {{else}}")
@@ -403,7 +404,7 @@ local function block(p: Parser, open: types.Item): types.Node?, string -- checke
   end
 end
 
-nodes = function(p: Parser): {types.Node}?, string
+nodes = function(p: Parser): ({types.Node}) | (nil, Failure)
   local out: mut {types.Node} = {}
   while true do
     local item = p.items[p.pos]
@@ -416,12 +417,12 @@ nodes = function(p: Parser): {types.Node}?, string
       local word = keyword(item)
       local first_token = item.tokens[1]
       if word == "else" or word == "end" then
-        return out, ""
+        return out
       elseif word == "define" then
         if p.depth > 0 then
           return nil, refuse(p, item.line, item.col, "{{define}} stands at the top level, after the body, in no block")
         end
-        return out, ""
+        return out
       elseif word == "if" or word == "range" or word == "with" then
         local node, why = block(p, item)
         if node == nil then
@@ -460,7 +461,7 @@ nodes = function(p: Parser): {types.Node}?, string
       end
     end
   end
-  return out, ""
+  return out
 end
 
 --- Whether `item` is literal text with nothing visible in it.
@@ -476,7 +477,7 @@ end
 
 --- Reads the `{{type}}` action at `item`: the record's name and where it
 --- is from.
-local function declaration(p: Parser, item: types.Item): Declared?, string
+local function declaration(p: Parser, item: types.Item): (Declared) | (nil, Failure)
   local tokens = item.tokens
   local name, from, path = tokens[2], tokens[3], tokens[4]
   if #tokens ~= 4 or name == nil or from == nil or path == nil or from.kind ~= "word" or from.value ~= "from" then
@@ -488,12 +489,12 @@ local function declaration(p: Parser, item: types.Item): Declared?, string
   if path.kind ~= "word" or not dotted(path.value, 1) then
     return nil, refuse(p, path.line, path.col, "'" .. path.value .. "' is not an import path")
   end
-  return { name = name.value, import_path = path.value }, ""
+  return { name = name.value, import_path = path.value }
 end
 
 --- Reads the `{{define}}`s from the next item on, each with the blank
 --- text after it.
-local function definitions(p: Parser): {types.Define}?, string
+local function definitions(p: Parser): ({types.Define}) | (nil, Failure)
   local defines: mut {types.Define} = {}
   local seen: mut {string: boolean} = {}
   local open = p.items[p.pos]
@@ -538,46 +539,46 @@ local function definitions(p: Parser): {types.Define}?, string
     end
     open = p.items[p.pos]
   end
-  return defines, ""
+  return defines
 end
 
 --- Why a stage of one name in `body` or the `defines` names none of them,
---- or "".
-local function called_defines(p: Parser, body: {types.Node}, defines: {types.Define}): string
+--- or nil.
+local function called_defines(p: Parser, body: {types.Node}, defines: {types.Define}): Failure?
   local named: mut {string: boolean} = {}
   for _, define in ipairs(defines) do
     named[define.name] = true
   end
-  local function pipeline_ok(pipe: types.Pipeline?): string
-    if pipe == nil then return "" end
+  local function pipeline_ok(pipe: types.Pipeline?): Failure?
+    if pipe == nil then return nil end
     for _, stage in ipairs(pipe.stages) do
       if stage.module_path == "" and named[stage.func] == nil then
         return refuse(p, stage.line, stage.col, "'" .. stage.func .. "' names no {{define}} of this template, " ..
             "and a function of a module is reached by its path, as module.path.func")
       end
     end
-    return ""
+    return nil
   end
-  local function walk(list: {types.Node}): string
+  local function walk(list: {types.Node}): Failure?
     for _, node in ipairs(list) do
       local why = pipeline_ok(node.pipeline)
-      if why ~= "" then return why end
+      if why ~= nil then return why end
       for _, branch in ipairs(node.branches) do
         why = pipeline_ok(branch.pipeline)
-        if why ~= "" then return why end
+        if why ~= nil then return why end
         why = walk(branch.body)
-        if why ~= "" then return why end
+        if why ~= nil then return why end
       end
     end
-    return ""
+    return nil
   end
   local why = walk(body)
-  if why ~= "" then return why end
+  if why ~= nil then return why end
   for _, define in ipairs(defines) do
     why = walk(define.body)
-    if why ~= "" then return why end
+    if why ~= nil then return why end
   end
-  return ""
+  return nil
 end
 
 local record Parse
@@ -588,8 +589,8 @@ end
 --- @param name string The template's name, for messages
 --- @param registry {string: types.Def} The dialects `{{use}}` may name
 --- @return types.Template|nil The template
---- @return string The reason, as `name:line:col: ...`, on failure
-function Parse.parse(src: string, name: string, registry: {string: types.Def}): types.Template?, string
+--- @return Failure The reason, as `name:line:col: ...`, on failure
+function Parse.parse(src: string, name: string, registry: {string: types.Def}): (types.Template) | (nil, Failure)
   local lexed, lerr = lex.lex(src, name)
   if lexed == nil then
     return nil, lerr
@@ -684,12 +685,12 @@ function Parse.parse(src: string, name: string, registry: {string: types.Def}): 
     return nil, refuse(p, stray.line, stray.col, "{{" .. keyword(stray) .. "}} without a block to close")
   end
   local called = called_defines(p, body, defines)
-  if called ~= "" then
+  if called ~= nil then
     return nil, called
   end
   return { type_name = declared.name, import_path = declared.import_path, line = head.line, mode = mode,
     dialects = dialects, body = body, body_end_line = body_end_line, body_end_col = body_end_col, defines = defines,
-    lines = lexed.lines }, ""
+    lines = lexed.lines }
 end
 
 return Parse
