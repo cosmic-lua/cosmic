@@ -132,7 +132,10 @@ function verb.read(text: string, name: string): verb.Process?, string
         return nil, name .. ": a sample line it cannot read: " .. line
       end
       local frames: mut {string} = {}
-      for frame in stack:gmatch("[^;]+") do frames[#frames + 1] = frame end
+      -- A sample with no frame at all writes `-` in their place.
+      if stack ~= "-" then
+        for frame in stack:gmatch("[^;]+") do frames[#frames + 1] = frame end
+      end
       samples[#samples + 1] = { frames = frames, line = at, us = whole(us) or 0 }
     end
   end
@@ -151,6 +154,9 @@ end
 local function ms_of_us(us: integer): string
   return ("%.1f ms"):format(us / 1000)
 end
+
+--- What a sample with no frame is charged to.
+local NO_FRAME <const> = "(no frame)"
 
 --- Whether a frame is a span's (`[name]`) and not a function's.
 local function is_span(frame: string): boolean
@@ -194,8 +200,19 @@ local function span_lines(processes: {verb.Process}): {string}
   end
   if #order == 0 then return { "spans: none (the run marked no Clock.span or Clock.phase)" } end
   -- A parent's path is a prefix of its children's: sorting by the order of each prefix keeps a child under it.
+  -- Each prefix is numbered where it is first seen, a parent written by no line (a fork's child's file) too.
   local first: mut {string: integer} = {}
-  for n, path in ipairs(order) do first[path] = n end
+  local seen = 0
+  for _, path in ipairs(order) do
+    local prefix = ""
+    for name in path:gmatch("[^;]+") do
+      prefix = if prefix == "" then name else prefix .. ";" .. name end
+      if first[prefix] == nil then
+        seen = seen + 1
+        first[prefix] = seen
+      end
+    end
+  end
   local function key(path: string): {integer}
     local k: mut {integer} = {}
     local prefix = ""
@@ -255,7 +272,7 @@ function verb.report(processes: {verb.Process}, options: verb.Options, empty?: i
       total = total + s.us
       lines[s.line] = (lines[s.line] or 0) + s.us
       local seen: mut {string: boolean} = {}
-      local last = "?"
+      local last = NO_FRAME
       for _, frame in ipairs(s.frames) do
         if not is_span(frame) then
           if seen[frame] == nil then
@@ -267,7 +284,7 @@ function verb.report(processes: {verb.Process}, options: verb.Options, empty?: i
       end
       own[last] = (own[last] or 0) + s.us
       if options.folded then
-        local stack = table.concat(s.frames, ";")
+        local stack = if #s.frames == 0 then NO_FRAME else table.concat(s.frames, ";") end
         if folded[stack] == nil then folded_order[#folded_order + 1] = stack end
         folded[stack] = (folded[stack] or 0) + s.us
       end

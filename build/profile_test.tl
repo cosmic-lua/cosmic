@@ -129,3 +129,16 @@ local function test_refusals_and_bad_files()
   local bad = run({ "bad.prof" }, { ["bad.prof"] = "cosmic-profile 1\nsample x\n" })
   assert(bad.code == 5 and bad.err:find("a sample line it cannot read", 1, true) ~= nil, bad.err)
 end
+
+--- A sample with no frame (`-`) is charged to "(no frame)"; a span whose parent no line names still sorts under
+--- that parent, before a later span.
+local function test_a_frameless_sample_and_a_missing_parent()
+  local text = file(30, { "span [a];[b] 1 1000000 1000000", "span [z] 1 1000000 1000000", "span [a];[c] 1 1000 1000",
+    "sample - x:1 100" })
+  local own = run({ "--by", "function", "f.prof" }, { ["f.prof"] = text })
+  assert(own.out:find("100.00%%%s+0.1 ms  %(no frame%)\n") ~= nil, own.out)
+  local folded = run({ "--folded", "f.prof" }, { ["f.prof"] = text })
+  assert(folded.out == "(no frame) 100\n", folded.out)
+  local spans = run({ "--by", "span", "f.prof" }, { ["f.prof"] = text })
+  assert(spans.out:find("    %[b%].*\n    %[c%].*\n  %[z%]") ~= nil, spans.out)
+end
