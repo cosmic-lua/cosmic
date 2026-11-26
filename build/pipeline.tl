@@ -85,6 +85,19 @@ local record Pipeline
     --- alone, an agent's snippet), which no one reviews. `cosmic fix` and a tree's tests still tell it. Other warnings
     --- are told.
     mut lax?: boolean
+    --- The modules of the working directory's tree that the checked text requires, by module, each its file and its
+    --- text: what `standard` read of the tree ([`build.nearby`]), and so what the text is checked with and what runs
+    --- with it. Their bodies are checked as the text's are, and their Lua written beside its own
+    --- ([`Pipeline.Alone.nearby`]). nil where `standard` reads only `cosmic.*` modules.
+    mut nearby?: {string: Nearby}
+  end
+
+  --- A module of the working directory's tree, as [`Pipeline.Options.nearby`] holds it.
+  record Nearby
+    --- Its path from the tree's root, as its errors name it.
+    file: string
+    --- Its text, as it was read.
+    text: string
   end
 
   --- A build over the tree.
@@ -152,6 +165,8 @@ local record Pipeline
     --- finding: from the checker's own lists, so that a code two stages have is told apart. A finding two stages report at
     --- one place and under one code is "" (no stage can hold it), and a warning has no entry.
     stages: {string: string}
+    --- The Lua of each module of [`Pipeline.Options.nearby`] the text reached, by module, where none was refused.
+    nearby?: {string: string}
     --- Where it is refused: the rewrites of its errors that put each right with the meaning kept ([`lang.rewrite`]).
     edits?: {Rewrite.Edit}
   end
@@ -844,6 +859,27 @@ local function note_stages(stages: mut {string: string}, stage: string, list: {D
   end
 end
 
+--- The modules of `nearby` that `text`, the file `file`, requires, directly or through another of them, sorted.
+local function reached(nearby: {string: Pipeline.Nearby}, file: string, text: string): {string}
+  local seen: mut {string: boolean} = {}
+  local names: mut {string} = {}
+  local pending: mut {{string}} = { { file, text } }
+  while #pending > 0 do
+    local item = assert(table.remove(pending))
+    local required, _ = Pipeline.requires(assert(item[1]), assert(item[2]))
+    for _, name in ipairs(required or {}) do
+      local near = nearby[name]
+      if near ~= nil and seen[name] == nil then
+        seen[name] = true
+        names[#names + 1] = name
+        pending[#pending + 1] = { near.file, near.text }
+      end
+    end
+  end
+  table.sort(names)
+  return names
+end
+
 function Pipeline.edits(result: Driver.Outcome): {Rewrite.Edit}
   -- The codes of the bodies' findings each line's markers hold ([`build.markers`]).
   local held: mut {integer: mut {string: boolean}} = {}
@@ -903,6 +939,45 @@ local function alone_of(build: Driver.Build, module: string, file: string, optio
       end
     end
   end
+  -- A module of the tree the text reached is checked as the text is, and its errors told under its own file.
+  local near_code: mut {string: string} = {}
+  local near_names = reached(options.nearby or {}, file, result.text)
+  for _, name in ipairs(near_names) do
+    local near = build:result(name, true)
+    if near ~= nil then
+      local before = #told
+      if near.broken then
+        for _, p in ipairs(near.syntax) do
+          told[#told + 1] = ErrorRender.line(near.source.filename, p)
+        end
+      else
+        for _, line in ipairs(build:held(near, false, { checked = { "export_not_declared" } })) do
+          told[#told + 1] = line
+        end
+        -- What a run of the tree holds the module to besides: the error-slot discipline, and a project's refusals.
+        local subject = Report.of(build.program, near)
+        if subject ~= nil and SyntaxContracts.applies(near.source.filename) then
+          for _, p in ipairs(SyntaxContracts.check(subject).problems) do
+            told[#told + 1] = p
+          end
+        end
+        if options.project == true then
+          for _, line in ipairs(ProjectRefusals.check(near.source.filename, near.chunk, near.scoped, Pipeline.kept)) do
+            told[#told + 1] = line
+          end
+        end
+      end
+      if #told == before then
+        local made = CompileGrammar.emit(build, near, false, true, false)
+        local lua = made.code
+        if lua == nil then
+          told[#told + 1] = near.source.filename .. ": the generator wrote no Lua: " .. made.trouble
+        else
+          near_code[name] = lua
+        end
+      end
+    end
+  end
   if #told > 0 then
     return { code = nil, lines = told, stages = stages, edits = Pipeline.edits(result) }
   end
@@ -911,7 +986,7 @@ local function alone_of(build: Driver.Build, module: string, file: string, optio
   if emitted.code == nil then
     return { code = nil, lines = { file .. ": the generator wrote no Lua: " .. emitted.trouble }, stages = stages }
   end
-  return { code = emitted.code, lines = {}, stages = stages }
+  return { code = emitted.code, lines = {}, stages = stages, nearby = if #near_names > 0 then near_code else nil end }
 end
 
 function Pipeline.checked_alone_each(items: {{string}}, options: Pipeline.Options, tests?: boolean,

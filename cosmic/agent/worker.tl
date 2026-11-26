@@ -72,7 +72,16 @@ local record Worker
     --- holds on Linux under a policy: on macOS, or with no policy, a snippet may still run a program. A run whose
     --- commands differ from the running worker's starts a new one; nil is false.
     commands?: boolean
+    --- What a snippet may load code from, beside Host and its MCP modules: "cosmic" for the standard library, and a
+    --- directory for the modules of the tree there, `require("util")` reading its `util.tl` ("." is the working
+    --- directory). {} loads none, nor any code at all: a snippet has no `load`, `loadfile` or `dofile` either way.
+    --- nil is [`Worker.MODULES`]. A run whose modules differ from the running worker's starts a new one.
+    modules?: {string}
   end
+
+  --- What a snippet loads code from where [`Worker.Options`] names none: the standard library and the working
+  --- directory's tree.
+  MODULES: {string}
 
   --- How long a call a snippet makes may take: a long call tests it, and stops.
   record Budget
@@ -103,6 +112,8 @@ local record Worker
     mut held?: Sandbox.Policy
     --- Whether the running worker was started with commands: a run that differs starts a new one.
     mut held_commands?: boolean
+    --- What the running worker loads code from, joined by commas ([`Worker.Options`] `modules`).
+    mut held_modules?: string
     --- The id the next request is sent with.
     mut next: integer
     --- How many workers it started.
@@ -118,6 +129,8 @@ local STOP_CHECK <const> = Clock.ms(100)
 
 --- How long the output of a snippet that ended may take to end.
 local OUTPUT_WAIT <const> = Clock.seconds(5)
+
+Worker.MODULES = { "cosmic", "." }
 
 --- A set with no worker yet, started by `argv` where given, with the `env` and `fds` of `base`.
 function Worker.new(argv?: {string}, base?: Child.Options): Worker.Set
@@ -141,7 +154,8 @@ end
 local function started(set: Worker.Set, opts: Worker.Options): (Stream.Lines) | (nil, Failure)
   local lines = set.lines
   local commands = opts.commands == true
-  if lines ~= nil and set.held == opts.policy and set.held_commands == commands then
+  local modules = table.concat(opts.modules or Worker.MODULES, ",")
+  if lines ~= nil and set.held == opts.policy and set.held_commands == commands and set.held_modules == modules then
     return lines
   end
   -- A worker held to another policy is ended: a sandbox narrowed between runs holds the next one.
@@ -184,7 +198,11 @@ local function started(set: Worker.Set, opts: Worker.Options): (Stream.Lines) | 
       tmp = merged.tmp, limits = merged.limits, user = merged.user, group = merged.group, database = merged.database }
   end
   local base = set.base
-  local handle, why = Child.start(set.argv, { cwd = opts.cwd, stdin = "stream", stdout = "stream", stderr = "stream",
+  local argv: mut {string} = {}
+  for _, word in ipairs(set.argv) do argv[#argv + 1] = word end
+  argv[#argv + 1] = "--modules"
+  argv[#argv + 1] = if modules == "" then "none" else modules end
+  local handle, why = Child.start(argv, { cwd = opts.cwd, stdin = "stream", stdout = "stream", stderr = "stream",
     policy = policy, timeout_ns = Child.FOREVER, env = if base ~= nil then base.env else nil end,
     fds = if base ~= nil then base.fds else nil end })
   if handle == nil then return nil, Failure.new("worker: starting it: " .. tostring(why)) end
@@ -195,7 +213,7 @@ local function started(set: Worker.Set, opts: Worker.Options): (Stream.Lines) | 
   end
   lines = Stream.lines(reader)
   set.handle, set.writer, set.lines, set.output = handle, writer, lines, output
-  set.held, set.held_commands = opts.policy, commands
+  set.held, set.held_commands, set.held_modules = opts.policy, commands, modules
   set.started = set.started + 1
   return lines
 end
