@@ -776,6 +776,33 @@ end
 EOF
 if (cd mini && $tool test > /dev/null 2>&1); then echo pass; else echo fail; fi]==],
   },
+  {
+    name = "fix-rle",
+    prompt = "Rle in eval/plant/rle.tl does not round-trip: decoding what encode wrote does not always answer the " ..
+      "first text (try `abc` and a run of twelve `a`). Find the bugs and fix them, and change nothing else. Its " ..
+      "tests are eval/plant/rle_test.tl; run them with `cosmic test eval/plant/rle_test.tl`.",
+    truth = "echo pass",
+    check = [==[mkdir mini && cp eval/plant/rle.tl mini/rle.tl && cat > mini/hidden_test.tl <<'EOF'
+local Rle = require("rle")
+
+local function test_a_text_round_trips()
+  for _, text in ipairs({ "abc", "aaabcc", "zzzzzzzzzzzzq", "x", "aabbaabb" }) do
+    assert(Rle.decode(Rle.encode(text)) == text, text)
+  end
+end
+
+local function test_encode_writes_every_run()
+  assert(Rle.encode("aaabcc") == "3a1b2c", Rle.encode("aaabcc"))
+  assert(Rle.encode("abc") == "1a1b1c")
+end
+
+local function test_a_length_has_many_digits()
+  assert(Rle.decode("12a2b") == "aaaaaaaaaaaabb")
+  assert(Rle.encode("aaaaaaaaaaaa") == "12a")
+end
+EOF
+if (cd mini && $tool test > /dev/null 2>&1); then echo pass; else echo fail; fi]==],
+  },
 }
 
 local USAGE <const> = "usage: eval/agent --tool NAME=PATH [--tool NAME=PATH ...] --fixture DIR --out DIR " ..
