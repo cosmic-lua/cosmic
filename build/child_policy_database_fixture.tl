@@ -70,9 +70,9 @@ local function probe(mode, scratch, beside)
     for line in r.stdout:gmatch("[^\n]+") do print("g_" .. line) end
   end
   if mode == "child" then
-    below({ database = { path = db }, isolate = { "file" } }, "plain")
+    below({ setup = { database = { path = db } }, isolate = { "file" } }, "plain")
   elseif mode == "relay" then
-    below({ isolate = { "file" }, set_env = { TMPDIR = scratch },
+    below({ isolate = { "file" }, setup = { set_env = { TMPDIR = scratch } },
       grants = { { path = scratch, letters = "rwc" }, { path = core, letters = "rx" }, { calls = "fork" },
         { calls = "nest" } } }, "plain")
   elseif mode == "remount" then

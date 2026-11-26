@@ -83,7 +83,7 @@ local function test_operation_records_retained_open_failure_as_error(tmp: string
   assert(outcome.status == "error" and outcome.code == 1 and outcome.trouble ~= nil,
     "retained open failure did not return an error outcome")
   local db = assert(Sqlite.open(database))
-  local rows = assert(db:text_rows([[
+  local rows = assert(db:rows([[
     SELECT c.status, c.detail
       FROM operation_events s JOIN operation_events c ON c.start_id = s.id
      WHERE s.phase = 'retained-open' AND c.event = 'complete'
@@ -116,7 +116,7 @@ local function test_step_records_work_done_in_process(tmp: string)
   assert(raised.status == "error" and raised.code == 1 and
       raised.trouble == long_error:sub(1, 1000))
   local db = assert(Sqlite.open(database))
-  local rows = assert(db:text_rows([[
+  local rows = assert(db:rows([[
     SELECT s.phase, c.status, coalesce(c.detail, ''), c.exit_code IS NULL
       FROM operation_events s JOIN operation_events c ON c.start_id = s.id
      WHERE c.event = 'complete' ORDER BY s.id
@@ -127,7 +127,7 @@ local function test_step_records_work_done_in_process(tmp: string)
       assert(rows[3]):text(1) == "raised" and assert(rows[3]):text(3) == long_error:sub(1, 1000),
     "a step was not recorded with its outcome")
   for _, row in ipairs(rows) do
-    assert(row:text(4) == "1", "a boolean step acquired an exit code")
+    assert(row:integer(4) == 1, "a boolean step acquired an exit code")
   end
 end
 
@@ -206,23 +206,23 @@ local function test_phase_keeps_exit_codes_full_errors_and_callback_times(tmp: s
   assert(called, tostring(failure))
   assert(#messages == 1 and messages[1] == detail .. "\n", "phase error logging changed")
   local db = assert(Sqlite.open(context.database))
-  local rows = assert(db:text_rows([[
+  local rows = assert(db:rows([[
     SELECT s.phase, c.status, c.exit_code, coalesce(c.detail, ''),
            s.monotonic_ns, c.monotonic_ns, c.elapsed_ns, c.signal IS NULL, c.timed_out
       FROM operation_events s JOIN operation_events c ON c.start_id = s.id
      WHERE c.event = 'complete' ORDER BY s.id
   ]]))
   assert(db:close())
-  assert(#rows == 3 and assert(rows[1]):text(1) == "done" and assert(rows[1]):text(2) == "success" and assert(rows[1]):text(3) == "0")
-  assert(assert(rows[2]):text(1) == "refused" and assert(rows[2]):text(2) == "exit" and assert(rows[2]):text(3) == "23")
-  assert(assert(rows[3]):text(1) == "raised" and assert(rows[3]):text(2) == "error" and assert(rows[3]):text(3) == "1" and
+  assert(#rows == 3 and assert(rows[1]):text(1) == "done" and assert(rows[1]):text(2) == "success" and assert(rows[1]):integer(3) == 0)
+  assert(assert(rows[2]):text(1) == "refused" and assert(rows[2]):text(2) == "exit" and assert(rows[2]):integer(3) == 23)
+  assert(assert(rows[3]):text(1) == "raised" and assert(rows[3]):text(2) == "error" and assert(rows[3]):integer(3) == 1 and
       assert(rows[3]):text(4) == detail, "the phase's full error or durable exit code was lost")
-  local started = assert(tonumber(assert(rows[1]):text(5)))
-  local finished = assert(tonumber(assert(rows[1]):text(6)))
+  local started = assert(rows[1]):integer(5)
+  local finished = assert(rows[1]):integer(6)
   assert(started <= entered.value and finished >= leaving.value and finished <= returned.value and
-      tonumber(assert(rows[1]):text(7)) == finished - started, "phase timestamps do not enclose its callback")
+      assert(rows[1]):integer(7) == finished - started, "phase timestamps do not enclose its callback")
   for _, row in ipairs(rows) do
-    assert(row:text(8) == "1" and row:text(9) == "0", "a phase acquired a child's signal or timeout")
+    assert(row:integer(8) == 1 and row:integer(9) == 0, "a phase acquired a child's signal or timeout")
   end
 end
 
@@ -237,18 +237,18 @@ local function test_phase_keeps_a_nested_child_timeout_separate(tmp: string)
       cwd = candidate, timeout_ns = Clock.ms(20) }).code
   end) == 124)
   local db = assert(Sqlite.open(context.database))
-  local rows = assert(db:text_rows([[
+  local rows = assert(db:rows([[
     SELECT s.phase, c.status, coalesce(c.exit_code, -1), c.timed_out, s.id, c.id
       FROM operation_events s JOIN operation_events c ON c.start_id = s.id
      WHERE c.event = 'complete' ORDER BY s.id
   ]]))
   assert(db:close())
   assert(#rows == 2 and assert(rows[1]):text(1) == "outer" and assert(rows[1]):text(2) == "exit" and
-      assert(rows[1]):text(3) == "124" and assert(rows[1]):text(4) == "0", "parent phase lost its returned exit status")
-  assert(assert(rows[2]):text(1) == "child" and assert(rows[2]):text(2) == "timeout" and assert(rows[2]):text(4) == "1",
+      assert(rows[1]):integer(3) == 124 and assert(rows[1]):integer(4) == 0, "parent phase lost its returned exit status")
+  assert(assert(rows[2]):text(1) == "child" and assert(rows[2]):text(2) == "timeout" and assert(rows[2]):integer(4) == 1,
     "the child timeout lost its own operation row")
-  assert(assert(tonumber(assert(rows[1]):text(5))) < assert(tonumber(assert(rows[2]):text(5))) and
-      assert(tonumber(assert(rows[2]):text(6))) < assert(tonumber(assert(rows[1]):text(6))), "nested operation events are out of order")
+  assert(assert(rows[1]):integer(5) < assert(rows[2]):integer(5) and
+      assert(rows[2]):integer(6) < assert(rows[1]):integer(6), "nested operation events are out of order")
 end
 
 --- A flag a callback sets.
@@ -280,7 +280,7 @@ end
 
 local function completes(database: string): Sqlite.Rows
   local db = assert(Sqlite.open(database))
-  local rows = assert(db:text_rows([[
+  local rows = assert(db:rows([[
     SELECT s.phase, c.status, coalesce(c.exit_code, -1), c.timed_out
       FROM operation_events s JOIN operation_events c ON c.start_id = s.id
      WHERE c.event = 'complete' ORDER BY c.id
@@ -309,7 +309,7 @@ local function test_spawned_commands_run_at_once_and_are_reaped_in_the_order_the
   assert(late.code == 5 and late.status == "exit")
   local rows = completes(c.database)
   assert(#rows == 2 and assert(rows[1]):text(1) == "quick" and assert(rows[1]):text(2) == "success" and
-      assert(rows[2]):text(1) == "slow" and assert(rows[2]):text(2) == "exit" and assert(rows[2]):text(3) == "5",
+      assert(rows[2]):text(1) == "slow" and assert(rows[2]):text(2) == "exit" and assert(rows[2]):integer(3) == 5,
     "spawned commands were not recorded once each, as they ended")
   local reopened = assert(Fs.open_write(tmp .. "/quick.out"))
   local closed, _ = Fs.close(reopened)

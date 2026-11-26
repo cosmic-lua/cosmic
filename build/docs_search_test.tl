@@ -102,7 +102,7 @@ local function test_the_tool_records_the_public_library()
   assert(row:integer(4) == 0, "a module directly under cosmic/ is not recorded: " .. tostring(row:integer(4)))
   -- Every module of the library a closed directory keeps. One more here is a module whose docs a project has lost:
   -- say `--- @public` in it, or name it here on purpose.
-  local kept = "cosmic.agent.prompt_data cosmic.agent.prompt_text cosmic.agent.run_text cosmic.agent.run_text_data cosmic.agent.where_text cosmic.child.hold cosmic.http.wire cosmic.mcp.wire cosmic.sandbox.policy cosmic.template.codegen cosmic.template.context " ..
+  local kept = "cosmic.agent.prompt_data cosmic.agent.prompt_text cosmic.agent.run_text cosmic.agent.run_text_data cosmic.agent.where_text cosmic.child.hold cosmic.doc.examples cosmic.doc.members cosmic.doc.pages cosmic.doc.resolve cosmic.doc.search cosmic.doc.usage cosmic.http.wire cosmic.mcp.wire cosmic.sandbox.policy cosmic.template.codegen cosmic.template.context " ..
     "cosmic.template.dialect.html cosmic.template.lex cosmic.template.markup cosmic.template.parse " ..
     "cosmic.web.builtin cosmic.web.csrf_field cosmic.web.csrf_meta cosmic.web.dev_tag cosmic.web.error_page cosmic.web.errors " ..
     "cosmic.web.htmx_head cosmic.web.markup_data cosmic.web.negotiate cosmic.web.request cosmic.web.router"

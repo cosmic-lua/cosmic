@@ -73,7 +73,7 @@
 --- @public
 
 local Json = require("cosmic.json")
-local type Failure = require("cosmic.failure")
+local Failure = require("cosmic.failure")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
@@ -421,14 +421,14 @@ end
 --- daemon's site at `port` of `domain` (the node's first name by
 --- default) passes every path to.
 local function through_serve(client: Tailscale.Client, o: Types.TailnetServe, via: Types.TailnetVia,
-                             port: integer, domain?: string): Reached?, string
+                             port: integer, domain?: string): (Reached) | (nil, Failure)
   local dir, why = Fs.mkdtemp("cosmic-serve-")
-  if dir == nil then return nil, "web: tailnet: " .. tostring(why) end
+  if dir == nil then return nil, Failure.within(why, "web: tailnet") end
   local socket = dir .. "/s"
   -- The most a socket's path holds on macOS, less its NUL; Linux holds 107.
   if #socket > 103 then
     local _, _ = Fs.remove_tree(dir)
-    return nil, "web: tailnet: the socket's path " .. socket .. " is longer than a socket's path may be: set a shorter TMPDIR"
+    return nil, Failure.new("web: tailnet: the socket's path " .. socket .. " is longer than a socket's path may be: set a shorter TMPDIR")
   end
   -- A copy, so that a change to the caller's list after the daemon
   -- kept it trusts nothing more.
@@ -456,19 +456,19 @@ local function through_serve(client: Tailscale.Client, o: Types.TailnetServe, vi
     end,
     socket = socket,
     caps = caps,
-  }, ""
+  }
 end
 
 --- Where [`Web.serve`]'s `tailnet` listens, and the certificates it
 --- presents: each of the node's tailnet addresses at `o.port` (443), and
 --- the certificate of `o.domain`, the node's first name by default,
 --- from the daemon of `o.client`, [`Tailscale.connect`]'s by default.
---- Nil and why where the daemon cannot be asked, the node is not
+--- Nil and a Failure where the daemon cannot be asked, the node is not
 --- running, or it has no address or no name to get a certificate for.
 --- With `o.via` "serve" or "funnel", it listens at a private unix
 --- socket instead, and the daemon serves the node's name, passing each
 --- request on: see [`Types.TailnetVia`].
-function Tailnet.serving(o: Types.TailnetServe): Reached?, string
+function Tailnet.serving(o: Types.TailnetServe): (Reached) | (nil, Failure)
   local via: Types.TailnetVia = o.via or "listen"
   -- Read as text: a caller the checker does not read may pass any value, and no narrowing of it is taken as proved.
   local via_text = tostring(via)
@@ -489,18 +489,18 @@ function Tailnet.serving(o: Types.TailnetServe): Reached?, string
   local client = o.client
   if client == nil then
     local made, why = Tailscale.connect()
-    if made == nil then return nil, "web: tailnet: " .. tostring(why) end
+    if made == nil then return nil, Failure.within(why, "web: tailnet") end
     client = made
   end
   local status, why = client:status()
-  if status == nil then return nil, "web: tailnet: " .. tostring(why) end
+  if status == nil then return nil, Failure.within(why, "web: tailnet") end
   if status.backend_state ~= "Running" then
-    return nil, "web: tailnet: the node is not running (" .. status.backend_state .. ")"
+    return nil, Failure.new("web: tailnet: the node is not running (" .. status.backend_state .. ")")
   end
   local domain = o.domain or status.cert_domains[1]
   if via ~= "listen" then return through_serve(client, o, via, port, domain) end
   if domain == nil then
-    return nil, "web: tailnet: the node has no name to get a certificate for: enable HTTPS in the tailnet's DNS settings"
+    return nil, Failure.new("web: tailnet: the node has no name to get a certificate for: enable HTTPS in the tailnet's DNS settings")
   end
   local listeners: mut {Net.Address} = {}
   -- TODO: leave out an address the host cannot listen at (an IPv6 one
@@ -509,8 +509,10 @@ function Tailnet.serving(o: Types.TailnetServe): Reached?, string
   for _, address in ipairs(status.addresses) do
     listeners[#listeners + 1] = Net.tcp(address, port)
   end
-  if #listeners == 0 then return nil, "web: tailnet: the node has no tailnet address" end
-  return { listeners = listeners, certs = client:certs(domain) }, ""
+  if #listeners == 0 then
+    return nil, Failure.new("web: tailnet: the node has no tailnet address")
+  end
+  return { listeners = listeners, certs = client:certs(domain) }
 end
 
 return Tailnet

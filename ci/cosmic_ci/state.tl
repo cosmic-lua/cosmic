@@ -103,7 +103,7 @@ local SUITE_COLUMNS <const>: {string} = { "worker", "run", "attempt", "phase", "
 --- column was lacks it.
 local function suite_columns_of(db: Sqlite.Handle): {string:boolean}
   local out: mut {string:boolean} = {}
-  for _, row in ipairs((assert(db:text_rows(
+  for _, row in ipairs((assert(db:rows(
       "SELECT name FROM pragma_table_info('suite_runs')")))) do
     out[row:text(1)] = true
   end
@@ -160,7 +160,7 @@ local integer_columns: {string:boolean} = { exit_code = true, tests = true,
 --- The rows of `suite_runs` in `db`, in the order written; none where
 --- `db`, an operations database written before the table was, lacks it.
 function State.suite_rows(db: Sqlite.Handle): {State.SuiteRun}
-  local present = assert(db:text_rows(
+  local present = assert(db:rows(
     "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'suite_runs'"))
   if #present == 0 then return {} end
   local selected: mut {string} = {}
@@ -181,7 +181,7 @@ function State.suite_rows(db: Sqlite.Handle): {State.SuiteRun}
   else
     selected[#selected + 1] = "1, ''"
   end
-  local rows = assert(db:text_rows("SELECT " .. table.concat(selected, ", ") ..
+  local rows = assert(db:rows("SELECT " .. table.concat(selected, ", ") ..
       " FROM suite_runs ORDER BY id"))
   local out: mut {State.SuiteRun} = {}
   for _, cells in ipairs(rows) do
@@ -189,8 +189,8 @@ function State.suite_rows(db: Sqlite.Handle): {State.SuiteRun}
     local figures: mut {string:integer} = {}
     local column = 1
     for _, name in ipairs(SUITE_COLUMNS) do
-      if cells:text(column) ~= "1" then
-        local value = cells:text(column + 1)
+      if cells:as_text(column) ~= "1" then
+        local value = (cells:as_text(column + 1) or "")
         local count: integer?
         if integer_columns[name] == true then count = math.tointeger(tonumber(value)) end
         if count ~= nil then figures[name] = count else texts[name] = value end
@@ -199,11 +199,11 @@ function State.suite_rows(db: Sqlite.Handle): {State.SuiteRun}
     end
     local parts: mut {string:string} = {}
     for _, part in ipairs(KEY_PARTS) do
-      if cells:text(column) ~= "1" then parts[part.said] = cells:text(column + 1) end
+      if cells:as_text(column) ~= "1" then parts[part.said] = (cells:as_text(column + 1) or "") end
       column = column + 2
     end
     local held: string?
-    if cells:text(column) ~= "1" then held = cells:text(column + 1) end
+    if cells:as_text(column) ~= "1" then held = (cells:as_text(column + 1) or "") end
     out[#out + 1] = { worker = texts["worker"] or "", run = texts["run"] or "",
       attempt = texts["attempt"] or "", phase = texts["phase"] or "",
       suite = texts["suite"] or "", status = texts["status"] or "",

@@ -27,7 +27,7 @@
 --- apart from this module so that a program that only runs a child under a
 --- policy does not carry a JSON reader and a schema checker.
 ---
----     local policy = { grants = { { path = "data", letters = "r" } }, tmp = true }
+---     local policy = { grants = { { path = "data", letters = "r" } }, setup = { tmp = true } }
 ---     local merged = assert(Sandbox.union(policy, { grants = { { calls = "fork" } } }))
 ---     print(Sandbox.paths(merged)[1].path, Sandbox.calls(merged)[1]) -- data  fork
 ---
@@ -92,6 +92,11 @@ local record Sandbox
   --- What a program is held to; every field is optional, and what a policy
   --- leaves out it does not have ([`rules.Policy`]).
   type Policy = rules.Policy
+
+  --- What a start sets up for a program, which is not a right: the
+  --- variables set, the temporary directory, the user and group, and the
+  --- database ([`rules.Setup`]).
+  type Setup = rules.Setup
 
   --- A database a policy runs a program on: its path, and the SHA-256 of
   --- its bytes where the policy is to hold to that ([`rules.Database`]).
@@ -376,6 +381,7 @@ function Sandbox.permits(policy: Sandbox.Policy, path: string, action: string, c
   end
   local merged, why = rules.merge(policy)
   if merged == nil then return nil, why end
+  local setup = merged.setup or {}
   local letter, of_directory = asked.letter, asked.directory
   local creates = false
   local real = ""
@@ -408,7 +414,7 @@ function Sandbox.permits(policy: Sandbox.Policy, path: string, action: string, c
   end
   local isolated_tmp = false
   for _, kind in ipairs(merged.isolate or {}) do
-    if kind == "file" and merged.tmp == true then isolated_tmp = true end
+    if kind == "file" and setup.tmp == true then isolated_tmp = true end
   end
   local base = cwd
   if base == nil then
@@ -688,7 +694,8 @@ end
 --- names that only a child can have, which is made in a namespace the
 --- process is not in, or by a relay it has not.
 local function not_in_process(merged: Sandbox.Policy): string
-  local database = merged.database
+  local setup = merged.setup or {}
+  local database = setup.database
   if database ~= nil then
     return "database \"" .. database.path .. "\" is the program a child runs on, which a " ..
       "running process cannot change: start a child with Child.start and a policy instead"
@@ -738,22 +745,22 @@ local function not_in_process(merged: Sandbox.Policy): string
     return "env \"" .. first_env .. "\" is the environment of a child, which a running " ..
       "process already has"
   end
-  for name, _ in pairs(merged.set_env or {}) do
+  for name, _ in pairs(setup.set_env or {}) do
     return "set_env \"" .. name .. "\" is the environment of a child, which a running " ..
       "process already has"
   end
-  for name, _ in pairs(merged.set_env_digests or {}) do
+  for name, _ in pairs(setup.set_env_digests or {}) do
     return "set_env_digests \"" .. name .. "\" holds a digest, not a value to set"
   end
-  if merged.tmp == true then
+  if setup.tmp == true then
     return "tmp is a directory made for a child, which a running process makes for itself"
   end
   if (merged.limits or {}).processes ~= nil then
     return "limits.processes counts the processes of a user namespace of its own, which only " ..
       "a child has"
   end
-  local user = merged.user
-  local group = merged.group
+  local user = setup.user
+  local group = setup.group
   if user ~= nil and (user ~= sys.getuid() or
       (group ~= nil and group ~= sys.getgid())) then
     return "user " .. tostring(user) .. " is who a child runs as; a running process stays the " ..
@@ -825,11 +832,12 @@ end
 --- which [`not_in_process`] passed: the profile resolves "system" to
 --- macOS's paths, not the Linux ones [`Sandbox.union`] gives.
 local function held_by_seatbelt(policy: Sandbox.Policy, kept: {integer}): boolean, string
+  local setup = policy.setup or {}
   local grants: mut {Sandbox.Grant} = {}
   for _, grant in ipairs(policy.grants or {}) do grants[#grants + 1] = grant end
   for _, grant in ipairs(runtime_grants()) do grants[#grants + 1] = grant end
   local held: Sandbox.Policy = { profiles = policy.profiles, grants = grants,
-    limits = policy.limits, user = policy.user, group = policy.group }
+    limits = policy.limits, setup = { user = setup.user, group = setup.group } }
   local options, resolve_trouble = seatbelt_resolve(held)
   if options == nil then return denied(resolve_trouble) end
   local profile, compile_trouble = seatbelt_compile(held, options)

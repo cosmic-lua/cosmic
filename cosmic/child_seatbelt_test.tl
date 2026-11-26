@@ -77,25 +77,25 @@ local function test_another_user_or_group_is_refused_naming_what_differs()
   local function unmet(policy: Sandbox.Policy, user: integer, group: integer): string
     return Seatbelt.credentials_unmet(assert(Sandbox.union(policy)), user, group)
   end
-  local why = unmet({ user = 6, group = 7 }, 5, 7)
+  local why = unmet({ setup = { user = 6, group = 7 } }, 5, 7)
   assert(why:find("^user 6:") ~= nil and not why:find("group 7", 1, true) and not why:find("nil", 1, true), why)
-  why = unmet({ user = 5, group = 8 }, 5, 7)
+  why = unmet({ setup = { user = 5, group = 8 } }, 5, 7)
   assert(why:find("^group 8") ~= nil and not why:find("user 5", 1, true) and not why:find("nil", 1, true), why)
-  why = unmet({ user = 6, group = 8 }, 5, 7)
+  why = unmet({ setup = { user = 6, group = 8 } }, 5, 7)
   assert(why:find("user 6, group 8", 1, true), why)
-  assert(unmet({ user = 5, group = 7 }, 5, 7) == "" and unmet({}, 5, 7) == "")
+  assert(unmet({ setup = { user = 5, group = 7 } }, 5, 7) == "" and unmet({}, 5, 7) == "")
 end
 
 local function test_a_root_caller_is_refused_whatever_the_policy_names()
   assert(Seatbelt.credentials_unmet({}, 0, 0):find("never runs as root", 1, true))
-  assert(Seatbelt.credentials_unmet({ user = 5 }, 0, 0):find("never runs as root", 1, true))
+  assert(Seatbelt.credentials_unmet({ setup = { user = 5 } }, 0, 0):find("never runs as root", 1, true))
 end
 
 local function test_the_callers_own_user_and_group_run_the_child()
   SeatbeltFixture.macos_only()
   if sys.getuid() == 0 then Test.skip("root is refused") end
   local result = run({ "/usr/bin/id", "-u" }, { profiles = { "system" },
-    user = sys.getuid(), group = sys.getgid() })
+    setup = { user = sys.getuid(), group = sys.getgid() } })
   expect(result.ok and result.stdout == tostring(sys.getuid()) .. "\n", result)
 end
 
@@ -103,7 +103,7 @@ local function test_another_user_is_refused_before_a_child_starts()
   SeatbeltFixture.macos_only()
   if sys.getuid() == 0 then Test.skip("root is refused") end
   local handle, why = Child.start({ "/bin/true" }, { timeout_ns = Child.FOREVER, policy = { profiles = { "system" },
-    user = sys.getuid() + 1 }, stdin = "null", stdout = "null", stderr = "null" })
+    setup = { user = sys.getuid() + 1 } }, stdin = "null", stdout = "null", stderr = "null" })
   assert(handle == nil and why.message:find("cannot change them", 1, true) ~= nil, why)
 end
 
@@ -181,7 +181,7 @@ local function test_what_seatbelt_cannot_hold_fails_the_start_with_its_own_refus
   says({ loopback = { "127.0.0.1" } }, "loopback needs a network namespace")
   says({ grants = { { calls = "nest" } } }, "nest cannot be held by Seatbelt")
   says({ limits = { processes = 8 } }, "limits.processes needs a user namespace")
-  says({ set_env_digests = { X = string.rep("0", 64) } }, "set_env_digests holds a digest")
+  says({ setup = { set_env_digests = { X = string.rep("0", 64) } } }, "set_env_digests holds a digest")
 end
 
 --- A database is the program a core runs on, so a program that is not this one
@@ -190,7 +190,7 @@ local function test_a_database_is_refused_for_a_program_that_is_not_this_one(tmp
   SeatbeltFixture.macos_only()
   local sealed = tmp .. "/sealed.db"
   assert(Fs.write(sealed, "not a database, but a regular file"))
-  local why = refusal({ profiles = { "system" }, database = { path = sealed } })
+  local why = refusal({ profiles = { "system" }, setup = { database = { path = sealed } } })
   assert(why:find("^child: start: sandbox: database ") and why:find("is not this program", 1, true), why)
 end
 
@@ -243,7 +243,7 @@ local function test_the_environment_the_policy_gives_is_the_whole_environment(tm
   SeatbeltFixture.macos_only()
   local granted = files(tmp)
   local result = run({ SH, "-c", "echo \"[$KEPT][$OTHER][$HOME]\"" }, { profiles = { "system" },
-    grants = { { path = granted, letters = "r" } }, set_env = { KEPT = "kept" } })
+    grants = { { path = granted, letters = "r" } }, setup = { set_env = { KEPT = "kept" } } })
   expect(result.ok and result.stdout == "[kept][][]\n", result)
 end
 

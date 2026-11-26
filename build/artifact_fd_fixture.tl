@@ -165,7 +165,7 @@ function artifact_fd_fixture.swapped_link_changes_nothing(tmp: string, policy?: 
   local values = { LINK = link, PLAIN = plain, THROUGH = through, STOP = stop }
   local env: mut {string: string} = {}
   for name, value in pairs(relaunch.env) do env[name] = value end
-  local held: Sandbox.Policy? = if policy ~= nil then { ...policy, set_env = env } else nil end
+  local held: Sandbox.Policy? = if policy ~= nil then { ...policy, setup = { ...(policy.setup or {}), set_env = env } } else nil end
   local opened = assert(sys.open(copy, sys.O_RDONLY))
   local fds = { [slot] = opened, [core_slot] = artifact_fd_fixture.fd_of(relaunch, core_slot) }
   local flipping = assert(Child.start({ artifact_fd_fixture.program_of(relaunch), "--artifact", copy, "-e",
