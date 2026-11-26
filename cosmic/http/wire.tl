@@ -644,16 +644,16 @@ end
 -- their own, as a Stream's Readers are (see the note on objects in
 -- cosmic/stream.tl).
 
---- Fails the body for good: `state` says how, `why` what every later
---- read returns, as its words.
+--- Fails the body for good: `state` says how, `why` is what every later
+--- read returns, and `failure` its words.
 local function fail(self: BodyReader, state: wire.BodyState, why: Failure): (nil, Failure)
-  self.state, self.failure = state, tostring(why)
+  self.state, self.failure, self.held = state, tostring(why), why
   return nil, why
 end
 
 --- [`fail`], returned as a step that did not go.
 local function stopped(self: BodyReader, state: wire.BodyState, why: Failure): (false, Failure)
-  self.state, self.failure = state, tostring(why)
+  self.state, self.failure, self.held = state, tostring(why), why
   return false, why
 end
 
@@ -755,10 +755,14 @@ local class BodyReader is wire.Body
   --- Bytes of the body read so far.
   mut total: integer
   mut failure: string
+  --- The Failure `failure` says in words, with its kind.
+  mut held?: Failure
   mut closed: boolean
 
   function read(self, max_bytes?: integer): (string | false) | (nil, Failure)
     if self.closed then return nil, Failure.new("http: the request body is closed") end
+    local held = self.held
+    if held ~= nil then return nil, held end
     if self.failure ~= "" then return nil, failure_of(self.failure) end
     if self.state == "done" then return false end
     local most = max_bytes or CHUNK
@@ -838,7 +842,7 @@ function wire.body(input: wire.Input, head: wire.Head, limits: wire.Limits,
                    on_first_read?: function()): wire.Body
   local r: BodyReader = {
     input = input, limits = limits, head = head, left = head.length or 0,
-    phase = "size", total = 0, failure = "", closed = false, touched = false,
+    phase = "size", total = 0, failure = "", held = nil, closed = false, touched = false,
     on_first_read = on_first_read,
     state = if (not head.chunked and (head.length or 0) == 0) then "done" else "open" end, skip = nil,
   }
@@ -875,7 +879,8 @@ local function bodiless(status: integer): boolean
 end
 
 --- The size a reply's Content-Length header gives, under any case of
---- its name, false for none; or nil and a Failure saying why it cannot be sent: no digits,
+--- its name, false for none; or nil and a Failure saying why it cannot
+--- be sent: no digits,
 --- a size past 18 of them, or the name given twice in different cases.
 local function given_length(headers: {string: string | {string}}): (integer | false) | (nil, Failure)
   local names: mut {string} = {}
