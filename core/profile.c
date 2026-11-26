@@ -681,8 +681,8 @@ void cosmic_profile_install (lua_State *L) {
   start_timer();
 }
 
-void cosmic_profile_forked (void) {
-  if (stacks == NULL || profile_dir == NULL || profiled == getpid()) return;
+void cosmic_profile_forked (pid_t pid) {
+  if (pid != 0 || stacks == NULL || profile_dir == NULL || profiled == getpid()) return;
   /* The parent's file and totals are the parent's: this process writes
    * a file of its own, of what it does from here. */
   if (out_fd >= 0) close(out_fd);

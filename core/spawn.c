@@ -2020,7 +2020,7 @@ COSMIC_SYSCALL(fork, 1) {
   pid_t pid = fork();
   error = errno;
   /* Before a Landlock ruleset holds it, which could refuse the file. */
-  if (pid == 0) cosmic_profile_forked();
+  cosmic_profile_forked(pid);
 #if defined(__linux__)
   if (pid == 0) {
     /* The pairs are the parent's children, not this process's: a wait
