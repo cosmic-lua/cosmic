@@ -18,6 +18,7 @@ Test.policy{
   grants = {
     { path = "build/launcher_test.tl", letters = "r" },
     { path = "core/launcher_cache_test.tl", letters = "r" },
+    { path = "core/launcher_cache_warm_test.tl", letters = "r" },
     { path = "cosmic/signal_ignored_test.tl", letters = "r" },
     { path = "build/test_policy_plan_tool_test.tl", letters = "r" },
     { path = "/bin/sh", letters = "r" }, { path = "/usr/bin/sh", letters = "r" },
@@ -289,7 +290,7 @@ local function test_the_modules_that_run_the_launcher_grant_its_programs()
       end
     end
   end
-  held({ "build/launcher_test.tl", "core/launcher_cache_test.tl" }, programs)
+  held({ "build/launcher_test.tl", "core/launcher_cache_test.tl", "core/launcher_cache_warm_test.tl" }, programs)
   held({ "cosmic/signal_ignored_test.tl", "build/test_policy_plan_tool_test.tl" }, warm_programs)
 end
 
