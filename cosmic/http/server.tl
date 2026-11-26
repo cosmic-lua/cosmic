@@ -1047,7 +1047,7 @@ local function serve_conn(s: Serving, conn: Net.Conn)
       timed.deadline = since + s.idle_ns
       local ok, _ = wire.fill(input)
       s.idle[conn] = nil
-      if not ok then return end
+      if ok ~= true then return end
     end
     timed.deadline = Clock.monotonic_ns() + s.head_ns
     local read = wire.read_head(input, s.limits)
