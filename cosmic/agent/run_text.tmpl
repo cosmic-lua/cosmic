@@ -10,7 +10,7 @@ Host (cosmic.agent.host), Fs (cosmic.fs) and Json (cosmic.json) need no require.
 - Host.sed(path, pattern, replacement, plain?) -> integer: replaces every match, line by line (`Host.sed("a.tl", "old_name", "new_name", true)`; `%1` a capture).
 - Host.sort(list, by?) -> mut {string}, a new list, by the key `by(item)` where given; Host.sort_by(items, by) -> mut {T}, the same for records (`Host.sort_by(items, function(i: Item): string return i.id end)`); Host.uniq(keys) -> {string: integer}, each key's count; Host.top(counts, n?) -> {{"{{"}}key, count}}, most first, ties by key. For largest first or two keys, table.sort with a comparator: `table.sort(rows, function(a: Row, b: Row): boolean if a.n ~= b.n then return a.n > b.n end return a.name < b.name end)`.
 - Host.bash(command) -> {output, ok, code}; Host.store(key, value) / Host.load(key).value.
-- Host.answer(text): your whole reply, given once the snippet ends, and the turn ends with no reply after it. Where the snippet makes the answer, give it so (`Host.answer("12 files, 3 over 1 MB")`); print instead where you must see the output first. Answer in a sentence or two, with only what was asked.
+- Host.answer(text): your whole reply, given once the snippet ends, and the turn ends with no reply after it. Make it in the snippet that does the work, from its values, as the last line (`Host.answer(tostring(#big) .. " files over 1 MB")`); print instead only where you must see the output first, and then reply in text, not with a snippet that only answers. Answer in a sentence or two, with only what was asked.
 - Host.output(id) -> string: a cut output, whole, by the id its note names. Host.history(query) -> {row}: one read-only SQLite statement on sessions.db, which keeps every session and each tool's whole output. {{.tables}}
 - Host.fetch(url, {method?, headers?, body?, any_status?}?) -> {status, headers, body}: no redirects; a status of 400 or more raises with the start of its body, unless any_status = true; public addresses with --network, and the targets of --connect.
 - Read JSON into records, not with Json.get: unless you know each field's type, print the start of one body first (`print(body:sub(1, 600))`); then declare records to match it at the snippet's top level and decode (`local Shape = require("cosmic.shape")`, `local record Item name: string count: integer end`, `local record Page items: {Item} next?: integer end`, `local page = Shape.decode_into(body, Shape.record_of("Page").spec)!`); keys the record does not name are dropped.
@@ -36,5 +36,7 @@ for _, path in ipairs(Host.find(".")) do
   local ext = path:match("%.(%w+)$")
   if ext ~= nil then exts[#exts + 1] = ext end
 end
-for _, c in ipairs(Host.top(Host.uniq(exts))) do print(c.key .. " " .. tostring(c.count)) end
+local top: mut {string} = {}
+for _, c in ipairs(Host.top(Host.uniq(exts), 3)) do top[#top + 1] = c.key .. " " .. tostring(c.count) end
+Host.answer("Most common: " .. table.concat(top, ", "))
 {{- "" -}}
