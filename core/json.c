@@ -1673,21 +1673,888 @@ static int put_value (struct encoding *e, int idx, int depth) {
   }
 }
 
-/* encode(value, pretty?, max_depth?, ascii?): `value` as JSON text, and "".
- * nil and a message when it holds something JSON cannot say. */
+/* ---- the fractured layout ---------------------------------------- */
+
+/* FracturedJson's layout (https://github.com/j-brooke/FracturedJson),
+ * written again here from its rules: compact text, as this file's
+ * writers write it, laid out for people to read. cosmic/json.tl's
+ * [`Json.TextLayout`] says what each rule does; the limits below are
+ * FracturedJson's defaults, but for the indent, two spaces as
+ * `expanded` writes it. Its input is this file's own compact text, so a
+ * byte out of place is a fault of this file, refused all the same. */
+
+/* The most complex value written on one line, the most complex array
+ * written several elements to a line, the fewest elements that is done
+ * for, the most complex row of a table, and the most an object's keys
+ * are padded to line its values up. */
+enum {
+  FJ_INLINE_COMPLEXITY = 2,
+  FJ_COMPACT_COMPLEXITY = 2,
+  FJ_COMPACT_ITEMS = 3,
+  FJ_ROW_COMPLEXITY = 2,
+  FJ_NAME_PADDING = 16,
+  FJ_INDENT = 2,
+};
+
+enum fj_kind { FJ_ARRAY, FJ_OBJECT, FJ_NUMBER, FJ_STRING, FJ_LITERAL };
+
+/* What a column of a table holds, over its rows: nothing yet but null,
+ * numbers, strings or booleans, arrays, objects, or more than one of
+ * those. */
+enum fj_column {
+  FJ_UNKNOWN, FJ_NUMBERS, FJ_SIMPLE, FJ_ARRAYS, FJ_OBJECTS, FJ_MIXED
+};
+
+#define FJ_NONE SIZE_MAX
+
+/* One value of the text. Its children follow it, the first at the next
+ * index, each linked to the next by `next`. */
+struct fj_node {
+  /* A scalar's text, or a member's key, quoted, in the input. */
+  size_t at;
+  size_t len;
+  size_t key_at;
+  size_t key_len;
+  size_t key_width;
+  /* How many characters it takes on one line. */
+  size_t width;
+  size_t count;
+  size_t next;
+  int complexity;
+  enum fj_kind kind;
+  bool null;
+};
+
+/* How the values in one column of a table are written. Its columns are
+ * linked from `first` by `next`. */
+struct fj_template {
+  enum fj_column kind;
+  size_t rows;
+  size_t longest;
+  /* A number column's widest part before its `.`, `e` or `E`, and from
+   * there on. */
+  size_t before;
+  size_t after;
+  size_t width;
+  size_t first;
+  size_t last;
+  size_t count;
+  size_t next;
+  /* The column's key, in an object row: a node holding it. */
+  size_t key_node;
+  /* Whether a row nests, so its brackets are padded; whether one is an
+   * array or an object; whether its columns are written aligned. */
+  /* The width of a split row's brackets and cells, which `width`
+   * may exceed for a narrower or a null row; the last object row that
+   * filled this column, to find a key twice in one row. */
+  size_t inner;
+  size_t stamp;
+  bool padded;
+  bool nests;
+  bool split;
+};
+
+struct fractured {
+  struct encoding *out;
+  const char *text;
+  size_t len;
+  struct fj_node *nodes;
+  size_t n;
+  size_t cap;
+  struct cosmic_guard *node_guard;
+  struct fj_template *t;
+  size_t tn;
+  size_t tcap;
+  struct cosmic_guard *t_guard;
+  long long width;
+  size_t line_start;
+  /* Counts object rows measured, to stamp the columns each fills. */
+  size_t rows;
+};
+
+/* Characters, not bytes: UTF-8 code points. */
+static size_t fj_chars (const char *s, size_t n) {
+  size_t count = 0;
+  for (size_t i = 0; i < n; i++) {
+    if (((unsigned char)s[i] & 0xc0) != 0x80) count++;
+  }
+  return count;
+}
+
+/* Refuses text that is not compact JSON: never this file's own. */
+#define fj_malformed(f) \
+  refuse((f)->out, "cannot lay out text that is not compact JSON")
+
+static size_t fj_new_node (struct fractured *f) {
+  if (f->n == f->cap) {
+    size_t cap = f->cap == 0 ? 256 : f->cap;
+    if (cap > SIZE_MAX / 2 / sizeof *f->nodes) {
+      refuse_memory(f->out);
+      return FJ_NONE;
+    }
+    cap *= 2;
+    struct fj_node *grown = cosmic_realloc(f->nodes, cap * sizeof *grown);
+    if (grown == NULL) {
+      refuse_memory(f->out);
+      return FJ_NONE;
+    }
+    f->nodes = grown;
+    f->node_guard->resource = grown;
+    f->cap = cap;
+  }
+  memset(&f->nodes[f->n], 0, sizeof *f->nodes);
+  return f->n++;
+}
+
+/* The end of the string opening at `at`: the index past its closing
+ * quote, or 0 when it has none. */
+static size_t fj_string_end (struct fractured *f, size_t at) {
+  for (size_t i = at + 1; i < f->len; i++) {
+    if (f->text[i] == '\\') {
+      i++;
+    } else if (f->text[i] == '"') {
+      return i + 1;
+    }
+  }
+  return 0;
+}
+
+/* Reads the value at `*at` into a node, its index in `*index`, and
+ * moves `*at` past it. */
+static int fj_read (struct fractured *f, size_t *at, int depth,
+                    size_t *index) {
+  if (*at >= f->len || depth > MAX_DEPTH) return fj_malformed(f);
+  size_t self = fj_new_node(f);
+  if (self == FJ_NONE) return -1;
+  *index = self;
+  char c = f->text[*at];
+  if (c == '[' || c == '{') {
+    bool object = c == '{';
+    char close = object ? '}' : ']';
+    f->nodes[self].kind = object ? FJ_OBJECT : FJ_ARRAY;
+    (*at)++;
+    if (*at < f->len && f->text[*at] == close) {
+      (*at)++;
+      f->nodes[self].width = 2;
+      return 0;
+    }
+    size_t previous = FJ_NONE;
+    size_t count = 0;
+    size_t width = 0;
+    int most = 0;
+    for (;;) {
+      size_t key_at = 0;
+      size_t key_len = 0;
+      if (object) {
+        size_t end = *at < f->len && f->text[*at] == '"'
+                       ? fj_string_end(f, *at) : 0;
+        if (end == 0 || end >= f->len || f->text[end] != ':') {
+          return fj_malformed(f);
+        }
+        key_at = *at;
+        key_len = end - *at;
+        *at = end + 1;
+      }
+      size_t child;
+      if (fj_read(f, at, depth + 1, &child) < 0) return -1;
+      struct fj_node *node = &f->nodes[child];
+      if (object) {
+        node->key_at = key_at;
+        node->key_len = key_len;
+        node->key_width = fj_chars(f->text + key_at, key_len);
+        width += node->key_width + 2;
+      }
+      width += node->width;
+      if (node->complexity > most) most = node->complexity;
+      if (previous != FJ_NONE) f->nodes[previous].next = child;
+      previous = child;
+      count++;
+      if (*at >= f->len) return fj_malformed(f);
+      if (f->text[*at] == ',') {
+        (*at)++;
+        continue;
+      }
+      if (f->text[*at] != close) return fj_malformed(f);
+      (*at)++;
+      break;
+    }
+    struct fj_node *node = &f->nodes[self];
+    node->count = count;
+    node->complexity = most + 1;
+    node->width = width + 2 + 2 * (count - 1) + (most + 1 >= 2 ? 2 : 0);
+    return 0;
+  }
+  struct fj_node *node = &f->nodes[self];
+  node->at = *at;
+  if (c == '"') {
+    size_t end = fj_string_end(f, *at);
+    if (end == 0) return fj_malformed(f);
+    node->kind = FJ_STRING;
+    *at = end;
+  } else {
+    size_t end = *at;
+    while (end < f->len && strchr(",:]}", f->text[end]) == NULL) end++;
+    if (end == *at) return fj_malformed(f);
+    node->kind = c == '-' || (c >= '0' && c <= '9') ? FJ_NUMBER : FJ_LITERAL;
+    node->null = end - *at == 4 && memcmp(f->text + *at, "null", 4) == 0;
+    *at = end;
+  }
+  node->len = *at - node->at;
+  node->width = fj_chars(f->text + node->at, node->len);
+  return 0;
+}
+
+/* ---- writing */
+
+static int fj_spaces (struct fractured *f, long long n) {
+  static const char blank[] = "                                ";
+  while (n > 0) {
+    size_t chunk = n > (long long)(sizeof blank - 1) ? sizeof blank - 1
+                                                     : (size_t)n;
+    if (put(f->out, blank, chunk) < 0) return -1;
+    n -= (long long)chunk;
+  }
+  return 0;
+}
+
+/* Drops the spaces that end the line being written. */
+static void fj_trim (struct fractured *f) {
+  struct encoding *e = f->out;
+  while (e->len > f->line_start && e->p[e->len - 1] == ' ') e->len--;
+}
+
+/* Ends the line being written, if any, and begins one `depth` levels
+ * in. */
+static int fj_line (struct fractured *f, int depth) {
+  if (f->out->len > 0) {
+    fj_trim(f);
+    if (PUT_LITERAL(f->out, "\n") < 0) return -1;
+  }
+  f->line_start = f->out->len;
+  return fj_spaces(f, (long long)depth * FJ_INDENT);
+}
+
+static long long fj_room (struct fractured *f, int depth) {
+  return f->width - (long long)depth * FJ_INDENT;
+}
+
+static int fj_text (struct fractured *f, size_t at, size_t len) {
+  return put(f->out, f->text + at, len);
+}
+
+static int fj_key (struct fractured *f, size_t node, long long pad) {
+  struct fj_node *n = &f->nodes[node];
+  if (fj_text(f, n->key_at, n->key_len) < 0) return -1;
+  if (fj_spaces(f, pad) < 0) return -1;
+  return PUT_LITERAL(f->out, ": ");
+}
+
+static int fj_open (struct fractured *f, bool object, bool pad) {
+  if (object) return pad ? PUT_LITERAL(f->out, "{ ") : PUT_LITERAL(f->out, "{");
+  return pad ? PUT_LITERAL(f->out, "[ ") : PUT_LITERAL(f->out, "[");
+}
+
+static int fj_close (struct fractured *f, bool object, bool pad) {
+  if (object) return pad ? PUT_LITERAL(f->out, " }") : PUT_LITERAL(f->out, "}");
+  return pad ? PUT_LITERAL(f->out, " ]") : PUT_LITERAL(f->out, "]");
+}
+
+/* `node` on one line. */
+static int fj_inline (struct fractured *f, size_t node) {
+  struct fj_node *n = &f->nodes[node];
+  if (n->kind != FJ_ARRAY && n->kind != FJ_OBJECT) {
+    return fj_text(f, n->at, n->len);
+  }
+  bool object = n->kind == FJ_OBJECT;
+  if (n->count == 0) {
+    return object ? PUT_LITERAL(f->out, "{}") : PUT_LITERAL(f->out, "[]");
+  }
+  bool pad = n->complexity >= 2;
+  if (fj_open(f, object, pad) < 0) return -1;
+  size_t child = node + 1;
+  for (size_t i = 0; i < f->nodes[node].count; i++) {
+    if (i > 0 && PUT_LITERAL(f->out, ", ") < 0) return -1;
+    if (object && fj_key(f, child, 0) < 0) return -1;
+    if (fj_inline(f, child) < 0) return -1;
+    child = f->nodes[child].next;
+  }
+  return fj_close(f, object, pad);
+}
+
+/* ---- tables */
+
+static size_t fj_new_template (struct fractured *f) {
+  if (f->tn == f->tcap) {
+    size_t cap = f->tcap == 0 ? 32 : f->tcap;
+    if (cap > SIZE_MAX / 2 / sizeof *f->t) {
+      refuse_memory(f->out);
+      return FJ_NONE;
+    }
+    cap *= 2;
+    struct fj_template *grown = cosmic_realloc(f->t, cap * sizeof *grown);
+    if (grown == NULL) {
+      refuse_memory(f->out);
+      return FJ_NONE;
+    }
+    f->t = grown;
+    f->t_guard->resource = grown;
+    f->tcap = cap;
+  }
+  struct fj_template *t = &f->t[f->tn];
+  memset(t, 0, sizeof *t);
+  t->kind = FJ_UNKNOWN;
+  t->first = FJ_NONE;
+  t->last = FJ_NONE;
+  t->next = FJ_NONE;
+  t->key_node = FJ_NONE;
+  return f->tn++;
+}
+
+/* Appends a new column to `t`, keyed by `key_node`'s key, or FJ_NONE
+ * when memory refuses. */
+static size_t fj_add_column (struct fractured *f, size_t t, size_t key_node) {
+  size_t column = fj_new_template(f);
+  if (column == FJ_NONE) return FJ_NONE;
+  f->t[column].key_node = key_node;
+  if (f->t[t].last == FJ_NONE) {
+    f->t[t].first = column;
+  } else {
+    f->t[f->t[t].last].next = column;
+  }
+  f->t[t].last = column;
+  f->t[t].count++;
+  return column;
+}
+
+static bool fj_same_key (struct fractured *f, size_t a, size_t b) {
+  struct fj_node *x = &f->nodes[a];
+  struct fj_node *y = &f->nodes[b];
+  return x->key_len == y->key_len &&
+         memcmp(f->text + x->key_at, f->text + y->key_at, x->key_len) == 0;
+}
+
+/* The column of `t` keyed as `key_node` is, trying `hint` first, or
+ * FJ_NONE. */
+static size_t fj_find (struct fractured *f, size_t t, size_t key_node,
+                       size_t hint) {
+  if (hint != FJ_NONE && fj_same_key(f, f->t[hint].key_node, key_node)) {
+    return hint;
+  }
+  for (size_t c = f->t[t].first; c != FJ_NONE; c = f->t[c].next) {
+    if (fj_same_key(f, f->t[c].key_node, key_node)) return c;
+  }
+  return FJ_NONE;
+}
+
+/* The child of `node`, an object, keyed as the column `column` is,
+ * trying `hint` first, or FJ_NONE. */
+static size_t fj_member (struct fractured *f, size_t node, size_t column,
+                         size_t hint) {
+  if (f->nodes[node].count == 0) return FJ_NONE;
+  size_t key = f->t[column].key_node;
+  if (hint != 0 && hint != FJ_NONE && fj_same_key(f, hint, key)) return hint;
+  size_t child = node + 1;
+  for (size_t i = 0; i < f->nodes[node].count; i++) {
+    if (fj_same_key(f, child, key)) return child;
+    child = f->nodes[child].next;
+  }
+  return FJ_NONE;
+}
+
+static enum fj_column fj_column_of (struct fj_node *n) {
+  if (n->null) return FJ_UNKNOWN;
+  switch (n->kind) {
+    case FJ_ARRAY:
+    return FJ_ARRAYS;
+    case FJ_OBJECT:
+    return FJ_OBJECTS;
+    case FJ_NUMBER:
+    return FJ_NUMBERS;
+    default:
+    return FJ_SIMPLE;
+  }
+}
+
+/* The length of a number's integer part: up to its `.`, `e` or `E`. */
+static size_t fj_integer_length (const char *s, size_t n) {
+  for (size_t i = 0; i < n; i++) {
+    if (s[i] == '.' || s[i] == 'e' || s[i] == 'E') return i;
+  }
+  return n;
+}
+
+/* Adds `node`, one row's value in the column `t`, to what `t`
+ * measures. */
+static int fj_add_row (struct fractured *f, size_t t, size_t node) {
+  struct fj_node *n = &f->nodes[node];
+  struct fj_template *m = &f->t[t];
+  enum fj_column kind = fj_column_of(n);
+  m->rows++;
+  if (n->width > m->longest) m->longest = n->width;
+  if (kind != FJ_UNKNOWN) {
+    if (m->kind == FJ_UNKNOWN) {
+      m->kind = kind;
+    } else if (m->kind != kind) {
+      m->kind = FJ_MIXED;
+    }
+  }
+  if (n->complexity >= 2) m->padded = true;
+  if (kind == FJ_ARRAYS || kind == FJ_OBJECTS) m->nests = true;
+  if (kind == FJ_NUMBERS) {
+    size_t before = fj_integer_length(f->text + n->at, n->len);
+    if (before > m->before) m->before = before;
+    if (n->len - before > m->after) m->after = n->len - before;
+    return 0;
+  }
+  if (kind != FJ_ARRAYS && kind != FJ_OBJECTS) return 0;
+  if (f->t[t].kind == FJ_MIXED) return 0;
+  size_t count = n->count;
+  size_t stamp = ++f->rows;
+  size_t child = node + 1;
+  size_t column = f->t[t].first;
+  for (size_t i = 0; i < count; i++) {
+    if (kind == FJ_OBJECTS) {
+      column = fj_find(f, t, child, column);
+    }
+    if (column == FJ_NONE) {
+      /* Rows with more columns than a line has characters are no
+       * table, and measuring them on would cost the square of their
+       * count. */
+      if ((long long)f->t[t].count >= f->width) {
+        f->t[t].kind = FJ_MIXED;
+        return 0;
+      }
+      column = fj_add_column(f, t, child);
+      if (column == FJ_NONE) return -1;
+    }
+    if (kind == FJ_OBJECTS) {
+      /* A key twice in one row has one column for two values: written
+       * inline, the row keeps both. */
+      if (f->t[column].stamp == stamp) {
+        f->t[t].kind = FJ_MIXED;
+        return 0;
+      }
+      f->t[column].stamp = stamp;
+    }
+    if (fj_add_row(f, column, child) < 0) return -1;
+    column = f->t[column].next;
+    child = f->nodes[child].next;
+  }
+  return 0;
+}
+
+/* How deep the columns of `t` nest: 0 for a leaf. */
+static int fj_depth (struct fractured *f, size_t t) {
+  int most = 0;
+  if (f->t[t].kind != FJ_ARRAYS && f->t[t].kind != FJ_OBJECTS) return 0;
+  for (size_t c = f->t[t].first; c != FJ_NONE; c = f->t[c].next) {
+    int d = fj_depth(f, c) + 1;
+    if (d > most) most = d;
+  }
+  return most;
+}
+
+/* Sets the widths of `t` and its columns, splitting rows into columns no
+ * more than `levels` deep. */
+static void fj_lay (struct fractured *f, size_t t, int levels) {
+  struct fj_template *m = &f->t[t];
+  m->split = false;
+  if (m->kind == FJ_NUMBERS) {
+    size_t width = m->before + m->after;
+    m->width = width > m->longest ? width : m->longest;
+    return;
+  }
+  if ((m->kind != FJ_ARRAYS && m->kind != FJ_OBJECTS) || levels <= 0 ||
+      m->rows < 2 || m->count == 0) {
+    m->width = m->longest;
+    return;
+  }
+  m->split = true;
+  size_t width = 2 + 2 * (m->count - 1) + (m->padded ? 2 : 0);
+  bool object = m->kind == FJ_OBJECTS;
+  for (size_t c = f->t[t].first; c != FJ_NONE; c = f->t[c].next) {
+    fj_lay(f, c, levels - 1);
+    width += f->t[c].width;
+    if (object) width += f->nodes[f->t[c].key_node].key_width + 2;
+  }
+  f->t[t].inner = width;
+  f->t[t].width = width > f->t[t].longest ? width : f->t[t].longest;
+}
+
+/* What follows a cell: nothing, a comma, or a space where a comma would
+ * be. */
+enum fj_sep { FJ_END, FJ_COMMA, FJ_BLANK };
+
+static int fj_put_sep (struct fractured *f, enum fj_sep sep) {
+  if (sep == FJ_COMMA) return PUT_LITERAL(f->out, ",");
+  if (sep == FJ_BLANK) return PUT_LITERAL(f->out, " ");
+  return 0;
+}
+
+/* `node`, or nothing when it is FJ_NONE, in the column `t`: `t`'s width
+ * of characters, and `sep` where the column puts it. */
+static int fj_cell (struct fractured *f, size_t node, size_t t,
+                    enum fj_sep sep) {
+  long long width = (long long)f->t[t].width;
+  if (node == FJ_NONE) {
+    return fj_spaces(f, width + (sep == FJ_END ? 0 : 1));
+  }
+  struct fj_node *n = &f->nodes[node];
+  struct fj_template *m = &f->t[t];
+  if (m->kind == FJ_NUMBERS && (n->kind == FJ_NUMBER || n->null)) {
+    long long lead = n->kind == FJ_NUMBER
+      ? (long long)m->before -
+        (long long)fj_integer_length(f->text + n->at, n->len)
+      : 0;
+    if (fj_spaces(f, lead) < 0) return -1;
+    if (fj_text(f, n->at, n->len) < 0) return -1;
+    if (fj_spaces(f, width - lead - (long long)n->width) < 0) return -1;
+    return fj_put_sep(f, sep);
+  }
+  if (!m->split || fj_column_of(n) != m->kind) {
+    long long rest = width - (long long)n->width;
+    if (fj_inline(f, node) < 0) return -1;
+    if (fj_put_sep(f, sep) < 0) return -1;
+    return fj_spaces(f, rest);
+  }
+  bool object = m->kind == FJ_OBJECTS;
+  bool padded = m->padded;
+  /* The last column this row holds a value in: a comma follows only a
+   * value with another after it. */
+  size_t last = 0;
+  size_t position = 0;
+  size_t hint = node + 1;
+  for (size_t c = f->t[t].first; c != FJ_NONE; c = f->t[c].next) {
+    position++;
+    size_t child = object ? fj_member(f, node, c, hint)
+                          : (position <= f->nodes[node].count ? 1 : FJ_NONE);
+    if (child != FJ_NONE) {
+      last = position;
+      if (object) hint = f->nodes[child].next;
+    }
+  }
+  if (fj_open(f, object, padded) < 0) return -1;
+  size_t count = f->t[t].count;
+  position = 0;
+  hint = node + 1;
+  size_t element = node + 1;
+  for (size_t c = f->t[t].first; c != FJ_NONE; c = f->t[c].next) {
+    position++;
+    size_t child;
+    if (object) {
+      child = fj_member(f, node, c, hint);
+      if (child != FJ_NONE) hint = f->nodes[child].next;
+    } else {
+      child = position <= f->nodes[node].count ? element : FJ_NONE;
+      if (child != FJ_NONE) element = f->nodes[child].next;
+    }
+    enum fj_sep after = position == count ? FJ_END
+                        : child != FJ_NONE && position < last ? FJ_COMMA
+                                                              : FJ_BLANK;
+    if (child == FJ_NONE) {
+      long long blank = (long long)f->t[c].width + (after == FJ_END ? 0 : 1);
+      if (object) {
+        blank += (long long)f->nodes[f->t[c].key_node].key_width + 2;
+      }
+      if (fj_spaces(f, blank) < 0) return -1;
+    } else {
+      if (object && fj_key(f, child, 0) < 0) return -1;
+      if (fj_cell(f, child, c, after) < 0) return -1;
+    }
+    if (position < count && PUT_LITERAL(f->out, " ") < 0) return -1;
+  }
+  if (fj_close(f, object, padded) < 0) return -1;
+  if (fj_put_sep(f, sep) < 0) return -1;
+  return fj_spaces(f, width - (long long)f->t[t].inner);
+}
+
+/* ---- layout */
+
+/* What a line opens with before its value: a member's key, padded, and
+ * `: `; or nothing. */
+struct fj_prefix {
+  size_t node;
+  long long pad;
+};
+
+static const struct fj_prefix fj_no_prefix = {FJ_NONE, 0};
+
+static long long fj_prefix_width (struct fractured *f, struct fj_prefix p) {
+  if (p.node == FJ_NONE) return 0;
+  return (long long)f->nodes[p.node].key_width + p.pad + 2;
+}
+
+static int fj_put_prefix (struct fractured *f, struct fj_prefix p) {
+  if (p.node == FJ_NONE) return 0;
+  return fj_key(f, p.node, p.pad);
+}
+
+/* The longest and shortest key of `node`, an object. */
+static void fj_key_widths (struct fractured *f, size_t node, size_t *longest,
+                           size_t *shortest) {
+  *longest = 0;
+  *shortest = SIZE_MAX;
+  size_t child = node + 1;
+  for (size_t i = 0; i < f->nodes[node].count; i++) {
+    size_t w = f->nodes[child].key_width;
+    if (w > *longest) *longest = w;
+    if (w < *shortest) *shortest = w;
+    child = f->nodes[child].next;
+  }
+}
+
+static int fj_write (struct fractured *f, size_t node, int depth,
+                     struct fj_prefix prefix, bool comma);
+
+/* The template of `node`'s children as rows, in `*t`. */
+static int fj_rows (struct fractured *f, size_t node, size_t *t) {
+  f->tn = 0;
+  *t = fj_new_template(f);
+  if (*t == FJ_NONE) return -1;
+  size_t child = node + 1;
+  for (size_t i = 0; i < f->nodes[node].count; i++) {
+    if (fj_add_row(f, *t, child) < 0) return -1;
+    child = f->nodes[child].next;
+  }
+  return 0;
+}
+
+/* Writes `node`, an array, several elements to a line when that is how it
+ * is written: 1 when written, 0 when not, -1 when it failed. */
+static int fj_compact (struct fractured *f, size_t node, int depth,
+                       struct fj_prefix prefix, bool comma) {
+  struct fj_node *n = &f->nodes[node];
+  size_t count = n->count;
+  if (n->kind != FJ_ARRAY || count < FJ_COMPACT_ITEMS ||
+      n->complexity > FJ_COMPACT_COMPLEXITY) {
+    return 0;
+  }
+  long long space = fj_room(f, depth + 1);
+  /* An element longer than a line is not lined up with the rest. */
+  bool aligned = true;
+  size_t total = 0;
+  size_t child = node + 1;
+  for (size_t i = 0; i < count; i++) {
+    total += f->nodes[child].width;
+    if ((long long)f->nodes[child].width > space) aligned = false;
+    child = f->nodes[child].next;
+  }
+  size_t t = FJ_NONE;
+  if (aligned) {
+    if (fj_rows(f, node, &t) < 0) return -1;
+    enum fj_column kind = f->t[t].kind;
+    aligned = kind != FJ_UNKNOWN && kind != FJ_MIXED;
+  }
+  double average;
+  if (aligned) {
+    fj_lay(f, t, FJ_COMPACT_COMPLEXITY);
+    average = (double)f->t[t].width;
+  } else {
+    average = (double)total / (double)count;
+  }
+  if (aligned && (average + 1) * (double)FJ_COMPACT_ITEMS > (double)space) {
+    /* Too wide lined up: packed as they are instead. */
+    aligned = false;
+    average = (double)total / (double)count;
+  }
+  if ((average + 1) * (double)FJ_COMPACT_ITEMS > (double)space) return 0;
+  if (fj_line(f, depth) < 0) return -1;
+  if (fj_put_prefix(f, prefix) < 0) return -1;
+  if (PUT_LITERAL(f->out, "[") < 0) return -1;
+  long long used = 0;
+  child = node + 1;
+  for (size_t i = 0; i < count; i++) {
+    bool last = i + 1 == count;
+    long long size =
+      (long long)(aligned ? f->t[t].width : f->nodes[child].width) +
+      (last ? 0 : 1);
+    if (used == 0 || used + 1 + size > space) {
+      if (fj_line(f, depth + 1) < 0) return -1;
+      used = 0;
+    } else {
+      if (PUT_LITERAL(f->out, " ") < 0) return -1;
+      used++;
+    }
+    if (aligned) {
+      if (fj_cell(f, child, t, last ? FJ_END : FJ_COMMA) < 0) return -1;
+    } else {
+      if (fj_inline(f, child) < 0) return -1;
+      if (!last && PUT_LITERAL(f->out, ",") < 0) return -1;
+    }
+    used += size;
+    child = f->nodes[child].next;
+  }
+  if (fj_line(f, depth) < 0) return -1;
+  if (PUT_LITERAL(f->out, "]") < 0) return -1;
+  if (comma && PUT_LITERAL(f->out, ",") < 0) return -1;
+  return 1;
+}
+
+/* Writes `node` as a table, one member to a line in columns, when that
+ * is how it is written: 1 when written, 0 when not, -1 when it
+ * failed. */
+static int fj_table (struct fractured *f, size_t node, int depth,
+                     struct fj_prefix prefix, bool comma) {
+  struct fj_node *n = &f->nodes[node];
+  size_t count = n->count;
+  bool object = n->kind == FJ_OBJECT;
+  if (count < 2 || n->complexity > FJ_ROW_COMPLEXITY + 1) return 0;
+  size_t longest = 0;
+  size_t shortest = 0;
+  if (object) fj_key_widths(f, node, &longest, &shortest);
+  long long space = fj_room(f, depth + 1) - (object ? (long long)longest + 2 : 0) - 1;
+  /* A row is no narrower in the table than on its own. */
+  size_t child = node + 1;
+  for (size_t i = 0; i < count; i++) {
+    if ((long long)f->nodes[child].width > space) return 0;
+    child = f->nodes[child].next;
+  }
+  size_t t;
+  if (fj_rows(f, node, &t) < 0) return -1;
+  if (f->t[t].kind != FJ_ARRAYS && f->t[t].kind != FJ_OBJECTS) return 0;
+  for (size_t c = f->t[t].first; c != FJ_NONE; c = f->t[c].next) {
+    /* Rows that hold an array or an object in a field where another
+     * holds a scalar are not alike enough to line up. */
+    if (f->t[c].kind == FJ_MIXED && f->t[c].nests) return 0;
+  }
+  int levels = fj_depth(f, t);
+  for (;;) {
+    if (levels <= 0) return 0;
+    fj_lay(f, t, levels);
+    if ((long long)f->t[t].width <= space && f->t[t].split) break;
+    levels--;
+  }
+  if (fj_line(f, depth) < 0) return -1;
+  if (fj_put_prefix(f, prefix) < 0) return -1;
+  if (fj_open(f, object, false) < 0) return -1;
+  child = node + 1;
+  for (size_t i = 0; i < count; i++) {
+    if (fj_line(f, depth + 1) < 0) return -1;
+    if (object) {
+      long long pad = (long long)(longest - f->nodes[child].key_width);
+      if (fj_key(f, child, pad) < 0) return -1;
+    }
+    if (fj_cell(f, child, t, i + 1 < count ? FJ_COMMA : FJ_END) < 0) {
+      return -1;
+    }
+    child = f->nodes[child].next;
+  }
+  if (fj_line(f, depth) < 0) return -1;
+  if (fj_close(f, object, false) < 0) return -1;
+  if (comma && PUT_LITERAL(f->out, ",") < 0) return -1;
+  return 1;
+}
+
+static int fj_write (struct fractured *f, size_t node, int depth,
+                     struct fj_prefix prefix, bool comma) {
+  struct fj_node *n = &f->nodes[node];
+  if (n->count == 0 ||
+      (n->complexity <= FJ_INLINE_COMPLEXITY &&
+       fj_prefix_width(f, prefix) + (long long)n->width + (comma ? 1 : 0) <=
+         fj_room(f, depth))) {
+    if (fj_line(f, depth) < 0) return -1;
+    if (fj_put_prefix(f, prefix) < 0) return -1;
+    if (fj_inline(f, node) < 0) return -1;
+    return comma ? PUT_LITERAL(f->out, ",") : 0;
+  }
+  int done = fj_compact(f, node, depth, prefix, comma);
+  if (done == 0) done = fj_table(f, node, depth, prefix, comma);
+  if (done != 0) return done < 0 ? -1 : 0;
+  bool object = f->nodes[node].kind == FJ_OBJECT;
+  size_t longest = 0;
+  size_t shortest = 0;
+  if (object) fj_key_widths(f, node, &longest, &shortest);
+  bool align = object && longest - shortest <= FJ_NAME_PADDING;
+  if (fj_line(f, depth) < 0) return -1;
+  if (fj_put_prefix(f, prefix) < 0) return -1;
+  if (fj_open(f, object, false) < 0) return -1;
+  size_t count = f->nodes[node].count;
+  size_t child = node + 1;
+  for (size_t i = 0; i < count; i++) {
+    struct fj_prefix p = fj_no_prefix;
+    if (object) {
+      p.node = child;
+      p.pad = align ? (long long)(longest - f->nodes[child].key_width) : 0;
+    }
+    if (fj_write(f, child, depth + 1, p, i + 1 < count) < 0) return -1;
+    child = f->nodes[child].next;
+  }
+  if (fj_line(f, depth) < 0) return -1;
+  if (fj_close(f, object, false) < 0) return -1;
+  return comma ? PUT_LITERAL(f->out, ",") : 0;
+}
+
+/* Lays out `e`'s text, compact JSON, as FracturedJson does, in lines of
+ * `width` characters where its values allow, and puts the laid-out text
+ * in `e` in its place. Pushes three guards. */
+static int lay_fractured (struct encoding *e, long long width) {
+  lua_State *L = e->L;
+  struct encoding out;
+  memset(&out, 0, sizeof out);
+  out.L = L;
+  out.guard = cosmic_guard_push(L, cosmic_free);
+  struct fractured f;
+  memset(&f, 0, sizeof f);
+  f.out = &out;
+  f.text = e->p;
+  f.len = e->len;
+  f.width = width;
+  f.node_guard = cosmic_guard_push(L, cosmic_free);
+  f.t_guard = cosmic_guard_push(L, cosmic_free);
+  size_t at = 0;
+  size_t root;
+  int status = fj_read(&f, &at, 0, &root);
+  if (status == 0 && at != f.len) status = fj_malformed(&f);
+  if (status == 0) status = fj_write(&f, root, 0, fj_no_prefix, false);
+  if (status == 0) fj_trim(&f);
+  if (status < 0) {
+    memcpy(e->failure, out.failure, sizeof e->failure);
+    e->out_of_memory = out.out_of_memory;
+    return -1;
+  }
+  /* The input is let go and the output kept, under `e`'s guard. */
+  cosmic_guard_release(e->guard);
+  e->p = out.p;
+  e->len = out.len;
+  e->cap = out.cap;
+  e->guard->resource = out.p;
+  out.guard->resource = NULL;
+  return 0;
+}
+
+/* How a text is laid out: what `layout` names. */
+static const char *const layouts[] = {"compact", "expanded", "fractured",
+  NULL};
+
+enum { LAYOUT_COMPACT, LAYOUT_EXPANDED, LAYOUT_FRACTURED };
+
+/* The line width argument at `arg`: 120 when absent; raises when it is
+ * less than 1. */
+static long long checked_width (lua_State *L, int arg) {
+  lua_Integer width = luaL_optinteger(L, arg, 120);
+  luaL_argcheck(L, width >= 1, arg, "the width must be at least 1");
+  return (long long)width;
+}
+
+/* encode(value, layout?, max_depth?, ascii?, width?): `value` as JSON
+ * text, and "", laid out as `layout` names, `fractured` in lines of
+ * `width`. nil and a message when it holds something JSON cannot say. */
 static int json_encode (lua_State *L) {
   luaL_checkany(L, 1);
   struct encoding e;
   memset(&e, 0, sizeof e);
   e.L = L;
-  e.pretty = lua_toboolean(L, 2);
+  int layout = luaL_checkoption(L, 2, "compact", layouts);
+  e.pretty = layout == LAYOUT_EXPANDED;
   e.max_depth = checked_depth(L, 3);
   e.ascii = lua_toboolean(L, 4);
-  lua_settop(L, 4);
+  long long width = checked_width(L, 5);
+  lua_settop(L, 5);
   lua_getfield(L, LUA_REGISTRYINDEX, NULL_KEY);
   e.null_index = lua_gettop(L);
   e.guard = cosmic_guard_push(L, cosmic_free);
-  if (put_value(&e, 1, 0) < 0) {
+  if (put_value(&e, 1, 0) < 0 ||
+      (layout == LAYOUT_FRACTURED && lay_fractured(&e, width) < 0)) {
     lua_pushnil(L);
     if (e.path.len == 0 || e.out_of_memory) {
       lua_pushstring(L, e.failure);
@@ -2005,11 +2872,11 @@ static int put_text_value (struct encoding *e, yyjson_val *val, int depth,
 }
 
 /* format(text, max_depth?, json5?, lone_surrogates?, hash_comments?,
- * duplicate_keys?, pretty?, canonical?): the value `text` holds, read as
- * `check` reads it, written again as RFC 8259 text, and "". Its members
- * keep the text's order, a key twice too, and its numbers their text,
- * in RFC 8259's form where JSON5 wrote another; with `pretty`, laid out as
- * `encode` lays a value out. With `canonical`, RFC 8785's form instead:
+ * duplicate_keys?, layout?, canonical?, width?): the value `text` holds,
+ * read as `check` reads it, written again as RFC 8259 text, and "". Its
+ * members keep the text's order, a key twice too, and its numbers their
+ * text, in RFC 8259's form where JSON5 wrote another; laid out as
+ * `encode` lays a value out by `layout` and `width`. With `canonical`, RFC 8785's form instead:
  * members sorted by their keys' UTF-16 code units, numbers as
  * ECMAScript writes the double each reads as, and no space. nil and a
  * message when the text does not read, or holds NaN or an infinity. */
@@ -2018,11 +2885,14 @@ static int json_format (lua_State *L) {
   r.text = luaL_checklstring(L, 1, &r.len);
   read_options(L, 2, &r);
   bool canonical = lua_toboolean(L, 8);
+  int layout = canonical ? LAYOUT_COMPACT
+                         : luaL_checkoption(L, 7, "compact", layouts);
+  long long width = checked_width(L, 9);
   struct encoding e;
   memset(&e, 0, sizeof e);
   e.L = L;
-  e.pretty = !canonical && lua_toboolean(L, 7);
-  lua_settop(L, 8);
+  e.pretty = layout == LAYOUT_EXPANDED;
+  lua_settop(L, 9);
   struct cosmic_guard *doc_guard = cosmic_guard_push(L, release_doc);
   yyjson_doc *doc = read_text(L, &r, doc_guard, true);
   if (doc == NULL) return refused(L);
@@ -2049,7 +2919,8 @@ static int json_format (lua_State *L) {
     e.cap = r.len + 16;
     e.guard->resource = e.p;
   }
-  if (put_text_value(&e, yyjson_doc_get_root(doc), 0, canonical) < 0) {
+  if (put_text_value(&e, yyjson_doc_get_root(doc), 0, canonical) < 0 ||
+      (layout == LAYOUT_FRACTURED && lay_fractured(&e, width) < 0)) {
     lua_pushnil(L);
     if (e.path.len == 0 || e.out_of_memory) {
       lua_pushstring(L, e.failure);
