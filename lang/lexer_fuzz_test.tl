@@ -2,9 +2,9 @@
 --- bytes it is given, its tokens and comments tile the source, and
 --- every error lies in the source with a message and a fix
 --- ([`lang.lexer_cover`]). `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
---- (build/fuzz/init.tl).
+--- (cosmic/fuzz.tl).
 local Cover = require("lang.lexer_cover")
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Lexer = require("lang.lexer")
 local Sources = require("build.lexer_sources")
 

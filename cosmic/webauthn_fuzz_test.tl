@@ -3,12 +3,12 @@
 --- and [`Webauthn.verify_authentication`] return for any response, changed
 --- in its bytes or in its JSON, and never raise; a login is taken only
 --- when the bytes the key signed are the ones it signed.
---- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
+--- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (cosmic/fuzz.tl).
 
 local Array = require("cosmic.array")
 local Cbor = require("cosmic.cbor")
 local Codec = require("cosmic.codec")
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
 -- The raw signing operations on bytes, which the stand-in key is built of.

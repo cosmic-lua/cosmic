@@ -1,10 +1,10 @@
 --- Fuzz properties for [`cosmic.dns`], whose decoder takes the bytes anyone sends: it never raises, it returns a
 --- message or a reason and never both, and what it accepts is written back and read again as the same message.
 --- A name's text reads back as its labels, whatever their bytes. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
---- (build/fuzz/init.tl).
+--- (cosmic/fuzz.tl).
 
 local Dns = require("cosmic.dns")
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 
 --- Bytes a name's text singles out, and ones that pass through it.
 local LABEL_BYTES <const> = ".\\0129 a\x00\x1f\x7f\x80\xff"

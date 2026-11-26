@@ -117,6 +117,18 @@ local record rules
     loopback?: {string}
     --- The variables passed through from the caller's environment.
     env?: {string}
+    --- What the start sets up for the program, which is not a right: the
+    --- variables it sets, its temporary directory, the user and group it
+    --- runs as, and the database it runs on ([`rules.Setup`]).
+    setup?: Setup
+    --- The resources it may spend.
+    limits?: Limits
+  end
+  --- What a start sets up for a program, which is not a right
+  --- ([`rules.Policy`]'s `setup`): a policy's grants alone give rights.
+  --- [`Sandbox.union`] refuses two different values of a field, and
+  --- [`Sandbox.intersect`] joins them as a union does.
+  record Setup
     --- The variables set, by name. With `env`, the program's whole
     --- environment; a name in both is set.
     set_env?: {string:string}
@@ -133,8 +145,6 @@ local record rules
     --- does not), and a `set_env` TMPDIR beneath /tmp is kept, for a
     --- directory the program makes there.
     tmp?: boolean
-    --- The resources it may spend.
-    limits?: Limits
     --- The user a child runs as (1 to 4294967294, never root, nor the
     --- overflow ids 65534 and 65535), in place of the one of its own a root
     --- caller's child is given from a pool ([`Sandbox.user_id`]): the same
@@ -184,6 +194,7 @@ local record rules
     --- it.
     database?: rules.Database
   end
+
   --- A database a policy names: its absolute `path`, and the SHA-256 of
   --- its bytes (`sha256`, 64 lowercase hex digits) where the policy is to
   --- run only on a file of that digest. The two travel together through
@@ -424,61 +435,62 @@ local function invalid(p: rules.Policy, exact: boolean): string
       return at({ "env", i }, "a variable's name is not empty and holds no '=' or NUL")
     end
   end
-  for name, value in pairs(p.set_env or {}) do
+  local setup = p.setup or {}
+  for name, value in pairs(setup.set_env or {}) do
     if not env_name_ok(name) then
-      return at({ "set_env", name }, "\"" .. name .. "\" is not a variable's name: not empty, no '=' or NUL")
+      return at({ "setup", "set_env", name }, "\"" .. name .. "\" is not a variable's name: not empty, no '=' or NUL")
     end
     if value:find("\0", 1, true) then
-      return at({ "set_env", name }, "a value holds no NUL")
+      return at({ "setup", "set_env", name }, "a value holds no NUL")
     end
   end
-  for name, digest in pairs(p.set_env_digests or {}) do
+  for name, digest in pairs(setup.set_env_digests or {}) do
     if not env_name_ok(name) then
-      return at({ "set_env_digests", name }, "\"" .. name .. "\" is not a variable's name: not empty, " ..
+      return at({ "setup", "set_env_digests", name }, "\"" .. name .. "\" is not a variable's name: not empty, " ..
           "no '=' or NUL")
     end
     if not digest:match("^%x+$") or #digest ~= 64 or digest:find("%u") ~= nil then
-      return at({ "set_env_digests", name }, "a digest is 64 lowercase hex digits")
+      return at({ "setup", "set_env_digests", name }, "a digest is 64 lowercase hex digits")
     end
   end
   for _, field in ipairs({ "user", "group" }) do
-    local id = field == "user" and p.user or p.group -- checked: and_ternary
+    local id = if field == "user" then setup.user else setup.group end
     if id ~= nil and (math.type(id) ~= "integer" or id < 1 or id > 4294967294) then
-      return at({ field }, "an id is a whole number from 1 to 4294967294: never root")
+      return at({ "setup", field }, "an id is a whole number from 1 to 4294967294: never root")
     end
     if id == 65534 or id == 65535 then
-      return at({ field }, tostring(id) .. " is the overflow id, which the kernel shows for an id " ..
+      return at({ "setup", field }, tostring(id) .. " is the overflow id, which the kernel shows for an id " ..
           "a namespace does not map: name another")
     end
   end
-  if p.group ~= nil and p.user == nil then
-    return at({ "group" }, "a group is given with a user")
+  if setup.group ~= nil and setup.user == nil then
+    return at({ "setup", "group" }, "a group is given with a user")
   end
-  local given = p.database
+  local given = setup.database
   if given ~= nil then
     local path = given.path
     if path == "" or path:find("\0", 1, true) ~= nil then
-      return at({ "database", "path" }, "a path is not empty and holds no NUL")
+      return at({ "setup", "database", "path" }, "a path is not empty and holds no NUL")
     end
     if path:sub(1, 1) ~= "/" then
-      return at({ "database", "path" }, "\"" .. path .. "\" is relative: the program's directory is not the " ..
+      return at({ "setup", "database", "path" }, "\"" .. path .. "\" is relative: the program's directory is not the " ..
           "one this is read from, so name the file by its absolute path")
     end
     for segment in path:gmatch("[^/]+") do
       if segment == ".." then
-        return at({ "database", "path" }, "\"..\" is not allowed; name the file itself")
+        return at({ "setup", "database", "path" }, "\"..\" is not allowed; name the file itself")
       end
     end
     local digest = given.sha256
     if digest ~= nil and not (digest:find("^%x+$") ~= nil and #digest == 64 and digest:lower() == digest) then
-      return at({ "database", "sha256" }, "a digest is 64 lowercase hex digits")
+      return at({ "setup", "database", "sha256" }, "a digest is 64 lowercase hex digits")
     end
     local found, trouble = sys.stat(path)
     if found == nil then
-      return at({ "database", "path" }, path .. ": " .. trouble)
+      return at({ "setup", "database", "path" }, path .. ": " .. trouble)
     end
     if found.kind ~= "file" then
-      return at({ "database", "path" }, path .. " is not a regular file")
+      return at({ "setup", "database", "path" }, path .. " is not a regular file")
     end
   end
   local limits = p.limits or {}
@@ -737,16 +749,17 @@ function rules.merge(...: rules.Policy): rules.Policy?, string
   local user, group: integer?, integer?
   local database: rules.Database? = nil
   for _, p in ipairs(flat) do
-    local named = p.database
+    local setup = p.setup or {}
+    local named = setup.database
     if named ~= nil then
       local at = clean_path(named.path)
       local digest = named.sha256
       if database ~= nil and database.path ~= at then
-        return refuse(path_of({ "database", "path" }) .. ": given two values, " .. database.path .. " and " .. at)
+        return refuse(path_of({ "setup", "database", "path" }) .. ": given two values, " .. database.path .. " and " .. at)
       end
       local database_sha256 = database and database.sha256
       if database ~= nil and digest ~= nil and database_sha256 ~= nil and database_sha256 ~= digest then
-        return refuse(path_of({ "database", "sha256" }) .. ": given two digests for " .. at .. ", " .. database_sha256 ..
+        return refuse(path_of({ "setup", "database", "sha256" }) .. ": given two digests for " .. at .. ", " .. database_sha256 ..
             " and " .. digest)
       end
       database = { path = at, sha256 = digest or (database and database.sha256) }
@@ -773,28 +786,28 @@ function rules.merge(...: rules.Policy): rules.Policy?, string
     isolate = sorted_set(isolate, p.isolate or {})
     loopback = sorted_set(loopback, p.loopback or {})
     env = sorted_set(env, p.env or {})
-    for name, value in pairs(p.set_env or {}) do
+    for name, value in pairs(setup.set_env or {}) do
       if set_env[name] ~= nil and set_env[name] ~= value then
-        return refuse(path_of({ "set_env", name }) .. ": given two values")
+        return refuse(path_of({ "setup", "set_env", name }) .. ": given two values")
       end
       set_env[name] = value
     end
-    for name, digest in pairs(p.set_env_digests or {}) do
+    for name, digest in pairs(setup.set_env_digests or {}) do
       if digests[name] ~= nil and digests[name] ~= digest then
-        return refuse(path_of({ "set_env_digests", name }) .. ": given two digests")
+        return refuse(path_of({ "setup", "set_env_digests", name }) .. ": given two digests")
       end
       digests[name] = digest
     end
-    if p.tmp == true then tmp = true end
-    local p_user = p.user
+    if setup.tmp == true then tmp = true end
+    local p_user = setup.user
     if p_user ~= nil and user ~= nil and p_user ~= user then
-      return refuse(path_of({ "user" }) .. ": given two values, " .. tostring(user) .. " and " .. tostring(p_user))
+      return refuse(path_of({ "setup", "user" }) .. ": given two values, " .. tostring(user) .. " and " .. tostring(p_user))
     end
-    local p_group = p.group
+    local p_group = setup.group
     if p_group ~= nil and group ~= nil and p_group ~= group then
-      return refuse(path_of({ "group" }) .. ": given two values, " .. tostring(group) .. " and " .. tostring(p_group))
+      return refuse(path_of({ "setup", "group" }) .. ": given two values, " .. tostring(group) .. " and " .. tostring(p_group))
     end
-    user, group = p.user or user, p.group or group
+    user, group = setup.user or user, setup.group or group
     local own = p.limits or {}
     local why = limit_conflict("open_files", limits.open_files, own.open_files)
     if why == "" then why = limit_conflict("file_bytes", limits.file_bytes, own.file_bytes) end
@@ -836,7 +849,7 @@ function rules.merge(...: rules.Policy): rules.Policy?, string
   if has_file and not has_proc then isolate = sorted_set(isolate, { implied }) end
   for name, value in pairs(set_env) do
     if digests[name] ~= nil and digests[name] ~= Hash.hex_sha256(value) then
-      return refuse(path_of({ "set_env_digests", name }) .. ": not the digest of set_env's value")
+      return refuse(path_of({ "setup", "set_env_digests", name }) .. ": not the digest of set_env's value")
     end
     digests[name] = nil
   end
@@ -844,9 +857,11 @@ function rules.merge(...: rules.Policy): rules.Policy?, string
   if conflict ~= "" then return refuse(conflict) end
   local result: rules.Policy = {
     grants = grants, isolate = isolate,
-    loopback = loopback, env = env, set_env = set_env,
-    set_env_digests = digests, tmp = tmp, limits = limits,
-    user = user, group = group, database = database,
+    loopback = loopback, env = env, limits = limits,
+    setup = {
+      set_env = set_env, set_env_digests = digests, tmp = tmp,
+      user = user, group = group, database = database,
+    },
   }
   return result, ""
 end
@@ -947,7 +962,7 @@ end
 --- up, so stacked layers must name the same one.
 local function setup_conflict(name: string, a: string?, b: string?): string
   if a ~= nil and b ~= nil and a ~= b then
-    return path_of({ name }) .. ": layers give two values, " .. a .. " and " .. b ..
+    return path_of({ "setup", name }) .. ": layers give two values, " .. a .. " and " .. b ..
       ", and a layer cannot narrow what the start sets up"
   end
   return ""
@@ -998,10 +1013,11 @@ local function intersect_two(a: rules.Policy, b: rules.Policy): rules.Policy?, s
     if database == nil then return nil end
     return database.path
   end
-  local why = setup_conflict("user", shown(a.user), shown(b.user))
-  if why == "" then why = setup_conflict("group", shown(a.group), shown(b.group)) end
+  local sa, sb = a.setup or {}, b.setup or {}
+  local why = setup_conflict("user", shown(sa.user), shown(sb.user))
+  if why == "" then why = setup_conflict("group", shown(sa.group), shown(sb.group)) end
   if why == "" then
-    why = setup_conflict("database", path_of_database(a.database), path_of_database(b.database))
+    why = setup_conflict("database", path_of_database(sa.database), path_of_database(sb.database))
   end
   if why ~= "" then return refuse(why) end
   local la, lb = a.limits or {}, b.limits or {}
@@ -1017,12 +1033,16 @@ local function intersect_two(a: rules.Policy, b: rules.Policy): rules.Policy?, s
   local result: rules.Policy = {
     grants = grants, isolate = sorted_set(a.isolate or {}, b.isolate or {}),
     loopback = common(a.loopback or {}, b.loopback or {}), env = common(a.env or {}, b.env or {}),
-    set_env = a.set_env, set_env_digests = a.set_env_digests, limits = limits,
-    tmp = a.tmp == true and b.tmp == true, user = a.user or b.user, group = a.group or b.group,
-    database = a.database or b.database,
+    limits = limits,
+    setup = {
+      set_env = sa.set_env, set_env_digests = sa.set_env_digests, tmp = sa.tmp == true and sb.tmp == true,
+      user = sa.user or sb.user, group = sa.group or sb.group, database = sa.database or sb.database,
+    },
   }
-  local setup: rules.Policy = { set_env = b.set_env, set_env_digests = b.set_env_digests, database = b.database }
-  return rules.merge(result, setup)
+  local other: rules.Policy = {
+    setup = { set_env = sb.set_env, set_env_digests = sb.set_env_digests, database = sb.database },
+  }
+  return rules.merge(result, other)
 end
 
 --- [`Sandbox.intersect`]: what the layers given hold stacked, merged.
@@ -1071,9 +1091,7 @@ function rules.with_connect(p: rules.Policy, connect: {string}): rules.Policy
   for _, target in ipairs(connect) do grants[#grants + 1] = { connect = target } end
   local result: rules.Policy = {
     grants = grants, isolate = p.isolate,
-    loopback = p.loopback, env = p.env, set_env = p.set_env,
-    set_env_digests = p.set_env_digests, tmp = p.tmp, limits = p.limits,
-    user = p.user, group = p.group, database = p.database, profiles = p.profiles,
+    loopback = p.loopback, env = p.env, limits = p.limits, setup = p.setup, profiles = p.profiles,
   }
   return result
 end

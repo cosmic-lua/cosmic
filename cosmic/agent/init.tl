@@ -163,6 +163,9 @@ local record Agent
     --- Whether a snippet may run programs (Host.bash; [`Worker.Options`] `commands`); false by default, so none runs
     --- where the sandbox holds it: on Linux, under a policy. With no sandbox, or on macOS, a snippet may still run one.
     commands?: boolean
+    --- What a snippet may load code from ([`Worker.Options`] `modules`): nil is the standard library and the working
+    --- directory's tree ([`Worker.MODULES`]), {} none.
+    modules?: {string}
     --- The worker the run tool sends its snippets to (cosmic.agent.worker); nil for none.
     worker?: Worker.Set
     --- The MCP servers a snippet may call (cosmic.agent.mcp); nil for none.
@@ -370,6 +373,8 @@ local record Agent
     --- system prompt says whether programs run, so one changed here is told the model only by a new `system`
     --- ([`Prompt.build`] with the same `commands`).
     mut commands: boolean
+    --- What a snippet may load code from ([`Agent.Options`] `modules`).
+    mut modules?: {string}
     --- The worker the run tool sends its snippets to (cosmic.agent.worker); nil for none.
     mut worker?: Worker.Set
     --- The MCP servers a snippet may call (cosmic.agent.mcp); nil for none.
@@ -1229,7 +1234,7 @@ local function loop(s: Agent.Session): boolean, string
             local context: Tools.Context = { cwd = s.cwd, db = s.db, session = s.id,
               policy = policy, worker = s.worker,
               mcp = s.mcp, stopped = asking, deadline_ns = deadline, tools = s.tools,
-              commands = s.commands,
+              commands = s.commands, modules = s.modules,
               guard = if s.before == nil then nil else function(host: string, args: Tools.Object): string?
                 local touches, touches_why = code_paths(s, host, args)
                 local by_code: Agent.Call = { name = host, input = args, caller = "code", cwd = s.cwd, id = s.id,
@@ -1360,6 +1365,7 @@ local class AgentSession is Agent.Session
   mut send?: Agent.Send
   mut sandbox?: {Sandbox.Policy}
   mut commands: boolean
+  mut modules?: {string}
   mut worker?: Worker.Set
   mut mcp?: AgentMcp.Set
   mut build?: string
@@ -1429,10 +1435,10 @@ function Agent.new(options: Agent.Options): Agent.Session
     model = model, effort = options.effort or Agent.effort(model), sign = options.sign, base_url = options.base_url,
     tools = tools,
     system = options.system or Prompt.build(options.cwd, Prompt.contexts(options.cwd),
-      { tools = tools, commands = options.commands == true }),
+      { tools = tools, commands = options.commands == true, loads = options.modules }),
     where = options.where or Prompt.where(options.cwd, servers_of(options.mcp)), cwd = options.cwd,
-    send = options.send, sandbox = options.sandbox, commands = options.commands == true, worker = options.worker,
-    mcp = options.mcp, build = options.build, messages = held, db = options.db, id = options.id,
+    send = options.send, sandbox = options.sandbox, commands = options.commands == true, modules = options.modules,
+    worker = options.worker, mcp = options.mcp, build = options.build, messages = held, db = options.db, id = options.id,
     restarts = options.restarts or 0, ended = options.ended == true, stopped = false, spent = false,
     on = nil, before = nil, after = nil, on_failed = nil, steering = nil, stopping = nil, last_reply = nil,
     sent_ns = nil, budget = options.budget,

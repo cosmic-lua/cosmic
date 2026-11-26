@@ -7,8 +7,10 @@ local GithubApi = require("cosmic_ci.github_api")
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
 local Maps = require("cosmic_ci.maps")
+local PolicyJson = require("cosmic.policy")
 local Prerelease = require("cosmic_ci.prerelease")
 local Proc = require("cosmic.proc")
+local Sandbox = require("cosmic.sandbox")
 local Shape = require("cosmic.shape")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
@@ -55,8 +57,8 @@ end
 local function test_the_smoke_policy_grants_the_tool_and_its_cache_alone()
   local launcher: {string: boolean} = { uname = true, id = true, mkdir = true, stat = true, mktemp = true, dd = true,
     head = true, sha256sum = true, chmod = true, ln = true, rm = true, rmdir = true }
-  for _, as_grants in ipairs({ true, false }) do
-    local text = Prerelease.smoke_policy_text("/runner/release/cosmic", "/tmp/smoke-cache", as_grants)
+  for _, in_setup in ipairs({ true, false }) do
+    local text = Prerelease.smoke_policy_text("/runner/release/cosmic", "/tmp/smoke-cache", in_setup)
     local decoded, trouble = Json.decode(text)
     local policy = assert(Json.object_of(decoded), tostring(trouble))
     local granted: mut {string: boolean} = {}
@@ -84,19 +86,19 @@ local function test_the_smoke_policy_grants_the_tool_and_its_cache_alone()
     for name in pairs(launcher) do
       assert(granted[name] == true, "the launcher's " .. name .. " is not granted")
     end
-    if as_grants then
-      assert(table.concat(calls, ",") == "fork,fattr" and policy["promises"] == nil, text)
-    else
-      assert(#calls == 0 and encoded(policy["promises"]) == '["fork","fattr"]', text)
-    end
+    assert(table.concat(calls, ",") == "fork,fattr" and policy["promises"] == nil, text)
     assert(encoded(policy["env"]) == '["PATH","HOME"]', text)
     assert(encoded(policy["profiles"]) == '["system"]', text)
-    assert(encoded(policy["set_env"]) == '{"COSMIC_PORTABLE_CACHE":"/tmp/smoke-cache"}', text)
+    -- What the start sets up is a `setup` of its own, as cosmic writes it now.
+    local set_env = if in_setup then assert(Json.object_of(policy["setup"]))["set_env"] else policy["set_env"] end
+    assert(encoded(set_env) == '{"COSMIC_PORTABLE_CACHE":"/tmp/smoke-cache"}', text)
     assert(policy["isolate"] == nil and policy["connect"] == nil, text)
   end
   -- The running cosmic reads one of the two forms.
   local taken = Prerelease.smoke_policy("/runner/release/cosmic", "/tmp/smoke-cache")
-  assert((taken.set_env or {})["COSMIC_PORTABLE_CACHE"] == "/tmp/smoke-cache")
+  local digest = Hash.hex_sha256("/tmp/smoke-cache")
+  local written = PolicyJson.encode((assert(Sandbox.union(taken))))
+  assert(written:find('"set_env_digests":{"COSMIC_PORTABLE_CACHE":"' .. digest .. '"}', 1, true) ~= nil, written)
 end
 
 --- Skips where this run is root: the smoke's sandbox then runs the tool as

@@ -26,7 +26,9 @@ local ChildPolicy = require("build.child_policy_fixture")
 --- The temporary directory, and a loopback address for the host's own
 --- listener the child must not reach. `nests`: a policy's isolation makes
 --- a root of its own, which a worker held by a Landlock ruleset cannot.
+--- The system's files, for a script run by /bin/sh.
 Test.policy{
+  profiles = { "system" },
   grants = { { calls = "nest" } },
   loopback = { "127.0.0.1" },
   env = { "TMPDIR" },
@@ -217,7 +219,7 @@ end
 
 local function test_tmp_under_isolate_file_is_a_tmpfs_of_the_sandboxs_own(tmp: string)
   local at = placed(tmp)
-  local policy: Sandbox.Policy = { isolate = { "file" }, tmp = true, grants = at.grants }
+  local policy: Sandbox.Policy = { isolate = { "file" }, setup = { tmp = true }, grants = at.grants }
   local mounts = ChildPolicy.under(at.probe, policy, at.work, { "cat", "/proc/self/mountinfo" })
   local held = mount_at(mounts.said, "/tmp")
   assert(held ~= nil, mounts.said)
@@ -232,7 +234,7 @@ local function test_tmp_under_isolate_file_is_a_tmpfs_of_the_sandboxs_own(tmp: s
   assert(mine ~= nil)
   for _, name in ipairs(mine) do assert(not name:find("cosmic-sandbox-", 1, true), name) end
   -- Without tmp, no /tmp.
-  local gone = ChildPolicy.under(at.probe, { ...policy, tmp = false }, at.work, { "present", "/tmp/n" })
+  local gone = ChildPolicy.under(at.probe, { ...policy, setup = { ...(policy.setup or {}), tmp = false } }, at.work, { "present", "/tmp/n" })
   assert(gone.code == 1, gone.said)
 end
 
@@ -248,7 +250,7 @@ local function test_a_program_beneath_tmp_starts_over_the_sandboxs_own_tmp(tmp: 
   local program = dir .. "/fake"
   assert(Fs.write(program, assert(Fs.read(at.probe))))
   assert(Fs.chmod(program, 0x1ed)) -- rwxr-xr-x
-  local policy: Sandbox.Policy = { isolate = { "file" }, tmp = true, grants = { { path = dir, letters = "r" } } }
+  local policy: Sandbox.Policy = { isolate = { "file" }, setup = { tmp = true }, grants = { { path = dir, letters = "r" } } }
   local ran = ChildPolicy.under(program, policy, dir, { "env-of", "TMPDIR" })
   assert(ran.code == 0 and ran.said == "TMPDIR=/tmp\n", ran.said)
 end
@@ -256,12 +258,12 @@ end
 local function test_a_grant_of_tmp_with_x_makes_the_sandboxs_own_tmp_executable(tmp: string)
   local at = placed(tmp)
   local args = { "copy-and-run", at.probe }
-  local plain: Sandbox.Policy = { isolate = { "file" }, tmp = true, set_env = { TMPDIR = "/tmp/mine" },
+  local plain: Sandbox.Policy = { isolate = { "file" }, setup = { tmp = true, set_env = { TMPDIR = "/tmp/mine" } },
     grants = ChildPolicy.with(at.grants, { calls = "fattr" }, { calls = "fork" }) }
   local refused = ChildPolicy.under(at.probe, plain, at.work, args)
   -- No letters of its own: noexec, and a TMPDIR beneath /tmp that set_env names stays.
   assert(refused.code ~= 0 and refused.said:find("TMPDIR=/tmp/mine\n", 1, true) ~= nil, refused.said)
-  local run_here: Sandbox.Policy = { isolate = { "file" }, tmp = true, set_env = { TMPDIR = "/tmp/mine" },
+  local run_here: Sandbox.Policy = { isolate = { "file" }, setup = { tmp = true, set_env = { TMPDIR = "/tmp/mine" } },
     grants = ChildPolicy.with(at.grants, { path = "/tmp", letters = "rwxc" }, { calls = "fattr" }, { calls = "fork" }) }
   local mounts = ChildPolicy.under(at.probe, run_here, at.work, { "cat", "/proc/self/mountinfo" })
   local held = mount_at(mounts.said, "/tmp")
@@ -269,18 +271,18 @@ local function test_a_grant_of_tmp_with_x_makes_the_sandboxs_own_tmp_executable(
   local ran = ChildPolicy.under(at.probe, run_here, at.work, args)
   assert(ran.code == 0 and ran.said:find("^TMPDIR=/tmp/mine\n") ~= nil, ran.said)
   -- A TMPDIR outside /tmp is /tmp, as it was.
-  local elsewhere: Sandbox.Policy = { isolate = { "file" }, tmp = true, set_env = { TMPDIR = "/var/x" },
+  local elsewhere: Sandbox.Policy = { isolate = { "file" }, setup = { tmp = true, set_env = { TMPDIR = "/var/x" } },
     grants = at.grants }
   local named = ChildPolicy.under(at.probe, elsewhere, at.work, { "env-of", "TMPDIR" })
   assert(named.said == "TMPDIR=/tmp\n", named.said)
   for _, bad in ipairs({ "/tmp/../etc", "/tmp/./x", "/tmp/a/../b" }) do
-    local odd_dir: Sandbox.Policy = { isolate = { "file" }, tmp = true, set_env = { TMPDIR = bad },
+    local odd_dir: Sandbox.Policy = { isolate = { "file" }, setup = { tmp = true, set_env = { TMPDIR = bad } },
       grants = at.grants }
     local reset = ChildPolicy.under(at.probe, odd_dir, at.work, { "env-of", "TMPDIR" })
     assert(reset.said == "TMPDIR=/tmp\n", bad .. ": " .. reset.said)
   end
   -- /tmp has no other letters than the two.
-  local odd: Sandbox.Policy = { isolate = { "file" }, tmp = true,
+  local odd: Sandbox.Policy = { isolate = { "file" }, setup = { tmp = true },
     grants = ChildPolicy.with(at.grants, { path = "/tmp", letters = "r" }) }
   local _, why = Child.run({ at.probe, "print", "x" }, { timeout_ns = Child.FOREVER, policy = odd, cwd = at.work })
   assert(tostring(why):find("sandbox's own /tmp, which tmp makes", 1, true), tostring(why))
@@ -300,7 +302,7 @@ local function test_isolate_proc_alone_has_its_own_proc_and_the_hosts_files_by_g
     { "cat", tmp .. "/other/b" })
   assert(ungranted.code == 1 and ungranted.said:find("Permission denied", 1, true) ~= nil, ungranted.said)
   -- tmp is a host directory here, as without isolate.
-  local made = ChildPolicy.under(at.probe, { ...policy, tmp = true }, at.work, { "env-of", "TMPDIR" })
+  local made = ChildPolicy.under(at.probe, { ...policy, setup = { ...(policy.setup or {}), tmp = true } }, at.work, { "env-of", "TMPDIR" })
   assert(made.code == 0 and made.said:find("^TMPDIR=/", 1) ~= nil and not made.said:find("^TMPDIR=/tmp\n"),
     made.said)
 end
@@ -411,14 +413,14 @@ local function test_a_root_of_files_and_its_own_tmp_makes_unix_sockets_without_u
   local at = placed(tmp)
   unix_socket.skip_if_refused(tmp)
   local args = { "loopback-unix", "/tmp/own.sock" }
-  local alone = ChildPolicy.under(at.probe, { isolate = { "file" }, tmp = true, loopback = { "127.0.0.1" },
+  local alone = ChildPolicy.under(at.probe, { isolate = { "file" }, setup = { tmp = true }, loopback = { "127.0.0.1" },
     grants = at.bare }, at.home, args)
   assert(alone.code == 0 and alone.said == "connected\n", alone.said)
-  local isolated = ChildPolicy.under(at.probe, { isolate = { "file" }, tmp = true, grants = at.bare }, at.home, args)
+  local isolated = ChildPolicy.under(at.probe, { isolate = { "file" }, setup = { tmp = true }, grants = at.bare }, at.home, args)
   assert(isolated ~= nil and isolated.said:find("not permitted", 1, true) ~= nil, "no network of its own: " .. -- checked: compare_disjoint
       tostring(isolated.said))
   local abi, _ = require("cosmic.internal.process").landlock_abi()
-  local shown = ChildPolicy.under(at.probe, { isolate = { "file" }, tmp = true, loopback = { "127.0.0.1" },
+  local shown = ChildPolicy.under(at.probe, { isolate = { "file" }, setup = { tmp = true }, loopback = { "127.0.0.1" },
     grants = at.grants }, at.work, args)
   assert(shown ~= nil, "started") -- checked: compare_disjoint
   if abi ~= nil and abi < 9 then
@@ -435,7 +437,7 @@ local function test_a_u_grant_beside_the_sandboxs_own_tmp_is_met(tmp: string)
   local socket = tmp .. "/beside-tmp.sock"
   unix_socket.skip_if_refused(tmp)
   local server = assert(Net.listen(Net.unix(socket), { timeout_ns = 1000000000 }))
-  local policy: Sandbox.Policy = { isolate = { "file" }, tmp = true, grants = ChildPolicy.with(at.bare,
+  local policy: Sandbox.Policy = { isolate = { "file" }, setup = { tmp = true }, grants = ChildPolicy.with(at.bare,
     { path = socket, letters = "u" }) }
   local granted = ChildPolicy.under(at.probe, policy, at.home, { "connect", socket })
   local own = ChildPolicy.under(at.probe, policy, at.home, { "loopback-unix", "/tmp/own.sock" })
@@ -490,6 +492,39 @@ local function test_a_directory_nothing_grants_cannot_be_started_in_under_isolat
   assert(why.message:find("must be at, beneath or above a grant", 1, true), why)
 end
 
+--- A program reached by a link (a virtual environment's interpreter) is
+--- run by the link's name where the root shows the same file there, as a
+--- script's `$0` says: a link in a granted directory, by a relative
+--- target, or beneath a grant whose name is a link. One the root has
+--- not, in a directory no grant names, is run by its real path.
+local function test_a_link_the_root_shows_is_run_by_its_name_under_isolate_file(tmp: string)
+  searchable.open(tmp)
+  assert(Fs.mkdirs(tmp .. "/real"))
+  assert(Fs.mkdirs(tmp .. "/venv/bin"))
+  assert(Fs.mkdirs(tmp .. "/lone"))
+  local script = tmp .. "/real/run.sh"
+  assert(Fs.write(script, "#!/bin/sh\necho \"$0\"\n"))
+  assert(Fs.chmod(script, 0x1ed)) -- rwxr-xr-x
+  local link = tmp .. "/venv/bin/python"
+  assert(sys.symlink("../../real/run.sh", link))
+  local lone = tmp .. "/lone/python"
+  assert(sys.symlink(script, lone))
+  local policy: Sandbox.Policy = { isolate = { "file" }, profiles = { "system" },
+    grants = { { path = tmp .. "/venv", letters = "r" }, { path = tmp .. "/real", letters = "r" } } }
+  local named = ChildPolicy.under(link, policy, tmp .. "/real", {})
+  assert(named.code == 0 and named.said == link .. "\n", named.said)
+  -- A grant whose name is a link: the root makes that link to its real path.
+  local alias = tmp .. "/alias"
+  assert(sys.symlink(tmp .. "/venv", alias))
+  local by_alias: Sandbox.Policy = { isolate = { "file" }, profiles = { "system" },
+    grants = { { path = alias, letters = "r" }, { path = tmp .. "/real", letters = "r" } } }
+  local through = ChildPolicy.under(alias .. "/bin/python", by_alias, tmp .. "/real", {})
+  assert(through.code == 0 and through.said == alias .. "/bin/python\n", through.said)
+  local real = ChildPolicy.under(lone, policy, tmp .. "/real", {})
+  local real_path = assert(sys.realpath(script))
+  assert(real.code == 0 and real.said == real_path .. "\n", real.said)
+end
+
 local function test_a_refused_namespace_fails_naming_the_remedy(tmp: string)
   -- Inside a child held by a policy without `nest`, the filter refuses the
   -- namespace a start of its own makes: the failure says what to allow.
@@ -498,7 +533,7 @@ local function test_a_refused_namespace_fails_naming_the_remedy(tmp: string)
   local scratch = tmp .. "/scratch"
   assert(Fs.mkdirs(scratch))
   searchable.share(scratch)
-  local policy: Sandbox.Policy = { set_env = { TMPDIR = scratch },
+  local policy: Sandbox.Policy = { setup = { set_env = { TMPDIR = scratch } },
     grants = ChildPolicy.with(at.grants, { path = scratch, letters = "rwc" }, { calls = "fork" }) }
   local ran = ChildPolicy.under(at.probe, policy, at.work, { "start-isolated", at.probe })
   assert(ran.code == 0, ran.said)

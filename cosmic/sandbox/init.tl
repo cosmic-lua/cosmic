@@ -27,7 +27,7 @@
 --- apart from this module so that a program that only runs a child under a
 --- policy does not carry a JSON reader and a schema checker.
 ---
----     local policy = { grants = { { path = "data", letters = "r" } }, tmp = true }
+---     local policy = { grants = { { path = "data", letters = "r" } }, setup = { tmp = true } }
 ---     local merged = assert(Sandbox.union(policy, { grants = { { calls = "fork" } } }))
 ---     print(Sandbox.paths(merged)[1].path, Sandbox.calls(merged)[1]) -- data  fork
 ---
@@ -92,6 +92,11 @@ local record Sandbox
   --- What a program is held to; every field is optional, and what a policy
   --- leaves out it does not have ([`rules.Policy`]).
   type Policy = rules.Policy
+
+  --- What a start sets up for a program, which is not a right: the
+  --- variables set, the temporary directory, the user and group, and the
+  --- database ([`rules.Setup`]).
+  type Setup = rules.Setup
 
   --- A database a policy runs a program on: its path, and the SHA-256 of
   --- its bytes where the policy is to hold to that ([`rules.Database`]).
@@ -362,9 +367,9 @@ local ACTIONS <const>: {string:{letter: string, directory: boolean}} = {
 ---
 --- For code that acts for a held program in a process no kernel layer
 --- holds, as a second layer, never the only one: the program runs beside
---- it and can change a name between the check and its use, so open the
---- real name this returns and follow no link there. [`Sandbox.allows`] is
---- the plain rule under it.
+--- it and can change a name between the check and its use, so act
+--- through [`Sandbox.dir`], which opens the real name this returns with
+--- no link followed. [`Sandbox.allows`] is the plain rule under it.
 ---
 ---     local policy = { grants = { { path = "/srv/data", letters = "rwc" } } }
 ---     print(Sandbox.permits(policy, "/srv/data/new.txt", "create")) -- /srv/data/new.txt
@@ -376,6 +381,7 @@ function Sandbox.permits(policy: Sandbox.Policy, path: string, action: string, c
   end
   local merged, why = rules.merge(policy)
   if merged == nil then return nil, why end
+  local setup = merged.setup or {}
   local letter, of_directory = asked.letter, asked.directory
   local creates = false
   local real = ""
@@ -408,7 +414,7 @@ function Sandbox.permits(policy: Sandbox.Policy, path: string, action: string, c
   end
   local isolated_tmp = false
   for _, kind in ipairs(merged.isolate or {}) do
-    if kind == "file" and merged.tmp == true then isolated_tmp = true end
+    if kind == "file" and setup.tmp == true then isolated_tmp = true end
   end
   local base = cwd
   if base == nil then
@@ -454,6 +460,45 @@ function Sandbox.permits(policy: Sandbox.Policy, path: string, action: string, c
     return nil, string.format("sandbox: the policy does not permit %s %s: %s%s", action, named, allow_why, note)
   end
   return named, ""
+end
+
+--- The directory a program's `action` on the absolute `path` acts in,
+--- and the name to act on there: what [`Sandbox.permits`] permits, its
+--- directory opened at the real name the check gave with no link
+--- anywhere on its path ([`Fs.dir`]). The directory is held by a
+--- descriptor and each act names one entry in it with no link followed,
+--- so a program that swaps a link onto the path after the directory is
+--- open, or moves the directory, cannot send the act out of what was
+--- checked, and one that swaps a link in before it opens makes it fail.
+--- Act through the [`Fs.Dir`] by the name (`read`, `write`, `status`,
+--- `mkdir`) and close it.
+---
+--- `action` is "read", "write" or "create", the acts a [`Fs.Dir`] has.
+--- A write through it makes a new file and renames it over the name, so
+--- "write" asks `c` of the directory beside `w`, as Landlock would of
+--- that write. Nil and why where `policy` does not permit it, for "/",
+--- and where a link is met on the way (a name changed since the check).
+---
+---     local policy = { grants = { { path = "/srv/data", letters = "rwc" } } }
+---     local dir <close>, name = Sandbox.dir(policy, "/srv/data/note.txt", "write")
+---     assert(dir, name):write(name, "kept")
+function Sandbox.dir(policy: Sandbox.Policy, path: string, action: string, cwd?: string): (Fs.Dir, string) | (nil, string)
+  if action ~= "read" and action ~= "write" and action ~= "create" then
+    return refuse("dir: " .. string.format("%q", action) .. " is no act of a directory held: read, write or create")
+  end
+  local real, why = Sandbox.permits(policy, path, action, cwd)
+  if real == nil then return nil, why end
+  if real == "/" then return refuse("dir: / is in no directory to act in") end
+  -- The write renames a file it makes over the name.
+  if action == "write" then
+    local made, made_why = Sandbox.permits(policy, real, "create", cwd)
+    if made == nil then
+      return nil, made_why .. " (a write through a directory makes a file and renames it over the name)"
+    end
+  end
+  local opened, failure = Fs.dir(Fs.dirname(real))
+  if opened == nil then return nil, "sandbox: " .. tostring(failure) end
+  return opened, Fs.basename(real)
 end
 
 --- The policies [`Sandbox.restrict`] has held this process to, merged,
@@ -649,7 +694,8 @@ end
 --- names that only a child can have, which is made in a namespace the
 --- process is not in, or by a relay it has not.
 local function not_in_process(merged: Sandbox.Policy): string
-  local database = merged.database
+  local setup = merged.setup or {}
+  local database = setup.database
   if database ~= nil then
     return "database \"" .. database.path .. "\" is the program a child runs on, which a " ..
       "running process cannot change: start a child with Child.start and a policy instead"
@@ -699,22 +745,22 @@ local function not_in_process(merged: Sandbox.Policy): string
     return "env \"" .. first_env .. "\" is the environment of a child, which a running " ..
       "process already has"
   end
-  for name, _ in pairs(merged.set_env or {}) do
+  for name, _ in pairs(setup.set_env or {}) do
     return "set_env \"" .. name .. "\" is the environment of a child, which a running " ..
       "process already has"
   end
-  for name, _ in pairs(merged.set_env_digests or {}) do
+  for name, _ in pairs(setup.set_env_digests or {}) do
     return "set_env_digests \"" .. name .. "\" holds a digest, not a value to set"
   end
-  if merged.tmp == true then
+  if setup.tmp == true then
     return "tmp is a directory made for a child, which a running process makes for itself"
   end
   if (merged.limits or {}).processes ~= nil then
     return "limits.processes counts the processes of a user namespace of its own, which only " ..
       "a child has"
   end
-  local user = merged.user
-  local group = merged.group
+  local user = setup.user
+  local group = setup.group
   if user ~= nil and (user ~= sys.getuid() or
       (group ~= nil and group ~= sys.getgid())) then
     return "user " .. tostring(user) .. " is who a child runs as; a running process stays the " ..
@@ -786,11 +832,12 @@ end
 --- which [`not_in_process`] passed: the profile resolves "system" to
 --- macOS's paths, not the Linux ones [`Sandbox.union`] gives.
 local function held_by_seatbelt(policy: Sandbox.Policy, kept: {integer}): boolean, string
+  local setup = policy.setup or {}
   local grants: mut {Sandbox.Grant} = {}
   for _, grant in ipairs(policy.grants or {}) do grants[#grants + 1] = grant end
   for _, grant in ipairs(runtime_grants()) do grants[#grants + 1] = grant end
   local held: Sandbox.Policy = { profiles = policy.profiles, grants = grants,
-    limits = policy.limits, user = policy.user, group = policy.group }
+    limits = policy.limits, setup = { user = setup.user, group = setup.group } }
   local options, resolve_trouble = seatbelt_resolve(held)
   if options == nil then return denied(resolve_trouble) end
   local profile, compile_trouble = seatbelt_compile(held, options)

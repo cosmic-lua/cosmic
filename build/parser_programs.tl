@@ -2,7 +2,7 @@
 --- program drawn from the grammar (the tokens it is written in, or joined by spaces), the same with a few tokens
 --- deleted, repeated, swapped or replaced, any run of tokens of the grammar's vocabulary, and any bytes. Every generator
 --- draws from a [`Fuzz.Source`], so a failing input shrinks.
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 
 local record Programs
   --- A program of the grammar, as the tokens it is written in; a token `"\n"` is a line break the grammar needs

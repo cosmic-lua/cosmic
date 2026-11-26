@@ -12,6 +12,8 @@ local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local searchable = require("build.searchable")
 local Fake = require("cosmic.fake")
+local Fs = require("cosmic.fs")
+local confine = require("build.confine")
 
 --- The temporary directory, and `nest`, which a start of `isolate` file
 --- checks for as a root of its own.
@@ -114,7 +116,7 @@ end
 local function test_tmp_is_granted_where_the_start_grants_it(tmp: string)
   skip_on_macos()
   local own = assert(Proc.executable())
-  local made = layers_of({ own, "print hi" }, { tmp = true, grants = { { path = tmp, letters = "r" } } })
+  local made = layers_of({ own, "print hi" }, { setup = { tmp = true }, grants = { { path = tmp, letters = "r" } } })
   local function written(paths: {Sandbox.Path}): boolean
     for _, grant in ipairs(paths) do
       if grant.letters == "rwc" and grant.path:find("TMPDIR", 1, true) ~= nil then return true end
@@ -122,7 +124,33 @@ local function test_tmp_is_granted_where_the_start_grants_it(tmp: string)
     return false
   end
   assert(written(made.landlock) and written(made.boot), "the directory tmp makes is not granted")
-  local rooted = layers_of({ own, "print hi" }, { isolate = { "file" }, tmp = true,
+  local rooted = layers_of({ own, "print hi" }, { isolate = { "file" }, setup = { tmp = true },
     grants = { { path = tmp, letters = "r" }, { path = "/tmp", letters = "rwxc" } } }, "/")
   assert(holds(rooted.landlock, "/tmp", "rwxc") and holds(rooted.landlock, "/proc", "r"))
+end
+
+--- A policy with as many grants as a start takes, which the start then
+--- adds its own to (the program's start files, a cosmic child's core), is
+--- refused with the count, not raised inside spawn.
+local function test_grants_past_the_most_with_the_starts_own_are_refused(tmp: string)
+  skip_on_macos()
+  local base = searchable.open(tmp)
+  local grants: mut {Sandbox.Grant} = {}
+  for i = 1, confine.unveil_max do
+    local dir = base .. "/g" .. tostring(i)
+    assert(Fs.mkdirs(dir))
+    grants[#grants + 1] = { path = dir, letters = "r" }
+  end
+  local program = assert(Fake.build(base .. "/fake", Fake.REPLY))
+  local refused, why = Child.layers({ program }, { policy = { grants = grants }, timeout_ns = Child.FOREVER })
+  assert(refused == nil and why:find("past the most a start takes, " .. tostring(confine.unveil_max), 1, true) ~= nil, why)
+  local started, failure = Child.run({ program }, { policy = { grants = grants }, timeout_ns = Child.FOREVER })
+  assert(started == nil and tostring(failure):find("past the most", 1, true) ~= nil, tostring(failure))
+  -- Under `isolate` file each grant is a bind of the root, beside its
+  -- /proc: one short of the most, with a cosmic child's core, is past it.
+  local fewer: mut {Sandbox.Grant} = {}
+  for i = 1, confine.unveil_max - 1 do fewer[i] = assert(grants[i]) end
+  local rooted, rooted_why = Child.layers({ assert(Proc.executable()), "-e", "return 0" },
+    { policy = { isolate = { "file" }, grants = fewer }, cwd = base, timeout_ns = Child.FOREVER })
+  assert(rooted == nil and rooted_why:find("past the most a start takes", 1, true) ~= nil, rooted_why)
 end

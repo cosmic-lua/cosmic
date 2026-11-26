@@ -1,4 +1,4 @@
-local Shrink = require("build.fuzz.shrink")
+local Shrink = require("cosmic.internal.fuzz_shrink")
 local support = require("build.test_support_fixture")
 
 local function scalar(value: integer, least: integer, most: integer): {Shrink.Draw}

@@ -49,10 +49,10 @@ local REFUSED <const>: {Refusal} = {
   { policy = "{ grants = { { path = \"/\", letters = \"ru\" } } }", says = "grant \"/\" has u" },
   { policy = "{ grants = { { path = \"/\", letters = \"r\", from = \"/srv\" } } }", says = "grant \"/\" has from" },
   { policy = "{ env = { \"HOME\" } }", says = "env \"HOME\"" },
-  { policy = "{ set_env = { MODE = \"x\" } }", says = "set_env \"MODE\"" },
-  { policy = "{ tmp = true }", says = "tmp is" },
+  { policy = "{ setup = { set_env = { MODE = \"x\" } } }", says = "set_env \"MODE\"" },
+  { policy = "{ setup = { tmp = true } }", says = "tmp is" },
   { policy = "{ limits = { processes = 4 } }", says = "limits.processes" },
-  { policy = "{ user = 4294967000 }", says = "user 4294967000" },
+  { policy = "{ setup = { user = 4294967000 } }", says = "user 4294967000" },
   { policy = "{ profiles = { \"nonesuch\" } }", says = "nonesuch" },
 }
 

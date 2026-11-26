@@ -58,7 +58,7 @@ local function summarize(_argv: {string}): integer
       "Operation database unavailable: no operation ran (the self-check failed first).\n"
   else
     local db = State.open(db_path)
-    local rows = assert(db:text_rows([[
+    local rows = assert(db:rows([[
       SELECT s.worker, s.run, s.attempt, s.phase,
              COALESCE(c.status, 'incomplete'),
              COALESCE(CAST(c.elapsed_ns / 1000000 AS TEXT), ''),
@@ -76,7 +76,7 @@ local function summarize(_argv: {string}): integer
     lines[#lines + 1] = "|---|---|---|---|---:|---:|---:|---:|---|\n"
     for _, row in ipairs(rows) do
       local cells: mut {string} = {}
-      for i = 1, 9 do cells[#cells + 1] = clean(row:text(i)) end
+      for i = 1, 9 do cells[#cells + 1] = clean(row:as_text(i) or "") end
       lines[#lines + 1] = "| " .. table.concat(cells, " | ") .. " |\n"
     end
     -- Each suite's row (orchestration's `record_suite`), for a reader

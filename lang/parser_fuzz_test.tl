@@ -6,11 +6,11 @@
 --- grammar's vocabulary, parse to a tree over their tokens
 --- ([`lang.parser_cover`]) whatever errors they make, and never raise or run
 --- past the instruction budget. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
---- (build/fuzz/init.tl).
+--- (cosmic/fuzz.tl).
 local Ast = require("lang.ast")
 local Cover = require("lang.parser_cover")
 local Dump = require("lang.ast_dump")
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
 local Programs = require("build.parser_programs")

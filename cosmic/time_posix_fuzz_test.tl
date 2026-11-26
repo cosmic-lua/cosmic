@@ -7,9 +7,9 @@
 --- time, and reads every local time it names back as the moment it came
 --- from. Inputs are mutations of the footers of the zones the binary
 --- carries and of strings written here, and arbitrary bytes.
---- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
+--- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (cosmic/fuzz.tl).
 
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Store = require("cosmic.store")
 local Time = require("cosmic.time")
 

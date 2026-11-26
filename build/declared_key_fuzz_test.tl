@@ -7,10 +7,10 @@
 --- made from it by one edit: a byte moved across the boundary of two
 --- fields or of an entry and the next, an entry split, joined, added or
 --- dropped, a field drawn again, or one present or not.
---- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
+--- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (cosmic/fuzz.tl).
 
 local Fs = require("cosmic.fs")
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local declared_key = require("build.declared_key")
 local key_parts = require("build.key_parts")
 local test_inputs = require("build.test_inputs")

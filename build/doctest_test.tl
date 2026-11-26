@@ -8,6 +8,7 @@
 --- modules of its closure. The tree's own guides, built with it, hold
 --- `cosmic.*` examples, file= blocks included.
 local Fs = require("cosmic.fs")
+local Sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local GrammarMode = require("build.grammar_mode")
 local importer = require("build.importer")
@@ -126,11 +127,36 @@ local function find_module(result: importer.Result, path: string): Module?
   return nil
 end
 
+--- Puts `value` in the environment `env` under `name`: a value of any type is taken as an argument declared `any`.
+local function put(env: mut {string: any}, name: string, value: any)
+  env[name] = value
+end
+
 --- Loads one compiled module's Lua (the test tail already appended,
 --- exactly the shape [`build.test`] itself loads) and returns the table
---- `require` would hand the runner.
+--- `require` would hand the runner. Its environment holds the globals
+--- the code reads (and no others, so a new one the generator reads is
+--- added here), among them a `require` that gives the capture its
+--- [`cosmic.sys`] and [`cosmic.fs`].
 local function load_module(m: Module): {string:any}
-  local chunk, load_err = load(assert(m.lua), "@" .. m.path, "t")
+  local modules: mut {string: any} = {}
+  put(modules, "cosmic.sys", Sys)
+  put(modules, "cosmic.fs", Fs)
+  local env: mut {string: any} = {}
+  put(env, "require", function(name: string): any
+    local found = modules[name]
+    assert(found ~= nil, "the module requires " .. name)
+    return found
+  end)
+  put(env, "print", print)
+  put(env, "assert", function(...: any): any...
+    return assert(...)
+  end)
+  put(env, "error", error)
+  put(env, "tostring", tostring)
+  put(env, "string", string)
+  put(env, "table", table)
+  local chunk, load_err = load(assert(m.lua), "@" .. m.path, "t", env)
   assert(chunk ~= nil, "load failed: " .. tostring(load_err))
   return chunk() as {string:any} -- checked: cast_refused
 end
@@ -262,9 +288,9 @@ local function test_a_skip_block_compiles_and_defines_nothing()
     "expected the skip's own reason in the generated source:\n" .. m.source)
 end
 
---- The shadow of `print` that every example with an output block makes is
---- the generated module's own and is dropped; an example that declares a
---- `print` of its own shadows that one, which is its author's to rename.
+--- An example calls the global `print`, whose output the generated test
+--- catches at descriptor 1; an example that declares a `print` of its own
+--- shadows the global, which is its author's to rename.
 local function test_an_example_that_redeclares_print_is_refused()
   local redeclared = doc({
     "# Fixture",
@@ -283,6 +309,5 @@ local function test_an_example_that_redeclares_print_is_refused()
   local result, trouble = compile_fixture(root)
   assert(result == nil, "an example that redeclares print was accepted")
   -- in the words of the checker that refused it
-  assert(trouble:find("shadows previous declaration of 'print' (originally declared at", 1, true) ~= nil or
-      trouble:find("variable `print` shadows the variable `print` declared at", 1, true) ~= nil, trouble)
+  assert(trouble:find("variable `print` shadows the global `print`", 1, true) ~= nil, trouble)
 end
