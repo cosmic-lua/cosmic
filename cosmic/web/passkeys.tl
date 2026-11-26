@@ -69,6 +69,7 @@
 
 local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
+local Failure = require("cosmic.failure")
 local Json = require("cosmic.json")
 local Identities = require("cosmic.web.identity")
 local Response = require("cosmic.web.response")
@@ -101,26 +102,26 @@ local record Passkeys
   type Identity = Identities.Passkey
 
   --- Where passkeys are kept: [`Web.passkey_store`] makes one in SQLite.
-  --- Each of its functions returns nil (or false) and why when the store
+  --- Each of its functions returns nil and a [`Failure`] when the store
   --- itself fails, which is a 500.
   record Store
-    --- The passkey of credential id `id`; nil and "" where none is kept.
-    find: function(Store, id: string): Webauthn.Credential?, string
+    --- The passkey of credential id `id`; false where none is kept.
+    find: function(Store, id: string): (Webauthn.Credential | false) | (nil, Failure)
     --- The user's passkeys.
-    list: function(Store, user_handle: string): {Webauthn.Credential}?, string
-    --- Keeps a new passkey: true, or false and "" where one of its id is
-    --- kept already, for any user.
-    add: function(Store, credential: Webauthn.Credential): boolean, string
+    list: function(Store, user_handle: string): ({Webauthn.Credential}) | (nil, Failure)
+    --- Keeps a new passkey: true, or false where one of its id is kept
+    --- already, for any user.
+    add: function(Store, credential: Webauthn.Credential): (boolean) | (nil, Failure)
     --- Keeps what a login changed of a passkey: its `sign_count` and
-    --- `backed_up`. False and "" where it is no longer kept.
-    update: function(Store, credential: Webauthn.Credential): boolean, string
+    --- `backed_up`. False where it is no longer kept.
+    update: function(Store, credential: Webauthn.Credential): (boolean) | (nil, Failure)
     --- Removes the passkey of credential id `id`: true where one was kept.
     --- The sessions it logged in are logged in no more.
-    remove: function(Store, id: string): boolean, string
+    remove: function(Store, id: string): (boolean) | (nil, Failure)
     --- Notes that `challenge` is used, until the time `lapses` (seconds since the
     --- epoch), and forgets the ones noted until `now` or before: true
-    --- the first time, false and "" for one noted already.
-    spend: function(Store, challenge: string, lapses: integer, now: integer): boolean, string
+    --- the first time, false for one noted already.
+    spend: function(Store, challenge: string, lapses: integer, now: integer): (boolean) | (nil, Failure)
   end
 
   --- What [`Web.passkey_store`] takes; every field is optional.
@@ -325,9 +326,9 @@ function Passkeys.middleware(opts: Passkeys.Options): Types.Middleware
   local now = opts.now or function(): integer return Clock.now_ns() // 1000000000 end
   local script = SCRIPT:gsub("PREFIX", function(): string return (assert(Json.encode(prefix))) end)
 
-  local function failed(req: Types.Request, why: string): Types.Response
+  local function failed(req: Types.Request, why: Failure): Types.Response
     local sink = req.app.spec.sink
-    if sink ~= nil then sink:line("passkeys: " .. why) end
+    if sink ~= nil then sink:line("passkeys: " .. tostring(why)) end
     return Response.problem(500, "the passkeys cannot be read")
   end
 
@@ -398,8 +399,8 @@ function Passkeys.middleware(opts: Passkeys.Options): Types.Middleware
   --- else the response that refuses the request.
   local function spent(req: Types.Request, took: Taken): Types.Response?
     local fresh, why = store:spend(took.challenge, took.lapses, took.taken_at)
+    if fresh == nil then return failed(req, why) end
     if not fresh then
-      if why ~= "" then return failed(req, why) end
       return Response.problem(400, "this challenge is answered already")
     end
     -- Lapsed while the store was asked, the challenge may have been
@@ -459,8 +460,8 @@ function Passkeys.middleware(opts: Passkeys.Options): Types.Middleware
     local refused = spent(req, took)
     if refused ~= nil then return refused end
     local added, wrong = store:add(credential)
+    if added == nil then return failed(req, wrong) end
     if not added then
-      if wrong ~= "" then return failed(req, wrong) end
       return Response.problem(409, "this passkey is registered already")
     end
     log_in(session, credential, credential.user_verified)
@@ -482,8 +483,8 @@ function Passkeys.middleware(opts: Passkeys.Options): Types.Middleware
     local id, bad = Webauthn.credential_id(answer)
     if id == nil then return Response.problem(400, bad) end
     local credential, why = store:find(id)
-    if credential == nil then
-      if why ~= "" then return failed(req, why) end
+    if credential == nil then return failed(req, why) end
+    if credential == false then
       return Response.problem(401, "this passkey is not registered here")
     end
     local assertion, refused = Webauthn.verify_authentication(answer, credential, expected(took.challenge))
@@ -493,8 +494,8 @@ function Passkeys.middleware(opts: Passkeys.Options): Types.Middleware
     credential.sign_count = assertion.sign_count
     credential.backed_up = assertion.backed_up
     local updated, wrong = store:update(credential)
+    if updated == nil then return failed(req, wrong) end
     if not updated then
-      if wrong ~= "" then return failed(req, wrong) end
       return Response.problem(401, "this passkey is not registered here")
     end
     log_in(session, credential, assertion.user_verified)
@@ -552,8 +553,8 @@ function Passkeys.middleware(opts: Passkeys.Options): Types.Middleware
     -- A passkey removed from the store logs its sessions out, the
     -- copies of a signed cookie among them.
     local credential, why = store:find(identity.credential_id)
-    if credential == nil and why ~= "" then return failed(req, why) end
-    if credential ~= nil and credential.user_handle == identity.user_handle then
+    if credential == nil then return failed(req, why) end
+    if credential ~= false and credential.user_handle == identity.user_handle then
       req:set(IDENTITY, identity)
     end
     return nil
@@ -607,14 +608,10 @@ end
 --- A [`Passkeys.Store`] in the SQLite database `db`: a table of its own,
 --- made when it is missing, a row a passkey keyed by its credential id,
 --- with an index of the user handle, and beside it a table of the
---- challenges used (`<table>_spent`) until they lapse. Nil and why where the table cannot
+--- challenges used (`<table>_spent`) until they lapse. Nil and a [`Failure`] where the table cannot
 --- be made. Like [`cosmic.web.session.sqlite`], a query blocks the
 --- server's thread; each here is one row or one user's.
---- @param db Sqlite.Handle The database, writable
---- @param opts Passkeys.StoreOptions | nil What it takes
---- @return Passkeys.Store | nil The store
---- @return string Why none, or ""
-function Passkeys.sqlite_store(db: Sqlite.Handle, opts?: Passkeys.StoreOptions): Passkeys.Store?, string
+function Passkeys.sqlite_store(db: Sqlite.Handle, opts?: Passkeys.StoreOptions): (Passkeys.Store) | (nil, Failure)
   local name = (opts and opts.table) or "web_passkeys"
   if not name:match("^[%a_][%w_]*$") then
     error("passkeys: the table's name must be a plain identifier", 2)
@@ -629,51 +626,53 @@ function Passkeys.sqlite_store(db: Sqlite.Handle, opts?: Passkeys.StoreOptions):
     CREATE TABLE IF NOT EXISTS %s_spent (challenge BLOB PRIMARY KEY, lapses INTEGER NOT NULL);
     CREATE INDEX IF NOT EXISTS %s_spent_lapses ON %s_spent (lapses);
   ]]):format(name, name, name, name, name, name))
-  if not made then return nil, "passkeys: " .. tostring(why) end
+  if not made then return nil, Failure.within(why, "passkeys") end
   local store: Passkeys.Store = {
-    find = function(_: Passkeys.Store, id: string): Webauthn.Credential?, string
+    find = function(_: Passkeys.Store, id: string): (Webauthn.Credential | false) | (nil, Failure)
       local found, wrong = db:map(("SELECT %s FROM %s WHERE id = ?1"):format(COLUMNS, name),
         { { blob = id } }, credential_of)
-      if found == nil then return nil, "passkeys: " .. tostring(wrong) end
-      return found[1], ""
+      if found == nil then return nil, Failure.within(wrong, "passkeys") end
+      local credential = found[1]
+      if credential == nil then return false end
+      return credential
     end,
-    list = function(_: Passkeys.Store, user_handle: string): {Webauthn.Credential}?, string
+    list = function(_: Passkeys.Store, user_handle: string): ({Webauthn.Credential}) | (nil, Failure)
       local found, wrong = db:map(("SELECT %s FROM %s WHERE user_handle = ?1 ORDER BY rowid"):format(
         COLUMNS, name), { { blob = user_handle } }, credential_of)
-      if found == nil then return nil, "passkeys: " .. tostring(wrong) end
-      return found, ""
+      if found == nil then return nil, Failure.within(wrong, "passkeys") end
+      return found
     end,
-    add = function(_: Passkeys.Store, c: Webauthn.Credential): boolean, string
+    add = function(_: Passkeys.Store, c: Webauthn.Credential): (boolean) | (nil, Failure)
       local ok, wrong = db:run(("INSERT INTO %s (%s) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10) " ..
         "ON CONFLICT (id) DO NOTHING"):format(name, COLUMNS), {
           { blob = c.id }, { blob = c.user_handle }, { blob = c.public_key }, { integer = c.alg },
           { integer = c.sign_count }, flag(c.backup_eligible), flag(c.backed_up),
           { text = assert(Json.encode(Json.array(c.transports))) }, flag(c.user_verified), { blob = c.aaguid },
         })
-      if not ok then return false, "passkeys: " .. tostring(wrong) end
-      return db:changes() == 1, ""
+      if not ok then return nil, Failure.within(wrong, "passkeys") end
+      return db:changes() == 1
     end,
-    update = function(_: Passkeys.Store, c: Webauthn.Credential): boolean, string
+    update = function(_: Passkeys.Store, c: Webauthn.Credential): (boolean) | (nil, Failure)
       local ok, wrong = db:run(("UPDATE %s SET sign_count = ?2, backed_up = ?3 WHERE id = ?1"):format(name),
         { { blob = c.id }, { integer = c.sign_count }, flag(c.backed_up) })
-      if not ok then return false, "passkeys: " .. tostring(wrong) end
-      return db:changes() == 1, ""
+      if not ok then return nil, Failure.within(wrong, "passkeys") end
+      return db:changes() == 1
     end,
-    spend = function(_: Passkeys.Store, challenge: string, lapses: integer, now: integer): boolean, string
+    spend = function(_: Passkeys.Store, challenge: string, lapses: integer, now: integer): (boolean) | (nil, Failure)
       local swept, unswept = db:run(("DELETE FROM %s_spent WHERE lapses <= ?1"):format(name), { { integer = now } })
-      if not swept then return false, "passkeys: " .. tostring(unswept) end
+      if not swept then return nil, Failure.within(unswept, "passkeys") end
       local ok, wrong = db:run(("INSERT INTO %s_spent (challenge, lapses) VALUES (?1, ?2) " ..
         "ON CONFLICT (challenge) DO NOTHING"):format(name), { { blob = challenge }, { integer = lapses } })
-      if not ok then return false, "passkeys: " .. tostring(wrong) end
-      return db:changes() == 1, ""
+      if not ok then return nil, Failure.within(wrong, "passkeys") end
+      return db:changes() == 1
     end,
-    remove = function(_: Passkeys.Store, id: string): boolean, string
+    remove = function(_: Passkeys.Store, id: string): (boolean) | (nil, Failure)
       local ok, wrong = db:run(("DELETE FROM %s WHERE id = ?1"):format(name), { { blob = id } })
-      if not ok then return false, "passkeys: " .. tostring(wrong) end
-      return db:changes() == 1, ""
+      if not ok then return nil, Failure.within(wrong, "passkeys") end
+      return db:changes() == 1
     end,
   }
-  return store, ""
+  return store
 end
 
 return Passkeys
