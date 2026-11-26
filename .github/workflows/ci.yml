@@ -505,24 +505,20 @@
         # To a path of this commit's and leg's own, so a test that turns
         # on the tree's path fails some run (driver.tl place-tree). After
         # every hashFiles, which reads the checkout.
-        # TODO: move it on the macOS leg alone once "check the pinned CI
-        # driver" runs cosmic_ci's tests sandboxed: the tree's own suites
-        # here already see it at /tree wherever it is (COSMIC_TEST_SANDBOX=1),
-        # and the pinned release sandboxes its workers by default, knows
-        # `system` and takes `/parent/` grants (orchestration_test
-        # declares its own), but a sandboxed `cosmic test
-        # cosmic_ci` from ci/ still fails tests, for the host programs they
-        # start and the files they read without declaring them (`system`
-        # profiles, grants), which that run lists; the macOS leg has no
-        # sandbox at all.
+        # TODO: move it on the macOS leg alone once no Linux step runs a
+        # test unsandboxed: the tree's own suites and "check the pinned CI
+        # driver" see it at /tree wherever it is (COSMIC_TEST_SANDBOX=1),
+        # but the unsandboxed fixtures (orchestration.tl's
+        # `Orchestration.fixture`) see it at its path; the macOS leg has
+        # no sandbox at all.
         {
           name: "move the tree to a path of its own",
           run: "cosmic-driver cosmic_ci/driver.tl place-tree",
         },
         # Every test, sandboxed on Linux (each module declares the host
-        # programs and files it reads), and unsandboxed on macOS, which has
-        # no sandbox. Every leg
-        # of the daily, weekly and a manual run; on a pull request, the
+        # programs and files it reads), and unsandboxed on macOS, which
+        # has no sandbox. Every leg of the daily, weekly and a manual run;
+        # on a pull request, the
         # `driver` job's, and in the queue, that job's and the macOS
         # leg's, where the change touches ci/ or .github/ or its paths are
         # not known (changed_paths.tl's `driver=skip`); never on main's push, whose
