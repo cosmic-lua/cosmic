@@ -12,7 +12,8 @@ local seed <const> = "\xa6\x01\x02\x20\x58\x20" .. ("\x11"):rep(32) ..
   "\x1b\xff\xff\xff\xff\xff\xff\xff\xff\xbf\x61\x61\xf6\xff"
 
 local function test_decode_is_total_and_reads_back(tmp: string)
-  assert(Cbor.decode(seed) ~= nil)
+  local seeded, seed_why = Cbor.decode(seed)
+  assert(seeded ~= nil, tostring(seed_why))
   Fuzz.run({
     name = "decode a changed item",
     dir = tmp,
@@ -23,7 +24,7 @@ local function test_decode_is_total_and_reads_back(tmp: string)
     end,
     starved = function(input: string): string
       local item, why = Cbor.decode(input)
-      if item == nil then return "refused: " .. why end
+      if item == nil then return "refused: " .. tostring(why) end
       local written = Cbor.encode(item)
       local _, again_why = Cbor.decode(written)
       return (written:gsub("\n", "\\n")) .. "\n" .. tostring(again_why)
@@ -31,13 +32,15 @@ local function test_decode_is_total_and_reads_back(tmp: string)
     check = function(input: string): boolean, string
       local item, why = Cbor.decode(input)
       if item == nil then
-        if why == "" then return false, "a refusal with no reason" end
+        if tostring(why) == "" then return false, "a refusal with no reason" end
         return true, ""
       end
       Fuzz.label("decoded")
       local written = Cbor.encode(item)
       local again, trouble = Cbor.decode(written)
-      if again == nil then return false, "what was written does not read back: " .. trouble end
+      if again == nil then
+        return false, "what was written does not read back: " .. tostring(trouble)
+      end
       if Cbor.encode(again) ~= written then
         return false, "what was written reads back as something else"
       end

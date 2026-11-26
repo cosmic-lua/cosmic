@@ -4,6 +4,7 @@ local Ast = require("lang.ast")
 local Types = require("lang.types")
 local Context = require("lang.check.context")
 local Naming = require("lang.check.naming")
+local ValueLists = require("lang.check.values")
 local Refusals = require("lang.check.refusals")
 local Lookup = require("lang.check.members")
 local type Type = Types.Type
@@ -98,9 +99,7 @@ end
 --- Whether no value of `t` is nil ([`Types.present`]), where a type parameter of the code around is never nil once a
 --- bound bounds it: each bound is below `Some`, which holds no `nil`.
 function Operands.present(ctx: Ctx, t: Type): boolean
-  return Types.present_where(t, function(v: Types.Var): boolean
-    return ctx.judge:subtype(v, ctx.store:atom("Some"))
-  end)
+  return ValueLists.present(ctx, t)
 end
 
 --- Whether `t` is a type parameter bounded by `bound` (`Ordered` or `Numeric`), or by one below it.

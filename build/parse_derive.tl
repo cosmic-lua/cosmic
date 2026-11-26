@@ -73,7 +73,7 @@ local function declared(entries: {{string}}, own: boolean): string
 end
 
 function ParseDerive.entries(db: Sqlite.Handle, own: boolean, refusal?: ParseDerive.Refusal): ParseDerive.Staged?, string
-  local rows, trouble = db:text_rows(
+  local rows, trouble = db:rows(
     "SELECT file, path, kind, origin, source FROM inputs WHERE kind <> 'vendor' ORDER BY file")
   if rows == nil then
     return nil, tostring(trouble)

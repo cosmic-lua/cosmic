@@ -57,7 +57,7 @@ function Example.pad()
   local padded = assert(Bigint.pad(public, #prime))
   print(#padded, Codec.hex(padded:sub(-3)))
   local narrow, why = Bigint.pad(public, 1)
-  print(narrow, why)
+  print(narrow, tostring(why))
   assert(public == "\4\0" and #padded == 256 and narrow == nil)
 end
 
@@ -72,7 +72,7 @@ function Example.sub()
   print(product:byte(), difference:byte())
   assert(product == "\87" and difference == "\9")
   local negative, why = Bigint.sub(a, b)
-  assert(negative == nil and why == "bigint: the difference is negative")
+  assert(negative == nil and tostring(why) == "bigint: the difference is negative")
 end
 
 --- The same arithmetic on secrets: the modulus is the last argument,

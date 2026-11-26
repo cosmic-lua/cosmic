@@ -11,8 +11,9 @@
 ---
 --- So this module is one of the roots of the compiler's identity
 --- ([`build.identity`]'s `compiler_roots`) and of the analyzer's
---- ([`build.importer`]'s `analyzer_modules`). The rest of [`build.work`],
---- which only stages and keeps records, is in neither.
+--- ([`build.importer`]'s `analyzer_modules`). [`build.work_schema`], which the
+--- modules of both read their handles by, is in both too; the rest of
+--- [`build.work`], which only stages and keeps records, is in neither.
 --- This module requires nothing, since an edit to what it required
 --- would move both identities.
 ---

@@ -7,7 +7,7 @@ Test.policy{ store_text = true }
 
 local Fs = require("cosmic.fs")
 
---- The modules are a line each, the start of what each is for, but the agent's own and tooling's.
+--- The modules are a line each, the first clause of what each is for, but the agent's own and tooling's.
 local function test_the_modules_a_snippet_may_require_are_listed_short()
   local modules = Host.modules({
     { module = "cosmic.fs", text = "Files and\n directories.", closed = "" },
@@ -17,14 +17,19 @@ local function test_the_modules_a_snippet_may_require_are_listed_short()
     { module = "cosmic.bare", text = "", closed = "" },
     { module = "cosmic.comma", text = string.rep("a", 80) .. " b, ccccccccccc", closed = "" },
     { module = "cosmic.wide", text = string.rep("\u{e9}", 60), closed = "" },
+    { module = "cosmic.csv", text = "CSV and TSV text as records and rows: an RFC 4180 reader. More.", closed = "" },
+    { module = "cosmic.key", text = "Keys: keys that sign and keys that check -- and more.", closed = "" },
   })
   local lines: mut {string} = {}
   for line in modules:gmatch("[^\n]+") do lines[#lines + 1] = line end
-  assert(#lines == 5 and lines[1] == "cosmic.fs: Files and directories." and lines[3] == "cosmic.bare", modules)
-  assert(lines[4] == "cosmic.comma: " .. string.rep("a", 80) .. " b...", modules)
+  assert(#lines == 7 and lines[1] == "cosmic.fs: Files and directories" and lines[3] == "cosmic.bare", modules)
+  assert(lines[4] == "cosmic.comma: " .. string.rep("a", 58) .. "...", modules)
   -- With no space to cut at, the cut ends at a character's end.
-  assert(lines[5] == "cosmic.wide: " .. string.rep("\u{e9}", 44) .. "...", modules)
-  assert(#lines[2] <= 90 + #"cosmic.long: " and lines[2]:sub(-7) == "word...", modules)
+  assert(lines[5] == "cosmic.wide: " .. string.rep("\u{e9}", 29) .. "...", modules)
+  assert(#lines[2] <= 60 + #"cosmic.long: " and lines[2]:sub(-7) == "word...", modules)
+  -- The first clause past its first few words: a short head keeps what follows it.
+  assert(lines[6] == "cosmic.csv: CSV and TSV text as records and rows", modules)
+  assert(lines[7] == "cosmic.key: Keys: keys that sign and keys that check", modules)
 end
 
 --- Where the docs cannot be read, or nothing is asked, docs say so, as a string to print, and raise nothing.

@@ -1,4 +1,4 @@
---- [`Child.start`]'s `policy` with the `nest` promise (cosmic/child.tl): a
+--- [`Child.start`]'s `policy` with the `nest` promise (cosmic/child/init.tl): a
 --- program that builds a sandbox of its own, in a root of its own, held
 --- by that root instead of Landlock, which the kernel would have refuse
 --- every mount. The kernel's own verdict on live children: a fake
