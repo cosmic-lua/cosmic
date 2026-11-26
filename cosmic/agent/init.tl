@@ -535,7 +535,7 @@ local function joined(layers?: {Sandbox.Policy}): Sandbox.Policy?, string
   if #layers == 0 then return nil, "the sandbox has no layer: give nil for none" end
   if #layers == 1 then return layers[1], "" end
   local policy, why = Sandbox.intersect(table.unpack(layers))
-  if policy == nil then return nil, "the sandbox's layers do not join: " .. why end
+  if policy == nil then return nil, "the sandbox's layers do not join: " .. tostring(why) end
   return policy, ""
 end
 

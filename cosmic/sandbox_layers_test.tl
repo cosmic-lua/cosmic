@@ -63,16 +63,16 @@ end
 local function test_what_a_restriction_refuses_is_refused()
   if Sandbox.on_macos() then
     local held, seatbelt = Sandbox.layers({})
-    assert(held == nil and seatbelt:find("Seatbelt", 1, true) ~= nil, seatbelt)
+    assert(held == nil and tostring(seatbelt):find("Seatbelt", 1, true) ~= nil, seatbelt)
     return
   end
   local none, why = Sandbox.layers({ grants = { { profile = "nosuch" } } })
-  assert(none == nil and why:find("^sandbox: ") ~= nil and why:find("nosuch", 1, true) ~= nil, why)
+  assert(none == nil and tostring(why):find("^sandbox: ") ~= nil and tostring(why):find("nosuch", 1, true) ~= nil, why)
   local child_only: {Sandbox.Policy} = { { grants = { { connect = "api.github.com:443" } } },
     { isolate = { "proc" } }, { grants = { { loopback = "127.0.0.2" } } }, { setup = { tmp = true } },
     { grants = { { path = "/run/app.sock", letters = "u" } } } }
   for _, policy in ipairs(child_only) do
     local refused, refusal = Sandbox.layers(policy)
-    assert(refused == nil and refusal:find("^sandbox: restrict: ") ~= nil, refusal)
+    assert(refused == nil and tostring(refusal):find("^sandbox: restrict: ") ~= nil, refusal)
   end
 end

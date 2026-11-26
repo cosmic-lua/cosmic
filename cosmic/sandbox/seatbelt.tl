@@ -7,6 +7,7 @@
 --- [`Sandbox.restrict`] to the running process.
 --- @public
 
+local Failure = require("cosmic.failure")
 local process = require("cosmic.internal.process")
 local rules = require("cosmic.sandbox.policy")
 local sys = require("cosmic.sys")
@@ -90,8 +91,8 @@ end
 --- makes the directory, so its path is known only after the profile.
 local TMP_PARAMETER <const> = "TMP"
 
-local function refuse(why: string): nil, string
-  return nil, "seatbelt: " .. why
+local function refuse(why: string): nil, Failure
+  return nil, Failure.new("seatbelt: " .. why)
 end
 
 --- An absolute, normalized path, not SBPL text. Quotes, parentheses and
@@ -175,7 +176,7 @@ end
 --- the parameter [`Seatbelt.Profile`]'s `tmp` names, which the caller sets.
 --- A policy's `connect` is reached through the network relay alone, at
 --- [`Seatbelt.Options.relay_port`] of the host's loopback.
---- Nil and why for an invalid policy, missing path or unsupported field,
+--- Nil and a Failure for an invalid policy, missing path or unsupported field,
 --- or for more parameters than a start takes (`SEATBELT_PARAMETER_MAX`).
 ---
 --- The returned rlimits must be applied separately. This is preparation
@@ -183,10 +184,10 @@ end
 --- process of this program that executes the child's program last (a
 --- cosmic child's core applies its profile itself at boot), and
 --- [`Sandbox.restrict`] in the process that calls it.
-function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Seatbelt.Profile?, string
+function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): (Seatbelt.Profile) | (nil, Failure)
   local setup = policy.setup or {}
   local valid, why = rules.check(policy)
-  if not valid then return nil, why end
+  if not valid then return nil, Failure.new(why) end
   local trouble = unsupported(policy)
   if trouble ~= "" then return refuse(trouble) end
   local relay_port = options and options.relay_port
@@ -349,7 +350,7 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
         tostring(process.SEATBELT_PARAMETER_MAX) .. "; grant a directory above them instead")
   end
   return { text = table.concat(text, "\n") .. "\n", parameters = parameters, rlimits = rules.rlimits(merged.limits),
-    tmp = tmp }, ""
+    tmp = tmp }
 end
 
 --- Why a program of `merged` cannot start as the policy says where nothing
@@ -403,9 +404,9 @@ end
 --- relative grant is from `base`, where given. `core` and `database` are the file a start of
 --- this program runs and the one it runs on, resolved like a grant.
 --- `terminal` is the pty slave's path, resolved through links for
---- [`Seatbelt.Options.terminal`]. Nil and why where a grant's path is not there.
+--- [`Seatbelt.Options.terminal`]. Nil and a Failure where a grant's path is not there.
 function Seatbelt.resolve(policy: rules.Policy, base?: string, core?: string, database?: string,
-                          terminal?: string): Seatbelt.Options?, string
+                          terminal?: string): (Seatbelt.Options) | (nil, Failure)
   local setup = policy.setup or {}
   local paths: mut {string:Seatbelt.Path} = {}
   -- "" where `at` was resolved, or why not.
@@ -450,7 +451,7 @@ function Seatbelt.resolve(policy: rules.Policy, base?: string, core?: string, da
     real_terminal = real
   end
   return { paths = paths, core = core, database = database,
-    terminal = real_terminal }, ""
+    terminal = real_terminal }
 end
 
 return Seatbelt

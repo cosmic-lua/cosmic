@@ -138,7 +138,7 @@ local function test_a_sandbox_policy_merges_what_it_declares()
     assert(merged_limits ~= nil and merged_limits.open_files == 10 and merged_limits.processes == 5 and
         merged_limits.cpu_seconds == 3)
     local none, why = Sandbox.union({ limits = { open_files = 10 } }, { limits = { open_files = 11 } })
-    assert(none == nil and why:find("limits.open_files", 1, true) ~= nil, tostring(why))
+    assert(none == nil and tostring(why):find("limits.open_files", 1, true) ~= nil, tostring(why))
     local _, _ = Sandbox.union({}, {})
   end)
 end

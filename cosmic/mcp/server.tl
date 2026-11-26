@@ -2418,7 +2418,7 @@ function McpServer.command(spec: McpServer.CommandSpec): McpServer.ToolSpec
   end
   -- Merged now, and so copied: what runs is the policy as it was given, and its profiles' paths as they are now.
   local merged, why = Sandbox.union(spec.policy)
-  if merged == nil then refuse("command: " .. name .. ": " .. why) end
+  if merged == nil then refuse("command: " .. name .. ": " .. tostring(why)) end
   local checked, check_why = Sandbox.check(merged)
   if not checked then refuse("command: " .. name .. ": " .. check_why) end
   for _, grant in ipairs(Sandbox.paths(merged)) do
