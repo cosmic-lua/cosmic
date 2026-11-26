@@ -2,6 +2,7 @@
 --- Let's Encrypt for a certificate, proving control of each name by a
 --- challenge, and returns the certificate chain as PEM.
 ---
+---     local Failure = require("cosmic.failure")
 ---     local served: {string: string} = {} -- what a web server on port 80 serves
 ---     local account = Key.generate("p256")
 ---     local client = Acme.client({ directory = Acme.LETS_ENCRYPT_STAGING, key = account })
@@ -11,7 +12,7 @@
 ---       challenge = "http-01",
 ---       present = function(c: Acme.Challenge): (true) | (false, Failure)
 ---         served[c.path] = c.key_authorization
----         return true, ""
+---         return true
 ---       end,
 ---     }))
 ---
@@ -41,8 +42,8 @@
 --- key for the certificate. A key's `pem` is its secret as a web server
 --- reads one, and [`Key.read`] reads it back, or a key OpenSSL wrote.
 ---
---- Every fallible function returns `value, ""` or `nil, why`, the why
---- opening `acme: `. A problem document the server sends (RFC 8555
+--- Every fallible function returns a value or `nil` and a `Failure`,
+--- whose text opens `acme: `. A problem document the server sends (RFC 8555
 --- section 6.7) is named in the why by its type and detail. A request
 --- the server refuses for a stale nonce (`badNonce`) is sent again once
 --- with the fresh nonce it handed back, as section 6.5 asks.
@@ -1092,7 +1093,7 @@ local function account_key(path: string): (Key.Secret) | (nil, Failure)
   local fd, refused, number = sys.open(path, sys.O_WRONLY | sys.O_CREAT | sys.O_EXCL, OWNER_FILE)
   if fd == nil and number == sys.EEXIST then
     local text, unread = Fs.read(path)
-    if text == nil then return nil, Failure.within(unread, "acme") end
+    if text == nil then return nil, Failure.new("acme: " .. tostring(unread)) end
     local kept, bad = Key.read(text)
     if kept == nil then return nil, Failure.within(bad, "acme: " .. path) end
     if JWS_ALGS[kept.alg] == nil then
@@ -1108,8 +1109,8 @@ local function account_key(path: string): (Key.Secret) | (nil, Failure)
   local closed, unclosed = Fs.close(fd)
   if not wrote or not closed then
     local _, _ = Fs.remove(path)
-    local cause = if wrote then unclosed else unwritten end
-    return nil, Failure.within(assert(cause, "a failed write or close says why"), "acme: " .. path)
+    local cause = assert(if wrote then unclosed else unwritten end, "a failed write or close says why")
+    return nil, Failure.new("acme: " .. path .. ": " .. tostring(cause))
   end
   return key
 end
@@ -1162,7 +1163,7 @@ function Acme.auto(opts: Acme.AutoOptions): Acme.Auto
 
   local function issued(): (Tls.Pair) | (nil, Failure)
     local made, unmade = Fs.mkdirs(dir, OWNER_DIR)
-    if not made then return nil, Failure.within(unmade, "acme") end
+    if not made then return nil, Failure.new("acme: " .. tostring(unmade)) end
     local session = client
     if session == nil then
       local key, why = account_key(dir .. "/account.pem")
@@ -1199,7 +1200,7 @@ function Acme.auto(opts: Acme.AutoOptions): Acme.Auto
     -- One file, written whole, so a reader never sees a chain with
     -- another's key.
     local wrote, unwritten = Fs.write(dir .. "/certificate.pem", chain .. pair.key, OWNER_FILE)
-    if not wrote then return nil, Failure.within(unwritten, "acme") end
+    if not wrote then return nil, Failure.new("acme: " .. tostring(unwritten)) end
     return pair
   end
 
