@@ -1175,8 +1175,8 @@ end
 --- What of this process's environment says how it was started and
 --- nothing a test is given: the marker a tool that rebuilt itself sets
 --- for the process it re-enters, with the path of the tool it entered
---- ([`build.reboot`]), which a run started
---- after a rebuild holds and one started fresh does not, and the
+--- ([`build.reboot`]), which a run started after a rebuild holds and one
+--- started fresh does not, and the
 --- directory the invoking shell was in before its last `cd`, and the
 --- command it last ran (`_`, which a shell sets to the program it
 --- starts: /usr/bin/timeout for `timeout 30 cosmic test`). Kept, each

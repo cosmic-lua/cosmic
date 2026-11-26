@@ -256,15 +256,19 @@ local function same_tool(a: string, b: string): boolean
   return real_a ~= nil and real_a == real_b
 end
 
---- The `marker` that `environment` holds for `running`, the path of the
---- tool reading it: nil where it holds none, or where `marker_tool` names
---- another tool. Where `running` is unknown (nil), the `marker` holds.
-local function stage_of(environment: {string:string}, running?: string): string?
-  local stage = environment[marker]
+--- `stage`, the `marker` a process holds, where it holds for `running`,
+--- the path of the tool reading it: nil where `tool`, the `marker_tool`
+--- beside it, names another tool. Where `running` or `tool` is unknown
+--- (nil), it holds.
+local function holding(stage?: string, tool?: string, running?: string): string?
   if stage == nil then return nil end
-  local tool = environment[marker_tool]
   if tool ~= nil and running ~= nil and not same_tool(tool, running) then return nil end
   return stage
+end
+
+--- The `marker` that `environment` holds for `running` ([`holding`]).
+local function stage_of(environment: {string:string}, running?: string): string?
+  return holding(environment[marker], environment[marker_tool], running)
 end
 
 --- The `marker` this process runs under, as `seen` ([`reboot.Seen`]) has it
@@ -277,11 +281,8 @@ local function entered_by(seen?: reboot.Seen): string?
   if released then return nil end
   local stage = sys.getenv(marker)
   if stage == nil then return nil end
-  local found: mut {string:string} = { [marker] = stage }
-  local tool = sys.getenv(marker_tool)
-  if tool ~= nil then found[marker_tool] = tool end
   local running, _ = Proc.executable()
-  return stage_of(found, running)
+  return holding(stage, sys.getenv(marker_tool), running)
 end
 
 --- Whether a reboot entered this process: it runs the tool a rebuild or
