@@ -39,14 +39,14 @@ local record Types
     --- The index of the database that covers each module: the first that holds it.
     owners: {string: integer}
     --- How many places refer to a module/symbol pair, keyed by
-    --- [`use_key`] -- computed on demand, once per command, by
-    --- [`effective_counts`], and cached here so several entries or
+    --- `use_key` in [`cosmic.doc.usage`] -- computed on demand, once per command, by
+    --- [`cosmic.doc.usage.effective_counts`], and cached here so several entries or
     --- renders naming the same symbol query `uses` only once.
     use_counts: mut {string: integer}
     --- How many links name a module/symbol pair, as `use_counts`.
     link_counts: mut {string: integer}
     --- The record each module's value is typed as (`""` for none), by
-    --- module, as [`value_record`] reads it, cached as `use_counts` is.
+    --- module, as [`cosmic.doc.usage.value_record`] reads it, cached as `use_counts` is.
     value_records: mut {string: string}
     --- The modules each database records as public, by the database's
     --- index ([`symbols.public_modules`]), cached as `use_counts` is.
@@ -67,7 +67,7 @@ local record Types
   end
 
   --- One worked example, matched to a symbol by content rather than by
-  --- name -- see [`examples_for`].
+  --- name -- see [`cosmic.doc.examples.examples_for`].
   record Example
     --- The example function's name.
     name: string
@@ -105,7 +105,7 @@ local record Types
     mut uses: integer
     --- How many links in their comments name it (`links`).
     mut links: integer
-    --- How many worked examples match it -- see [`examples_for`]. A
+    --- How many worked examples match it -- see [`cosmic.doc.examples.examples_for`]. A
     --- listing count, not the examples themselves: `render` fetches
     --- those separately, only for the one entry it is showing.
     examples: integer
@@ -118,7 +118,7 @@ local record Types
     --- Whether the query names its entries, which a search's entries only relate to.
     exact: boolean
     --- How many entries, from the first, are named by the query; any
-    --- after them stand in for a raw binding it named (see [`stand_ins`]).
+    --- after them stand in for a raw binding it named (see [`cosmic.doc.search.stand_ins`]).
     named: integer
     --- Whether no entry carries every word of the query, and these carry
     --- some of them (see `closest`).
@@ -127,7 +127,7 @@ local record Types
     --- nearest word one does; nil where the query was looked up as given.
     mut respelled?: string
     --- The verb `cosmic <query>` when the query names a library module of
-    --- the same name: [`page`] ends the module's entries with a line
+    --- the same name: `page` in [`cosmic.doc`] ends the module's entries with a line
     --- pointing to it, and it is not one of the entries. Nil otherwise.
     mut verb?: Entry
     --- How many entries, from the first, are the modules the query names;
