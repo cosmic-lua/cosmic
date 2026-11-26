@@ -702,12 +702,12 @@ COSMIC_SYSCALL(clock_gettime, 1);
 /*
  * --- Opens a span of the profile COSMIC_PROFILE takes: until it closes, each sample stands under it, and its close adds its wall and CPU time to its total. A span opened while another is open stands under that one.
  * ---@param name string the span's name
- * ---@return integer token what `profile_span_close` takes: 0 where no profile is taken
+ * ---@return integer token what `profile_span_close` takes, a number no other span of the process gets: 0 where no profile is taken or 32 spans are open
  */
 COSMIC_SYSCALL(profile_span_open, 1);
 
 /*
- * --- Closes the span of the profile that `token` names, and every span opened after it that is open still. A token of 0 closes nothing.
+ * --- Closes the span of the profile that `token` names, and every span opened after it that is open still. A token of 0, or of a span closed already, closes nothing.
  * ---@param token integer what `profile_span_open` answered
  * ---@return boolean closed whether a span closed
  */

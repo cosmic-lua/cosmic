@@ -79,6 +79,9 @@ struct name {
  * opened. */
 struct open_span {
   uint32_t id;
+  /* What `profile_span_open` answered for it: a number no other span
+   * of this process gets, so a stale token closes nothing. */
+  lua_Integer token;
   int64_t wall_ns;
   int64_t cpu_ns;
 };
@@ -96,6 +99,11 @@ struct span_total {
 static struct open_span open_spans[SPAN_DEPTH];
 /* How many spans are open, those past SPAN_DEPTH included. */
 static int open_depth;
+/* The last token a span was given. */
+static lua_Integer last_token;
+/* How many of the open spans a fork's child found open: its samples
+ * stand under them, but their totals are the parent's to write. */
+static int inherited_depth;
 static struct span_total *span_totals;
 
 static struct text *texts;
@@ -413,8 +421,9 @@ static void total_span (const struct open_span *span, uint32_t depth) {
 static void close_spans (int depth) {
   while (open_depth > depth && open_depth > 0) {
     open_depth--;
-    if (open_depth < SPAN_DEPTH) total_span(&open_spans[open_depth], (uint32_t)open_depth + 1);
+    if (open_depth >= inherited_depth) total_span(&open_spans[open_depth], (uint32_t)open_depth + 1);
   }
+  if (inherited_depth > open_depth) inherited_depth = open_depth;
 }
 
 COSMIC_SYSCALL(profile_span_open, 1) {
@@ -423,28 +432,37 @@ COSMIC_SYSCALL(profile_span_open, 1) {
     lua_pushinteger(L, 0);
     return 1;
   }
-  if (open_depth < SPAN_DEPTH) {
-    char text[512];
-    snprintf(text, sizeof text, "[%s]", name);
-    plain(text);
-    uint32_t id = text_id(text);
-    if (id == UINT32_MAX) {
-      lua_pushinteger(L, 0);
-      return 1;
-    }
-    open_spans[open_depth].id = id;
-    open_spans[open_depth].wall_ns = now_ns(CLOCK_MONOTONIC);
-    open_spans[open_depth].cpu_ns = now_ns(CLOCK_THREAD_CPUTIME_ID);
+  /* A span deeper than the stack holds is not taken: its time goes to
+   * the span it stands in. */
+  if (open_depth >= SPAN_DEPTH) {
+    lua_pushinteger(L, 0);
+    return 1;
   }
-  open_depth++;
-  lua_pushinteger(L, open_depth);
+  char text[512];
+  snprintf(text, sizeof text, "[%s]", name);
+  plain(text);
+  uint32_t id = text_id(text);
+  if (id == UINT32_MAX) {
+    lua_pushinteger(L, 0);
+    return 1;
+  }
+  struct open_span *span = &open_spans[open_depth++];
+  span->id = id;
+  span->token = ++last_token;
+  span->wall_ns = now_ns(CLOCK_MONOTONIC);
+  span->cpu_ns = now_ns(CLOCK_THREAD_CPUTIME_ID);
+  lua_pushinteger(L, span->token);
   return 1;
 }
 
 COSMIC_SYSCALL(profile_span_close, 1) {
   lua_Integer token = luaL_checkinteger(L, 1);
-  bool closed = span_totals != NULL && token > 0 && token <= open_depth;
-  if (closed) close_spans((int)token - 1);
+  /* The span `token` names, if it is open still: from the top, since the
+   * innermost closes most. */
+  int at = open_depth - 1;
+  while (at >= 0 && open_spans[at].token != token) at--;
+  bool closed = span_totals != NULL && token > 0 && at >= 0;
+  if (closed) close_spans(at);
   lua_pushboolean(L, closed);
   return 1;
 }
@@ -687,7 +705,12 @@ void cosmic_profile_forked (pid_t pid) {
    * a file of its own, of what it does from here. */
   if (out_fd >= 0) close(out_fd);
   out_fd = open_profile(profile_dir);
-  if (out_fd < 0) return;
+  if (out_fd < 0) {
+    /* Nothing to write to: no sampling, and no children told to. */
+    stop_timer();
+    profiled = getpid();
+    return;
+  }
   /* Fresh tables, not cleared ones: clearing would copy every page of
    * the parent's. The texts and names stay, as their indexes do. */
   struct stack *fresh = cosmic_calloc(STACK_SLOTS, sizeof *stacks);
@@ -712,6 +735,7 @@ void cosmic_profile_forked (pid_t pid) {
   started_wall_ns = now_ns(CLOCK_MONOTONIC);
   started_cpu_ns = now_ns(CLOCK_PROCESS_CPUTIME_ID);
   int64_t cpu_now = now_ns(CLOCK_THREAD_CPUTIME_ID);
+  inherited_depth = open_depth;
   for (int i = 0; i < open_depth && i < SPAN_DEPTH; i++) {
     open_spans[i].wall_ns = started_wall_ns;
     open_spans[i].cpu_ns = cpu_now;

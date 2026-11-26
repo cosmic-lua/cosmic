@@ -53,6 +53,8 @@
  * - A tick that lands as a coroutine yields: that coroutine's budget
  *   countdown (core/coverage.c) starts again in full when it next runs.
  * - A process a signal kills leaves its file empty.
+ * - The totals of the spans a fork's child found open: its samples stand
+ *   under them, and its parent writes their totals.
  */
 
 #ifndef COSMIC_PROFILE_H

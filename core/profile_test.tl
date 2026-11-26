@@ -136,3 +136,16 @@ local function test_a_child_given_its_own_environment_is_profiled_too()
   local r = run("run", chunk)
   assert(#r.names == 2, table.concat(r.names, ", "))
 end
+
+--- A span's token names it alone: one closed already, and closed again after another span took its place, closes
+--- nothing.
+local function test_a_stale_token_closes_nothing()
+  local chunk = SPIN .. "local sys = require('cosmic.sys') " ..
+    "local p = sys.profile_span_open('p') local a = sys.profile_span_open('a') " ..
+    "assert(sys.profile_span_close(p)) local x = sys.profile_span_open('x') local b = sys.profile_span_open('b') " ..
+    "assert(not sys.profile_span_close(a)) for _ = 1, 200 do spin(100000) end " ..
+    "assert(sys.profile_span_close(b)) assert(sys.profile_span_close(x))"
+  local text = only(run("run", chunk))
+  assert(text:match("\nspan %[x%];%[b%] 1 %d+ %d+\n") ~= nil, text)
+  assert(text:match("\nsample %[x%];%[b%];[^ ]*spin@%-e:1 ") ~= nil, text)
+end
