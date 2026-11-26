@@ -10,13 +10,13 @@
 ---
 --- This is the oracle of build/checker_assigned_fuzz_test.tl against the new checker, which keeps it when the fork
 --- goes; the fork's reads a function where it is called, and so its oracle ran the functions it had made at each call.
---- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
+--- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (cosmic/fuzz.tl).
 --- A few draws run by default so that the test fits a few seconds; the nightly fuzz workflow draws many from a seed of its own.
 ---
 --- The statements are drawn towards what the rule decides: a branch that assigns on one edge and a read after it is a
 --- statement of its own, so that a join that forgets an unassigned local is found within a few draws.
 local Env = require("cosmic.env")
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Programs = require("lang.check_programs")
 local Test = require("cosmic.test")
 

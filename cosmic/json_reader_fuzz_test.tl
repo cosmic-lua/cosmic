@@ -5,10 +5,10 @@
 --- and by `value` alike, and counting lines and columns as it does --
 --- under every combination of `json5` and `hash_comments`, which both
 --- are told. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
---- (build/fuzz/init.tl).
+--- (cosmic/fuzz.tl).
 
 local Array = require("cosmic.array")
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Json = require("cosmic.json")
 local ChunkedReader = require("build.chunked_reader_fixture")
 

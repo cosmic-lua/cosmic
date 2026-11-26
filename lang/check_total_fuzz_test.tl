@@ -4,11 +4,11 @@
 --- for, and as they are, which for most is text the new grammar's parser has never seen. Each is read, scoped, lowered and
 --- checked, and none of them raises; each error it gives has a code, a message and a place inside the source. The corpus of
 --- programs that once raised a checker (`testdata/fuzz/checker-total`) is checked first, even at `FUZZ_ITERS=0`.
---- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl). A few draws run by default so that the test fits a few
+--- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (cosmic/fuzz.tl). A few draws run by default so that the test fits a few
 --- seconds; the nightly fuzz workflow draws from a seed of its own.
 local Drawn = require("lang.check_drawn")
 local Env = require("cosmic.env")
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Programs = require("lang.check_programs")
 local Test = require("cosmic.test")
 local drawn = require("build.check_draws")

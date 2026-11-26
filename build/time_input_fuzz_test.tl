@@ -3,9 +3,9 @@
 --- well-formed time, give a moment or a failure and never raise, over
 --- every form it reads, with a moment it accepts inside the range -- and a
 --- moment `format_rfc3339` writes reads back unchanged. `FUZZ_SEED` and
---- `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
+--- `FUZZ_ITERS` pick the inputs (cosmic/fuzz.tl).
 
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Array = require("cosmic.array")
 local Time = require("cosmic.time")
 local time_verb = require("build.time")

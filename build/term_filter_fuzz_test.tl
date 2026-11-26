@@ -5,9 +5,9 @@
 --- UTF-8 -- and is no longer than what it was fed, its second result is
 --- one of the two query replies, feeding in pieces gives both results
 --- as feeding whole does, and a stream costs what its length does.
---- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
+--- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (cosmic/fuzz.tl).
 
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local String = require("cosmic.string")
 local TermFilter = require("build.term_filter")
 

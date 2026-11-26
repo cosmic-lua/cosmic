@@ -1,6 +1,6 @@
 --- Inputs for the fuzz properties of `cosmic codec` (build/codec.tl): text a decoder has to judge, and the cuttings that
 --- the streaming coders are fed it in. Both codec fuzz tests draw from here.
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 
 local record Sources
   --- One text drawn from `src`: raw bytes half the time, else characters a decoder has to judge.

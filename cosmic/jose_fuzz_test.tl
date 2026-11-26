@@ -1,9 +1,9 @@
 --- Fuzz properties for [`cosmic.jose`]: [`Jose.verify_jwt`] and
 --- [`Jose.key`] are total, handling whatever text they are handed
 --- and never raising, and a token is taken only as it was signed.
---- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
+--- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (cosmic/fuzz.tl).
 
-local Fuzz = require("build.fuzz")
+local Fuzz = require("cosmic.fuzz")
 local Jose = require("cosmic.jose")
 local Json = require("cosmic.json")
 local Key = require("cosmic.key")

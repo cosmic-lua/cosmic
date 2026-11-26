@@ -1,8 +1,8 @@
 --- Fuzz properties for the checker ([`lang.check`]). A program drawn from a typed generator (every expression is built to
 --- be of the type its place wants, from the operators, literals, calls and writes the checker types) checks clean.
 --- The same program with one mistake put in it, a value of a type its place does not take or a use the rules refuse,
---- is refused. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
-local Fuzz = require("build.fuzz")
+--- is refused. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (cosmic/fuzz.tl).
+local Fuzz = require("cosmic.fuzz")
 local Programs = require("lang.check_programs")
 local Test = require("cosmic.test")
 
