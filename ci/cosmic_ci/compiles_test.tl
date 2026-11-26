@@ -1,6 +1,9 @@
 local Compiles = require("cosmic_ci.compiles")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
+local Test = require("cosmic.test")
+
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 --- The current supported compile format, independent of candidate imports.
 local function cache(path: string, used: {integer})

@@ -519,8 +519,9 @@
           name: "move the tree to a path of its own",
           run: "cosmic-driver cosmic_ci/driver.tl place-tree",
         },
-        # Every test, unsandboxed: cosmic_ci's tests start the host's own
-        # programs and are not all declared to run sandboxed. Every leg
+        # Every test, sandboxed on Linux (each module declares the host
+        # programs and files it reads), and unsandboxed on macOS, which has
+        # no sandbox. Every leg
         # of the daily, weekly and a manual run; on a pull request, the
         # `driver` job's, and in the queue, that job's and the macOS
         # leg's, where the change touches ci/ or .github/ or its paths are
@@ -532,7 +533,7 @@
         {
           name: "check the pinned CI driver",
           if: "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'merge_group' && matrix.leg == 'macos-aarch64' && steps.changed.outputs.driver != 'skip')",
-          env: {COSMIC_VERDICT_CACHE: "0", COSMIC_TEST_SANDBOX: "0"},
+          env: {COSMIC_VERDICT_CACHE: "0", COSMIC_TEST_SANDBOX: "${{ runner.os == 'Linux' && '1' || '0' }}", COSMIC_SANDBOX: "${{ runner.os == 'Linux' && 'must' || '' }}"},
           run: "cosmic-driver test cosmic_ci",
         },
         # What bin/cosmic-bootstrap runs must type-check under the pinned
@@ -1555,11 +1556,13 @@
           name: "move the tree to a path of its own",
           run: "cosmic-driver cosmic_ci/driver.tl place-tree",
         },
-        # Every test, unsandboxed, as the platform job's step.
+        # Every test, sandboxed, as the platform job's step runs them on
+        # Linux: a module that reads the host without declaring it fails
+        # here, as it does in a plain `cosmic test` in ci/.
         {
           name: "check the pinned CI driver",
           if: "steps.changed.outputs.driver != 'skip'",
-          env: {COSMIC_VERDICT_CACHE: "0", COSMIC_TEST_SANDBOX: "0"},
+          env: {COSMIC_VERDICT_CACHE: "0", COSMIC_TEST_SANDBOX: "1", COSMIC_SANDBOX: "must"},
           run: "cosmic-driver test cosmic_ci",
         },
         # Before checkout's post step, whose git refuses the repository at
