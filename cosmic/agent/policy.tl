@@ -452,8 +452,7 @@ end
 ---     assert(Sandbox.permits(p, "/work/a.txt", "write"))
 function Policy.session(tools: Sandbox.Policy, session: Policy.Session): Sandbox.Policy?, string
   local held: {Sandbox.Policy} = { tools, table.unpack(session.servers) }
-  local grants: mut {Sandbox.Grant} = {}
-  local profiles: mut {string} = { "system", "proc" }
+  local grants: mut {Sandbox.Grant} = { { profile = "system" }, { profile = "proc" } }
   for _, policy in ipairs(held) do
     for _, g in ipairs(Sandbox.paths(policy)) do
       -- What a grant with `from` shows is the host's `from`, which the
@@ -464,15 +463,16 @@ function Policy.session(tools: Sandbox.Policy, session: Policy.Session): Sandbox
     for _, target in ipairs(Sandbox.connects(policy)) do
       grants[#grants + 1] = { connect = target }
     end
-    for _, profile in ipairs(policy.profiles or {}) do profiles[#profiles + 1] = profile end
+    for _, profile in ipairs(Sandbox.profiles(policy)) do grants[#grants + 1] = { profile = profile } end
   end
   for _, dir in ipairs(session.keeps) do grants[#grants + 1] = { path = dir, letters = "rwc" } end
   for _, file in ipairs(session.reads) do grants[#grants + 1] = { path = file, letters = "r" } end
   for _, target in ipairs(session.connect) do grants[#grants + 1] = { connect = target } end
   grants[#grants + 1] = { calls = "fork" }
   grants[#grants + 1] = { calls = "nest" }
-  return Sandbox.union({ profiles = profiles, grants = grants, isolate = { "file" }, tmp = true, env = session.env,
-    set_env = { COSMIC_AGENT_HELD = "1" } })
+  for _, name in ipairs(session.env) do grants[#grants + 1] = { env = name } end
+  return Sandbox.union({ grants = grants, isolate = { "file" },
+    setup = { tmp = true, set_env = { COSMIC_AGENT_HELD = "1" } } })
 end
 
 --- The bytes the files under `dir` hold, links not followed.

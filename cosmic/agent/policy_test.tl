@@ -281,6 +281,6 @@ local function test_the_session_holds_what_its_tools_and_servers_have()
     assert(calls:find(promise, 1, true), promise .. " is not in " .. calls)
   end
   assert(p.isolate ~= nil and p.isolate[1] == "file")
-  assert((p.set_env or {})["COSMIC_AGENT_HELD"] == "1")
-  assert(p.env ~= nil and p.env[1] == "HOME")
+  assert(assert(assert(p.setup).set_env)["COSMIC_AGENT_HELD"] == "1" and assert(p.setup).tmp == true)
+  assert(Sandbox.env(p)[1] == "HOME")
 end
