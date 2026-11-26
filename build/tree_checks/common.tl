@@ -118,9 +118,23 @@ end
 --- Keeps what `chunk`, the parse of `source` as the text of `file`, requires, and a test file's early returns, for
 --- the checks later in the run to read rather than parse the file again.
 function tree_common.knows_parse(source: string, file: string, chunk: Ast.Chunk)
+  local returns = if file:match("_test%.tl$") ~= nil then TestReturns.of_chunk(chunk) else nil end
+  tree_common.knows(source, file, SyntaxNode.requires(chunk), returns)
+end
+
+--- Keeps what the text `source` of `file` requires, and a test file's early returns, as a parse of it found them
+--- ([`knows_parse`]), for the checks later in the run to read rather than parse the file.
+function tree_common.knows(source: string, file: string, requires: {string}, returns?: {{string}})
   local key = requires_key(Hash.hex_sha256(source), file)
-  requires_known[key] = SyntaxNode.requires(chunk)
-  if file:match("_test%.tl$") ~= nil then returns_known[key] = TestReturns.of_chunk(chunk) end
+  requires_known[key] = requires
+  if returns ~= nil then returns_known[key] = returns end
+end
+
+--- What [`knows`] keeps of the text `source` of `file`: what it requires and its early returns, each nil where none
+--- is kept.
+function tree_common.known_of(source: string, file: string): {string}?, {{string}}?
+  local key = requires_key(Hash.hex_sha256(source), file)
+  return requires_known[key], returns_known[key]
 end
 
 function tree_common.required_modules(source: string, file: string, digest: string): {string}
