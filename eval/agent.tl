@@ -717,6 +717,16 @@ Agent.tasks = {
       "sort -k1,1nr -k2,2 | head -5",
     check = "cat answer.txt",
   },
+  {
+    name = "rename-shared",
+    prompt = "In cosmic/, rename the function format of cosmic/web/cookies.tl (`Cookies.format`) to render, " ..
+      "everywhere it is defined, called or named as `Cookies.format` in the .tl files, and change nothing else, " ..
+      "comment prose too: other functions named format (Csp.format, Json.format, Example.format, string.format) stay.",
+    truth = "n=$(grep -rl --include='*.tl' 'Cookies\\.format' cosmic | wc -l); [ \"$n\" -gt 0 ] && " ..
+      "{ for f in $(find cosmic -name '*.tl' | sort); do echo \"$f\"; sed 's/Cookies\\.format\\>/Cookies.render/g' \"$f\"; done | " ..
+      "sha256sum | cut -c1-64; }",
+    check = "for f in $(find cosmic -name '*.tl' | sort); do echo \"$f\"; cat \"$f\"; done | sha256sum | cut -c1-64",
+  },
 }
 
 local USAGE <const> = "usage: eval/agent --tool NAME=PATH [--tool NAME=PATH ...] --fixture DIR --out DIR " ..
