@@ -179,7 +179,7 @@ end
 --- @param src string The template source
 --- @param name string The template's name, for messages
 --- @return types.Lexed|nil The items and the line count
---- @return string The reason, as `name:line:col: ...`, on failure
+--- @return Failure The reason, as `name:line:col: ...`, on failure
 function Lex.lex(src: string, name: string): (types.Lexed) | (nil, Failure)
   local items: mut {types.Item} = {}
   local cur: Cursor = { pos = 1, line = 1, start = 1 }
