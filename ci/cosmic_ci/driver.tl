@@ -191,15 +191,7 @@ return function(argv: {string}): integer
   end
   local ran, why = Flags.dispatch(argv, 1, dispatched, "driver.tl")
   if ran == nil then
-    local first = argv[1]
-    local usage = ""
-    -- TODO: once ci/cosmic-driver.pin names a release whose Flags.dispatch ends a
-    -- refused command line with the usage line, drop this suffix.
-    if first ~= nil then
-      local named = commands[first]
-      if named ~= nil then usage = "; usage: driver.tl " .. first .. " " .. named.usage end
-    end
-    local _, _ = Fs.put(Fs.stderr, "driver.tl: " .. why .. usage .. "\n")
+    local _, _ = Fs.put(Fs.stderr, "driver.tl: " .. why .. "\n")
     return 2
   end
   if ran.help ~= "" then

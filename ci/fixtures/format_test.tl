@@ -55,6 +55,12 @@ Test.policy{
     "http_proxy",
     "no_proxy",
   },
+  requires = {
+    "env:COSMIC_FIXTURE_BUILD",
+    "env:COSMIC_FIXTURE_FORMAT",
+    "env:COSMIC_FIXTURE_ROOT",
+    "env:COSMIC_FIXTURE_TARGET",
+  },
 }
 
 local native_build_timeout_ns <const> = Clock.seconds(120)

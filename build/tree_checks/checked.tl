@@ -141,7 +141,9 @@ end
 --- with the tree ([`lang.scopes_cover`]), and its errors are the ones its markers hold ([`build.ceilings`]), no more: an error
 --- with no marker on its line is listed with its place and fix, and a marker that holds more than its line has is stale.
 --- The sources are the `.tl` files under `root` ([`sources_of`]).
-function tree_checked.scoped(root: string, memo?: Sqlite.Handle, marking?: Ceilings.Marking): {string}
+--- Given `only` (files by their path under `root`), it judges those files alone.
+function tree_checked.scoped(root: string, memo?: Sqlite.Handle, marking?: Ceilings.Marking, only?: {string: boolean}):
+    {string}
   local files, trouble = sources_of(root)
   if files == nil then
     return { "reading the sources: " .. trouble }
@@ -158,21 +160,24 @@ function tree_checked.scoped(root: string, memo?: Sqlite.Handle, marking?: Ceili
   end
   for _, row in ipairs(files) do
     local file, source = nth(row, 1), nth(row, 2)
-    local outcome = scope_outcome(file, source, declared, memo, salt)
-    if outcome.consistent ~= "" then
-      out[#out + 1] = file .. ": its scopes are not consistent with its tree: " .. outcome.consistent
-    end
-    local findings: mut {Ceilings.Finding} = {}
-    for _, e in ipairs(outcome.errors) do
-      findings[#findings + 1] = { code = e.code, y = e.y, x = e.x, msg = e.msg, fix = e.fix }
-    end
-    for _, line in ipairs(told_marks(file, Ceilings.marked("scoped", file, source, findings, Scopes.codes, "scopes"),
-        sink_of(marking))) do
-      out[#out + 1] = line
+    -- A file's scopes are its own: a narrowed run judges the files it names alone.
+    if only == nil or only[file] == true then
+      local outcome = scope_outcome(file, source, declared, memo, salt)
+      if outcome.consistent ~= "" then
+        out[#out + 1] = file .. ": its scopes are not consistent with its tree: " .. outcome.consistent
+      end
+      local findings: mut {Ceilings.Finding} = {}
+      for _, e in ipairs(outcome.errors) do
+        findings[#findings + 1] = { code = e.code, y = e.y, x = e.x, msg = e.msg, fix = e.fix }
+      end
+      for _, line in ipairs(told_marks(file, Ceilings.marked("scoped", file, source, findings, Scopes.codes, "scopes"),
+          sink_of(marking))) do
+        out[#out + 1] = line
+      end
     end
   end
   if memo ~= nil then
-    check_memo.finish(memo, "scoped")
+    check_memo.finish(memo, "scoped", nil, only ~= nil)
   end
   return out
 end
@@ -238,7 +243,8 @@ end
 --- The files of the tree the new checker lowers: every `.tl` file but those of a `testdata` directory, which hold programs for
 --- other projects.
 local record Tree
-  rows: {DeclareFile}
+  --- The files the checks judge: every file of the tree, or those a narrowed run names and the files that reach one.
+  mut rows: {DeclareFile}
   --- Each file by its module, the name of its whole path ([`Driver.index`]): `ci/`, a project of its own, is no part of the tree.
   by_module: {string: DeclareFile}
   --- The same files as the sources a build is given ([`build.driver`]).
@@ -254,14 +260,16 @@ end
 
 --- The salt of the digests of [`ShapeKey`], from the code that makes them.
 local function shaping_of(root: string, memo: Sqlite.Handle?): Shaping
-  return { memo = memo, salt = check_memo.salt(root, { "lang/lexer.tl", "build/shape_key.tl", "build/check_memo.tl" }, "shape 1") }
+  return { memo = memo, salt = check_memo.salt(root, { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "build/shape_key.tl", "build/check_memo.tl" },
+    "shape 2") }
 end
 
 --- The files of `files` that a lowering covers, each with the key its result is kept under: `salt`, its dialect and
 --- its source and the sources of every module it requires, however far. `written` are the sources the build writes from
 --- other files ([`TreeProgram.derived_of`]), which count as files of the tree, named for the file each comes from.
+--- `only`, where given, narrows the rows to the files it names and every file that reaches one of them.
 local function tree_of(given: {{string}}, salt: string, bindings?: {{string}}, written?: {{string}},
-                       shaping?: Shaping): Tree
+                       shaping?: Shaping, only?: {string: boolean}): Tree
   local files = TreeProgram.joined(given, written or {}).files
   local derived: mut {string: boolean} = {}
   for _, entry in ipairs(bindings or {}) do
@@ -320,6 +328,14 @@ local function tree_of(given: {{string}}, salt: string, bindings?: {{string}}, w
       by_module[name] = row -- checked: view_written
     end
   end
+  -- The modules of the files `only` names, whose results the files that reach one also depend on.
+  local named: mut {string: boolean} = {}
+  if only ~= nil then
+    for _, row in ipairs(rows) do
+      if only[row.file] == true then named[row.module] = true end
+    end
+  end
+  local judged: mut {DeclareFile} = {}
   -- The key of a file is its source and the sources of every module it requires, however far.
   for _, row in ipairs(rows) do
     local reached: mut {string: boolean} = { [row.module] = true }
@@ -350,7 +366,15 @@ local function tree_of(given: {{string}}, salt: string, bindings?: {{string}}, w
     end
     -- The files of a cycle of requires reach the same modules: the file itself tells their keys apart.
     row.key = check_memo.key(salt, row.dialect, row.module .. "\n" .. table.concat(parts, "\n"))
+    local reaches = only == nil
+    for m in pairs(reached) do
+      if named[m] == true then reaches = true end
+    end
+    if reaches then judged[#judged + 1] = row end
   end
+  -- Narrowed to `only`, the tree judges the files named and those that reach one; it still holds every file as a
+  -- module the others may require ([`Tree.index`]).
+  if only ~= nil then tree.rows = judged end
   return tree
 end
 
@@ -581,7 +605,9 @@ end
 --- place and fix, and a marker that holds more than its line has is stale. The declaration files [`lang/prelude.d.tl`] and [`lang/stdlib.d.tl`] declare the
 --- globals; every other file imports the modules it names from the whole tree, so the result for a file is
 --- kept in `memo` under the sources of every module it requires, directly or not.
-function tree_checked.declared(root: string, memo?: Sqlite.Handle, marking?: Ceilings.Marking): {string}
+--- Given `only` (files by their path under `root`), it judges those files and the files that reach one ([`tree_of`]).
+function tree_checked.declared(root: string, memo?: Sqlite.Handle, marking?: Ceilings.Marking,
+                               only?: {string: boolean}): {string}
   local files, trouble = sources_of(root)
   if files == nil then
     return { "reading the sources: " .. trouble }
@@ -594,7 +620,7 @@ function tree_checked.declared(root: string, memo?: Sqlite.Handle, marking?: Cei
   if written == nil then
     return { "reading the derived sources: " .. written_why }
   end
-  local tree = tree_of(files, salt, TreeProgram.bindings_of(root), written, shaping_of(root, memo))
+  local tree = tree_of(files, salt, TreeProgram.bindings_of(root), written, shaping_of(root, memo), only)
   if memo ~= nil then
     local _, _ = check_memo.prepare(memo, "declared")
   end
@@ -611,7 +637,7 @@ function tree_checked.declared(root: string, memo?: Sqlite.Handle, marking?: Cei
     kept_fanned(fan, missed, outcomes, memo, "declared", kept_declarations)
   end
   if memo ~= nil then
-    check_memo.finish(memo, "declared")
+    check_memo.finish(memo, "declared", nil, only ~= nil)
   end
   return held_by_markers(tree, outcomes, "declared", Declarations.codes, "declarations", marking)
 end
@@ -627,8 +653,9 @@ end
 --- and fix, and a marker that holds more than its line has is stale. The result for a file is kept in `memo` under the sources of every module it requires,
 --- directly or not, and of the checker. `phases`, when given, gets the nanoseconds spent parsing and scoping
 --- (`prepare`), lowering (`lower`) and checking (`check`) the files the memo lacked.
+--- Given `only` (files by their path under `root`), it judges those files and the files that reach one ([`tree_of`]).
 function tree_checked.checked(root: string, memo?: Sqlite.Handle, phases?: {string: integer},
-                              marking?: Ceilings.Marking): {string}
+                              marking?: Ceilings.Marking, only?: {string: boolean}): {string}
   local files, trouble = sources_of(root)
   if files == nil then
     return { "reading the sources: " .. trouble }
@@ -642,7 +669,7 @@ function tree_checked.checked(root: string, memo?: Sqlite.Handle, phases?: {stri
   if written == nil then
     return { "reading the derived sources: " .. written_why }
   end
-  local tree = tree_of(files, salt, TreeProgram.bindings_of(root), written, shaping_of(root, memo))
+  local tree = tree_of(files, salt, TreeProgram.bindings_of(root), written, shaping_of(root, memo), only)
   if memo ~= nil then
     local _, _ = check_memo.prepare(memo, "checked")
   end
@@ -666,7 +693,7 @@ function tree_checked.checked(root: string, memo?: Sqlite.Handle, phases?: {stri
     end
   end
   if memo ~= nil then
-    check_memo.finish(memo, "checked")
+    check_memo.finish(memo, "checked", nil, only ~= nil)
   end
   local out = held_by_markers(tree, outcomes, "checked", Check.codes, "bodies", marking)
   for _, problem in ipairs(problems) do
@@ -736,7 +763,9 @@ end
 --- as the build itself refuses it ([`build.pipeline`]'s `generate`), and a marker that holds more than its line has is stale. The count is the port's alone, over the program the pipeline reads ([`build.tree_program`],
 --- its calls of [`Shape.record_of`] resolved). The result for a
 --- file is kept in `memo` under its source and those of every module it requires, and of the checker.
-function tree_checked.untyped(root: string, memo?: Sqlite.Handle, marking?: Ceilings.Marking): {string}
+--- Given `only` (files by their path under `root`), it judges those files and the files that reach one ([`tree_of`]).
+function tree_checked.untyped(root: string, memo?: Sqlite.Handle, marking?: Ceilings.Marking,
+                              only?: {string: boolean}): {string}
   local files, trouble = sources_of(root)
   if files == nil then
     return { "reading the sources: " .. trouble }
@@ -751,7 +780,7 @@ function tree_checked.untyped(root: string, memo?: Sqlite.Handle, marking?: Ceil
     "build/check_memo.tl", "build/driver.tl", "build/syntax_node.tl", "build/syntax_report.tl",
     "build/syntax_receivers.tl", "build/syntax_contracts.tl", "build/contract_rules.tl", "build/tree_checks/checked.tl", "build/tree_checks/common.tl",
     "build/tree_program.tl", "build/gen_syscalls.tl", "core/syscalls.h", "core/process.h", "core/socket.h" }, "untyped 2")
-  local tree = tree_of(files, salt, TreeProgram.bindings_of(root), written, shaping_of(root, memo))
+  local tree = tree_of(files, salt, TreeProgram.bindings_of(root), written, shaping_of(root, memo), only)
   if memo ~= nil then
     local _, _ = check_memo.prepare(memo, "untyped")
   end
@@ -806,7 +835,7 @@ function tree_checked.untyped(root: string, memo?: Sqlite.Handle, marking?: Ceil
     end
   end
   if memo ~= nil then
-    check_memo.finish(memo, "untyped")
+    check_memo.finish(memo, "untyped", nil, only ~= nil)
   end
   local out: mut {string} = {}
   for _, row in ipairs(tree.rows) do

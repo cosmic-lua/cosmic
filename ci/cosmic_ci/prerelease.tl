@@ -128,11 +128,16 @@ function Prerelease.sums(digest: string): string
 end
 
 --- source.json for the staged release: the object laid out as `jq -n`
---- lays it out, keys in byte order.
+--- lays it out, keys in byte order. The layout is written here, each value
+--- encoded alone: this file runs on the pinned release and on the tree,
+--- whose [`Json.EncodeOptions`] name the layout differently (`pretty`,
+--- `layout`).
 function Prerelease.source_json(commit: string, digest: string, run_url: string): string
-  local text = assert(Json.encode({ commit = commit, digest = digest, run_url = run_url },
-    { pretty = true }))
-  return text .. "\n"
+  local function member(key: string, value: string): string
+    return "  " .. assert(Json.encode(key)) .. ": " .. assert(Json.encode(value))
+  end
+  return "{\n" .. member("commit", commit) .. ",\n" .. member("digest", digest) .. ",\n" ..
+    member("run_url", run_url) .. "\n}\n"
 end
 
 function Prerelease.notes(commit: string, digest: string, run_url: string): string
@@ -241,10 +246,9 @@ local launcher_programs <const> = { "uname", "id", "mkdir", "stat", "mktemp", "d
 --- driver that step runs; of the job's variables it gets `PATH` and `HOME` alone. The launcher is a shell script that unpacks its core and marks it
 --- executable: `fork` lets it run its programs, and `fattr` lets the tool change the mode of any file its user
 --- owns, but not write one outside the cache; both are `{"calls": ...}` grants. With `in_setup` the policy is in
---- the form cosmic writes now: the cache's variable is set under `setup`, and the "system" profile and the
---- variables passed through are `{"profile": ...}` and `{"env": ...}` grants. Without, the variable is a top-level
---- `set_env`, and the profile and the variables are top-level `profiles` and `env`, as the pinned driver
---- (ci/cosmic-driver.pin) reads them.
+--- the form cosmic writes now: the "system" profile and the variables passed through are `{"profile": ...}` and
+--- `{"env": ...}` grants. Without, they are top-level `profiles` and `env`, as the pinned driver
+--- (ci/cosmic-driver.pin) reads them. Both set the cache's variable under `setup`.
 function Prerelease.smoke_policy_text(path: string, cache: string, in_setup: boolean): string
   local grants: mut {Json.Value} = { { path = path, letters = "rx" }, { path = cache, letters = "rwxc" } }
   for _, name in ipairs(launcher_programs) do
@@ -268,13 +272,12 @@ function Prerelease.smoke_policy_text(path: string, cache: string, in_setup: boo
   local set_env: {string: Json.Value} = { COSMIC_PORTABLE_CACHE = cache }
   table.insert(grants, { calls = "fork" })
   table.insert(grants, { calls = "fattr" })
+  fields["setup"] = { set_env = set_env }
   if in_setup then
-    fields["setup"] = { set_env = set_env }
     table.insert(grants, 1, { profile = "system" })
     table.insert(grants, { env = "PATH" })
     table.insert(grants, { env = "HOME" })
   else
-    fields["set_env"] = set_env
     fields["profiles"] = Json.array({ "system" })
     fields["env"] = Json.array({ "PATH", "HOME" })
   end
@@ -284,8 +287,8 @@ end
 
 --- The policy [`Prerelease.smoke_policy_text`] writes, read by the running cosmic: in the form it writes now, or
 --- else in the form the pinned driver reads.
--- TODO: build the policy directly, its variable under `setup` and its profile and variables as grants, once
--- ci/cosmic-driver.pin names a release that has them.
+-- TODO: build the policy directly, its profile and variables as grants, once ci/cosmic-driver.pin names a release
+-- that has #4409 (84c4b51).
 function Prerelease.smoke_policy(path: string, cache: string): Sandbox.Policy
   local policy, why = PolicyJson.decode(Prerelease.smoke_policy_text(path, cache, true))
   if policy ~= nil then return policy end

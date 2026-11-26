@@ -142,7 +142,7 @@ local function derive_templates(db: Database, refusal: derivation.Refusal): bool
     local source, compile_trouble = Template.compile(template_source, file, { dialects = nil })
     if source == nil then
       refusal.refused = true
-      return false, compile_trouble
+      return false, tostring(compile_trouble)
     end
     local ok, insert_trouble = db:run(insert_derived,
       { text(file), text(import_path_of_template(file)), text("module"),

@@ -60,6 +60,11 @@ Test.policy{
     "http_proxy",
     "no_proxy",
   },
+  requires = {
+    "env:COSMIC_FIXTURE_COMPILES",
+    "env:COSMIC_FIXTURE_RUNTIME",
+    "env:COSMIC_FIXTURE_SOURCE",
+  },
 }
 
 local start, finish, supervised = Process.start, Process.finish, Process.supervised

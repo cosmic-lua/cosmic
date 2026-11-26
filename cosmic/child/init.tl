@@ -2575,14 +2575,14 @@ end
 --- ([`Hold.relaunch_of`]).
 local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, online: boolean): Held?, string
   local joined, why = Rules.union(policy)
-  if joined == nil then return nil, why end
+  if joined == nil then return nil, tostring(why) end
   local trouble = unmet(joined)
   if trouble ~= "" then return nil, "sandbox: " .. trouble end
   local reserved = reserved_by_relay(joined)
   if reserved ~= "" then return nil, reserved end
   -- The daemon is asked only of a policy the checks above let start.
   local merged, unresolved = Tailnet.policy(joined, opts.tailscale)
-  if merged == nil then return nil, unresolved end
+  if merged == nil then return nil, tostring(unresolved) end
   local relayed = #Rules.connects(merged) > 0
   local file = isolates(merged, "file")
   local proc = isolates(merged, "proc")
@@ -2664,7 +2664,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
     end
     found = { argv = words, env = found.env, fds = found.fds, cwd = found.cwd }
     local widened, widen_trouble = Rules.union(merged, { grants = { { path = artifact, letters = "r" } } })
-    if widened == nil then return nil, "sandbox: " .. widen_trouble end
+    if widened == nil then return nil, "sandbox: " .. tostring(widen_trouble) end
     merged = widened
   end
   local core_grant: Rules.Path?
@@ -2705,7 +2705,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
     path = real
   end
   local files, loader_trouble = Rules.loaders(path, base) -- checked: nil_not_allowed
-  if files == nil then return nil, loader_trouble end
+  if files == nil then return nil, tostring(loader_trouble) end
   -- What the program needs to start is the starter's need, not a right
   -- of the program's: the start grants a host program and each
   -- interpreter its start reads (a `#!` line's, the ELF loader) `rx`, as
@@ -2735,7 +2735,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
     end
     if #start_grants > 0 then
       local widened, widen_trouble = Rules.union(merged, { grants = start_grants })
-      if widened == nil then return nil, widen_trouble end
+      if widened == nil then return nil, tostring(widen_trouble) end
       merged = widened
       local over = unmet(merged)
       if over ~= "" then return nil, "sandbox: " .. over end
@@ -2966,13 +2966,13 @@ end
 local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Policy, pty?: Pty,
                                 serves_relay?: integer): Held?, string
   local joined, why = Rules.union(policy)
-  if joined == nil then return nil, why end
+  if joined == nil then return nil, tostring(why) end
   local credentials = seatbelt_credentials(joined)
   if credentials ~= "" then return nil, "sandbox: " .. credentials end
   local reserved = reserved_by_relay(joined)
   if reserved ~= "" then return nil, reserved end
   local merged, unresolved = Tailnet.policy(joined, opts.tailscale)
-  if merged == nil then return nil, unresolved end
+  if merged == nil then return nil, tostring(unresolved) end
   -- The profile holds the addresses the tailnet targets resolved to.
   policy = Tailnet.applied(policy, merged)
   local relayed = #Rules.connects(merged) > 0
@@ -3019,7 +3019,7 @@ local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Pol
   -- fail a profile that does not grant them, as an EPERM of the exec,
   -- which this says in words.
   local files, loader_trouble = Rules.loaders(path, opts.cwd) -- checked: nil_not_allowed
-  if files == nil then return nil, loader_trouble end
+  if files == nil then return nil, tostring(loader_trouble) end
   -- As under Landlock, the start grants a host program and the
   -- interpreters its start reads `rx`: the starter's need, not the
   -- program's right. A relaunched core is granted above.
@@ -3033,7 +3033,7 @@ local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Pol
     end
     policy = with_grants(policy, start_grants)
     local widened, widen_trouble = Rules.union(merged, { grants = start_grants })
-    if widened == nil then return nil, widen_trouble end
+    if widened == nil then return nil, tostring(widen_trouble) end
     merged = widened
   end
   -- TODO: decide whether the profile should let a program getcwd in a
@@ -3043,7 +3043,7 @@ local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Pol
   -- Linux's Landlock start never does. Until then a start whose output is
   -- compared (test/terminal) gives the program the root as its `cwd`.
   local options, resolve_trouble = Seatbelt.resolve(policy, opts.cwd, core, sealed, terminal)
-  if options == nil then return nil, "sandbox: " .. resolve_trouble end
+  if options == nil then return nil, "sandbox: " .. tostring(resolve_trouble) end
   options.serves_relay = serves_relay
   -- A cosmic child holds itself to the profile at boot, which grants its
   -- core and this program `r` alone: it runs neither again. The relay is
@@ -3062,7 +3062,7 @@ local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Pol
   -- nothing started, and [`relay_held`] compiles it again with the real one.
   if relayed then options.relay_port = 65535 end
   local profile, compile_trouble = Seatbelt.compile(policy, options)
-  if profile == nil then return nil, "sandbox: " .. compile_trouble end
+  if profile == nil then return nil, "sandbox: " .. tostring(compile_trouble) end
   local missing = ungranted(files, Rules.paths(merged), opts.cwd)
   if missing ~= "" then return nil, "sandbox: " .. missing end
   local env: mut {string:string} = {}
@@ -3299,12 +3299,12 @@ end
 --- give, and a relative grant meets an absolute one.
 local function resolved(layer: Rules.Policy, base: string): Rules.Policy?, string
   local merged, why = Rules.union(layer)
-  if merged == nil then return nil, why end
+  if merged == nil then return nil, tostring(why) end
   local grants: mut {Rules.Grant} = {}
   for _, grant in ipairs(merged.grants or {}) do
     if grant is Rules.Path and grant.from == nil then
       local real, real_why = Rules.real(named(grant.path, base))
-      if real == nil then return nil, real_why end
+      if real == nil then return nil, tostring(real_why) end
       grants[#grants + 1] = { path = real, letters = grant.letters }
     else
       grants[#grants + 1] = grant
@@ -3335,7 +3335,7 @@ local function policy_of(opts: Options): Rules.Policy?, string
     all[#all + 1] = held
   end
   local met, why = Rules.intersect(table.unpack(all))
-  if met == nil then return nil, "sandbox: layers: " .. why end
+  if met == nil then return nil, "sandbox: layers: " .. tostring(why) end
   return met, ""
 end
 
@@ -3788,7 +3788,7 @@ function Child.layers(argv: {string}, opts: Options): Rules.Layers?, string
   local held, why = held_to(argv, opts, policy, false)
   if held == nil then return nil, "child: layers: " .. why end
   local merged, merge_why = Rules.union(policy)
-  if merged == nil then return nil, "child: layers: " .. merge_why end
+  if merged == nil then return nil, "child: layers: " .. tostring(merge_why) end
   local sandbox = held.sandbox
   local landlock = paths_of(sandbox.grants)
   local boot = paths_of(held.layer)

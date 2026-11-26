@@ -437,7 +437,7 @@ function Hold.mapped_user(merged: Rules.Policy): MappedUser?, string
   end
   sandbox_serial = sandbox_serial + 1
   local id, why = Rules.user_id(uid_map, gid_map, sys.getpid() * PID_SPREAD + sandbox_serial)
-  if id == nil then return nil, why end
+  if id == nil then return nil, tostring(why) end
   return { uid = id, gid = id }, ""
 end
 
@@ -829,7 +829,7 @@ function Hold.relay_held(held: Held, port: integer, token: string): string
   local options = assert(held.seatbelt_options)
   options.relay_port = port
   local profile, trouble = Seatbelt.compile(assert(held.seatbelt_policy), options)
-  if profile == nil then return trouble end
+  if profile == nil then return tostring(trouble) end
   assert(held.sandbox.seatbelt).profile = profile.text -- checked: field_fixed
   for name, value in pairs(RelayConfig.proxy_env({}, port, token, held.relay)) do
     held.env[name] = value

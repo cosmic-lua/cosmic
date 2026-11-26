@@ -46,7 +46,8 @@ local record Agent
     follow_up?: string
     --- A bash command run in an untouched copy of the fixture: its output is what a right answer leaves.
     truth: string
-    --- A bash command run in the run's copy once the agent ended: its output must be the truth's.
+    --- A bash command run in the run's copy once the agent ended: its output must be the truth's. `$tool` is the
+    --- path of the tool under test, for a task whose answer is a program to run.
     check: string
     --- The MCP servers the run is given, in one config, where the task needs them. Its truth runs with `$data`
     --- the path of the first one's data: the others are there to be passed over.
@@ -668,6 +669,174 @@ Agent.tasks = {
     truth = [==[n=$(awk '/^local function [A-Za-z_][A-Za-z0-9_]*\(/ && prev !~ /^---/ {n++} {prev=$0} END {print n+0}' cosmic/compress.tl); [ "$n" -gt 0 ] && awk '/^local function [A-Za-z_][A-Za-z0-9_]*\(/ && prev !~ /^---/ {print "--- TODO: say what this does."} {print; prev=$0}' cosmic/compress.tl | sha256sum | cut -c1-64]==],
     check = "sha256sum cosmic/compress.tl | cut -c1-64",
   },
+  {
+    name = "json-legs",
+    prompt = "ci/cosmic_ci/capabilities.json has a `legs` object of arrays of strings. For each leg, count its " ..
+      "strings that start `program:`. Write to answer.txt one `count leg` per line, such as `7 linux-x`, most first, ties by name.",
+    truth = [==[jq -r '.legs | to_entries[] | "\([.value[] | select(startswith("program:"))] | length) \(.key)"' ci/cosmic_ci/capabilities.json | sort -k1,1nr -k2,2]==],
+    check = "cat answer.txt",
+  },
+  {
+    name = "error-lines",
+    prompt = "Write to answer.txt every line of the non-test .tl files directly in cosmic/agent/ that holds " ..
+      "`error(`, as `path:line`, such as `cosmic/agent/x.tl:12` (line numbered from 1), one a line, sorted by path, then by line.",
+    truth = "for f in $(find cosmic/agent -maxdepth 1 -name '*.tl' ! -name '*_test.tl' | sort); do " ..
+      "grep -n 'error(' \"$f\" | cut -d: -f1 | sed \"s|^|$f:|\"; done | sort -t: -k1,1 -k2,2n",
+    check = "cat answer.txt",
+  },
+  {
+    name = "append-many",
+    prompt = "Add the line `-- end` at the end of each non-test .tl file directly in cosmic/agent/, and change nothing else.",
+    truth = "for f in $(find cosmic/agent -maxdepth 1 -name '*.tl' ! -name '*_test.tl' | sort); do " ..
+      "echo \"$f\"; cat \"$f\"; echo '-- end'; done | sha256sum | cut -c1-64",
+    check = "for f in $(find cosmic/agent -maxdepth 1 -name '*.tl' ! -name '*_test.tl' | sort); do " ..
+      "echo \"$f\"; cat \"$f\"; done | sha256sum | cut -c1-64",
+  },
+  {
+    name = "tested-modules",
+    prompt = "Take each distinct module cosmic/agent/host.tl names as `require(\"cosmic.<...>\")`. For each, count the " ..
+      "_test.tl files directly in cosmic/agent/ that hold the text `require(\"<the module>\")`. Write to answer.txt " ..
+      "`count module` for each module with a count of 1 or more, such as `3 cosmic.x`, most first, ties by name.",
+    truth = [==[for m in $(grep -o 'require("cosmic\.[^"]*")' cosmic/agent/host.tl | sed 's/require("//; s/")//' | sort -u); do n=$(grep -lF "require(\"$m\")" cosmic/agent/*_test.tl 2>/dev/null | wc -l); [ "$n" -ge 1 ] && echo "$n $m"; done | sort -k1,1nr -k2,2]==],
+    check = "cat answer.txt",
+  },
+  {
+    name = "darwin-dirs",
+    prompt = "ci/darwin-tests.txt lists test modules, one a line, with comment lines that start `#` and blank " ..
+      "lines. For each first path component of the listed paths (`cosmic` in `cosmic/x_test.tl`), count its listed " ..
+      "paths. Write to answer.txt `count dir` per line, such as `4 cosmic`, most first, ties by name.",
+    truth = "grep -v '^#' ci/darwin-tests.txt | grep -v '^[[:space:]]*$' | awk -F/ '{n[$1]++} END {for (d in n) print n[d]\" \"d}' | sort -k1,1nr -k2,2",
+    check = "cat answer.txt",
+  },
+  {
+    name = "longest-lines",
+    prompt = "For each non-test .tl file directly in cosmic/agent/, find the length in bytes of its longest line. " ..
+      "Write to answer.txt the five files with the longest, as `length path`, such as `140 cosmic/agent/x.tl`, " ..
+      "longest first, ties by path.",
+    truth = "for f in $(find cosmic/agent -maxdepth 1 -name '*.tl' ! -name '*_test.tl'); do " ..
+      "echo \"$(LC_ALL=C awk '{ if (length($0) > m) m = length($0) } END { print m + 0 }' \"$f\") $f\"; done | " ..
+      "sort -k1,1nr -k2,2 | head -5",
+    check = "cat answer.txt",
+  },
+  {
+    name = "rename-shared",
+    prompt = "In cosmic/, rename the function format of cosmic/web/cookies.tl (`Cookies.format`) to render, " ..
+      "everywhere it is defined, called or named as `Cookies.format` in the .tl files, and change nothing else, " ..
+      "comment prose too: other functions named format (Csp.format, Json.format, Example.format, string.format) stay.",
+    truth = "n=$(grep -rl --include='*.tl' 'Cookies\\.format' cosmic | wc -l); [ \"$n\" -gt 0 ] && " ..
+      "{ for f in $(find cosmic -name '*.tl' | sort); do echo \"$f\"; sed 's/Cookies\\.format\\>/Cookies.render/g' \"$f\"; done | " ..
+      "sha256sum | cut -c1-64; }",
+    check = "for f in $(find cosmic -name '*.tl' | sort); do echo \"$f\"; cat \"$f\"; done | sha256sum | cut -c1-64",
+  },
+  {
+    name = "write-wordfreq",
+    prompt = "Write top.tl in this directory: a cosmic program (Teal, checked) that takes the path of a text file as " ..
+      "its first argument and prints the five most frequent words, a word being a run of the letters a to z once " ..
+      "lowercased, as `count word`, such as `12 the`, most first, ties by word. It must pass `cosmic --standalone --check top.tl`.",
+    truth = "cat doc/guides/*.md | tr 'A-Z' 'a-z' | grep -oE '[a-z]+' | sort | uniq -c | awk '{print $1\" \"$2}' | " ..
+      "sort -k1,1nr -k2,2 | head -5",
+    check = "cat doc/guides/*.md > all.txt; $tool --standalone --check top.tl > /dev/null 2>&1 && $tool --standalone top.tl all.txt",
+  },
+  {
+    name = "write-dirs",
+    prompt = "Write dirs.tl in this directory: a cosmic program (Teal, checked) that takes a directory as its first " ..
+      "argument and prints, for each directory directly inside it, how many .tl files lie under that directory (at any " ..
+      "depth), as `count path` with the path as the argument and the name joined by `/` (`cosmic/web`), such as " ..
+      "`40 cosmic/web`, most first, ties by path. It must pass `cosmic --standalone --check dirs.tl`.",
+    truth = "for d in $(find cosmic -mindepth 1 -maxdepth 1 -type d | sort); do echo \"$(find $d -name '*.tl' | wc -l) $d\"; done | " ..
+      "sort -k1,1nr -k2,2",
+    check = "$tool --standalone --check dirs.tl > /dev/null 2>&1 && $tool --standalone dirs.tl cosmic",
+  },
+  {
+    name = "fix-bug",
+    prompt = "Ranges.merge in eval/plant/ranges.tl has a bug: ranges that touch or share an end must join (`1-3` and " ..
+      "`4-6` cover 1 to 6 with no gap, and `1-3` and `3-5` overlap), but it leaves them apart. Fix the bug and " ..
+      "change nothing else. Its tests, eval/plant/ranges_test.tl, run with `cosmic test eval/plant/ranges_test.tl`.",
+    truth = "echo pass",
+    check = [==[mkdir mini && cp eval/plant/ranges.tl mini/ranges.tl && cp eval/plant/ranges_test.tl mini/ranges_test.tl && sed -i 's/eval\.plant\.ranges/ranges/' mini/ranges_test.tl && cat > mini/hidden_test.tl <<'EOF'
+local Ranges = require("ranges")
+
+local function show(list: {Ranges.Range}): string
+  local parts: mut {string} = {}
+  for _, r in ipairs(list) do parts[#parts + 1] = tostring(r.first) .. "-" .. tostring(r.last) end
+  return table.concat(parts, ",")
+end
+
+local function test_touching_ranges_join()
+  assert(show(Ranges.merge({ { first = 1, last = 3 }, { first = 4, last = 6 } })) == "1-6")
+end
+
+local function test_a_shared_end_joins()
+  assert(show(Ranges.merge({ { first = 1, last = 3 }, { first = 3, last = 5 } })) == "1-5")
+end
+
+local function test_a_gap_stays()
+  assert(show(Ranges.merge({ { first = 1, last = 3 }, { first = 5, last = 6 } })) == "1-3,5-6")
+end
+EOF
+if (cd mini && $tool test > /dev/null 2>&1); then echo pass; else echo fail; fi]==],
+  },
+  {
+    name = "fix-rle",
+    prompt = "Rle in eval/plant/rle.tl does not round-trip: decoding what encode wrote does not always answer the " ..
+      "first text (try `abc` and a run of twelve `a`). Find the bugs and fix them, and change nothing else. Its " ..
+      "tests are eval/plant/rle_test.tl; run them with `cosmic test eval/plant/rle_test.tl`.",
+    truth = "echo pass",
+    check = [==[mkdir mini && cp eval/plant/rle.tl mini/rle.tl && cat > mini/hidden_test.tl <<'EOF'
+local Rle = require("rle")
+
+local function test_a_text_round_trips()
+  for _, text in ipairs({ "abc", "aaabcc", "zzzzzzzzzzzzq", "x", "aabbaabb" }) do
+    assert(Rle.decode(Rle.encode(text)) == text, text)
+  end
+end
+
+local function test_encode_writes_every_run()
+  assert(Rle.encode("aaabcc") == "3a1b2c", Rle.encode("aaabcc"))
+  assert(Rle.encode("abc") == "1a1b1c")
+end
+
+local function test_a_length_has_many_digits()
+  assert(Rle.decode("12a2b") == "aaaaaaaaaaaabb")
+  assert(Rle.encode("aaaaaaaaaaaa") == "12a")
+end
+EOF
+if (cd mini && $tool test > /dev/null 2>&1); then echo pass; else echo fail; fi]==],
+  },
+  {
+    name = "fix-calc",
+    prompt = "Calc.eval in eval/plant/calc.tl answers wrong values: it should give `2-3-4` = -5, `10-4-3` = 3, " ..
+      "`2^3^2` = 512 (`^` groups from the right) and `-2^2` = -4 (`^` binds tighter than a minus before it), and " ..
+      "keep `10/4/5` = 0.5, `2*3+4` = 10 and `(1+2)*3` = 9. Find the bugs and fix them, and change nothing else. " ..
+      "Its tests are eval/plant/calc_test.tl; run them with `cosmic test eval/plant/calc_test.tl`.",
+    truth = "echo pass",
+    check = [==[mkdir mini && cp eval/plant/calc.tl mini/calc.tl && cat > mini/hidden_test.tl <<'EOF'
+local Calc = require("calc")
+
+local function test_minus_groups_from_the_left()
+  assert(Calc.eval("2-3-4") == -5)
+  assert(Calc.eval("10-4-3") == 3)
+  assert(Calc.eval("1-2+3") == 2)
+end
+
+local function test_a_power_groups_from_the_right()
+  assert(Calc.eval("2^3^2") == 512)
+end
+
+local function test_a_power_binds_tighter_than_a_minus()
+  assert(Calc.eval("-2^2") == -4)
+  assert(Calc.eval("-(1+2)") == -3)
+  assert(Calc.eval("2*-3") == -6)
+end
+
+local function test_the_rest_holds()
+  assert(Calc.eval("10/4/5") == 0.5)
+  assert(Calc.eval("2*3+4") == 10)
+  assert(Calc.eval("(1+2)*3") == 9)
+end
+EOF
+if (cd mini && $tool test > /dev/null 2>&1); then echo pass; else echo fail; fi]==],
+  },
 }
 
 local USAGE <const> = "usage: eval/agent --tool NAME=PATH [--tool NAME=PATH ...] --fixture DIR --out DIR " ..
@@ -941,7 +1110,7 @@ function Agent.execute(options: Agent.Options, system: Agent.System, key: string
           stop()
           if not ran then error(why, 0) end
           local truth = truths[task.name] or ""
-          local left = Agent.lines_of(own.run({ "bash", "-c", task.check }, work, nil, 60).stdout)
+          local left = Agent.lines_of(own.run({ "bash", "-c", "tool=" .. quoted(tool.path) .. "; " .. task.check }, work, nil, 60).stdout)
           local grade = "fail"
           if truth == "" then grade = "unfit" elseif left == truth then grade = "pass" end
           write(options.out .. "/" .. tool.name .. "/" .. task.name .. "-" .. tostring(rep) .. ".txt",

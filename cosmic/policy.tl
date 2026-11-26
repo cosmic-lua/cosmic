@@ -98,7 +98,7 @@ function PolicyJson.encode(p: Sandbox.Policy): string
     error("sandbox: encode takes a merged policy: resolve profiles with Sandbox.union first", 2)
   end
   local made, why = Sandbox.union(p)
-  if made == nil then error(why, 2) end
+  if made == nil then error(tostring(why), 2) end
   local merged: Sandbox.Policy = made
   local setup = merged.setup or {}
   local digests: mut {string:string} = {}

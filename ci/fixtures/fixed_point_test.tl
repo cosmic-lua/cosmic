@@ -59,6 +59,12 @@ Test.policy{
     "http_proxy",
     "no_proxy",
   },
+  requires = {
+    "env:COSMIC_FIXTURE_COMPILES",
+    "env:COSMIC_FIXTURE_PRODUCT",
+    "env:COSMIC_FIXTURE_SHARED_COMPILES",
+    "env:COSMIC_FIXTURE_SOURCE",
+  },
 }
 
 -- What one stage's `docs` may take: the rebuild, the settling rebuild
