@@ -144,7 +144,7 @@ local record rules
   --- [`Sandbox.union`] refuses two different values of a field, and
   --- [`Sandbox.intersect`] joins them as a union does.
   record Setup
-    --- The variables set, by name. With `env`, the program's whole
+    --- The variables set, by name. With `env` grants, the program's whole
     --- environment; a name in both is set.
     set_env?: {string:string}
     --- What a decoded, encoded policy holds in place of `set_env`'s
@@ -253,13 +253,13 @@ local record rules
     --- false for them.
     exec_refused: boolean
     --- The socket families the filter lets the process make: "unix" for a
-    --- child with a `u` grant, "inet" for one with `loopback` or a
+    --- child with a `u` grant, "inet" for one with a loopback or a
     --- connect grant. A restricted process makes none.
     sockets: {rules.Socket}
     --- The namespaces a child starts in, of its own: "user", "pid",
     --- "mount" and "ipc" for one unveiled (`isolate`, or a root caller's
     --- policy that makes a namespace), "user" and "net" for one with a
-    --- network of its own (`loopback`, a connect grant or a `u` grant), all
+    --- network of its own (a loopback, connect or `u` grant), all
     --- five for both.
     namespaces: {rules.Namespace}
     --- Whether the child's files are a root of its own (`isolate` file),
@@ -268,7 +268,7 @@ local record rules
     --- The hosts the relay reaches for the child: its connect grants.
     relay: {string}
     --- The addresses of 127/8 the policy declares for the child's own
-    --- network (`loopback`); the relay's own listeners there are not among
+    --- network (its loopback grants); the relay's own listeners there are not among
     --- them.
     loopback: {string}
     --- The resource limits, by the names spawn and restriction take

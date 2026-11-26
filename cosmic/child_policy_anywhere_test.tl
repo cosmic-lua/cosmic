@@ -163,7 +163,7 @@ local function test_a_policy_with_connect_may_not_name_a_proxy_variable(tmp: str
       "all_proxy", "NO_PROXY", "no_proxy", "NODE_USE_ENV_PROXY" }) do
     for _, how in ipairs({ "set_env", "env" }) do
       local base: Sandbox.Policy = { grants = itself(probe, { { connect = "example.com:443" } }) }
-      local policy = if how == "env" then { ...base, grants = { { env = name } } } else
+      local policy = if how == "env" then { ...base, grants = itself(probe, { { connect = "example.com:443" }, { env = name } }) } else
         { ...base, setup = { ...(base.setup or {}), set_env = { [name] = "http://elsewhere:1" } } } end
       local why = refused({ probe, "print", "hi" }, policy)
       assert(why:find("^child: start: sandbox: " .. name .. " is set by the relay"), name .. ": " .. why)

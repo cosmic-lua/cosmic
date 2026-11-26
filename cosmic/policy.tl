@@ -46,8 +46,8 @@ local DATABASE <const> = FieldPath.field(FieldPath.field(FieldPath.root, "setup"
 --- changed; the core opens it by its path after that, so a file swapped in
 --- that instant is not caught.
 ---
----     local policy = assert(PolicyJson.decode('{"env":["HOME"],"setup":{"tmp":true}}'))
----     print(policy.env[1], assert(policy.setup).tmp) -- HOME  true
+---     local policy = assert(PolicyJson.decode('{"grants":[{"env":"HOME"}],"setup":{"tmp":true}}'))
+---     print(Sandbox.env(policy)[1], assert(policy.setup).tmp) -- HOME  true
 ---     local bad, why = PolicyJson.decode('{"grants":[{"path":"x","letters":"xr"}]}')
 ---     print(why) -- sandbox: $.grants[0].letters: "xr" is not in the order of "rwxcu", each letter once: "rx"
 function PolicyJson.decode(json: string): Sandbox.Policy?, string
@@ -73,7 +73,7 @@ function PolicyJson.decode(json: string): Sandbox.Policy?, string
 end
 
 --- A merged policy as canonical JSON: keys in byte order, lists sorted,
---- a field with nothing in it left out, `profiles` resolved away, and
+--- a field with nothing in it left out, profile grants resolved away, and
 --- `set_env`'s values written as `set_env_digests`, so the text names a
 --- variable and shows its value changed without showing it. The same
 --- policy is the same text, and [`PolicyJson.decode`] reads it back to a

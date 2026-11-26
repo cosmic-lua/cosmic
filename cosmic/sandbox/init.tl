@@ -921,7 +921,7 @@ end
 --- to a process that holds CAP_SYS_RESOURCE.
 --- Nothing lifts it, and the process cannot start a program its grants
 --- do not let run. The policy is merged first ([`Sandbox.union`]), so it
---- may name `profiles`, and its limits have a child's defaults: no core
+--- may grant profiles, and its limits have a child's defaults: no core
 --- dump and 1024 open files (this process's own hard limit where that
 --- is lower); a limit is only ever lowered, never
 --- raised. `cpu_seconds` is RLIMIT_CPU, which counts the CPU time the

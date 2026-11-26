@@ -331,7 +331,7 @@ local record Options
   --- A [`cosmic.sandbox`] policy the child is held to, met or the start
   --- fails (nil, and a message naming what is missing and how to give it).
   --- The policy is merged ([`Sandbox.union`], which resolves its
-  --- `profiles`), and then:
+  --- profile grants), and then:
   ---
   --- - `grants` are the only paths the child reaches, by Landlock (by the
   ---   root alone under the `nest` promise), a relative one from `cwd`; the child's program, found on this
