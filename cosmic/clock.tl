@@ -10,7 +10,9 @@
 --- a span of the calendar.
 ---
 --- [`span`] times a stretch of code by name, and [`report`] lists the names
---- by the time spent in each, to find where a program spends it.
+--- by the time spent in each, to find where a program spends it. Under
+--- `COSMIC_PROFILE` ([doc/performance.md](../doc/performance.md)) a span is a span of the profile too,
+--- and [`phase`] marks a stretch for the profile alone.
 
 local Failure = require("cosmic.failure")
 local sys = require("cosmic.sys")
@@ -51,8 +53,11 @@ local class Span
   wall_ns: integer
   --- Internal: see `spans`.
   cpu_ns: integer
+  --- Internal: see `spans`.
+  token: integer
 
   function __close(self)
+    local _ = sys.profile_span_close(self.token)
     local wall_ns = closing_reading(sys.CLOCK_MONOTONIC, "CLOCK_MONOTONIC") - self.wall_ns
     local cpu_ns = closing_reading(sys.CLOCK_THREAD_CPUTIME_ID, "CLOCK_THREAD_CPUTIME_ID") - self.cpu_ns
     local total = self.spans[self.name]
@@ -63,6 +68,24 @@ local class Span
     total.count = total.count + 1
     total.wall_ns = total.wall_ns + wall_ns
     total.cpu_ns = total.cpu_ns + cpu_ns
+  end
+end
+
+--- A phase of [`Clock.phase`] while it is open: its close ends it.
+local class Phase
+  --- Internal: what the profile names it by, 0 with none taken.
+  mut token: integer
+
+  --- Ends this phase, and every span or phase opened in it, and opens
+  --- the phase `name` in its place: `p:next("test.running")`.
+  function next(self, name: string)
+    local _ = sys.profile_span_close(self.token)
+    self.token = sys.profile_span_open(name)
+  end
+
+  function __close(self)
+    local _ = sys.profile_span_close(self.token)
+    self.token = 0
   end
 end
 
@@ -78,6 +101,9 @@ local record Clock
   --- A span [`span`] opened: hold it in a `<close>` variable, whose close
   --- adds its time to its name's total.
   type Span = Span
+
+  --- A phase [`phase`] opened: hold it in a `<close>` variable.
+  type Phase = Phase
 end
 
 local NS <const> = 1000000000
@@ -229,7 +255,19 @@ end
 --- read here, so a host with no CPU clock for a thread raises here, as
 --- [`cpu_ns`] does, before the code it would time runs.
 function Clock.span(spans: Clock.Spans, name: string): Clock.Span
-  local opened: Span = { spans = spans, name = name, wall_ns = Clock.monotonic_ns(), cpu_ns = Clock.cpu_ns() }
+  local opened: Span = { spans = spans, name = name, wall_ns = Clock.monotonic_ns(), cpu_ns = Clock.cpu_ns(),
+    token = sys.profile_span_open(name) }
+  return opened
+end
+
+--- Marks the code from here to the end of the block as the phase `name`
+--- of the profile `COSMIC_PROFILE` takes: hold the result in a `<close>`
+--- variable (`local p <close> = Clock.phase("test.keying")`). Each sample
+--- taken in it stands under `[name]`, and the profile totals its wall and
+--- CPU time. [`Phase.next`] ends it and opens the next in its place, for
+--- steps that follow each other. With no profile taken, it does nothing.
+function Clock.phase(name: string): Clock.Phase
+  local opened: Phase = { token = sys.profile_span_open(name) }
   return opened
 end
 

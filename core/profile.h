@@ -2,7 +2,8 @@
  * The sampling profiler, for measuring cosmic itself. With
  * COSMIC_PROFILE set to a directory, every cosmic process (and every
  * child it starts, which inherits the variable) writes a profile of its
- * own there as it exits: `<dir>/<pid>.prof`, or `<pid>-<n>.prof` where
+ * own there as it exits (a child whose environment is given anew gets
+ * the variables back from its parent's start, core/coverage.c): `<dir>/<pid>.prof`, or `<pid>-<n>.prof` where
  * that is taken, as after an exec. The directory is made where it is
  * missing. Unset, it costs one getenv as the process starts.
  *
@@ -22,9 +23,16 @@
  *   process <pid> parent <ppid> clock <cpu|wall> hz <n>
  *   command <the command line, joined by spaces>
  *   total wall_ns <n> cpu_ns <n> sampled_us <n> dropped_us <n> other_us <n>
+ *   span <names> <count> <wall_ns> <cpu_ns>
  *   sample <frames> <line> <us>
  *
- * A sample's frames run from the outermost, joined by `;`: a Lua
+ * A span is a named stretch a program marks ([`Clock.span`],
+ * [`Clock.phase`]; the `profile_span_open` call): its line totals the
+ * spans of one path, the names of the spans it stood in and its own, each
+ * `[name]`, joined by `;`. Its CPU time is the thread's.
+ *
+ * A sample's frames run from the outermost, joined by `;`, the spans open
+ * when it was taken first: a Lua
  * function as `name@source:linedefined`, a C function as `name@[C]`
  * (named `module.field` or `type:method` by where the loaded modules and
  * the registry's metatables hold it). Its line is the innermost Lua line,
@@ -45,10 +53,15 @@
  * - A tick that lands as a coroutine yields: that coroutine's budget
  *   countdown (core/coverage.c) starts again in full when it next runs.
  * - A process a signal kills leaves its file empty.
+ * - The totals of the spans a fork's child found open: its samples stand
+ *   under them, and its parent writes their totals.
  */
 
 #ifndef COSMIC_PROFILE_H
 #define COSMIC_PROFILE_H
+
+#include <stddef.h>
+#include <sys/types.h>
 
 #include "lua.h"
 
@@ -60,6 +73,18 @@ void cosmic_profile_prepare (int argc, char **argv);
 /* Starts the timer, sampling `L` and the coroutines it runs, where
  * [`cosmic_profile_prepare`] opened a file. */
 void cosmic_profile_install (lua_State *L);
+
+/* The `NAME=value` entries of the profile's variables, for a child this
+ * process starts to profile itself into the same directory (made
+ * absolute): how many, 0 where no profile is taken. Built once, as the
+ * profile is prepared; never freed. */
+size_t cosmic_profile_entries (char *const **entries);
+
+/* Called on both sides of a fork that goes on running Lua, with what
+ * fork answered: in the child (`pid` 0) it starts a profile of its own,
+ * a new file in the same directory, and the timer, which a fork does
+ * not keep. Nothing in the parent, or where no profile is taken. */
+void cosmic_profile_forked (pid_t pid);
 
 /* Writes the profile, once, in the process that took it; nothing where
  * none is taken. atexit calls it; a path that leaves by _exit or exec

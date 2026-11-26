@@ -106,3 +106,46 @@ local function test_an_unprofiled_process_writes_nothing()
     assert(#names == 0, table.concat(names, ", "))
   end
 end
+
+--- A phase and a span of [`cosmic.clock`] are spans of the profile: each has a total, and the samples taken in one
+--- stand under it, the outer first.
+local function test_phases_and_spans_are_spans_of_the_profile()
+  local chunk = SPIN .. "local Clock = require('cosmic.clock') local spans: Clock.Spans = {} " ..
+    "local p <close> = Clock.phase('outer') do local _s <close> = Clock.span(spans, 'inner') " ..
+    "for _ = 1, 400 do spin(100000) end end p:next('after') for _ = 1, 200 do spin(100000) end"
+  local text = only(run("run", chunk))
+  assert(text:match("\nspan %[outer%] 1 %d+ %d+\n") ~= nil, text)
+  assert(text:match("\nspan %[outer%];%[inner%] 1 %d+ %d+\n") ~= nil, text)
+  assert(text:match("\nspan %[after%] 1 %d+ %d+\n") ~= nil, text)
+  assert(text:match("\nsample %[outer%];%[inner%];[^ ]*spin@%-e:1 ") ~= nil, text)
+  assert(text:match("\nsample %[after%];[^ ]*spin@%-e:1 ") ~= nil, text)
+end
+
+--- A child given an environment of its own profiles itself into its parent's directory: the start adds the profile's
+--- variables back.
+local function test_a_child_given_its_own_environment_is_profiled_too()
+  local chunk = "local Child = require('cosmic.child') local Env = require('cosmic.env') " ..
+    "local Proc = require('cosmic.proc') local again = assert(Proc.relaunch()) " ..
+    "local env: mut {string: string} = {} for k, v in pairs(Env.all()) do " ..
+    "if k:sub(1, 14) ~= 'COSMIC_PROFILE' then env[k] = v end end " ..
+    "for k, v in pairs(again.env) do env[k] = v end " ..
+    "local argv: mut {string} = {} for _, w in ipairs(again.argv) do argv[#argv + 1] = w end " ..
+    "argv[#argv + 1] = '-e' argv[#argv + 1] = 'local x = 0 for i = 1, 30000000 do x = x + i end' " ..
+    "local r = assert(Child.run(argv, { env = env, fds = again.fds, timeout_ns = 60000000000 })) " ..
+    "assert(r.ok, tostring(r.code))"
+  local r = run("run", chunk)
+  assert(#r.names == 2, table.concat(r.names, ", "))
+end
+
+--- A span's token names it alone: one closed already, and closed again after another span took its place, closes
+--- nothing.
+local function test_a_stale_token_closes_nothing()
+  local chunk = SPIN .. "local sys = require('cosmic.sys') " ..
+    "local p = sys.profile_span_open('p') local a = sys.profile_span_open('a') " ..
+    "assert(sys.profile_span_close(p)) local x = sys.profile_span_open('x') local b = sys.profile_span_open('b') " ..
+    "assert(not sys.profile_span_close(a)) for _ = 1, 200 do spin(100000) end " ..
+    "assert(sys.profile_span_close(b)) assert(sys.profile_span_close(x))"
+  local text = only(run("run", chunk))
+  assert(text:match("\nspan %[x%];%[b%] 1 %d+ %d+\n") ~= nil, text)
+  assert(text:match("\nsample %[x%];%[b%];[^ ]*spin@%-e:1 ") ~= nil, text)
+end

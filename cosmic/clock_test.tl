@@ -202,3 +202,14 @@ local function test_report_pads_a_name_by_its_characters()
   assert(lines[1] == "\u{e9}t\u{e9}   1 span, 2.000 ms wall, 0.000 ms cpu", lines[1])
   assert(lines[2] == "long  1 span, 1.000 ms wall, 0.000 ms cpu", lines[2])
 end
+
+--- With no profile taken, a phase does nothing: it opens, moves on and closes.
+local function test_a_phase_with_no_profile_does_nothing()
+  local p <close> = Clock.phase("one")
+  p:next("two")
+  local spans: Clock.Spans = {}
+  do
+    local _s <close> = Clock.span(spans, "inner")
+  end
+  assert(assert(spans["inner"]).count == 1)
+end
