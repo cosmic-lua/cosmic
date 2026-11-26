@@ -405,9 +405,8 @@ function Policy.of(cwd: string, config: Policy.Config): Sandbox.Policy?, string
   local own: Sandbox.Policy = {
     profiles = { "system", "programs", "proc" },
     grants = grants,
-    tmp = true,
+    setup = { tmp = true, set_env = env_of(linux, home, if config.path ~= nil then real_path(config.path) else nil end, cert) },
     env = if config.path ~= nil then { "LANG", "LC_ALL", "TERM" } else { "PATH", "LANG", "LC_ALL", "TERM" } end,
-    set_env = env_of(linux, home, if config.path ~= nil then real_path(config.path) else nil end, cert),
     -- On Linux a root of its own: what it was not granted is not there,
     -- and it owns what it was, whoever runs the agent. macOS has no
     -- namespaces to give it one.
@@ -442,7 +441,8 @@ end
 --- what it holds.
 function Policy.describe(p: Sandbox.Policy, home?: string): {string}
   local out: mut {string} = {}
-  local set = p.set_env or {}
+  local setup = p.setup or {}
+  local set = setup.set_env or {}
   local kept = set["HOME"]
   if home ~= nil and kept ~= nil then
     local real, _ = Fs.absolute(home)
@@ -463,7 +463,9 @@ function Policy.describe(p: Sandbox.Policy, home?: string): {string}
   if p.profiles ~= nil and #p.profiles > 0 then
     out[#out + 1] = "profiles: " .. table.concat(p.profiles, " ")
   end
-  if p.tmp == true then out[#out + 1] = "tmp: a fresh /tmp for each command, removed after it" end
+  if setup.tmp == true then
+    out[#out + 1] = "tmp: a fresh /tmp for each command, removed after it"
+  end
   out[#out + 1] = "calls: " .. table.concat(Sandbox.calls(p), " ")
   out[#out + 1] = "isolate: " .. (if p.isolate ~= nil then table.concat(p.isolate, " ") else "none" end)
   local limits = p.limits

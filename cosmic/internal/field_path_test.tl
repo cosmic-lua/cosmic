@@ -27,8 +27,8 @@ end
 --- A policy failure names a key that is no identifier the way a Shape
 --- failure does, whatever its bytes.
 local function test_a_policy_failure_quotes_a_variable_name_that_is_no_identifier()
-  local ok, why = Sandbox.check({ set_env = { ["A=B"] = "1" } })
-  assert(not ok and why:find('^sandbox: %$%.set_env%["A=B"%]: ') ~= nil, why)
-  ok, why = Sandbox.check({ set_env_digests = { ["A=\"B"] = string.rep("a", 64) } })
-  assert(not ok and why:find('^sandbox: %$%.set_env_digests%["A=\\"B"%]: ') ~= nil, why)
+  local ok, why = Sandbox.check({ setup = { set_env = { ["A=B"] = "1" } } })
+  assert(not ok and why:find('^sandbox: %$%.setup%.set_env%["A=B"%]: ') ~= nil, why)
+  ok, why = Sandbox.check({ setup = { set_env_digests = { ["A=\"B"] = string.rep("a", 64) } } })
+  assert(not ok and why:find('^sandbox: %$%.setup%.set_env_digests%["A=\\"B"%]: ') ~= nil, why)
 end

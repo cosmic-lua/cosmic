@@ -218,7 +218,8 @@ local function test_tailnet_serving_listens_at_the_nodes_addresses_with_its_cert
       local own = ts:certs()
       assert(own:load(Clock.hours(24)))
       state = "Stopped"
-      local _, why = Tailnet.serving({ client = ts })
+      local _, refused = Tailnet.serving({ client = ts })
+      local why = tostring(refused)
       said[#said + 1] = why
       server:stop()
     end,

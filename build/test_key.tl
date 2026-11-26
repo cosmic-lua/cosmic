@@ -2939,7 +2939,7 @@ local function police(s: Starting): Prepared?
     return cannot(made_trouble, true, nil)
   end
   local sealed = s.sealed
-  made.database = if sealed ~= nil then { path = sealed } else nil end -- checked: field_fixed
+  made.setup = { tmp = (made.setup or {}).tmp, database = if sealed ~= nil then { path = sealed } else nil end } -- checked: field_fixed
   s.policy = made
   if s.hold == "forbid" then
     local ran, ran_trouble = test_policy.runs(made)
