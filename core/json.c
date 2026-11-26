@@ -1,5 +1,6 @@
 #include "json.h"
 
+#include <limits.h>
 #include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -2967,6 +2968,217 @@ static int json_with_holes (lua_State *L) {
   return 1;
 }
 
+/* Orders two integer keys, for qsort. */
+static int compare_integers (const void *a, const void *b) {
+  lua_Integer x = *(const lua_Integer *)a, y = *(const lua_Integer *)b;
+  return (x > y) - (x < y);
+}
+
+/* One string key of a table being listed: its bytes, which the table
+ * holds alive, its first eight bytes as a big-endian number (0 past its
+ * end), and where it is kept: its position in the list of keys as
+ * they were met, or its slot on the stack. */
+struct listed_key {
+  const char *s;
+  size_t n;
+  uint64_t head;
+  lua_Integer slot;
+  int stack;
+};
+
+/* The first eight bytes of `s`, of `n`, as a big-endian number with 0
+ * past its end: two keys whose heads differ are in the order of their
+ * heads, so most comparisons read no bytes. */
+static uint64_t key_head (const char *s, size_t n) {
+  uint64_t head = 0;
+  for (size_t i = 0; i < 8; i++) {
+    head = head << 8 | (i < n ? (uint64_t)(unsigned char)s[i] : 0);
+  }
+  return head;
+}
+
+static int compare_listed (const void *a, const void *b) {
+  const struct listed_key *x = a, *y = b;
+  if (x->head != y->head) return x->head < y->head ? -1 : 1;
+  size_t n = x->n < y->n ? x->n : y->n;
+  int c = memcmp(x->s, y->s, n);
+  if (c != 0) return c;
+  return (x->n > y->n) - (x->n < y->n);
+}
+
+/* The most keys listed with no allocation of room to sort them in. */
+#define LISTED_ON_STACK 64
+
+/* Pushes a new list of the keys of the table at `idx`, which holds `n`
+ * keys and nothing else: its integer keys when `integers`, else its
+ * string keys, either sorted (strings in byte order, as `encode` writes
+ * an object's members). */
+static void push_sorted_keys (lua_State *L, int idx, lua_Integer n,
+                              int integers) {
+  lua_createtable(L, n > INT_MAX ? INT_MAX : (int)n, 0);
+  int out = lua_gettop(L);
+  if (n == 0) return;
+  if (integers) {
+    lua_Integer *keys = lua_newuserdatauv(L, (size_t)n * sizeof *keys, 0);
+    lua_Integer at = 0;
+    lua_pushnil(L);
+    while (lua_next(L, idx) != 0) {
+      lua_pop(L, 1);
+      if (lua_isinteger(L, -1) && at < n) keys[at++] = lua_tointeger(L, -1);
+    }
+    qsort(keys, (size_t)at, sizeof *keys, compare_integers);
+    for (lua_Integer i = 0; i < at; i++) {
+      lua_pushinteger(L, keys[i]);
+      lua_rawseti(L, out, i + 1);
+    }
+    lua_pop(L, 1);
+    return;
+  }
+  /* Each key is kept as it is met, so none is made again from its
+   * bytes, and then set in its place by the sorted order: on the stack
+   * for a few keys, else in a table. */
+  int small = n <= LISTED_ON_STACK;
+  struct listed_key stacked[LISTED_ON_STACK];
+  struct listed_key *keys = stacked;
+  int met = 0;
+  if (small) {
+    luaL_checkstack(L, LISTED_ON_STACK + 4, "JSON table scan");
+  } else {
+    keys = lua_newuserdatauv(L, (size_t)n * sizeof *keys, 0);
+    lua_createtable(L, n > INT_MAX ? INT_MAX : (int)n, 0);
+    met = lua_gettop(L);
+  }
+  lua_Integer at = 0;
+  lua_pushnil(L);
+  while (lua_next(L, idx) != 0) {
+    lua_pop(L, 1);
+    if (lua_type(L, -1) != LUA_TSTRING || at >= n) continue;
+    struct listed_key k;
+    k.s = lua_tolstring(L, -1, &k.n);
+    k.head = key_head(k.s, k.n);
+    if (small) {
+      /* The key stays below the copy that the next step takes. */
+      lua_pushvalue(L, -1);
+      k.stack = lua_gettop(L) - 1;
+      k.slot = 0;
+      /* Insertion sort: a record has a few members. */
+      lua_Integer i = at;
+      while (i > 0 && compare_listed(&keys[i - 1], &k) > 0) {
+        keys[i] = keys[i - 1];
+        i--;
+      }
+      keys[i] = k;
+    } else {
+      k.slot = at + 1;
+      k.stack = 0;
+      lua_pushvalue(L, -1);
+      lua_rawseti(L, met, k.slot);
+      keys[at] = k;
+    }
+    at++;
+  }
+  if (!small) qsort(keys, (size_t)at, sizeof *keys, compare_listed);
+  for (lua_Integer i = 0; i < at; i++) {
+    if (small) {
+      lua_pushvalue(L, keys[i].stack);
+    } else {
+      lua_rawgeti(L, met, keys[i].slot);
+    }
+    lua_rawseti(L, out, i + 1);
+  }
+  lua_settop(L, out);
+}
+
+/* classify(t, members, gaps): how the table `t` encodes, by the rules
+ * put_table applies ("array", "object", "hole" or "mixed"), as
+ * cosmic/json.tl's [`Json.layout`] documents it; a marked array is not
+ * scanned. When `members` is true, also what a walk over it visits, the
+ * keys and the extent, as [`Json.members`] documents them: a marked array
+ * is then scanned, and `gaps` asks for its integer keys when it has a
+ * gap. An unmarked table with a `__pairs` is not scanned: the
+ * layout is nil, for the caller to classify by that walk. */
+static int json_classify (lua_State *L) {
+  luaL_checktype(L, 1, LUA_TTABLE);
+  int members = lua_toboolean(L, 2);
+  int gaps = lua_toboolean(L, 3);
+  lua_settop(L, 1);
+  luaL_checkstack(L, 8, "JSON table scan");
+  if (array_mark(L, 1) != 0) {
+    lua_Integer count = 0, extent = 0;
+    if (members) {
+      lua_pushnil(L);
+      while (lua_next(L, 1) != 0) {
+        lua_pop(L, 1);
+        if (!lua_isinteger(L, -1) || lua_tointeger(L, -1) < 1) goto mixed;
+        lua_Integer k = lua_tointeger(L, -1);
+        count++;
+        if (k > extent) extent = k;
+      }
+    }
+    lua_pushliteral(L, "array");
+    if (!members) return 1;
+    if (gaps && count != extent) {
+      push_sorted_keys(L, 1, count, 1);
+    } else {
+      lua_createtable(L, 0, 0);
+    }
+    lua_pushinteger(L, extent);
+    return 3;
+  }
+  /* A table that walks itself by `__pairs` is classified by that walk,
+   * in Teal, as it was before this scan: nil, and when `members`, an
+   * empty list and 0. */
+  if (luaL_getmetafield(L, 1, "__pairs") != LUA_TNIL) {
+    lua_settop(L, 1);
+    lua_pushnil(L);
+    if (!members) return 1;
+    lua_createtable(L, 0, 0);
+    lua_pushinteger(L, 0);
+    return 3;
+  }
+  lua_Integer strings = 0, numbers = 0, top = 0;
+  lua_pushnil(L);
+  while (lua_next(L, 1) != 0) {
+    lua_pop(L, 1);
+    if (lua_type(L, -1) == LUA_TSTRING) {
+      strings++;
+    } else if (lua_isinteger(L, -1) && lua_tointeger(L, -1) >= 1) {
+      lua_Integer k = lua_tointeger(L, -1);
+      numbers++;
+      if (k > top) top = k;
+    } else {
+      goto mixed;
+    }
+  }
+  if (strings > 0 && numbers > 0) goto mixed;
+  /* `rawlen` is only some border, so as many keys as it says are the
+   * integers 1 to it only when none lies past it. */
+  if (numbers > 0 && (lua_Unsigned)numbers == lua_rawlen(L, 1) &&
+      top == numbers) {
+    lua_pushliteral(L, "array");
+    if (!members) return 1;
+    lua_createtable(L, 0, 0);
+    lua_pushinteger(L, numbers);
+    return 3;
+  }
+  if (numbers > 0) {
+    lua_pushliteral(L, "hole");
+  } else {
+    lua_pushliteral(L, "object");
+  }
+  if (!members) return 1;
+  push_sorted_keys(L, 1, numbers > 0 ? numbers : strings, numbers > 0);
+  lua_pushinteger(L, 0);
+  return 3;
+  mixed:
+  lua_settop(L, 1);
+  lua_pushliteral(L, "mixed");
+  if (!members) return 1;
+  lua_createtable(L, 0, 0);
+  lua_pushinteger(L, 0);
+  return 3;
+}
+
 /* is_array(v): whether `v` is a table carrying either array mark. */
 static int json_is_array (lua_State *L) {
   lua_pushboolean(L, lua_type(L, 1) == LUA_TTABLE && array_mark(L, 1) != 0);
@@ -2983,7 +3195,7 @@ static const luaL_Reg module[] = {
   {"encode", json_encode},
   {"check", json_check},       {"format", json_format},
   {"array", json_array},       {"is_array", json_is_array},
-  {"with_holes", json_with_holes},
+  {"with_holes", json_with_holes}, {"classify", json_classify},
   {NULL, NULL},
 };
 
