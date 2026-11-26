@@ -430,6 +430,76 @@ static enum problem push_value (struct decoding *d, yyjson_val *val,
   }
 }
 
+/* The member of `obj` whose key is s[0..n), the last of them when the
+ * key is there twice (which only `duplicate_keys` lets through, the last
+ * standing as decode builds it), or NULL. */
+static yyjson_val *member_named (yyjson_val *obj, const char *s, size_t n) {
+  size_t idx;
+  size_t max;
+  yyjson_val *key;
+  yyjson_val *item;
+  yyjson_val *found = NULL;
+  yyjson_obj_foreach(obj, idx, max, key, item) {
+    if (yyjson_get_len(key) == n && memcmp(yyjson_get_str(key), s, n) == 0) {
+      found = item;
+    }
+  }
+  return found;
+}
+
+/* Pushes the part of the container `val` that the selection at stack
+ * slot `node` names (Selection in cosmic/internal/json.d.tl): in an
+ * object, the members its `names` holds; in an array, the elements at
+ * its `positions`, from 1. Each is the whole value when its own
+ * selection is `whole`, else the part of it that selection names. A
+ * step `val` does not hold, or one into a value that is no container,
+ * is left out. An array keeps each element at its position, so it is
+ * marked as one that may have holes. The whole text was checked for
+ * depth and repeated keys before, so this refuses nothing. */
+static void push_only (struct decoding *d, yyjson_val *val, int node) {
+  lua_State *L = d->L;
+  luaL_checkstack(L, 6, "JSON nests too deeply");
+  bool object = yyjson_is_obj(val);
+  lua_newtable(L);
+  if (!object) luaL_setmetatable(L, HOLES_TYPE);
+  int out = lua_gettop(L);
+  lua_getfield(L, node, object ? "names" : "positions");
+  int steps = lua_gettop(L);
+  if (!lua_istable(L, steps)) luaL_error(L, "json: a selection without its steps");
+  lua_pushnil(L);
+  while (lua_next(L, steps) != 0) {
+    yyjson_val *item = NULL;
+    if (object && lua_type(L, -2) == LUA_TSTRING) {
+      size_t n;
+      const char *s = lua_tolstring(L, -2, &n);
+      item = member_named(val, s, n);
+    } else if (!object && lua_isinteger(L, -2)) {
+      lua_Integer position = lua_tointeger(L, -2);
+      if (position >= 1 && (lua_Unsigned)position <= yyjson_arr_size(val)) {
+        item = yyjson_arr_get(val, (size_t)(position - 1));
+      }
+    }
+    if (item != NULL && lua_istable(L, -1)) {
+      int child = lua_gettop(L);
+      lua_getfield(L, child, "whole");
+      bool whole = lua_toboolean(L, -1);
+      lua_pop(L, 1);
+      if (whole) {
+        lua_pushvalue(L, child - 1);
+        /* No problem is left to find: see above. */
+        (void)push_value(d, item, 0);
+        lua_rawset(L, out);
+      } else if (yyjson_is_ctn(item)) {
+        lua_pushvalue(L, child - 1);
+        push_only(d, item, child);
+        lua_rawset(L, out);
+      }
+    }
+    lua_pop(L, 1);
+  }
+  lua_pop(L, 1);
+}
+
 /* The index of the first member of `obj` whose key an earlier member
  * has, or its size when none does. A large object's keys go through a
  * Lua table, pushed and popped here, whose string hash is seeded. */
@@ -898,6 +968,8 @@ static int json_decode (lua_State *L) {
   luaL_argcheck(L, opened >= 0 && opened < r.max_depth, 13,
                 "fewer levels open than max_depth");
   r.opened = (int)opened;
+  bool only = !lua_isnoneornil(L, 14);
+  if (only) luaL_checktype(L, 14, LUA_TTABLE);
   r.flags = r.layout.json5 ? YYJSON_READ_JSON5 : YYJSON_READ_NOFLAG;
   struct decoding d;
   d.L = L;
@@ -911,15 +983,25 @@ static int json_decode (lua_State *L) {
   d.duplicate_keys = r.duplicate_keys;
   memset(&d.path, 0, sizeof d.path);
   d.repeated = NULL;
-  lua_settop(L, 13);
+  lua_settop(L, 14);
   luaL_getmetatable(L, ARRAY_TYPE);
   d.array_index = lua_gettop(L);
   /* Building the value allocates, and an allocation can raise: the
    * guard frees the document then, and on every return. */
   struct cosmic_guard *guard = cosmic_guard_push(L, release_doc);
-  yyjson_doc *doc = read_text(L, &r, guard, false);
+  /* With a selection, the whole text is checked as `check` checks it
+   * first, so a text decode refuses is refused whatever it selects; then
+   * only the selected values are built. */
+  yyjson_doc *doc = read_text(L, &r, guard, only);
   if (doc == NULL) return refused(L);
-  switch (push_value(&d, yyjson_doc_get_root(doc), r.opened)) {
+  yyjson_val *root = yyjson_doc_get_root(doc);
+  if (only && yyjson_is_ctn(root)) {
+    d.duplicate_keys = true;
+    push_only(&d, root, 14);
+    return cosmic_succeeded(L);
+  }
+  if (only) d.duplicate_keys = true;
+  switch (push_value(&d, root, r.opened)) {
     case REPEATED_KEY:
     repeat_failure(L, r.text, r.len, &r.layout, doc, d.repeated, &d.path);
     return refused(L);

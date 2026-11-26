@@ -217,6 +217,17 @@ local record Json
     --- Read an object that holds a key twice, the last of its members
     --- standing, rather than refusing it (default false).
     mut duplicate_keys?: boolean
+    --- Build only the values these paths reach, each a [`Json.Steps`]
+    --- whose positions count from 1 (none from the end), and leave the
+    --- rest of the document out: `{{"user", "name"}, {"id"}}` decodes a
+    --- tweet as `{user = {name = ...}, id = ...}`. The text is still
+    --- checked whole, so a text `decode` refuses is refused, but the
+    --- values nothing selects cost no table and no string: much faster
+    --- for a few fields of a large document. A path that reaches nothing
+    --- is left out, and an array keeps each element it holds at its
+    --- position (marked as one that may have holes). An empty path keeps
+    --- the whole value; a text that is no array or object is the value whole.
+    only?: {Json.Steps}
   end
 
   --- How a Lua table encodes: see [`Json.layout`].
@@ -456,14 +467,63 @@ local function value_of(v: any): Json.Value?
   return object
 end
 
+--- Why step `i` of a path is none, or nil when it is one: a name that
+--- is UTF-8, or an integer.
+local function bad_step(i: integer, step: string | integer): string?
+  if step is string then
+    if utf8.len(step) == nil then return ("step %d is a name that is not UTF-8"):format(i) end
+    return nil
+  end
+  if step == 0 then
+    return ("step %d is 0: positions count from 1, or from -1 at the end"):format(i)
+  end
+  return nil
+end
+
+local type Selection = raw.Selection
+
+--- `paths` as the selection [`raw.decode`] takes for `only`, or nil when
+--- a path is empty, which keeps the whole value. A path that ends where a
+--- longer one passes keeps the whole value there.
+local function selection(paths: {Json.Steps}): Selection?, string
+  local root: Selection = { whole = false, names = {}, positions = {} }
+  for i, steps in ipairs(paths) do
+    if #steps == 0 then return nil, "" end
+    local node = root
+    for j, step in ipairs(steps) do
+      local bad = bad_step(j, step)
+      if bad == nil and step is integer and step < 0 then
+        bad = ("step %d is %d, from the end, which only counts from 1"):format(j, step)
+      end
+      if bad ~= nil then return nil, ("only: path %d: %s"):format(i, bad) end
+      if node.whole then break end
+      local child: Selection?
+      if step is string then child = node.names[step] else child = node.positions[step] end
+      if child == nil then
+        child = { whole = false, names = {}, positions = {} }
+        if step is string then node.names[step] = child else node.positions[step] = child end
+      end
+      if j == #steps then child.whole = true end
+      node = child
+    end
+  end
+  return root, ""
+end
+
 --- [`raw.decode`] of `text` under `opts`; `record`, when given, is the
 --- JSON Lines line `text` is, which a failure names.
 local function decode_with(text: string, opts: Json.DecodeOptions, record?: integer,
                            null_value?: Json.Null): Json.Value?, string
   if null_value == nil then null_value = opts.null_value end
+  local only: Selection? = nil
+  if opts.only ~= nil then
+    local why: string
+    only, why = selection(opts.only)
+    if why ~= "" then return refuse(why) end
+  end
   local value, err = raw.decode(text, null_value, opts.max_depth, opts.json5,
     opts.big_numbers_as_strings, opts.lone_surrogates, record, opts.hash_comments,
-    opts.duplicate_keys)
+    opts.duplicate_keys, nil, nil, nil, nil, only)
   if err ~= "" then return refuse(err) end
   return value_of(value), ""
 end
@@ -899,19 +959,6 @@ local function at_pointer(pointer: string): string
     kept = segment .. kept
   end
   return "pointer ending " .. Json.quote(kept)
-end
-
---- Why step `i` of a path is none, or nil when it is one: a name that
---- is UTF-8, or an integer.
-local function bad_step(i: integer, step: string | integer): string?
-  if step is string then
-    if utf8.len(step) == nil then return ("step %d is a name that is not UTF-8"):format(i) end
-    return nil
-  end
-  if step == 0 then
-    return ("step %d is 0: positions count from 1, or from -1 at the end"):format(i)
-  end
-  return nil
 end
 
 --- `v` as a table, or nil when it is none.
