@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "lauxlib.h"
+#include "simd_base64.h"
 
 /* `lines(text, bare)`: the lines of `text` as a new list, each without its
  * newline. A last line with no newline is one too; none follows a last
@@ -236,6 +237,19 @@ static int text_unbase64 (lua_State *L) {
   size_t whole = n - n % 4;
   luaL_Buffer b;
   unsigned char *out = (unsigned char *)luaL_buffinitsize(L, &b, whole / 4 * 3 + 2);
+  /* simdutf first: it skips every ASCII space, where this decoder takes
+   * only line breaks and only where `lines`, so its bytes stand only when
+   * there are as many as the `n` characters counted above spell. Each
+   * character it skipped would leave fewer, so an equal count means it
+   * decoded exactly the characters this loop would have. Anything it
+   * refuses is decoded again below, which names the refusal. */
+  size_t left = n - whole;
+  size_t want = whole / 4 * 3 + (left == 0 ? 0 : left - 1);
+  size_t got = want;
+  if (cosmic_simdutf_unbase64(text, len, (char *)out, &got, url, padded) && got == want) {
+    luaL_pushresultsize(&b, got);
+    return 1;
+  }
   size_t o = 0;
   size_t taken = 0; /* characters decoded so far, line breaks not counted */
   uint32_t v = 0;
@@ -272,7 +286,6 @@ static int text_unbase64 (lua_State *L) {
       v = 0;
     }
   }
-  size_t left = n - whole;
   if (left == 2) {
     if ((v & 15) != 0) return base64_refuse(L, "bits", total);
     out[o++] = (unsigned char)(v >> 4);

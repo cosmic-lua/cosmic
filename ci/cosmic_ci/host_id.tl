@@ -113,8 +113,8 @@ end
 -- says which code reads each: a feature added there is added here. A
 -- machine no audit has read keeps every feature (nil).
 local keep: {string:{string}} = {
-  x86_64 = { "aes", "avx512_vnni", "avx512f", "avx512vl", "avx_vnni", "pclmulqdq", "sha_ni", "sse4_1",
-    "ssse3" },
+  x86_64 = { "aes", "avx2", "avx512_vbmi2", "avx512_vnni", "avx512_vpopcntdq", "avx512bw", "avx512cd",
+    "avx512f", "avx512vl", "avx_vnni", "bmi1", "bmi2", "pclmulqdq", "sha_ni", "sse4_1", "ssse3" },
   aarch64 = { "aes", "asimd", "crc32", "pmull", "sha2", "sha512" },
 }
 
