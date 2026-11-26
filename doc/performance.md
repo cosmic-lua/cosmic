@@ -128,14 +128,16 @@ checked suite retains its separate 120-second per-test deadline.
 
 # Finding where time goes
 
-`COSMIC_PROFILE=<path>` makes any cosmic process sample the Lua stack it
-stands in every `COSMIC_PROFILE_PERIOD` VM instructions (1000 when unset)
-and, at exit, write the stacks to a new file `<path>.<pid>`, in the folded
-form flame graph tools read ([`core/profile.h`] says what it does not see).
-It never writes over a file that is there, nor through a symbolic link at
-the path's last name. A sample counts instructions, not time, so time spent
-in C (a SQLite step, a string search) is not seen. `bin/cosmic bench/profile.tl <file>...` prints the functions with
-the most samples of their own and in their stack.
+`COSMIC_PROFILE=<dir>` makes any cosmic process, and every child it starts,
+write a profile to `<dir>/<pid>.prof` as it exits. A timer samples the
+stack about 1000 times a second of CPU time, or of wall time with
+`COSMIC_PROFILE_CLOCK=wall`, which counts waits too
+(`COSMIC_PROFILE_HZ` sets the rate). Time in C is seen: a sample in a
+SQLite step or a string search is charged to that C function, under the
+Lua line that called it. [`core/profile.h`] says what the file holds. It
+never writes over a file that is there, nor through a symbolic link.
+`bin/cosmic bench/profile.tl <dir>/*.prof` prints the functions with the
+most time of their own and in their stack, and the lines.
 
 `bin/cosmic bench/runtime.tl [name...]` times the standard library's hot
 paths (JSON, SQLite, streams, CSV) and prints nanoseconds per operation. It

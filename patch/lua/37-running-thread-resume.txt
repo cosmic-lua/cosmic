@@ -1,0 +1,18 @@
+file: src/ldo.c
+note: A resume names the thread it runs in luaD_running (patch/lua/36-running-thread-declared.txt) while it runs, and names the one before it again as it returns, by an end, a yield or an error alike: resume runs protected, so it always returns here.
+--- find
+  luai_userstateresume(L, nargs);
+  api_checkpop(L, (L->status == LUA_OK) ? nargs + 1 : nargs);
+  status = luaD_rawrunprotected(L, resume, &nargs);
+   /* continue running after recoverable errors */
+  status = precover(L, status);
+--- replace
+  luai_userstateresume(L, nargs);
+  api_checkpop(L, (L->status == LUA_OK) ? nargs + 1 : nargs);
+  lua_State *was_running = luaD_running;
+  luaD_running = L;
+  status = luaD_rawrunprotected(L, resume, &nargs);
+   /* continue running after recoverable errors */
+  status = precover(L, status);
+  luaD_running = was_running;
+--- end
