@@ -580,6 +580,7 @@ local function test_a_check_that_was_deferred_is_made_once_the_lock_is_free(tmp:
     assert(reboot.recheck({ "lsp" }, root, entered) == 3)
   end)
   assert(said:find("still stale after a reboot", 1, true), said)
+  assert(said:find("running the command again rebuilds the tool", 1, true), said)
   assert(reboot.unchecked(root), "a failed check leaves the tree held")
   -- The tool is the tree's and the lock is free: the tree is held to it again.
   local fresh_asked = false
