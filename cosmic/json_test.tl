@@ -470,6 +470,9 @@ local function test_strings_escape_at_every_offset()
       assert(not ascii:find("[\128-\255]"), "ascii escapes every byte from 0x80 at offset " .. tostring(at))
       assert(decoded(ascii) == s, "ascii round-trips at offset " .. tostring(at))
     end
+    local key = ("k"):rep(at)
+    local object = '{"' .. key .. '":"' .. ("v"):rep(at) .. '"}'
+    assert(assert(Json.format(object)) == object, "format keeps a plain key and value of " .. tostring(at) .. " bytes")
     local bad = ("a"):rep(at - 1) .. "\255" .. ("b"):rep(40 - at)
     local none, why = Json.encode(bad)
     assert(none == nil and tostring(why):find("not UTF-8", 1, true) ~= nil, "a stray byte at offset " .. tostring(at) .. " is refused")
