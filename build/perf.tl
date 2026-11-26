@@ -365,8 +365,11 @@ local record Counters
   after: {string}
 end
 
+--- Writes `value` to `path` as compact JSON: this file runs on the pinned
+--- release too (ci/bootstrap-files.txt), whose [`Json.EncodeOptions`] has
+--- `pretty` and not the tree's `layout`, so it names neither.
 local function save(path: string, value: any)
-  assert(Fs.write(path, assert(Json.encode_any(value, { layout = "expanded" })) .. "\n"))
+  assert(Fs.write(path, assert(Json.encode_any(value)) .. "\n"))
 end
 
 local function command(argv: {string}, fixture: Fixture): Child.Result
