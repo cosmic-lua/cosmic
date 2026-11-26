@@ -4,6 +4,7 @@
 --- and a certificate signing request it finalizes with is read back and
 --- its signature checked. Test support.
 
+local Failure = require("cosmic.failure")
 local Acme = require("cosmic.acme")
 local Codec = require("cosmic.codec")
 local Http = require("cosmic.http")
@@ -88,7 +89,7 @@ local record acme_fixture
   BASE: string
   read_csr: function(csr: string): Csr
   new_server: function(): Server
-  no_pause: function(ns: integer): boolean, string
+  no_pause: function(ns: integer): (true) | (false, Failure)
 end
 
 local type Request = acme_fixture.Csr
@@ -562,8 +563,8 @@ local function new_server(): Server
   return server
 end
 
-local function no_pause(_ns: integer): boolean, string
-  return true, ""
+local function no_pause(_ns: integer): (true) | (false, Failure)
+  return true
 end
 
 --- What a CSR says, read from its DER.
