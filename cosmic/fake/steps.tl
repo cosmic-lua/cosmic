@@ -4,10 +4,12 @@
 --- the status to end with. A step that fails says why on stderr, as
 --- `fake: <what>: <why>`, and returns 1.
 ---
----     local Steps = require("build.fake_steps")
+---     local Steps = require("cosmic.fake.steps")
 ---     local function main(argv: {string}): integer
 ---       return Steps.cat(argv[2]) or Steps.print("read") or 0
 ---     end
+---
+--- @public
 
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
@@ -18,6 +20,9 @@ local String = require("cosmic.string")
 local sys = require("cosmic.sys")
 
 local record Steps
+  --- A case of a fake main: handed the words past its name, it returns
+  --- the status to end with.
+  type Case = function({string}): integer
 end
 
 --- How many [`Steps.attempt`]s are running, in which a failure is not said.
@@ -128,7 +133,7 @@ function Steps.fd_closed(fd: integer): integer?
 end
 
 --- The names in directory `path`, sorted, a line each, to stdout.
-function Steps.ls(path: string): integer?
+function Steps.list(path: string): integer?
   local names, trouble = Fs.list(path)
   if names == nil then return Steps.fail(path, tostring(trouble)) end
   local sorted: mut {string} = {}
@@ -187,7 +192,7 @@ function Steps.rename(from: string, to: string): integer?
 end
 
 --- Removes the file `path`.
-function Steps.rm(path: string): integer?
+function Steps.remove(path: string): integer?
   local ok, trouble = sys.unlink(path)
   if not ok then return Steps.fail(path, trouble) end
   return nil
@@ -545,13 +550,9 @@ function Steps.write_fd(fd: integer, text: string): integer?
   return Steps.put(fd, text .. "\n")
 end
 
---- A case of a fake main: handed the words past its name, it returns
---- the status to end with.
-local type Case = function({string}): integer
-
 --- Runs the case of `cases` that `argv[1]` names, handed the words past
 --- it; a name of none fails, saying `fake` has no such case.
-function Steps.dispatch(fake: string, cases: {string:Case}, argv: {string}): integer
+function Steps.dispatch(fake: string, cases: {string:Steps.Case}, argv: {string}): integer
   local name = argv[1] or ""
   local words: mut {string} = {}
   for i = 2, #argv do words[#words + 1] = argv[i] end

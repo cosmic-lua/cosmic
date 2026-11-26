@@ -1,8 +1,8 @@
---- The fake of build/fake_steps_test.tl, a [`cosmic.fake`] main whose
---- cases are the steps of build/fake_steps.tl, one each, for the test
+--- The fake of cosmic/fake/steps_test.tl, a [`cosmic.fake`] main whose
+--- cases are the steps of cosmic/fake/steps.tl, one each, for the test
 --- to check what each says and ends with.
 
-local Steps = require("build.fake_steps")
+local Steps = require("cosmic.fake.steps")
 
 local int = Steps.int
 

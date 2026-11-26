@@ -26,7 +26,9 @@
 ---
 --- A fake that only answers its first argument needs no module of its
 --- own: [`Fake.reply`] places the reply fake, [`Fake.REPLY`], with a
---- table of answers.
+--- table of answers. A main that does more is made of the steps of
+--- [`cosmic.fake.steps`]: read a file, write one, start a child, test a
+--- descriptor, each saying why it failed.
 ---
 --- `build` takes a few milliseconds past reading the core. A test that
 --- builds one declares nothing for it in its [`Test.policy`]: the build

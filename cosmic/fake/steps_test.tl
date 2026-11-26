@@ -1,4 +1,4 @@
---- build/fake_steps.tl, the steps the tree's fake mains are made of: what
+--- [`cosmic.fake.steps`], the steps a fake main is made of: what
 --- each says, and the status it ends with, run in a fake of
 --- build/fake_steps_fake.tl.
 
