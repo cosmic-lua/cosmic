@@ -88,7 +88,7 @@ local TOLD <const> = 1024
 local LAST_READ <const> = Clock.ms(100)
 --- The policy a server with a command runs under, before its config's.
 local function default_policy(): Sandbox.Policy
-  return { profiles = { "system" }, tmp = true }
+  return { profiles = { "system" }, setup = { tmp = true } }
 end
 
 local KEYS <const>: {string: boolean} = { command = true, url = true, policy = true, sandbox = true, description = true }

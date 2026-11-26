@@ -1414,9 +1414,8 @@ function worker.invocation(given: worker.Invocation): worker.Command
     local held = given_policy2
     local policy: Sandbox.Policy = { profiles = held.profiles, grants = held.grants,
       isolate = held.isolate,
-      loopback = held.loopback, env = held.env, tmp = held.tmp, limits = held.limits,
-      database = held.database }
-    policy.set_env = env -- checked: field_fixed
+      loopback = held.loopback, env = held.env, limits = held.limits,
+      setup = { tmp = (held.setup or {}).tmp, database = (held.setup or {}).database, set_env = env } }
     -- `timeout_ns` is Child.FOREVER, which the harness cannot read: it
     -- requires no cosmic.child value. The runner ends a worker past its limit.
     return { argv = argv, options = { timeout_ns = -1,

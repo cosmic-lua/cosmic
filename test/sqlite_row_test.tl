@@ -128,7 +128,7 @@ end
 
 local function test_texts_lists_the_columns_of_a_row_of_text()
   local db = assert(Sqlite.memory())
-  local texts = first_row((assert(db:text_rows("SELECT 'a', 'b'")))):texts()
+  local texts = first_row((assert(db:rows("SELECT 'a', 'b'")))):texts()
   assert(#texts == 2 and texts[1] == "a" and texts[2] == "b")
   local row = typed()
   assert(Test.raises(function() row:texts() end):find("column 1 is an integer, not text", 1, true))
@@ -140,26 +140,6 @@ local function test_as_texts_shows_a_row_of_any_types_whole()
   local shown = first_row((assert(db:rows("SELECT 7, 'x', NULL, 1.5, CAST('ab' AS BLOB)")))):as_texts()
   assert(#shown == 5 and shown[1] == "7" and shown[2] == "x" and shown[3] == "" and shown[4] == "1.5" and
       shown[5] == "ab", table.concat(shown, ","))
-  assert(db:close())
-end
-
---- `text_rows` keeps SQLite's byte representation: its rows hold `text`
---- for every column, NULL as "" and numbers as SQLite spells them.
-local function test_text_rows_answer_text_for_every_column()
-  local db = assert(Sqlite.memory())
-  local row = first_row((assert(db:text_rows("SELECT 7, 1.5, 'seven', x'6100ff', NULL, ''"))))
-  assert(row:count() == 6)
-  assert(row:text(1) == "7" and row:text(2) == "1.5" and row:text(3) == "seven")
-  assert(row:text(4) == "a\0\255" and row:text(5) == "" and row:text(6) == "")
-  assert(row:bytes(4) == "a\0\255" and row:bytes(5) == "")
-  for index = 1, 6 do
-    assert(row:kind(index) == "text" and not row:is_null(index))
-    assert(row:value(index).text == row:text(index))
-  end
-  assert(Test.raises(function() row:integer(1) end):find("column 1 is text, not an integer", 1, true))
-  assert(Test.raises(function() row:number(2) end):find("column 2 is text", 1, true))
-  assert(Test.raises(function() row:blob(4) end):find("column 4 is text, not a blob", 1, true))
-  assert(Test.raises(function() row:text(7) end):find("the row has 6 columns", 1, true))
   assert(db:close())
 end
 

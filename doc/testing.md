@@ -264,9 +264,10 @@ The rules:
   naming it. These fields are refused:
 
   - a grant to write, run, or connect to (`{ connect = "host:port" }`),
-  - `isolate`, `limits`, `set_env`, `set_env_digests` and `database`,
-  - `tmp = false`,
-  - `user` and `group`.
+  - `isolate` and `limits`,
+  - `setup` and its fields (`set_env`, `set_env_digests`, `tmp`, `user`,
+    `group`, `database`): the harness chooses what a worker's start sets
+    up.
 
   [`Test.policy`]'s doc lists them.
 - Narrow a test before declaring a large set.

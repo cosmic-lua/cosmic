@@ -362,21 +362,6 @@ local function strings_of(field: string, value: any): {string}?, string
   return nil, field .. " takes a list of strings"
 end
 
---- `value` as a table of names to strings, or nil and why, naming `field`.
-local function names_of(field: string, value: any): {string:string}?, string
-  local out: mut {string:string} = {}
-  if value is {any:any} then -- declared: key_type
-    for k, v in pairs(value) do -- checked: any_use
-      if not (k is string and v is string) then
-        return nil, field .. " takes a table of names to strings"
-      end
-      out[k] = v
-    end
-    return out, ""
-  end
-  return nil, field .. " takes a table of names to strings"
-end
-
 --- `value` as a [`Policy`]'s grants, or nil and why.
 local function grants_of(value: any): {Test.Grant}?, string
   local out: mut {Test.Grant} = {}
@@ -449,33 +434,15 @@ local function policy_of(given: any): Test.Policy?, string
         why = key .. " takes true or false"
       elseif key == "cpu_features" then
         out.cpu_features = value
-      elseif key == "store_text" then
+      else
         out.store_text = value
-      else
-        out.tmp = value
-      end
-    elseif takes == "id" then
-      if not value is integer then
-        why = key .. " takes a whole number"
-      elseif key == "user" then
-        out.user = value
-      else
-        out.group = value
       end
     elseif takes == "seconds" then
       if value is integer then out.timeout = value else why = TestPolicy.timeout_refused() end
-    elseif takes == "string" then
-      if value is string then out.database = value else why = key .. " takes a path" end
     elseif takes == "grants" then
       out.grants, why = grants_of(value)
     elseif takes == "limits" then
       out.limits, why = limits_of(value)
-    elseif takes == "map" then
-      if key == "set_env" then
-        out.set_env, why = names_of(key, value)
-      else
-        out.set_env_digests, why = names_of(key, value)
-      end
     elseif key == "profiles" then
       out.profiles, why = strings_of(key, value)
     elseif key == "isolate" then
@@ -503,11 +470,10 @@ end
 --- "cosmic": `lua`, run on a sealed database of the closure; with the grant of o/bin,
 --- `tool`, itself), the system (profile "system") and nesting (the grant
 --- `{ calls = "nest" }`). What it cannot say is refused, naming the field, rather than
---- accepted as a declaration that moves no key: `isolate`, `set_env`,
---- `limits`, `database`, a grant of more than "r" or from another path, `tmp = false`.
---- A `connect` grant, `set_env_digests`, `user` and `group` are refused outright,
---- since no test reaches a host but loopback, a digest holds no value to
---- set, and the harness chooses a worker's user.
+--- accepted as a declaration that moves no key: `isolate`, `limits`, and
+--- a grant of more than "r" or from another path. A `connect` grant is
+--- refused outright, since no test reaches a host but loopback, and so is
+--- `setup`: what a worker's start sets up is the harness's to choose.
 --- The calls "fork", "jit" and "fattr" are accepted and change
 --- nothing: no worker holds them yet.
 ---

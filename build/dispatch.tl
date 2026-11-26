@@ -16,6 +16,7 @@ local help_source = require("build.help_source")
 local logger = require("build.logger")
 local type verb_spec = require("build.verb_spec")
 local type flags = require("cosmic.flags")
+local type standalone_type = require("build.standalone")
 
 local log = logger.log
 
@@ -756,7 +757,8 @@ end
 --- is refused with an error, but an unused name is let pass) and compiled by [`build.standalone`], which keeps a clean compile as it keeps a file's;
 --- a chunk the checker refuses does not run, and exits 4 ([`exit_status.uncompiled`]) with the checker's own messages. It reaches the standard library as a file does, by
 --- `require("cosmic.json")` with a literal name, and may require the tool's own modules too, which are the
---- tool's one-liner's to use; nothing is bound for it. The words after it are its `...` (each a `string?`); what it
+--- tool's one-liner's to use, and the modules of the working directory's tree, as a file at its root does
+--- ([`standalone.compile_nearby`]); nothing is bound for it. The words after it are its `...` (each a `string?`); what it
 --- returns is the exit code as a file run's is -- see build/exit_status.tl -- except a table or [`Json.null`], which is printed as
 --- JSON and exits 0.
 --- @param argv the whole command line, `-e` at slot 1
@@ -769,7 +771,14 @@ local function evaluate(argv: {string}, name?: string): integer
   end
   local type importer = require("build.importer")
   local outcome: importer.Outcome = { refused = false }
-  local loaded, trouble = require("build.standalone").compile(name or "-e", chunk, nil, true, outcome)
+  -- A chunk that requires a module of the working directory's tree is checked as a file at its root is.
+  local loaded: standalone_type.Main?
+  local trouble = ""
+  if require("build.nearby").required({ "." }, chunk) then
+    loaded, trouble = require("build.standalone").compile_nearby(name or "-e", chunk, outcome)
+  else
+    loaded, trouble = require("build.standalone").compile(name or "-e", chunk, nil, true, outcome)
+  end
   if loaded == nil then
     local Fs = require("cosmic.fs")
     local _, _ = Fs.put(Fs.stderr, trouble .. "\n")

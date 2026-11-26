@@ -235,7 +235,7 @@ local function test_a_plan_gives_a_scratch_of_its_own_only_where_no_host_directo
   assert(own.own_scratch and own.why_shared == "", own.why_shared)
   assert(#(assert(own.sandbox.unveil).writes or {}) == 0 and (assert(own.sandbox.unveil).at or {})[scratch] == nil)
   local policy = assert(test_policy.worker(own, bare))
-  assert(policy.tmp == true)
+  assert(assert(policy.setup).tmp == true)
   local tmp_grant: Sandbox.Path? = nil
   for _, grant in ipairs(Sandbox.paths(policy)) do
     local from = grant.from
@@ -258,7 +258,7 @@ local function test_a_plan_gives_a_scratch_of_its_own_only_where_no_host_directo
     assert(not made.own_scratch and made.why_shared:find(word, 1, true) ~= nil, word .. ": " .. made.why_shared)
     assert((assert(made.sandbox.unveil).writes or {})[1] == scratch)
     local held = assert(test_policy.worker(made, inputs))
-    assert(held.tmp == nil, word)
+    assert((held.setup or {}).tmp == nil, word)
   end
   shared(function(inputs: test_inputs.Effective): test_inputs.Effective
     return { ...inputs, system = true }
