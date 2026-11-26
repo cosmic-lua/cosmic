@@ -1289,6 +1289,24 @@ local function test_the_trees_checks_read_no_file_of_ci_and_refuse_a_require_int
   assert(table.concat(tree_checked.declared(root), "\n"):find("ci/", 1, true) == nil)
 end
 
+--- Narrowed to some files (`only`), the checks judge those files and every file that reaches one, and leave the rest:
+--- a module that requires a named one is judged, and one that requires none is not, whatever it holds.
+local function test_the_checks_narrowed_to_a_file_judge_it_and_what_reaches_it(dir: string)
+  local root = dir .. "/narrowed"
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.write(root .. "/build/named.tl", source("local record Named", "  n: integer", "end", "return Named")))
+  assert(Fs.write(root .. "/build/above.tl", source("local Named = require(\"build.named\")",
+    "local n: integer = \"above\"", "return { n = n, Named = Named }")))
+  assert(Fs.write(root .. "/build/apart.tl", source("local n: integer = \"apart\"", "return n")))
+  local only = { ["build/named.tl"] = true }
+  local checked = table.concat(tree_checked.checked(root, nil, nil, nil, only), "\n")
+  assert(checked:find("build/above.tl:2:", 1, true), checked)
+  assert(checked:find("build/apart.tl", 1, true) == nil, checked)
+  local whole = table.concat(tree_checked.checked(root), "\n")
+  assert(whole:find("build/apart.tl:1:", 1, true), whole)
+  assert(#tree_checked.scoped(root, nil, nil, only) == 0, table.concat(tree_checked.scoped(root, nil, nil, only), "\n"))
+end
+
 --- Files that require each other reach the same modules, and keep their own results.
 local function test_files_that_require_each_other_keep_their_own_answers_in_the_memo(dir: string)
   local root = dir .. "/declarecycle"
