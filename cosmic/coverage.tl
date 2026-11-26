@@ -12,6 +12,7 @@
 -- the raw table private and exposes collection windows guarded by an
 -- opaque session token. Lua's `debug` library is never opened.
 
+local Failure = require("cosmic.failure")
 local type NativeCoverage = require("cosmic.internal.debug")
 
 local extra: any = select(2, ...) -- checked: any_use
@@ -42,10 +43,10 @@ local record Coverage
 end
 
 --- The open window's session, nil while none is open.
---- What a function returns for a failure of this module: nil and `why`
+--- What a function returns for a failure of this module: nil and a Failure of `why`
 --- under the module's name.
-local function refuse(why: string): nil, string
-  return nil, "coverage: " .. why
+local function refuse(why: string): nil, Failure
+  return nil, Failure.new("coverage: " .. why)
 end
 
 local record Window
@@ -60,16 +61,14 @@ local active: Window = {}
 --- Refuses, touching no shared state, while a window opened by an
 --- earlier `start` is still open -- a second, unrelated caller cannot
 --- silently reset a collection already in progress.
---- @return Session | nil The session `stop` must be called with, or nil if refused
---- @return string Error message when refused, "" on success
-function Coverage.start(): Coverage.Session?, string
+function Coverage.start(): (Coverage.Session) | (nil, Failure)
   if active.session ~= nil then
     return refuse("collection is already active")
   end
   local session: Coverage.Session = {}
   active.session = session
   native.start()
-  return session, ""
+  return session
 end
 
 --- Stops collecting and hands back every line hit since the matching
@@ -80,15 +79,13 @@ end
 --- gathered is discarded. This is what keeps a caller other than the
 --- one that opened the window from ending or corrupting it.
 --- @param session Session The value the matching `start` returned
---- @return Hits | nil Every line hit since `start`, or nil if refused
---- @return string Error message when refused, "" on success
-function Coverage.stop(session: Coverage.Session): Coverage.Hits?, string
+function Coverage.stop(session: Coverage.Session): (Coverage.Hits) | (nil, Failure)
   local active_session = active.session
   if active_session == nil or session ~= active_session then
     return refuse("no matching open collection for this session")
   end
   active.session = nil
-  return native.stop(), ""
+  return native.stop()
 end
 
 --- Every line of the core's own C a hit could land on, by the file's
