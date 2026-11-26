@@ -895,7 +895,7 @@ local Proc = require("cosmic.proc")
 return function(argv: {string}): integer
   local executable = assert(Proc.executable())
   local started, why = Child.start({ executable, "x" },
-    { timeout_ns = Child.FOREVER, policy = { database = { path = argv[1] or "", sha256 = nil } } })
+    { timeout_ns = Child.FOREVER, policy = { setup = { database = { path = argv[1] or "", sha256 = nil } } } })
   print(started == nil, why)
   return 0
 end
