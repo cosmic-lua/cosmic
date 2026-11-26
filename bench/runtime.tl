@@ -72,6 +72,28 @@ case("json.encode small", function(n: integer)
   for _ = 1, n do assert(Json.encode(small_value)) end
 end)
 
+-- Json.get on a decoded object of 41 members whose member `user` is one
+-- of 41 too, as a tweet is: each step classifies the table it steps into.
+local wide_parts: mut {string} = {}
+for i = 1, 40 do wide_parts[i] = ('"field%d":%d'):format(i, i) end
+local wide = "{" .. table.concat(wide_parts, ",")
+local user_text = wide .. ',"screen_name":"cosmic"}'
+local tweet = decoded(wide .. ',"user":' .. user_text .. '}')
+local tweet_user: mut {string: Json.Value} = { screen_name = "cosmic" }
+for i = 1, 40 do tweet_user["field" .. tostring(i)] = i end
+case("json.get 2 steps, 41 keys", function(n: integer)
+  for _ = 1, n do
+    local got, why = Json.get(tweet, { "user", "screen_name" })
+    if got ~= "cosmic" then error(tostring(why)) end
+  end
+end)
+case("json.layout 41 keys", function(n: integer)
+  for _ = 1, n do assert(Json.layout(tweet_user) == "object") end
+end)
+case("json.members 41 keys", function(n: integer)
+  for _ = 1, n do assert(#Json.members(tweet_user).keys == 41) end
+end)
+
 -- SQLite, in memory: one insert of three values, one select by key, and 1000 rows read.
 local db = assert(Sqlite.memory())
 assert(db:exec("create table t (id integer primary key, name text, score real)"))
