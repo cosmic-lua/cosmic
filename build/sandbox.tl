@@ -181,20 +181,22 @@ local limits <const>: {Limit} = {
   { flag = "--processes", field = "processes", least = 1 },
 }
 
+--- The fields of a policy's `setup` the flags give.
+local record SetupFields
+  mut tmp?: boolean
+  mut set_env?: {string:string}
+  mut user?: integer
+  mut group?: integer
+  mut database?: Sandbox.Database
+end
+
 --- The fields of a policy's JSON the flags give; the words of `isolate` and of a grant's `calls` are left to
 --- [`PolicyJson.decode`].
 local record PolicyFields
   mut grants?: {{string:string}}
-  mut profiles?: {string}
   mut isolate?: {string}
-  mut loopback?: {string}
-  mut env?: {string}
-  mut tmp?: boolean
-  mut set_env?: {string:string}
   mut limits?: {string:integer}
-  mut user?: integer
-  mut group?: integer
-  mut database?: Sandbox.Database
+  mut setup?: SetupFields
 end
 
 --- What the line holds besides the policy.
@@ -228,6 +230,8 @@ local function table_of(parsed: Flags.Parsed): PolicyFields?, string
     return parsed.all[name] or {}
   end
   local grants: mut {{string:string}} = {}
+  if parsed.set["--system"] == true then grants[#grants + 1] = { profile = "system" } end
+  if parsed.set["--programs"] == true then grants[#grants + 1] = { profile = "programs" } end
   local function grant(name: string, letters: string)
     for _, path in ipairs(list(name)) do
       grants[#grants + 1] = { path = path, letters = letters }
@@ -249,18 +253,19 @@ local function table_of(parsed: Flags.Parsed): PolicyFields?, string
   for _, target in ipairs(list("--connect")) do
     grants[#grants + 1] = { connect = target }
   end
+  for _, address in ipairs(list("--loopback")) do
+    grants[#grants + 1] = { loopback = address }
+  end
+  for _, name in ipairs(list("--env")) do
+    grants[#grants + 1] = { env = name }
+  end
   if #grants > 0 then policy.grants = grants end
-  local profiles: mut {string} = {}
-  if parsed.set["--system"] == true then profiles[#profiles + 1] = "system" end
-  if parsed.set["--programs"] == true then profiles[#profiles + 1] = "programs" end
-  if #profiles > 0 then policy.profiles = profiles end
   local function some(name: string): {string}?
     return if #list(name) > 0 then list(name) else nil end
   end
   policy.isolate = some("--isolate")
-  policy.loopback = some("--loopback")
-  policy.env = some("--env")
-  if parsed.set["--tmp"] == true then policy.tmp = true end
+  local setup: SetupFields = {}
+  if parsed.set["--tmp"] == true then setup.tmp = true end
   local set_env: mut {string:string} = {}
   for _, text in ipairs(list("--set-env")) do
     local name, value = text:match("^([^=]+)=(.*)$")
@@ -272,7 +277,7 @@ local function table_of(parsed: Flags.Parsed): PolicyFields?, string
     end
     set_env[name] = value
   end
-  if next(set_env) ~= nil then policy.set_env = set_env end
+  if next(set_env) ~= nil then setup.set_env = set_env end
   local held: mut {string:integer} = {}
   for _, limit in ipairs(limits) do
     local given = list(limit.flag)
@@ -298,8 +303,9 @@ local function table_of(parsed: Flags.Parsed): PolicyFields?, string
     if user == nil or (gid ~= nil and group == nil) then
       return nil, "--user takes UID or UID:GID, whole numbers from 1 to 4294967294, not " .. given_user
     end
-    policy.user, policy.group = user, group
+    setup.user, setup.group = user, group
   end
+  if setup.tmp ~= nil or setup.set_env ~= nil or setup.user ~= nil then policy.setup = setup end
   return policy, ""
 end
 
@@ -410,7 +416,9 @@ local function policy_of(request: Request, database: string?): Sandbox.Policy?, 
     -- The text holds the file's digest as well as its path.
     local named, named_trouble = Sandbox.database(database)
     if named == nil then return nil, named_trouble end
-    fields.database = named
+    local setup = fields.setup or {}
+    setup.database = named
+    fields.setup = setup
   end
   local json, json_why = Json.encode_any(fields)
   if json == nil then return nil, tostring(json_why) end

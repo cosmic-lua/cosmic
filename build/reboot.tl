@@ -84,6 +84,14 @@ end
 --- which that command asks for once: a rebuild or a boot of a stale tool
 --- may come before it in the same run.
 local marker = "COSMIC_REBOOTED"
+
+--- Set beside `marker`: the path of the tool the reboot entered. A process
+--- that runs another tool (a cosmic of another checkout, which a command
+--- of this one starts) inherits both, and `marker` holds only where the
+--- running tool is this one: a reboot here says nothing of whether that
+--- tool may rebuild. A `marker` without it, which a tool from before it
+--- set, holds for any tool.
+local marker_tool = "COSMIC_REBOOTED_TOOL"
 local every_core <const> = "cores"
 
 --- Whether this process let go of the `marker` it was entered with
@@ -231,14 +239,52 @@ local function closing(handle: work.Handle, trouble: string): string
   return trouble
 end
 
+--- A copy of this process's environment, for a boot and the tool it enters
+--- to run in.
+local function running_in(): mut {string:string}
+  local run_in: mut {string:string} = {}
+  for name, value in pairs(sys.environ()) do run_in[name] = value end
+  return run_in
+end
+
+--- Whether `a` and `b` may name one file: they do by their real paths, and
+--- may where either does not resolve (a tool replaced under the process
+--- that runs it), so that a `marker` lapses only for a tool known to be
+--- another.
+local function same_tool(a: string, b: string): boolean
+  if a == b then return true end
+  local real_a, _ = sys.realpath(a)
+  local real_b, _ = sys.realpath(b)
+  return real_a == nil or real_b == nil or real_a == real_b
+end
+
+--- `stage`, the `marker` a process holds, where it holds for `running`,
+--- the path of the tool reading it: nil where `tool`, the `marker_tool`
+--- beside it, names another tool. Where `running` or `tool` is unknown
+--- (nil), it holds.
+local function holding(stage?: string, tool?: string, running?: string): string?
+  if stage == nil then return nil end
+  if tool ~= nil and running ~= nil and not same_tool(tool, running) then return nil end
+  return stage
+end
+
+--- The `marker` that `environment` holds for `running` ([`holding`]).
+local function stage_of(environment: {string:string}, running?: string): string?
+  return holding(environment[marker], environment[marker_tool], running)
+end
+
 --- The `marker` this process runs under, as `seen` ([`reboot.Seen`]) has it
---- where given: nil where no reboot entered it.
+--- where given: nil where no reboot entered it, or where the reboot entered
+--- another tool than the running one.
 local function entered_by(seen?: reboot.Seen): string?
   if seen ~= nil then
-    return seen.environment[marker]
+    return stage_of(seen.environment, seen.tool)
   end
   if released then return nil end
-  return sys.getenv(marker)
+  local stage = sys.getenv(marker)
+  if stage == nil then return nil end
+  local running, _ = Proc.executable()
+  return holding(stage, sys.getenv(marker_tool), running)
 end
 
 --- Whether a reboot entered this process: it runs the tool a rebuild or
@@ -494,8 +540,9 @@ local function into(handle: work.Handle, argv: {string}, settle: boolean): strin
   log:complain(string.format("rebuilt the tool in %.1f s (%s compiled, %d cached)",
     (Clock.monotonic_ns() - started) / Clock.seconds(1),
     plural.count(result.compiled, "module"), result.cached))
-  local environment = sys.environ()
-  environment[marker] = if settle then "2" else "1" end -- checked: view_written
+  local environment = running_in()
+  environment[marker] = if settle then "2" else "1" end
+  environment[marker_tool] = out
   return enter(out, argv, environment), false
 end
 
@@ -756,16 +803,10 @@ local function boot(root: string, argv: {string}, host_only: boolean, why: strin
   if not result.ok then
     return command .. " failed; fix what it reports and run this again"
   end
+  local tool = build_paths.resolve(root).tool
   run_in[marker] = entered
-  return enter(build_paths.resolve(root).tool, argv, run_in)
-end
-
---- A copy of this process's environment, for a boot and the tool it enters
---- to run in.
-local function running_in(): mut {string:string}
-  local run_in: mut {string:string} = {}
-  for name, value in pairs(sys.environ()) do run_in[name] = value end
-  return run_in
+  run_in[marker_tool] = tool
+  return enter(tool, argv, run_in)
 end
 
 --- Rebuilds the core with `root/bin/zig build boot`, as the running tool's
@@ -780,7 +821,8 @@ end
 function reboot.boot_into(root: string, argv: {string},
                           environment?: mut {string:string}): string
   local run_in = environment or running_in()
-  if run_in[marker] ~= nil then
+  local running, _ = Proc.executable()
+  if stage_of(run_in, running) ~= nil then
     return "the tool is still stale after a reboot"
   end
   return boot(root, argv, host_only_tool(), "the core is stale", run_in, "1")
@@ -933,6 +975,13 @@ function reboot.guard(handle: work.Handle, root: string,
   local settle = entered_by(seen) == "1" and unsettled(seen)
   local refused = refusal(settle, seen)
   if refused ~= nil then
+    -- What still differs says whether the tree moved after the rebuild
+    -- read it (an edit while the command ran), which a run started again
+    -- rebuilds, or the rebuild wrote a tool that is not the tree's.
+    if not settle then
+      refused = refused .. stale_reason.of(handle) ..
+        "; where a module changed after the rebuild read it, running the command again rebuilds the tool"
+    end
     log:complain(closing(handle, refused))
     return 3
   end
@@ -1002,7 +1051,13 @@ function reboot.every_core_into(argv: {string}, seen?: reboot.Seen,
   local home, _ = checkout_of(seen)
   if home == nil then return nil end
   local entered: string?
-  if environment ~= nil then entered = environment[marker] else entered = entered_by() end
+  if environment ~= nil then
+    local running, _ = Proc.executable()
+    if seen ~= nil then running = seen.tool end
+    entered = stage_of(environment, running)
+  else
+    entered = entered_by()
+  end
   if not reboot.auto_boot(environment) or entered == every_core then
     return nil
   end
@@ -1245,6 +1300,23 @@ function reboot.checkout_exit(argv: {string}, root: string, seen?: reboot.Seen):
     return nil
   end
   return reboot.stale_exit(argv, true, root, seen)
+end
+
+--- What a run that does not rebuild the tool (`cosmic --version`, `-e`, `-`) says where the tool is older than the
+--- checkout it was built from, or nil. Such a run uses the tool's own library and compiler, so after an edit to the
+--- checkout it answers from old code ([`reboot.stale_exit`] holds a run in a project to the checkout; these runs
+--- are held to none, by design). It only reads: the checkout's working database is read without writing it
+--- ([`work.tool_read_unwritten`]), no lock is taken or waited for and nothing is rebuilt. Nil for a release or a
+--- copy of a tool, which record no checkout ([`tree.checkout`]), and where the tool stands as the database
+--- records it. Where the database cannot say (it is missing, of another schema, or the tool moved on), the tool may
+--- be stale, and the note says "may".
+--- @param seen how a test has the check see the running tool ([`reboot.Seen`])
+function reboot.stale_note(seen?: reboot.Seen): string?
+  local home, _ = checkout_of(seen)
+  if home == nil then return nil end
+  if work.tool_read_unwritten(home, meta_of("boot_hash", seen) or "") == "fresh" then return nil end
+  return "this tool may be older than " .. home .. ", the checkout it was built from, so it may answer from " ..
+    "old code; `bin/cosmic fix <file>` there rebuilds it"
 end
 
 return reboot

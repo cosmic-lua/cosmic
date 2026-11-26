@@ -55,16 +55,16 @@ local function test_a_caller_that_is_not_root_may_name_only_itself(tmp: string)
   end
   local at = ChildPolicy.placed(tmp)
   local grants: {Sandbox.Grant} = { { path = at.probe, letters = "rx" }, { path = "/proc", letters = "r" } }
-  local ran = ChildPolicy.under(at.probe, { user = sys.getuid(), grants = grants }, at.work, { "status-field", "Uid" })
+  local ran = ChildPolicy.under(at.probe, { setup = { user = sys.getuid() }, grants = grants }, at.work, { "status-field", "Uid" })
   assert(ran.code == 0, ran.said)
   local ids = uids(ran.said)
   assert(#ids == 4 and ids[1] == sys.getuid(), ran.said)
-  local mine = ChildPolicy.under(at.probe, { user = sys.getuid(), group = sys.getgid(), grants = grants },
+  local mine = ChildPolicy.under(at.probe, { setup = { user = sys.getuid(), group = sys.getgid() }, grants = grants },
     at.work, { "status-field", "Uid" })
   assert(mine.code == 0, mine.said)
-  local why = ChildPolicy.refused(at.probe, { user = sys.getuid() + 1, grants = grants }, at.work)
+  local why = ChildPolicy.refused(at.probe, { setup = { user = sys.getuid() + 1 }, grants = grants }, at.work)
   assert(why:find("^child: start: sandbox: user ") and why:find("only a root caller", 1, true), why)
-  why = ChildPolicy.refused(at.probe, { user = sys.getuid(), group = sys.getgid() + 1, grants = grants }, at.work)
+  why = ChildPolicy.refused(at.probe, { setup = { user = sys.getuid(), group = sys.getgid() + 1 }, grants = grants }, at.work)
   assert(why:find("only a root caller", 1, true), why)
 end
 

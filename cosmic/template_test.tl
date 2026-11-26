@@ -1,4 +1,5 @@
 local Array = require("cosmic.array")
+local Failure = require("cosmic.failure")
 local Template = require("cosmic.template")
 
 -- TODO: once a test can load generated Lua into a typed module (a `load` environment that takes values of several
@@ -22,7 +23,7 @@ end
 local function refused(src: string): string
   local out, why = Template.compile(src, "t.tmpl")
   assert(out == nil, "compiled: " .. tostring(out))
-  return why
+  return tostring(why)
 end
 
 --- The number of newlines in `s`.
@@ -517,7 +518,7 @@ local function test_a_part_after_decoded_text_or_a_whole_url_slot_is_refused()
       assert(out ~= nil, src .. ": " .. tostring(err))
     else
       assert(out == nil, "compiled: " .. src)
-      assert(err:find(why, 1, true), src .. ": " .. err)
+      assert(tostring(err):find(why, 1, true), src .. ": " .. tostring(err))
     end
   end
 end
@@ -627,10 +628,10 @@ local function test_without_use_htmx_only_the_script_and_json_attributes_are_ref
     if attr ~= nil and (attr == "hx-trigger" or attr == "hx-vars" or attr == "hx-on:click" or attr == "hx-vals" or
         attr == "hx-headers" or attr == "hx-request" or attr == "hx-ws") then
       assert(out == nil, case.source)
-      assert(why:find("'" .. attr .. "' attribute", 1, true), why)
+      assert(tostring(why):find("'" .. attr .. "' attribute", 1, true), why)
     else
       -- A plain attribute, attribute-escaped as before.
-      assert(out ~= nil, case.source .. ": " .. why)
+      assert(out ~= nil, case.source .. ": " .. tostring(why))
       for _, call in ipairs(helpers_called(out)) do
         assert(call == "_attr", case.source .. ": " .. call)
       end
@@ -872,20 +873,20 @@ local function test_a_project_dialect_replaces_the_registry()
     plain = {},
   }
   local options: Template.Options = { dialects = { alpine = alpine } }
-  local function compile(src: string): string?, string
+  local function compile(src: string): (string) | (nil, Failure)
     return Template.compile("{{type T from m.t}}{{use alpine}}\n" .. src, "t.tmpl", options)
   end
   local out = assert(compile("<a x-link=\"{{.u}}\" data-x-link=\"/a/{{.i}}\">"))
   assert(helpers_called(out)[1] == "_lurl" and helpers_called(out)[2] == "_part", out)
   local html, why = compile("<a data-x-html=\"{{.u}}\">")
-  assert(html == nil and why:find("'data-x-html' attribute would be markup Alpine inserts", 1, true) ~= nil, tostring(why))
+  assert(html == nil and tostring(why):find("'data-x-html' attribute would be markup Alpine inserts", 1, true) ~= nil, tostring(why))
   local click, click_why = compile("<a @click=\"{{.u}}\">")
-  assert(click == nil and click_why:find("would be script", 1, true) ~= nil, tostring(click_why))
+  assert(click == nil and tostring(click_why):find("would be script", 1, true) ~= nil, tostring(click_why))
   -- The always-on refusals hold, and the built-in registry is not there.
   local on, on_why = compile("<a hx-on:click=\"{{.u}}\">")
-  assert(on == nil and on_why:find("would be script", 1, true) ~= nil, tostring(on_why))
+  assert(on == nil and tostring(on_why):find("would be script", 1, true) ~= nil, tostring(on_why))
   local gone, gone_why = Template.compile("{{type T from m.t}}{{use htmx}}\n", "t.tmpl", options)
-  assert(gone == nil and gone_why:find("unknown dialect 'htmx' (known: alpine)", 1, true) ~= nil, tostring(gone_why))
+  assert(gone == nil and tostring(gone_why):find("unknown dialect 'htmx' (known: alpine)", 1, true) ~= nil, tostring(gone_why))
   -- Two dialects must agree on an attribute they both name.
   local other: Template.Dialect = {
     name = "other",
@@ -897,7 +898,7 @@ local function test_a_project_dialect_replaces_the_registry()
   }
   local clash, clash_why = Template.compile("{{type T from m.t}}{{use alpine}}{{use other}}\n", "t.tmpl",
     { dialects = { alpine = alpine, other = other } })
-  assert(clash == nil and clash_why:find("dialects 'alpine' and 'other' give 'x-link' different rules", 1, true) ~= nil,
+  assert(clash == nil and tostring(clash_why):find("dialects 'alpine' and 'other' give 'x-link' different rules", 1, true) ~= nil,
     tostring(clash_why))
 end
 
@@ -1312,7 +1313,7 @@ local function test_markup_in_noscript_that_scripting_off_reads_differently_refu
   for _, src in ipairs(NOSCRIPT_MARKUP) do
     for _, cut in ipairs(cuts(src)) do
       local out, why = Template.compile(HEAD .. cut, "t.tmpl")
-      if out ~= nil or not (why:find("differently", 1, true) or why:find("the arms", 1, true)) then
+      if out ~= nil or not (tostring(why):find("differently", 1, true) or tostring(why):find("the arms", 1, true)) then
         wrong[#wrong + 1] = cut .. ": " .. tostring(why)
       end
     end
@@ -1391,7 +1392,7 @@ local function test_raw_text_in_select_or_frameset_is_refused()
       '<select><template></select></template><style><option onclick="</style>{{.x}}">',
   }) do
     for _, cut in ipairs(cuts(src)) do
-      local out = Template.compile(HEAD .. cut, "t.tmpl")
+      local out, _ = Template.compile(HEAD .. cut, "t.tmpl")
       if out ~= nil then
         wrong[#wrong + 1] = cut
       end
@@ -1698,11 +1699,11 @@ local function test_a_variable_out_of_scope_or_misspelled_is_refused_where_it_st
     local out, why = Template.compile(case.source, "t.tmpl")
     if case.reason == "" then
       if out == nil then
-        wrong[#wrong + 1] = case.source .. " was refused: " .. why
+        wrong[#wrong + 1] = case.source .. " was refused: " .. tostring(why)
       end
     else
       local want = "t.tmpl:" .. case.line .. ":" .. case.column .. ": "
-      if out ~= nil or why:sub(1, #want) ~= want or not why:find(case.reason, 1, true) then
+      if out ~= nil or tostring(why):sub(1, #want) ~= want or not tostring(why):find(case.reason, 1, true) then
         wrong[#wrong + 1] = case.source .. " said " .. tostring(why) .. ", not " .. want .. "..." .. case.reason
       end
     end
@@ -1730,9 +1731,12 @@ local function test_an_attribute_name_with_a_vertical_tab_or_form_feed_never_mak
   for _, space in ipairs({ "\v", "\f" }) do
     for _, tail in ipairs({ ">", "\">", "=x>", "" }) do
       local src = HEAD .. "<a {{if .a}}b" .. space .. "c" .. tail .. "{{end}}>"
-      local ok, out, why = pcall(Template.compile, src, "t.tmpl")
+      local ok, out, why = pcall(function(): (string?, Failure?)
+        local built, refusal = Template.compile(src, "t.tmpl")
+        return built, refusal
+      end)
       assert(ok, "compile raised on " .. string.format("%q", src) .. ": " .. tostring(out))
-      assert(out ~= nil or why ~= "", "neither a template nor a refusal")
+      assert(out ~= nil or why ~= nil, "neither a template nor a refusal")
     end
   end
 end

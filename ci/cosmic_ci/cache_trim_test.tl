@@ -7,6 +7,9 @@ local Json = require("cosmic.json")
 local Proc = require("cosmic.proc")
 local Seams = require("cosmic_ci.seams")
 local Signal = require("cosmic.signal")
+local Test = require("cosmic.test")
+
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 --- A count a stand-in keeps.
 local record Count

@@ -77,33 +77,33 @@ local function test_another_user_or_group_is_refused_naming_what_differs()
   local function unmet(policy: Sandbox.Policy, user: integer, group: integer): string
     return Seatbelt.credentials_unmet(assert(Sandbox.union(policy)), user, group)
   end
-  local why = unmet({ user = 6, group = 7 }, 5, 7)
+  local why = unmet({ setup = { user = 6, group = 7 } }, 5, 7)
   assert(why:find("^user 6:") ~= nil and not why:find("group 7", 1, true) and not why:find("nil", 1, true), why)
-  why = unmet({ user = 5, group = 8 }, 5, 7)
+  why = unmet({ setup = { user = 5, group = 8 } }, 5, 7)
   assert(why:find("^group 8") ~= nil and not why:find("user 5", 1, true) and not why:find("nil", 1, true), why)
-  why = unmet({ user = 6, group = 8 }, 5, 7)
+  why = unmet({ setup = { user = 6, group = 8 } }, 5, 7)
   assert(why:find("user 6, group 8", 1, true), why)
-  assert(unmet({ user = 5, group = 7 }, 5, 7) == "" and unmet({}, 5, 7) == "")
+  assert(unmet({ setup = { user = 5, group = 7 } }, 5, 7) == "" and unmet({}, 5, 7) == "")
 end
 
 local function test_a_root_caller_is_refused_whatever_the_policy_names()
   assert(Seatbelt.credentials_unmet({}, 0, 0):find("never runs as root", 1, true))
-  assert(Seatbelt.credentials_unmet({ user = 5 }, 0, 0):find("never runs as root", 1, true))
+  assert(Seatbelt.credentials_unmet({ setup = { user = 5 } }, 0, 0):find("never runs as root", 1, true))
 end
 
 local function test_the_callers_own_user_and_group_run_the_child()
   SeatbeltFixture.macos_only()
   if sys.getuid() == 0 then Test.skip("root is refused") end
-  local result = run({ "/usr/bin/id", "-u" }, { profiles = { "system" },
-    user = sys.getuid(), group = sys.getgid() })
+  local result = run({ "/usr/bin/id", "-u" }, { grants = { { profile = "system" } },
+    setup = { user = sys.getuid(), group = sys.getgid() } })
   expect(result.ok and result.stdout == tostring(sys.getuid()) .. "\n", result)
 end
 
 local function test_another_user_is_refused_before_a_child_starts()
   SeatbeltFixture.macos_only()
   if sys.getuid() == 0 then Test.skip("root is refused") end
-  local handle, why = Child.start({ "/bin/true" }, { timeout_ns = Child.FOREVER, policy = { profiles = { "system" },
-    user = sys.getuid() + 1 }, stdin = "null", stdout = "null", stderr = "null" })
+  local handle, why = Child.start({ "/bin/true" }, { timeout_ns = Child.FOREVER, policy = { grants = { { profile = "system" } },
+    setup = { user = sys.getuid() + 1 } }, stdin = "null", stdout = "null", stderr = "null" })
   assert(handle == nil and why.message:find("cannot change them", 1, true) ~= nil, why)
 end
 
@@ -113,7 +113,7 @@ end
 --- /System/Library) run under each.
 local function test_the_system_profile_is_the_same_raw_merged_and_through_json()
   SeatbeltFixture.macos_only()
-  local raw: Sandbox.Policy = { profiles = { "system" } }
+  local raw: Sandbox.Policy = { grants = { { profile = "system" } } }
   local merged = assert(Sandbox.union(raw))
   local decoded = assert(PolicyJson.decode(PolicyJson.encode(merged)))
   for _, policy in ipairs({ raw, merged, decoded }) do
@@ -127,16 +127,16 @@ end
 local function test_a_granted_file_is_read(tmp: string)
   SeatbeltFixture.macos_only()
   local granted = files(tmp)
-  local result = run({ CAT, granted }, { profiles = { "system" },
-    grants = { { path = granted, letters = "r" } } })
+  local result = run({ CAT, granted }, {
+    grants = { { profile = "system" }, { path = granted, letters = "r" } } })
   expect(result.ok and result.stdout == "granted-bytes", result)
 end
 
 local function test_another_file_is_refused_as_not_permitted(tmp: string)
   SeatbeltFixture.macos_only()
   local granted, other = files(tmp)
-  local result = run({ CAT, other }, { profiles = { "system" },
-    grants = { { path = granted, letters = "r" } } })
+  local result = run({ CAT, other }, {
+    grants = { { profile = "system" }, { path = granted, letters = "r" } } })
   expect(not result.ok and (result.stderr or ""):find("Operation not permitted", 1, true) ~= nil, result)
   expect(not (result.stdout or ""):find("other-bytes", 1, true), result)
 end
@@ -145,7 +145,7 @@ local function test_no_file_is_written_without_a_grant_to_write(tmp: string)
   SeatbeltFixture.macos_only()
   local granted = files(tmp)
   local created = tmp .. "/created"
-  local policy: Sandbox.Policy = { profiles = { "system" }, grants = { { path = granted, letters = "r" } } }
+  local policy: Sandbox.Policy = { grants = { { profile = "system" }, { path = granted, letters = "r" } } }
   -- Over the granted file, which is read-only, and as a new one.
   local over = run({ SH, "-c", "echo changed > \"$1\"", "sh", granted }, policy)
   expect(not over.ok, over)
@@ -154,8 +154,8 @@ local function test_no_file_is_written_without_a_grant_to_write(tmp: string)
   expect(not made.ok, made)
   assert(sys.stat(created) == nil, "a file was created without a grant to")
   -- A grant to write is what changes it, so the refusals above are Seatbelt's.
-  local allowed = run({ SH, "-c", "echo changed > \"$1\"", "sh", granted }, { profiles = { "system" },
-    grants = { { path = granted, letters = "rwc" } } })
+  local allowed = run({ SH, "-c", "echo changed > \"$1\"", "sh", granted }, {
+    grants = { { profile = "system" }, { path = granted, letters = "rwc" } } })
   expect(allowed.ok, allowed)
   assert(assert(Fs.read(granted)) == "changed\n", "the granted file was not written")
 end
@@ -171,17 +171,17 @@ local function test_what_seatbelt_cannot_hold_fails_the_start_with_its_own_refus
   SeatbeltFixture.macos_only()
   local granted = files(tmp)
   local function says(field: Sandbox.Policy, expected: string)
-    local grants: mut {Sandbox.Grant} = { { path = granted, letters = "r" } }
+    local grants: mut {Sandbox.Grant} = { { profile = "system" }, { path = granted, letters = "r" } }
     for _, grant in ipairs(field.grants or {}) do grants[#grants + 1] = grant end
-    local why = refusal({ ...field, profiles = { "system" }, grants = grants })
+    local why = refusal({ ...field, grants = grants })
     assert(why:find("^child: start: sandbox: seatbelt: ") and why:find(expected, 1, true), why)
   end
   says({ isolate = { "proc" } }, "isolate needs namespaces")
   says({ isolate = { "file" } }, "isolate needs namespaces")
-  says({ loopback = { "127.0.0.1" } }, "loopback needs a network namespace")
+  says({ grants = { { loopback = "127.0.0.1" } } }, "loopback needs a network namespace")
   says({ grants = { { calls = "nest" } } }, "nest cannot be held by Seatbelt")
   says({ limits = { processes = 8 } }, "limits.processes needs a user namespace")
-  says({ set_env_digests = { X = string.rep("0", 64) } }, "set_env_digests holds a digest")
+  says({ setup = { set_env_digests = { X = string.rep("0", 64) } } }, "set_env_digests holds a digest")
 end
 
 --- A database is the program a core runs on, so a program that is not this one
@@ -190,15 +190,15 @@ local function test_a_database_is_refused_for_a_program_that_is_not_this_one(tmp
   SeatbeltFixture.macos_only()
   local sealed = tmp .. "/sealed.db"
   assert(Fs.write(sealed, "not a database, but a regular file"))
-  local why = refusal({ profiles = { "system" }, database = { path = sealed } })
+  local why = refusal({ grants = { { profile = "system" } }, setup = { database = { path = sealed } } })
   assert(why:find("^child: start: sandbox: database ") and why:find("is not this program", 1, true), why)
 end
 
 local function test_a_grant_from_another_path_is_refused(tmp: string)
   SeatbeltFixture.macos_only()
   local granted = files(tmp)
-  local why = refusal({ profiles = { "system" },
-    grants = { { path = granted, letters = "r", from = "/granted" } } })
+  local why = refusal({
+    grants = { { profile = "system" }, { path = granted, letters = "r", from = "/granted" } } })
   assert(why:find("^child: start: sandbox: ") and why:find("from", 1, true), why)
 end
 
@@ -210,13 +210,14 @@ local function test_more_paths_than_a_start_takes_are_refused(tmp: string)
     assert(Fs.write(path, "x"))
     grants[i] = { path = path, letters = "r" }
   end
-  local why = refusal({ profiles = { "system" }, grants = grants })
+  table.insert(grants, 1, { profile = "system" })
+  local why = refusal({ grants = grants })
   assert(why:find("^child: start: sandbox: seatbelt: grants: ") and why:find("past the most", 1, true), why)
 end
 
 local function test_a_grant_that_is_not_there_fails_the_start_naming_it(tmp: string)
   SeatbeltFixture.macos_only()
-  local why = refusal({ profiles = { "system" }, grants = { { path = tmp .. "/absent", letters = "r" } } })
+  local why = refusal({ grants = { { profile = "system" }, { path = tmp .. "/absent", letters = "r" } } })
   assert(why:find("^child: start: sandbox: seatbelt: grant ") and why:find("absent", 1, true), why)
 end
 
@@ -227,14 +228,14 @@ local function test_a_program_the_policy_lets_be_written_fails_the_start_naming_
   SeatbeltFixture.macos_only()
   local granted = files(tmp)
   local started = assert(Child.run({ CAT, granted }, { timeout_ns = Child.FOREVER, stdout = "capture",
-    policy = { profiles = { "system" }, grants = { { path = granted, letters = "r" } } } }))
+    policy = { grants = { { profile = "system" }, { path = granted, letters = "r" } } } }))
   assert(started.ok and started.stdout == "granted-bytes", started.stdout)
   assert(Fs.mkdirs(tmp .. "/w"))
   local copy = tmp .. "/w/cat"
   assert(Fs.write(copy, assert(Fs.read(CAT))))
   assert(Fs.chmod(copy, 493))
   local child, why = Child.start({ copy, granted }, { timeout_ns = Child.FOREVER,
-    policy = { profiles = { "system" }, grants = { { path = granted, letters = "r" }, { path = tmp .. "/w", letters = "rwc" } } } })
+    policy = { grants = { { profile = "system" }, { path = granted, letters = "r" }, { path = tmp .. "/w", letters = "rwc" } } } })
   assert(child == nil)
   assert(why.message:find("^child: start: sandbox: ") and why.message:find("is not granted x", 1, true), why)
 end
@@ -242,16 +243,16 @@ end
 local function test_the_environment_the_policy_gives_is_the_whole_environment(tmp: string)
   SeatbeltFixture.macos_only()
   local granted = files(tmp)
-  local result = run({ SH, "-c", "echo \"[$KEPT][$OTHER][$HOME]\"" }, { profiles = { "system" },
-    grants = { { path = granted, letters = "r" } }, set_env = { KEPT = "kept" } })
+  local result = run({ SH, "-c", "echo \"[$KEPT][$OTHER][$HOME]\"" }, {
+    grants = { { profile = "system" }, { path = granted, letters = "r" } }, setup = { set_env = { KEPT = "kept" } } })
   expect(result.ok and result.stdout == "[kept][][]\n", result)
 end
 
 local function test_the_limits_the_profile_carries_are_the_childs(tmp: string)
   SeatbeltFixture.macos_only()
   local granted = files(tmp)
-  local result = run({ SH, "-c", "ulimit -n; ulimit -c" }, { profiles = { "system" },
-    grants = { { path = granted, letters = "r" } }, limits = { open_files = 128 } })
+  local result = run({ SH, "-c", "ulimit -n; ulimit -c" }, {
+    grants = { { profile = "system" }, { path = granted, letters = "r" } }, limits = { open_files = 128 } })
   -- No subshell: forking is a promise this policy does not make.
   expect(result.ok and result.stdout == "128\n0\n", result)
 end
@@ -294,12 +295,13 @@ end
 local function test_a_policy_child_leads_a_session_and_opens_no_terminal(tmp: string)
   SeatbeltFixture.macos_only()
   local granted = files(tmp)
-  local policy: Sandbox.Policy = { profiles = { "system" },
-    grants = { { path = granted, letters = "r" } } }
+  local policy: Sandbox.Policy = {
+    grants = { { profile = "system" }, { path = granted, letters = "r" } } }
   local shut = run({ SH, "-c", ": </dev/tty" }, policy)
   expect(not shut.ok, shut)
   -- Granted by hand, the open still finds no controlling terminal.
-  local granting: Sandbox.Policy = { profiles = { "system" }, grants = {
+  local granting: Sandbox.Policy = { grants = {
+    { profile = "system" },
     { path = granted, letters = "r" }, { path = "/dev/tty", letters = "rw" } } }
   local none = run({ SH, "-c", ": </dev/tty" }, granting)
   expect(not none.ok, none)
@@ -317,7 +319,7 @@ local function test_a_policy_start_that_keeps_the_callers_group_is_refused(tmp: 
   SeatbeltFixture.macos_only()
   local granted = files(tmp)
   local child, why = Child.start({ CAT, granted }, { timeout_ns = Child.FOREVER, process_group = false,
-    policy = { profiles = { "system" }, grants = { { path = granted, letters = "r" } } } })
+    policy = { grants = { { profile = "system" }, { path = granted, letters = "r" } } } })
   assert(child == nil, "a start that keeps the caller's group ran")
   assert(why.message:find("process_group = false is refused", 1, true), why)
 end

@@ -1,4 +1,4 @@
---- build/fake_steps.tl, the steps the tree's fake mains are made of: what
+--- [`cosmic.fake.steps`], the steps a fake main is made of: what
 --- each says, and the status it ends with, run in a fake of
 --- build/fake_steps_fake.tl.
 
@@ -102,4 +102,16 @@ end
 local function test_attempt_says_nothing_of_what_it_takes_up(tmp: string)
   local said = run(built(tmp), { "attempt", tmp .. "/missing" })
   assert(said.code == 0 and said.stdout == "taken up\n" and said.stderr == "", said.stderr)
+end
+
+--- A count, a program or a mode that is no such thing is refused, saying
+--- which, before anything is started or changed.
+local function test_a_step_refuses_what_is_no_number_or_program(tmp: string)
+  local program = built(tmp)
+  local count = run(program, { "start-count", "-1", program })
+  assert(count.code == 1 and assert(count.stderr):find("start-count: no count -1", 1, true) ~= nil, count.stderr)
+  local none = run(program, { "run-isolated" })
+  assert(none.code == 1 and assert(none.stderr):find("run-isolated: no program", 1, true) ~= nil, none.stderr)
+  local mode = run(program, { "chmod", tmp .. "/fake", "-1" })
+  assert(mode.code == 1 and assert(mode.stderr):find("chmod: no mode -1", 1, true) ~= nil, mode.stderr)
 end

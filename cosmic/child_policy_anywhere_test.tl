@@ -74,10 +74,10 @@ local function test_a_start_under_a_policy_is_refused_where_the_platform_has_no_
     { isolate = { "proc" }, grants = itself(probe) },
     { isolate = { "file" }, grants = itself(probe) },
     { isolate = { "file" }, grants = itself(probe, { { calls = "nest" } }) },
-    { user = sys.getuid(), grants = itself(probe) },
+    { setup = { user = sys.getuid() }, grants = itself(probe) },
     { isolate = { "proc" }, limits = { processes = 4 }, grants = itself(probe) },
-    { tmp = true, grants = itself(probe) },
-    { profiles = { "system" }, grants = itself(probe) },
+    { setup = { tmp = true }, grants = itself(probe) },
+    { grants = itself(probe, { { profile = "system" } }) },
   }
   for i, policy in ipairs(policies) do
     -- It starts in the directory that holds the probe: under isolate file the
@@ -138,7 +138,7 @@ local function test_a_policy_that_is_not_met_fails_naming_the_field(tmp: string)
     says: string
   end
   local cases: {Unmet} = {
-    { policy = { grants = grants(), set_env_digests = { X = string.rep("0", 64) } }, says = 'set_env_digests "X"' },
+    { policy = { grants = grants(), setup = { set_env_digests = { X = string.rep("0", 64) } } }, says = 'set_env_digests "X"' },
   }
   for _, case in ipairs(cases) do
     local none, why = Child.start({ probe, "print", "hi" }, { timeout_ns = Child.FOREVER, policy = case.policy })
@@ -163,15 +163,15 @@ local function test_a_policy_with_connect_may_not_name_a_proxy_variable(tmp: str
       "all_proxy", "NO_PROXY", "no_proxy", "NODE_USE_ENV_PROXY" }) do
     for _, how in ipairs({ "set_env", "env" }) do
       local base: Sandbox.Policy = { grants = itself(probe, { { connect = "example.com:443" } }) }
-      local policy = if how == "env" then { ...base, env = { name } } else
-        { ...base, set_env = { [name] = "http://elsewhere:1" } } end
+      local policy = if how == "env" then { ...base, grants = itself(probe, { { connect = "example.com:443" }, { env = name } }) } else
+        { ...base, setup = { ...(base.setup or {}), set_env = { [name] = "http://elsewhere:1" } } } end
       local why = refused({ probe, "print", "hi" }, policy)
       assert(why:find("^child: start: sandbox: " .. name .. " is set by the relay"), name .. ": " .. why)
       assert(why:find('connect "example.com:443"', 1, true) and why:find(how, 1, true), why)
     end
   end
   local free, why = Child.run({ probe, "env-of", "HTTPS_PROXY" }, { timeout_ns = Child.FOREVER, policy = { grants = itself(probe),
-    set_env = { HTTPS_PROXY = "http://mine:1" } }, stdout = "capture", cwd = probe:match("^(.*)/") })
+    setup = { set_env = { HTTPS_PROXY = "http://mine:1" } } }, stdout = "capture", cwd = probe:match("^(.*)/") })
   if free == nil then
     assert(ChildPolicy.unsandboxable(tostring(why)), why)
   else
@@ -207,7 +207,7 @@ local function test_a_policy_that_does_not_merge_fails_naming_the_field(tmp: str
   local probe = fake_of(tmp)
   local none, why = Child.start({ probe }, { timeout_ns = Child.FOREVER, policy = { grants = { { path = probe, letters = "q" } } } })
   assert(none == nil and why.message:find("$.grants[0].letters", 1, true) ~= nil, why)
-  local profile, trouble = Child.start({ probe }, { timeout_ns = Child.FOREVER, policy = { profiles = { "bogus" } } })
+  local profile, trouble = Child.start({ probe }, { timeout_ns = Child.FOREVER, policy = { grants = { { profile = "bogus" } } } })
   assert(profile == nil and trouble.message:find("bogus", 1, true) ~= nil, trouble)
 end
 
@@ -222,7 +222,7 @@ local function test_a_policy_of_too_many_grants_fails_before_it_makes_anything(t
       local grant: Sandbox.Grant = { path = tmp .. "/g" .. tostring(i), letters = "r" }
       grants[#grants + 1] = grant
     end
-    local none, why = Child.start({ probe, "print", "hi" }, { timeout_ns = Child.FOREVER, policy = { grants = grants, tmp = true } })
+    local none, why = Child.start({ probe, "print", "hi" }, { timeout_ns = Child.FOREVER, policy = { grants = grants, setup = { tmp = true } } })
     assert(none == nil, "a start over the most was made")
     assert(why.message:find("^child: start: sandbox: grants: "), why)
     assert(why.message:find("takes, " .. tostring(most) .. ";", 1, true), why)
@@ -243,7 +243,7 @@ local function test_from_needs_isolate_file_and_what_is_not_met_stays_refused(tm
   local counted = says({ limits = { processes = 4 } })
   assert(counted:find("limits.processes", 1, true) and counted:find("isolate", 1, true), counted)
   -- /tmp is the sandbox's own where tmp asks for it.
-  local clash = says({ isolate = { "file" }, tmp = true, grants = {
+  local clash = says({ isolate = { "file" }, setup = { tmp = true }, grants = {
     { path = probe, letters = "rx" }, { path = "/tmp", letters = "r" } } })
   assert(clash:find("/tmp", 1, true) and clash:find("tmp", 1, true), clash)
   local proc = says({ isolate = { "file" }, grants = {
@@ -305,7 +305,7 @@ local function test_a_root_caller_that_cannot_map_a_user_fails_naming_why()
     Test.skip("this process can map the user a sandbox runs as, so none of its starts is refused for it")
     return
   end
-  local handle, why = Child.start({ "/bin/true" }, { timeout_ns = Child.FOREVER, policy = { isolate = { "proc" }, profiles = { "system" } }, cwd = "/" })
+  local handle, why = Child.start({ "/bin/true" }, { timeout_ns = Child.FOREVER, policy = { isolate = { "proc" }, grants = { { profile = "system" } } }, cwd = "/" })
   assert(handle == nil, "the start was not refused")
   assert(why.message:find("never runs as root", 1, true) and why.message:find("CAP_SETFCAP", 1, true), why)
 end

@@ -6,7 +6,6 @@ local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local test_child = require("build.test_child")
-local this_program = require("build.this_program")
 
 --- The program itself, started with `-e`.
 Test.policy{ profiles = { "cosmic" } }
@@ -46,7 +45,7 @@ local verbs <const>: {string} = {
 --- runs a chunk. A module required at dispatch's top level for a verb's sake is loaded by every child a
 --- test starts, and fails this.
 local function test_e_loads_none_of_the_verbs(tmp: string)
-  local started = this_program.program(test_child.words(tmp, "build.dispatch_tool_test", "loaded"),
+  local started = Test.cosmic(test_child.words(tmp, "build.dispatch_tool_test", "loaded"),
     { env = {}, cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stdout) .. tostring(r.stderr))
@@ -61,7 +60,7 @@ end
 
 --- A verb's command line loads that verb's module of [`cosmic.cli`] alone: [`cosmic.cli`] loads every verb's.
 local function test_a_verb_loads_its_own_cli_module_alone(tmp: string)
-  local started = this_program.program(test_child.words(tmp, "build.dispatch_tool_test", "verb_loaded"),
+  local started = Test.cosmic(test_child.words(tmp, "build.dispatch_tool_test", "verb_loaded"),
     { env = {}, cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stdout) .. tostring(r.stderr))
@@ -77,7 +76,7 @@ end
 local function evaluate(tmp: string, chunk: string, args?: {string}): Child.Result
   local words: mut {string} = { "-e", chunk }
   for _, word in ipairs(args or {}) do words[#words + 1] = word end
-  local started = this_program.program(words, { env = {}, cwd = tmp, stdout = "capture",
+  local started = Test.cosmic(words, { env = {}, cwd = tmp, stdout = "capture",
     stderr = "capture", timeout_ns = Clock.seconds(30) })
   local result = assert(Child.run(started.argv, started.options))
   return result
@@ -94,6 +93,22 @@ local function test_e_runs_a_chunk_that_requires_the_library(tmp: string)
   assert(r.ok and r.stdout == "[1,2]\n", tostring(r.stdout) .. tostring(r.stderr))
 end
 
+--- A chunk requires a module of the working directory's tree, as a file at its root does: the module is checked with
+--- the chunk, its errors told under its own file.
+local function test_e_requires_a_module_of_the_working_directory(tmp: string)
+  assert(Fs.write(tmp .. "/util.tl", "local record U\nend\nfunction U.twice(n: integer): integer return n * 2 end\nreturn U\n"))
+  local r = evaluate(tmp, 'local U = require("util") print(U.twice(21))')
+  assert(r.ok and r.stdout == "42\n", tostring(r.stdout) .. tostring(r.stderr))
+  assert(Fs.write(tmp .. "/util.tl", "local record U\nend\nfunction U.twice(n: integer): integer return \"x\" end\nreturn U\n"))
+  local broken = evaluate(tmp, 'local U = require("util") print(U.twice(21))')
+  assert(broken.code == 4 and says(broken, "util.tl:3:"), tostring(broken.stderr))
+  -- A module the binary carries is the binary's, whatever file of its name the tree has.
+  assert(Fs.mkdirs(tmp .. "/build"))
+  assert(Fs.write(tmp .. "/build/exit_status.tl", "local record E\nend\nreturn E\n"))
+  local own = evaluate(tmp, 'local E = require("build.exit_status") print(E.uncompiled)')
+  assert(own.ok and own.stdout == "4\n", tostring(own.stdout) .. tostring(own.stderr))
+end
+
 --- The words after the chunk are its `...`, and what it returns is the exit code.
 local function test_e_hands_the_words_to_the_chunk_and_exits_with_what_it_returns(tmp: string)
   local r = evaluate(tmp, 'print(select("#", ...), ...) return 3', { "a", "b" })
@@ -102,7 +117,7 @@ end
 
 --- The child's result for `words`, run in `tmp`.
 local function ran(tmp: string, words: {string}): Child.Result
-  local started = this_program.program(words, { env = { COSMIC_STANDALONE = "1" }, cwd = tmp, stdout = "capture",
+  local started = Test.cosmic(words, { env = { COSMIC_STANDALONE = "1" }, cwd = tmp, stdout = "capture",
     stderr = "capture", timeout_ns = Clock.seconds(30) })
   return (assert(Child.run(started.argv, started.options)))
 end
@@ -213,7 +228,7 @@ end
 
 --- With no chunk at all it is a usage error.
 local function test_e_without_a_chunk_is_a_usage_error(tmp: string)
-  local started = this_program.program({ "-e" }, { env = {}, cwd = tmp, stdout = "capture",
+  local started = Test.cosmic({ "-e" }, { env = {}, cwd = tmp, stdout = "capture",
     stderr = "capture", timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.code == 2 and says(r, "usage: cosmic -e"), tostring(r.stderr))
@@ -228,7 +243,7 @@ local function test_e_keeps_no_compile_where_the_program_records_no_boot_hash(tm
   local chunk = 'local exit_status = require("build.exit_status") print(exit_status.uncompiled) return 0'
   local env = { XDG_CACHE_HOME = tmp .. "/cache", COSMIC_TRACE_REQUIRE = "1" }
   for round = 1, 2 do
-    local started = this_program.program({ "-e", chunk }, { env = env, cwd = tmp, stdout = "capture",
+    local started = Test.cosmic({ "-e", chunk }, { env = env, cwd = tmp, stdout = "capture",
       stderr = "capture", timeout_ns = Clock.seconds(30) })
     local r = assert(Child.run(started.argv, started.options))
     assert(r.ok and r.stdout == "4\n", tostring(round) .. tostring(r.stdout) .. tostring(r.stderr))

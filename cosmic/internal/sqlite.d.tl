@@ -165,9 +165,8 @@ local record sqlite
     release: function(Statement)
     --- The row the statement stands on as one table of two slots a
     --- column, its kind then its value (`false` for NULL), with
-    --- `metatable`; with `as_text`, every column `"text"` and its bytes,
-    --- NULL as `""`. Empty where the statement stands on no row.
-    row: function<T>(Statement, metatable: metatable<T>, as_text?: boolean): T
+    --- `metatable`. Empty where the statement stands on no row.
+    row: function<T>(Statement, metatable: metatable<T>): T
   end
 
   --- One database connection. Every call on a closed handle raises.
@@ -177,7 +176,7 @@ local record sqlite
     --- Runs every statement in `sql`, discarding any rows, with no
     --- parameter binding: schema DDL, PRAGMAs, or several
     --- `;`-separated statements in one call -- the one thing a typed
-    --- handle's `run`, `rows` and `text_rows` cannot do, since each of
+    --- handle's `run` and `rows` cannot do, since each of
     --- those prepares exactly one statement. Reach for `run` once a value
     --- needs binding.
     exec: function(Handle, sql: string): boolean, string

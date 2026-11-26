@@ -92,8 +92,11 @@ function relay.policy(database: string, digest: string, seatbelt?: boolean): rul
     if there ~= nil then grants[#grants + 1] = { path = file, letters = "r" } end
   end
   local held: rules.Database = { path = database, sha256 = digest }
-  if seatbelt == true then return { database = held, profiles = { "system" }, grants = grants } end
-  return { database = held, isolate = { "proc" }, grants = grants }
+  if seatbelt == true then
+    grants[#grants + 1] = { profile = "system" }
+    return { setup = { database = held }, grants = grants }
+  end
+  return { setup = { database = held }, isolate = { "proc" }, grants = grants }
 end
 
 --- How many ports [`relay.loopback_listeners`] tries before it gives up

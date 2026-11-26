@@ -352,7 +352,7 @@ function TreeProgram.derived_of(root: string): {{string}}?, string
       end
       local made, made_why = Template.compile(text, file, { dialects = nil })
       if made == nil then
-        return nil, made_why
+        return nil, tostring(made_why)
       end
       out[#out + 1] = { file, made, template_module(file) }
     end

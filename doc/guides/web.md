@@ -60,7 +60,7 @@ do
     local source, why = Template.compile((if plain == true then "{{type Page from site.page}}\n" else header end) .. markup, "page.tmpl")
     assert(source == nil, markup)
     tally.refused = tally.refused + 1
-    return why
+    return tostring(why)
   end
   -- A script's src and a link's href take a slot only as the whole value, a
   -- SafeResourceUrl the program vouched for: a part of one could name any script.
@@ -75,7 +75,7 @@ do
   assert(reason('<a href={{.url}}>x</a>'):find("quote the value", 1, true))
   -- JSON that htmx may run takes a Json value, and only under {{use htmx}}.
   assert(reason("<b hx-vals='{{.vals}}'>x</b>", true):find("{{use htmx}}", 1, true))
-  local ok = Template.compile(header .. '<a hx-get="/tasks/{{.id}}" hx-target="#task-{{.id}}">x</a>\n', "page.tmpl")
+  local ok, _ = Template.compile(header .. '<a hx-get="/tasks/{{.id}}" hx-target="#task-{{.id}}">x</a>\n', "page.tmpl")
   assert(ok ~= nil)
   print(tally.refused)
 end
@@ -618,7 +618,7 @@ return function(): integer
   }
   local ok, trouble = Web.serve(app, { listeners = { Net.tcp("127.0.0.1", 8080) } })
   if not ok then
-    log:complain(trouble)
+    log:complain(tostring(trouble))
     return 1
   end
   return 0

@@ -88,7 +88,7 @@ local TOLD <const> = 1024
 local LAST_READ <const> = Clock.ms(100)
 --- The policy a server with a command runs under, before its config's.
 local function default_policy(): Sandbox.Policy
-  return { profiles = { "system" }, tmp = true }
+  return { grants = { { profile = "system" } }, setup = { tmp = true } }
 end
 
 local KEYS <const>: {string: boolean} = { command = true, url = true, policy = true, sandbox = true, description = true }
@@ -283,13 +283,13 @@ local function draining(set: AgentMcp.Set, name: string, f?: function(), wait_ns
   if raised ~= nil then error(raised, 0) end
 end
 
---- `text` with each value of an environment variable `server` is given ([`Sandbox.Policy`]'s `env`) put as its name in
+--- `text` with each value of an environment variable `server` is given ([`Sandbox.Policy`]'s `env` grants) put as its name in
 --- brackets, and each control byte but a newline and a tab taken out: what a crashed server printed may hold its key.
 local function told_of(server: AgentMcp.Server?, text: string): string
   local out = text
   local policy = if server ~= nil then server.policy else nil end
   local none: {string} = {}
-  for _, key in ipairs(if policy ~= nil then policy.env or none else none end) do
+  for _, key in ipairs(if policy ~= nil then Sandbox.env(policy) else none end) do
     local value = Env.get(key)
     if value ~= nil and #value >= 4 then
       out = out:gsub(value:gsub("%W", "%%%0"), "[" .. key .. "]")

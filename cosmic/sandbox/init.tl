@@ -6,7 +6,7 @@
 --- one (`Child.start(argv, { timeout_ns = limit, policy = p })`), and a policy is met or the
 --- program does not start: there is no best-effort mode.
 ---
---- - [`Sandbox.union`] joins policies into one: it resolves `profiles`,
+--- - [`Sandbox.union`] joins policies into one: it resolves profile grants,
 ---   joins the letters of a path, unions the lists, and refuses two values
 ---   for one `set_env` name or one limit.
 --- - [`Sandbox.intersect`] is what stacked layers hold: only what each
@@ -27,7 +27,7 @@
 --- apart from this module so that a program that only runs a child under a
 --- policy does not carry a JSON reader and a schema checker.
 ---
----     local policy = { grants = { { path = "data", letters = "r" } }, tmp = true }
+---     local policy = { grants = { { path = "data", letters = "r" } }, setup = { tmp = true } }
 ---     local merged = assert(Sandbox.union(policy, { grants = { { calls = "fork" } } }))
 ---     print(Sandbox.paths(merged)[1].path, Sandbox.calls(merged)[1]) -- data  fork
 ---
@@ -39,7 +39,7 @@
 --- running process: Landlock for the paths (the root of `isolate` file
 --- alone, under the `nest` promise, which Landlock's refusal of mounts
 --- gives up), a seccomp filter for the system calls, and rlimits, and,
---- for a child, the namespaces `isolate`, `loopback`, a `u` grant and
+--- for a child, the namespaces `isolate`, a loopback grant, a `u` grant and
 --- `limits.processes` need. `connect` needs a network relay, which a
 --- child's start runs ([`Child.start`]): in the child's own network on
 --- Linux, and on macOS on the host's loopback behind a token. On macOS a
@@ -85,6 +85,15 @@ local record Sandbox
   --- `{ connect = "github.com:443" }`.
   type Connect = rules.Connect
 
+  --- A grant of a profile's grants ([`rules.Profile`]): `{ profile = "system" }`.
+  type Profile = rules.Profile
+
+  --- A grant of a variable of the caller's environment ([`rules.Env`]): `{ env = "HOME" }`.
+  type Env = rules.Env
+
+  --- A grant of an address of the program's own network ([`rules.Loopback`]): `{ loopback = "127.0.0.2" }`.
+  type Loopback = rules.Loopback
+
   --- Resource limits on every process the program starts
   --- ([`rules.Limits`]).
   type Limits = rules.Limits
@@ -92,6 +101,11 @@ local record Sandbox
   --- What a program is held to; every field is optional, and what a policy
   --- leaves out it does not have ([`rules.Policy`]).
   type Policy = rules.Policy
+
+  --- What a start sets up for a program, which is not a right: the
+  --- variables set, the temporary directory, the user and group, and the
+  --- database ([`rules.Setup`]).
+  type Setup = rules.Setup
 
   --- A database a policy runs a program on: its path, and the SHA-256 of
   --- its bytes where the policy is to hold to that ([`rules.Database`]).
@@ -170,6 +184,31 @@ function Sandbox.connects(p: Sandbox.Policy): {string}
   return rules.connects(p)
 end
 
+--- The profiles the grants of `p` name, in its order; none in a merged
+--- policy, whose profiles are their grants.
+---
+---     local p: Sandbox.Policy = { grants = { { profile = "system" }, { path = "data", letters = "r" } } }
+---     print(table.concat(Sandbox.profiles(p), ",")) -- system
+function Sandbox.profiles(p: Sandbox.Policy): {string}
+  return rules.profiles(p)
+end
+
+--- The variables of the caller's environment the grants of `p` pass through, in its order.
+---
+---     local p: Sandbox.Policy = { grants = { { env = "HOME" }, { env = "LANG" } } }
+---     print(table.concat(Sandbox.env(p), ",")) -- HOME,LANG
+function Sandbox.env(p: Sandbox.Policy): {string}
+  return rules.env(p)
+end
+
+--- The addresses of 127/8 the grants of `p` give the program's own network, in its order.
+---
+---     local p: Sandbox.Policy = { grants = { { loopback = "127.0.0.2" } } }
+---     print(table.concat(Sandbox.loopback(p), ",")) -- 127.0.0.2
+function Sandbox.loopback(p: Sandbox.Policy): {string}
+  return rules.loopback(p)
+end
+
 --- What the profile `name` holds on this host, as a policy: "system"
 --- grants the host's programs, libraries and the few files a libc reads to
 --- start, to read and not to run (`r` on /usr and the library and binary
@@ -217,7 +256,7 @@ function Sandbox.database(path: string): Sandbox.Database?, string
   return rules.database(path)
 end
 
---- What the policies given hold together: each one's `profiles` resolved
+--- What the policies given hold together: each one's profile grants resolved
 --- ([`Sandbox.profile`]) and joined in before the policy's own, then
 --- the grants joined by path (and `from`): the letters of one path are
 --- the union of each grant's, in the order of "rwxcu", whatever order
@@ -229,7 +268,7 @@ end
 --- values for one `set_env` name are (without saying them: they may be
 --- secrets). Two different `database`s are refused too. A name
 --- with a value in one policy and a digest in another must have the
---- value's digest. The result has no `profiles`, has every
+--- value's digest. The result has no profile grant, has every
 --- list and table, empty or not, and its `isolate` "file" holds "proc"
 --- too, which it implies: it is what [`PolicyJson.encode`] writes and
 --- [`Child.start`] meets. A value a policy's type does not stop -- an
@@ -250,7 +289,7 @@ end
 --- this is the meet of layers, the policy a child started under it, or a
 --- process restricted by each in turn ([`Sandbox.restrict`]), really has.
 --- Each is merged first. A path is reached with the letters every layer
---- gives it; the `calls` grants, `env` and `loopback` are the members every layer
+--- gives it; the `calls`, `env` and `loopback` grants are the members every layer
 --- names; a `connect` target is what each layer's targets reach; `isolate`
 --- is the union, since more isolation is less right; `tmp` holds only
 --- where each layer has it; a limit is the lowest given. What is not a
@@ -277,7 +316,7 @@ end
 --- Whether `policy` lets a program do each of `letters` at `path`, as
 --- Landlock reads its grants: true where a grant of `path`, or of a
 --- directory above it, gives every letter; false and why otherwise. The
---- policy is merged first, so it may name `profiles`. `path` is compared
+--- policy is merged first, so it may grant profiles. `path` is compared
 --- as written, cleaned: to check a real file, resolve its links first,
 --- since the kernel reads the path it opens. Each letter is checked at
 --- `path` itself: to ask whether a file may be made or removed, pass the
@@ -376,6 +415,7 @@ function Sandbox.permits(policy: Sandbox.Policy, path: string, action: string, c
   end
   local merged, why = rules.merge(policy)
   if merged == nil then return nil, why end
+  local setup = merged.setup or {}
   local letter, of_directory = asked.letter, asked.directory
   local creates = false
   local real = ""
@@ -408,7 +448,7 @@ function Sandbox.permits(policy: Sandbox.Policy, path: string, action: string, c
   end
   local isolated_tmp = false
   for _, kind in ipairs(merged.isolate or {}) do
-    if kind == "file" and merged.tmp == true then isolated_tmp = true end
+    if kind == "file" and setup.tmp == true then isolated_tmp = true end
   end
   local base = cwd
   if base == nil then
@@ -688,14 +728,15 @@ end
 --- names that only a child can have, which is made in a namespace the
 --- process is not in, or by a relay it has not.
 local function not_in_process(merged: Sandbox.Policy): string
-  local database = merged.database
+  local setup = merged.setup or {}
+  local database = setup.database
   if database ~= nil then
     return "database \"" .. database.path .. "\" is the program a child runs on, which a " ..
       "running process cannot change: start a child with Child.start and a policy instead"
   end
   -- A merged policy holds every list, empty where it names none.
-  local isolate, connect, loopback = merged.isolate or {}, rules.connects(merged), merged.loopback or {}
-  local env = merged.env or {}
+  local isolate, connect, loopback = merged.isolate or {}, rules.connects(merged), rules.loopback(merged)
+  local env = rules.env(merged)
   if #isolate > 0 then
     return "isolate \"" .. isolate[1] .. "\" needs a namespace of its own: start " ..
       "a child with Child.start and a policy instead"
@@ -738,22 +779,22 @@ local function not_in_process(merged: Sandbox.Policy): string
     return "env \"" .. first_env .. "\" is the environment of a child, which a running " ..
       "process already has"
   end
-  for name, _ in pairs(merged.set_env or {}) do
+  for name, _ in pairs(setup.set_env or {}) do
     return "set_env \"" .. name .. "\" is the environment of a child, which a running " ..
       "process already has"
   end
-  for name, _ in pairs(merged.set_env_digests or {}) do
+  for name, _ in pairs(setup.set_env_digests or {}) do
     return "set_env_digests \"" .. name .. "\" holds a digest, not a value to set"
   end
-  if merged.tmp == true then
+  if setup.tmp == true then
     return "tmp is a directory made for a child, which a running process makes for itself"
   end
   if (merged.limits or {}).processes ~= nil then
     return "limits.processes counts the processes of a user namespace of its own, which only " ..
       "a child has"
   end
-  local user = merged.user
-  local group = merged.group
+  local user = setup.user
+  local group = setup.group
   if user ~= nil and (user ~= sys.getuid() or
       (group ~= nil and group ~= sys.getgid())) then
     return "user " .. tostring(user) .. " is who a child runs as; a running process stays the " ..
@@ -825,11 +866,12 @@ end
 --- which [`not_in_process`] passed: the profile resolves "system" to
 --- macOS's paths, not the Linux ones [`Sandbox.union`] gives.
 local function held_by_seatbelt(policy: Sandbox.Policy, kept: {integer}): boolean, string
+  local setup = policy.setup or {}
   local grants: mut {Sandbox.Grant} = {}
   for _, grant in ipairs(policy.grants or {}) do grants[#grants + 1] = grant end
   for _, grant in ipairs(runtime_grants()) do grants[#grants + 1] = grant end
-  local held: Sandbox.Policy = { profiles = policy.profiles, grants = grants,
-    limits = policy.limits, user = policy.user, group = policy.group }
+  local held: Sandbox.Policy = { grants = grants,
+    limits = policy.limits, setup = { user = setup.user, group = setup.group } }
   local options, resolve_trouble = seatbelt_resolve(held)
   if options == nil then return denied(resolve_trouble) end
   local profile, compile_trouble = seatbelt_compile(held, options)
@@ -879,7 +921,7 @@ end
 --- to a process that holds CAP_SYS_RESOURCE.
 --- Nothing lifts it, and the process cannot start a program its grants
 --- do not let run. The policy is merged first ([`Sandbox.union`]), so it
---- may name `profiles`, and its limits have a child's defaults: no core
+--- may grant profiles, and its limits have a child's defaults: no core
 --- dump and 1024 open files (this process's own hard limit where that
 --- is lower); a limit is only ever lowered, never
 --- raised. `cpu_seconds` is RLIMIT_CPU, which counts the CPU time the

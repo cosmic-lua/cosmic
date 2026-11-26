@@ -17,7 +17,6 @@ local Tailscale = require("cosmic.tailscale")
 local Tls = require("cosmic.tls")
 local Web = require("cosmic.web")
 local _ = require("build.standalone")
-local this_program = require("build.this_program")
 --- What the client script requires, as in cosmic/http_tool_test.tl.
 local type _ = require("cosmic.http")
 local type Stream = require("cosmic.stream")
@@ -72,7 +71,7 @@ local function fetched(tmp: string, port: integer, hosts: {string}): string
   for _, host in ipairs(hosts) do
     argv[#argv + 1] = "https://" .. host .. ":" .. tostring(port) .. "/"
   end
-  local started = this_program.program(argv, { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(90) })
+  local started = Test.cosmic(argv, { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(90) })
   local result = assert(Child.run(started.argv, started.options))
   assert(result.code == 0, tostring(result.code) .. " " .. tostring(result.stderr))
   return assert(result.stdout)
@@ -149,7 +148,7 @@ local function test_a_source_that_fails_fails_the_serve()
     handle = settled,
     on_ready = function(_: {Net.Address}, server: Net.Server) server:stop() end,
   }
-  assert(not ok and why == "no certificate yet", why)
+  assert(not ok and tostring(why) == "no certificate yet", tostring(why))
 end
 
 --- [`Web.serve`] with `tls` serves the app over HTTPS, and a request's
@@ -218,7 +217,8 @@ local function test_tailnet_serving_listens_at_the_nodes_addresses_with_its_cert
       local own = ts:certs()
       assert(own:load(Clock.hours(24)))
       state = "Stopped"
-      local _, why = Tailnet.serving({ client = ts })
+      local _, refused = Tailnet.serving({ client = ts })
+      local why = tostring(refused)
       said[#said + 1] = why
       server:stop()
     end,

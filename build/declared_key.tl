@@ -230,8 +230,8 @@ local record declared_key
     --- What names the tests whose specs are the same but for `id`:
     --- their module's path.
     group: string
-    --- The module's `graph_key` ([`build.positions`]): its key less the
-    --- compiler. For a test given the pure store, "pure": the store's bytes
+    --- The module's `graph_key` ([`build.positions`]): the sources of every
+    --- module it reaches, which its compile key holds by their shapes alone. For a test given the pure store, "pure": the store's bytes
     --- are in `closure_store`, and the graph's key moves with a comment.
     module_key: string
     runtime: string
@@ -1104,7 +1104,10 @@ end
 --- `ssse3`); xz's crc_x86_clmul.h (`pclmulqdq`, `ssse3`, `sse4_1`) and
 --- crc32_arm64.h (`crc32`), and the core's own int8 dot product in
 --- core/vector.c, which takes VNNI where the CPU has it (`avx512f`,
---- `avx512vl`, `avx512_vnni`, `avx_vnni`). No Linux core links a libm that
+--- `avx512vl`, `avx512_vnni`, `avx_vnni`), and simdutf's base64 kernels
+--- (Haswell's by `avx2`, `bmi1` and `bmi2`; Ice Lake's by those with
+--- `avx512bw`, `avx512cd`, `avx512vl`, `avx512_vbmi2` and
+--- `avx512_vpopcntdq`). No Linux core links a libm that
 --- dispatches: every one, the checked core too, is static musl, and
 --- the libm zig and musl carry chooses no code by the processor. (A
 --- glibc host's libm would choose the variants of pow, asin, acos and
@@ -1120,8 +1123,10 @@ end
 --- ci/cosmic_ci/host_id.tl alike. A machine not named here, whose cores
 --- no audit has read, keys its whole list.
 local dispatched: {string:{string:boolean}} = {
-  x86_64 = { aes = true, avx512_vnni = true, avx512f = true, avx512vl = true, avx_vnni = true,
-    pclmulqdq = true, sha_ni = true, ssse3 = true, sse4_1 = true },
+  x86_64 = { aes = true, avx2 = true, avx512_vbmi2 = true, avx512_vnni = true,
+    avx512_vpopcntdq = true, avx512bw = true, avx512cd = true, avx512f = true, avx512vl = true,
+    avx_vnni = true, bmi1 = true, bmi2 = true, pclmulqdq = true, sha_ni = true, ssse3 = true,
+    sse4_1 = true },
   aarch64 = { asimd = true, aes = true, pmull = true, crc32 = true, sha2 = true, sha512 = true },
 }
 

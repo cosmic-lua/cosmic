@@ -27,6 +27,18 @@
 --- and ends with the session. The tools cannot reach that directory, so
 --- no tool chooses what a later session starts.
 ---
+--- On Linux ask, chat, resume and rpc run the session itself held: the
+--- agent starts itself again in a sandbox of its own (`cosmic docs
+--- cosmic.agent.policy`'s Policy.session) that has what its tools and its
+--- MCP servers are granted, its sessions and cache, the instructions
+--- files and configs it reads, the API's host and the servers' at a
+--- url, and nothing else. A terminal reaches it through a pty of its own
+--- (as `cosmic sandbox` relays one), signals are passed on to it, and a
+--- standard stream that is a file is copied through. With --sandbox off
+--- it runs unheld, with your user's rights, as its tools do; with an MCP
+--- server that runs unsandboxed too, and says so on standard error. A
+--- host that cannot hold it (no user namespaces) refuses the session.
+---
 --- The turn's answer goes to standard output. Each tool call, and what
 --- the model says on the way, go to standard error. `ask --json` and `rpc` print events instead, one JSON
 --- object a line, each after what it tells of is kept:
@@ -92,6 +104,8 @@ local Sessions = require("cosmic.agent.sessions")
 local Show = require("cosmic.agent.show")
 local Signal = require("cosmic.signal")
 local Sqlite = require("cosmic.sqlite")
+local Url = require("cosmic.url")
+local TermRelay = require("build.term_relay")
 local bare = require("build.bare")
 local verb_spec = require("build.verb_spec")
 
@@ -265,6 +279,33 @@ local function store(r: Run): Sqlite.Handle?, string
   local dir, why = Fs.data_dir("cosmic", { environment = r.environment })
   if dir == nil then return nil, "no data directory: " .. tostring(why) end
   return Sessions.open(dir .. "/agent/sessions.db")
+end
+
+--- What `--modules` lets snippets load code from ([`Worker.Options`] `modules`): nil where it is not given, {} for
+--- `none`.
+local function modules_of(got: Flags.Parsed): {string}?, string
+  local given = got.values["--modules"]
+  if given == nil then return nil, "" end
+  local out: mut {string} = {}
+  local none = false
+  for word in given:gmatch("[^,]+") do
+    local trimmed = word:match("^%s*(.-)%s*$") or ""
+    if trimmed == "none" then
+      none = true
+    elseif trimmed ~= "" then
+      if trimmed ~= "cosmic" then
+        local status, _ = Fs.status(trimmed)
+        if status == nil or not status.is_dir then
+          return nil, "--modules: " .. trimmed .. " is no directory; each word is cosmic, a directory, or none alone"
+        end
+      end
+      out[#out + 1] = trimmed
+    end
+  end
+  if none and #out > 0 then
+    return nil, "--modules: none loads no code, so it stands alone; drop it, or the other words"
+  end
+  return out, ""
 end
 
 --- The commands' kept home, under the agent's cache, which [`Fs.cache_dir`]
@@ -487,6 +528,8 @@ local function session(r: Run, got: Flags.Parsed, db: Sqlite.Handle, newest: boo
   local servers, servers_why = mcp_servers(r, got)
   if servers == nil then return refused(servers_why) end
   local commands = got.set["--commands"] == true
+  local modules, modules_why = modules_of(got)
+  if modules == nil and modules_why ~= "" then return refused(modules_why) end
   local now = Clock.now_ns() // Clock.seconds(1)
   if id == nil then
     -- A fork copies all the other session kept; this run goes on in the copy, and the other is left as it was.
@@ -522,8 +565,8 @@ local function session(r: Run, got: Flags.Parsed, db: Sqlite.Handle, newest: boo
         ", " .. model .. unfinished .. "); --new starts a fresh one")
   end
   local s = Agent.new({ model = model, effort = got.values["--effort"], sign = sign, base_url = base, cwd = here,
-    send = r.io.send, system = Prompt.build(here, Prompt.contexts(here), { commands = commands }),
-    sandbox = if policy == nil then nil else { policy } end, commands = commands,
+    send = r.io.send, system = Prompt.build(here, Prompt.contexts(here), { commands = commands, loads = modules }),
+    sandbox = if policy == nil then nil else { policy } end, commands = commands, modules = modules,
     worker = if r.io.worker ~= nil then r.io.worker() else Worker.new() end,
     mcp = AgentMcp.new(servers, here), build = build(), messages = held, db = db, id = id, restarts = restarts, ended = ended, budget = budget })
   if budget ~= nil and budget.cost ~= nil and Agent.cost(model, {}) == nil then
@@ -926,8 +969,14 @@ local function prompt(r: Run, got: Flags.Parsed): integer
     return bare.refused
   end
   local here = cwd(r)
+  local loads, loads_why = modules_of(got)
+  if loads == nil and loads_why ~= "" then
+    r.complain("prompt: " .. loads_why)
+    return bare.refused
+  end
   -- The system prompt, then the working directory that follows it.
-  r.io.out(Prompt.build(here, Prompt.contexts(here), { commands = got.set["--commands"] == true }) .. "\n\n" ..
+  r.io.out(Prompt.build(here, Prompt.contexts(here), { commands = got.set["--commands"] == true,
+    loads = loads }) .. "\n\n" ..
       Prompt.where(here))
   return bare.ok
 end
@@ -987,8 +1036,282 @@ end
 
 --- `cosmic agent worker`: the process the `run` tool sends its snippets to ([`build.agent_worker`]), required here
 --- alone, since it brings the checker.
-local function worker(_r: Run, _got: Flags.Parsed): integer
-  return require("build.agent_worker").main()
+local function worker(r: Run, got: Flags.Parsed): integer
+  local modules, why = modules_of(got)
+  if modules == nil and why ~= "" then
+    r.complain("worker: " .. why)
+    return bare.refused
+  end
+  return require("build.agent_worker").main(modules)
+end
+
+--- The subcommands that run a session, which run held ([`held`]).
+local SESSIONS <const>: {string: boolean} = { ask = true, chat = true, resume = true, rpc = true }
+
+--- How often a held run looks for its child's end and a signal to pass on.
+local HELD_POLL_NS <const> = 20 * 1000000
+
+--- `url`'s host and port as a connect target, or nil where it names neither.
+local function target_of(url: string): string?
+  local parts, _ = Url.parse(url)
+  if parts == nil or parts.host == "" then return nil end
+  local port = parts.port or (if parts.scheme == "http" then 80 else 443 end)
+  local host = if parts.host:find(":", 1, true) then "[" .. parts.host .. "]" else parts.host end
+  return host .. ":" .. tostring(port)
+end
+
+--- The variables the relay of a `connect` sets for its program, which
+--- the session reaches the network by.
+local RELAY_SETS <const>: {string: boolean} = {
+  ALL_PROXY = true, HTTPS_PROXY = true, HTTP_PROXY = true, NODE_USE_ENV_PROXY = true, NO_PROXY = true,
+  all_proxy = true, http_proxy = true, https_proxy = true, no_proxy = true,
+}
+
+--- What holds a session: its policy, or why there is none and whether
+--- the session then runs unheld rather than refused.
+local record Holding
+  policy?: Sandbox.Policy
+  why: string
+  unheld: boolean
+end
+
+--- The session's own policy ([`Policy.session`]) for `got` in `here`. It
+--- runs unheld under --sandbox off, with an MCP server whose config runs
+--- it unsandboxed, and where the run itself refuses its options (which it
+--- then says why); it is refused where a part of the policy cannot be had.
+local function session_policy(r: Run, got: Flags.Parsed, here: string): Holding
+  local tools, _ = policy_of(r, got, here)
+  if tools == nil then return { why = "", unheld = true } end
+  local servers, _ = mcp_servers(r, got)
+  if servers == nil then return { why = "", unheld = true } end
+  local connect: mut {string} = {}
+  local api = target_of(r.io.env("ANTHROPIC_BASE_URL") or "https://api.anthropic.com")
+  if api ~= nil then connect[#connect + 1] = api end
+  local held_servers: mut {Sandbox.Policy} = {}
+  for _, server in ipairs(servers) do
+    local url, server_policy = server.url, server.policy
+    if url ~= nil then
+      local reached = target_of(url)
+      if reached ~= nil then connect[#connect + 1] = reached end
+    elseif server_policy ~= nil then
+      held_servers[#held_servers + 1] = server_policy
+    else
+      return { why = "the MCP server " .. server.name .. " runs unsandboxed, with the agent's rights", unheld = true }
+    end
+  end
+  local keeps: mut {string} = {}
+  local data, data_why = Fs.data_dir("cosmic", { environment = r.environment })
+  if data == nil then
+    return { why = "no data directory: " .. tostring(data_why), unheld = false }
+  end
+  local cache, cache_why = Fs.cache_dir("agent", { environment = r.environment })
+  if cache == nil then
+    return { why = "no cache directory: " .. tostring(cache_why), unheld = false }
+  end
+  for _, dir in ipairs({ data .. "/agent", cache }) do
+    local made, made_why = Fs.mkdirs(dir, 0x1c0)
+    if not made then return { why = dir .. ": " .. tostring(made_why), unheld = false } end
+    keeps[#keeps + 1] = dir
+  end
+  -- Each file by its real path, which the root binds; the identity
+  -- token's by its directory, where a token renamed over the old one (a
+  -- projected one is a link into a directory swapped whole) is still read
+  -- anew at each exchange.
+  local named: mut {string} = { got.values["--mcp"] or mcp_config(r), r.io.env("SSL_CERT_FILE") or "" }
+  for _, context in ipairs(Prompt.contexts(here)) do named[#named + 1] = context.path end
+  local token = r.io.env("ANTHROPIC_IDENTITY_TOKEN_FILE") or ""
+  if token ~= "" then
+    named[#named + 1] = Fs.dirname(if token:sub(1, 1) == "/" then token else here .. "/" .. token end)
+  end
+  local reads: mut {string} = {}
+  for _, file in ipairs(named) do
+    if file ~= "" then
+      local real, _ = Fs.absolute(if file:sub(1, 1) == "/" then file else here .. "/" .. file end)
+      if real ~= nil then
+        local status, _ = Fs.status(real)
+        if status ~= nil and status.exists then reads[#reads + 1] = real end
+      end
+    end
+  end
+  local env: mut {string} = {}
+  for name, _ in pairs(Env.all()) do
+    if RELAY_SETS[name] ~= true and name ~= "COSMIC_AGENT_HELD" then env[#env + 1] = name end
+  end
+  table.sort(env)
+  local held_to, why = Policy.session(tools, { keeps = keeps, reads = reads, connect = connect, env = env,
+    servers = held_servers })
+  return { policy = held_to, why = why, unheld = false }
+end
+
+--- Whether this process's descriptor `fd` may be handed as it is to a
+--- child that promises nest: not a regular file opened for less than
+--- reading and writing, which the child could open again for more
+--- through /proc/self/fd ([`Child.start`] refuses one).
+local function handable(fd: integer): boolean
+  local st, _ = sys.fstat(fd)
+  if st == nil or st.kind ~= "file" then return true end
+  local info, _ = Fs.read("/proc/self/fdinfo/" .. tostring(fd))
+  local flags = if info ~= nil then info:match("flags:%s*(%d+)") else nil end
+  local mode = if flags ~= nil then (math.tointeger(tonumber(flags, 8)) or 0) & 3 else 0 end
+  return mode == 2
+end
+
+--- The chunk a pump runs: it copies its standard input to its standard
+--- output, to the end of the input or until the output is gone.
+local PUMP <const> = 'local Stream = require("cosmic.stream") ' ..
+  'local _, _ = Stream.copy(Stream.from_fd(0), Stream.to_fd(1))'
+
+--- A FIFO at `path`, made and opened at both ends, each blocking: its
+--- reader and its writer, or nil and why.
+local function fifo(path: string): {integer}?, string
+  local made, make_why = sys.mkfifo(path, 0x180)
+  if not made then return nil, path .. ": " .. tostring(make_why) end
+  -- The writer opens at once only where a reader is open, and the reader
+  -- does without blocking only where it is told not to: the first reader
+  -- holds the FIFO open while the two blocking ends are opened.
+  local first, first_why = sys.open(path, sys.O_RDONLY | sys.O_NONBLOCK, 0)
+  if first == nil then return nil, path .. ": " .. tostring(first_why) end
+  local writer, writer_why = sys.open(path, sys.O_WRONLY, 0)
+  local reader, reader_why: integer?, string = nil, ""
+  if writer ~= nil then reader, reader_why = sys.open(path, sys.O_RDONLY, 0) end
+  local _, _ = sys.close(first)
+  if writer == nil then return nil, path .. ": " .. tostring(writer_why) end
+  if reader == nil then
+    local _, _ = sys.close(writer)
+    return nil, path .. ": " .. tostring(reader_why)
+  end
+  return { reader, writer }, ""
+end
+
+--- The plumbing of a held run: what its child is given for each of its
+--- standard streams, the pumps that copy between a FIFO and a stream that
+--- a child that nests may not hold, and the ends this process keeps until
+--- the child has ended.
+local record Plumbing
+  streams: mut {integer: integer}
+  pumps: mut {Child.Handle}
+  kept: mut {integer}
+end
+
+--- Ends `plumbing`'s pumps' input, so they finish, and waits for them.
+local function unplumb(plumbing: Plumbing)
+  for _, fd in ipairs(plumbing.kept) do local _, _ = sys.close(fd) end
+  for _, pump in ipairs(plumbing.pumps) do local _, _ = pump:wait() end
+end
+
+--- The plumbing of a held run of `program`: each standard stream that
+--- is a file open for reading or writing alone ([`handable`]) goes
+--- through a FIFO in `dir`, a pump of this program copying it; the rest,
+--- terminals among them, are the child's as they are. Nil and why where
+--- a pump cannot start.
+local function plumbed(program: string, dir: string): Plumbing?, string
+  local plumbing: Plumbing = { streams = {}, pumps = {}, kept = {} }
+  for number = 0, 2 do
+    if not handable(number) then
+      local ends, why = fifo(dir .. "/" .. tostring(number))
+      if ends == nil then
+        unplumb(plumbing)
+        return nil, why
+      end
+      local reader, writer = assert(ends[1]), assert(ends[2])
+      local inward = number == 0
+      local pump, pump_why = Child.start({ program, "-e", PUMP }, { timeout_ns = Child.FOREVER,
+        stdin = if inward then 0 else reader end, stdout = if inward then writer else number end })
+      -- The pump holds its end now: this process keeps the child's own
+      -- until the child has it, and closes the pump's, so the pump of
+      -- standard input ends the FIFO when it is done, and the child's
+      -- writes fail once the pump of an output is gone.
+      local _, _ = sys.close(if inward then writer else reader end)
+      local child_end = if inward then reader else writer end
+      plumbing.kept[#plumbing.kept + 1] = child_end
+      if pump == nil then
+        unplumb(plumbing)
+        return nil, "a pump of standard stream " .. tostring(number) .. ": " .. tostring(pump_why)
+      end
+      plumbing.pumps[#plumbing.pumps + 1] = pump
+      plumbing.streams[number] = child_end
+    end
+  end
+  return plumbing, ""
+end
+
+--- Runs `argv`, a session's command line, again in a child held to the
+--- session's own policy: its exit code, or nil where the session runs
+--- here (held already, or on macOS, which has no nest). A terminal among
+--- the standard streams is relayed through a pty of the child's own
+--- ([`build.term_relay`]), which passes SIGINT and SIGTERM on; else this
+--- passes them on itself. Where the session cannot be held it runs
+--- unheld for --sandbox off and an MCP server that runs unsandboxed
+--- (saying why for the server), and is refused otherwise.
+local function held(r: Run, got: Flags.Parsed, argv: {string}): integer?
+  if r.io.env("COSMIC_AGENT_HELD") == "1" or Sandbox.on_macos() then return nil end
+  local here = cwd(r)
+  local holding = session_policy(r, got, here)
+  local held_to = holding.policy
+  if held_to == nil then
+    if holding.unheld then
+      if holding.why ~= "" then r.complain("the session runs unheld: " .. holding.why) end
+      return nil
+    end
+    r.complain("the session's sandbox: " .. holding.why)
+    return bare.refused
+  end
+  local program, missing = Proc.executable()
+  if program == nil then
+    r.complain("the session's sandbox: this program: " .. tostring(missing))
+    return bare.refused
+  end
+  local dir, dir_why = Fs.mkdtemp("agent-held-")
+  if dir == nil then
+    r.complain("the session's sandbox: " .. tostring(dir_why))
+    return bare.refused
+  end
+  local plumbing, plumb_why = plumbed(program, dir)
+  local _, _ = Fs.remove_tree(dir)
+  if plumbing == nil then
+    r.complain("the session's sandbox: " .. plumb_why)
+    return bare.refused
+  end
+  local command: {string} = { program, table.unpack(argv) }
+  local options: Child.Options = { policy = held_to, cwd = here, timeout_ns = Child.FOREVER,
+    stdin = plumbing.streams[0], stdout = plumbing.streams[1], stderr = plumbing.streams[2] }
+  local code = 1
+  if sys.isatty(0) or sys.isatty(1) or sys.isatty(2) then
+    local result, trouble = TermRelay.run(command, options)
+    unplumb(plumbing)
+    if result == nil then
+      r.complain("the session's sandbox: " .. trouble)
+      return bare.refused
+    end
+    return result.code or (128 + (result.signal or 0))
+  end
+  local guard, _ = Signal.guard()
+  local handle, trouble = Child.start(command, options)
+  if handle == nil then
+    if guard ~= nil then local _, _ = guard:close() end
+    unplumb(plumbing)
+    r.complain("the session's sandbox: " .. tostring(trouble))
+    return bare.refused
+  end
+  while true do
+    local state, wait_trouble = handle:try_wait()
+    if state == nil then
+      r.complain("the session: " .. tostring(wait_trouble))
+      local _, _ = handle:close()
+      break
+    end
+    local result = state.result
+    if state.finished and result ~= nil then
+      code = result.code or (128 + (result.signal or 0))
+      break
+    end
+    local taken = if guard ~= nil then guard:take() else 0 end
+    if taken ~= 0 then local _, _ = handle:stop(taken) end
+    local _, _ = sys.nanosleep(HELD_POLL_NS)
+  end
+  if guard ~= nil then local _, _ = guard:release() end
+  unplumb(plumbing)
+  return code
 end
 
 local SUBCOMMANDS <const>: {string: function(Run, Flags.Parsed): integer} = {
@@ -1023,6 +1346,10 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     if value ~= nil then environment[name] = value end
   end
   local r: Run = { io = to, complain = complain, environment = environment }
+  if SESSIONS[sub] == true and io == nil then
+    local code = held(r, parsed, argv)
+    if code ~= nil then return code end
+  end
   return assert(SUBCOMMANDS[sub])(r, parsed)
 end
 
@@ -1031,7 +1358,7 @@ end
 verb.spec = {
   name = "agent",
   guide = "more quick tools",
-  tests = { "build.agent_test" },
+  tests = { "build.agent_test", "build.agent_held_test" },
   run = function(argv: {string}): integer return verb.run(argv) end,
   bare = true,
   takes = "ask, chat, resume, rpc, sessions, prompt, policy or worker, and its options",

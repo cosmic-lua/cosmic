@@ -568,7 +568,7 @@ local function machine(set: Settings): Machine
       end
     elseif cl ~= nil then
       local size, why = wire.content_length(table.concat(cl, ", "))
-      if size == nil then return refuse(why) end
+      if size == nil then return refuse(tostring(why)) end
       length = size
     end
     if st.response then
@@ -616,7 +616,7 @@ local function machine(set: Settings): Machine
         return refuse("more than " .. String.counted(set.max_headers, "header"))
       end
       local got, why = wire.field(text)
-      if got == nil then return refuse(why) end
+      if got == nil then return refuse(tostring(why)) end
       if st.values[got.name] == nil then
         st.values[got.name] = {}
         st.names[#st.names + 1] = got.name
@@ -627,7 +627,7 @@ local function machine(set: Settings): Machine
       return nil
     elseif phase == "size" then
       local chunk, why = wire.chunk_size(text)
-      if chunk == nil then return refuse(why) end
+      if chunk == nil then return refuse(tostring(why)) end
       if not spend(chunk.extra) then return refuse(OVER_HEAD) end
       if chunk.huge then return refuse(OVER_BODY) end
       if chunk.size == 0 then
@@ -645,7 +645,7 @@ local function machine(set: Settings): Machine
     if text == "" then return done(after) end
     if not spend(#text + 2) then return refuse(OVER_HEAD) end
     local got, why = wire.field(text)
-    if got == nil then return refuse("a trailer is malformed: " .. why) end
+    if got == nil then return refuse("a trailer is malformed: " .. tostring(why)) end
     meta_line("trailers")
     return nil
   end

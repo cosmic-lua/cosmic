@@ -133,6 +133,23 @@ local record Policy
     cert_file?: string
   end
 
+  --- What the agent's own process needs beside what it starts, for
+  --- [`Policy.session`].
+  record Session
+    --- Directories it keeps in, read, written and made in: its sessions
+    --- database's and its cache's. Each must be there.
+    keeps: {string}
+    --- Files it reads: the instructions files over the working directory,
+    --- the MCP config, the identity token's file, the certificates.
+    reads: {string}
+    --- What it reaches: the API's host and port, and the MCP servers'
+    --- at a url.
+    connect: {string}
+    --- The variables passed on to it, by name.
+    env: {string}
+    --- What each MCP server it starts over stdio is held to.
+    servers: {Sandbox.Policy}
+  end
 end
 
 --- The modes, as --sandbox names them.
@@ -402,12 +419,14 @@ function Policy.of(cwd: string, config: Policy.Config): Sandbox.Policy?, string
   local calls: {Sandbox.Promise} = if linux then { "fork", "fattr", "jit", "nest" } else { "fork", "fattr", "jit" } end
   for _, promise in ipairs(calls) do grants[#grants + 1] = { calls = promise } end
   for _, target in ipairs(connect_of(config)) do grants[#grants + 1] = { connect = target } end
+  for _, name in ipairs({ "system", "programs", "proc" }) do
+    grants[#grants + 1] = { profile = name }
+  end
+  local passed: {string} = if config.path ~= nil then { "LANG", "LC_ALL", "TERM" } else { "PATH", "LANG", "LC_ALL", "TERM" } end
+  for _, name in ipairs(passed) do grants[#grants + 1] = { env = name } end
   local own: Sandbox.Policy = {
-    profiles = { "system", "programs", "proc" },
     grants = grants,
-    tmp = true,
-    env = if config.path ~= nil then { "LANG", "LC_ALL", "TERM" } else { "PATH", "LANG", "LC_ALL", "TERM" } end,
-    set_env = env_of(linux, home, if config.path ~= nil then real_path(config.path) else nil end, cert),
+    setup = { tmp = true, set_env = env_of(linux, home, if config.path ~= nil then real_path(config.path) else nil end, cert) },
     -- On Linux a root of its own: what it was not granted is not there,
     -- and it owns what it was, whoever runs the agent. macOS has no
     -- namespaces to give it one.
@@ -417,6 +436,45 @@ function Policy.of(cwd: string, config: Policy.Config): Sandbox.Policy?, string
   local merged, why = Sandbox.union(own)
   if merged == nil then return nil, why end
   return merged, ""
+end
+
+--- What the agent's own process is held to on Linux, around `tools`,
+--- the policy its tools run under: a root of its own holding what the
+--- tools and the MCP servers it starts are granted (a child is held to
+--- what holds its parent too), what it keeps and reads, the calls they
+--- may make, and nest, so it builds their roots; it reaches the API and
+--- what they reach. `COSMIC_AGENT_HELD` is set, so it does not hold
+--- itself again.
+---
+---     local tools = assert(Policy.of("/work", { mode = "write", network = false, grants = {} }))
+---     local p = assert(Policy.session(tools, { keeps = {}, reads = {}, connect = { "api.anthropic.com:443" },
+---       env = { "HOME" }, servers = {} }))
+---     assert(Sandbox.permits(p, "/work/a.txt", "write"))
+function Policy.session(tools: Sandbox.Policy, session: Policy.Session): Sandbox.Policy?, string
+  local held: {Sandbox.Policy} = { tools, table.unpack(session.servers) }
+  local grants: mut {Sandbox.Grant} = { { profile = "system" }, { profile = "proc" } }
+  for _, policy in ipairs(held) do
+    for _, g in ipairs(Sandbox.paths(policy)) do
+      -- What a grant with `from` shows is the host's `from`, which the
+      -- agent's root holds at its own name.
+      grants[#grants + 1] = { path = g.from or g.path, letters = g.letters }
+    end
+    for _, promise in ipairs(Sandbox.calls(policy)) do grants[#grants + 1] = { calls = promise } end
+    for _, target in ipairs(Sandbox.connects(policy)) do
+      grants[#grants + 1] = { connect = target }
+    end
+    for _, profile in ipairs(Sandbox.profiles(policy)) do
+      grants[#grants + 1] = { profile = profile }
+    end
+  end
+  for _, dir in ipairs(session.keeps) do grants[#grants + 1] = { path = dir, letters = "rwc" } end
+  for _, file in ipairs(session.reads) do grants[#grants + 1] = { path = file, letters = "r" } end
+  for _, target in ipairs(session.connect) do grants[#grants + 1] = { connect = target } end
+  grants[#grants + 1] = { calls = "fork" }
+  grants[#grants + 1] = { calls = "nest" }
+  for _, name in ipairs(session.env) do grants[#grants + 1] = { env = name } end
+  return Sandbox.union({ grants = grants, isolate = { "file" },
+    setup = { tmp = true, set_env = { COSMIC_AGENT_HELD = "1" } } })
 end
 
 --- The bytes the files under `dir` hold, links not followed.
@@ -442,7 +500,8 @@ end
 --- what it holds.
 function Policy.describe(p: Sandbox.Policy, home?: string): {string}
   local out: mut {string} = {}
-  local set = p.set_env or {}
+  local setup = p.setup or {}
+  local set = setup.set_env or {}
   local kept = set["HOME"]
   if home ~= nil and kept ~= nil then
     local real, _ = Fs.absolute(home)
@@ -460,17 +519,18 @@ function Policy.describe(p: Sandbox.Policy, home?: string): {string}
     return a.path < b.path
   end)
   for _, g in ipairs(grants) do out[#out + 1] = string.format("  %-5s %s", g.letters, g.path) end
-  if p.profiles ~= nil and #p.profiles > 0 then
-    out[#out + 1] = "profiles: " .. table.concat(p.profiles, " ")
+  local profiles = Sandbox.profiles(p)
+  if #profiles > 0 then out[#out + 1] = "profiles: " .. table.concat(profiles, " ") end
+  if setup.tmp == true then
+    out[#out + 1] = "tmp: a fresh /tmp for each command, removed after it"
   end
-  if p.tmp == true then out[#out + 1] = "tmp: a fresh /tmp for each command, removed after it" end
   out[#out + 1] = "calls: " .. table.concat(Sandbox.calls(p), " ")
   out[#out + 1] = "isolate: " .. (if p.isolate ~= nil then table.concat(p.isolate, " ") else "none" end)
   local limits = p.limits
   if limits ~= nil and limits.processes ~= nil then
     out[#out + 1] = "processes: at most " .. tostring(limits.processes)
   end
-  out[#out + 1] = "env passed on: " .. table.concat(p.env or {}, " ")
+  out[#out + 1] = "env passed on: " .. table.concat(Sandbox.env(p), " ")
   local names: mut {string} = {}
   for k, _ in pairs(set) do names[#names + 1] = k end
   table.sort(names)

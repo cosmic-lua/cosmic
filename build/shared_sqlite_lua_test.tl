@@ -4,13 +4,12 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
-local this_program = require("build.this_program")
 local _ = require("build.shared_sqlite") -- the child loads it
 
 Test.policy{ profiles = { "cosmic" } }
 
 -- TODO: test that the retry follows SQLite's captured codes and not the words of its reasons, as a child once did by
--- replacing [`Sqlite.Handle.text_rows`] with one that returned a busy or a locked code in other words (and an unrelated
+-- replacing [`Sqlite.Handle.rows`] with one that returned a busy or a locked code in other words (and an unrelated
 -- error that held the word "busy"), once a test can make SQLite return so without replacing a field of the library's table.
 local function test_a_busy_cache_is_opened_once_its_holder_lets_go(tmp: string)
   local path = tmp .. "/cache.db"
@@ -35,7 +34,7 @@ print("opened")
 assert(db:close())
 return 0
 ]]
-  local command = this_program.program({ "-e", script, path },
+  local command = Test.cosmic({ "-e", script, path },
     { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(20) })
   local child = assert(Child.start(command.argv, command.options))
   -- It is waiting on the holder, not failing: it has not finished a quarter of a second in.

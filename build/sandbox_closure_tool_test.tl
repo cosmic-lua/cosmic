@@ -10,7 +10,6 @@ local Proc = require("cosmic.proc")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local searchable = require("build.searchable")
-local this_program = require("build.this_program")
 
 Test.policy{
   profiles = { "cosmic" },
@@ -29,7 +28,7 @@ end
 --- root caller's child runs as must reach it.
 local function cosmic(dir: string, words: {string}): Ran
   searchable.open(dir)
-  local started = this_program.program(words, {
+  local started = Test.cosmic(words, {
     cwd = dir, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(120),
   })
   local result = assert(Child.run(started.argv, started.options))

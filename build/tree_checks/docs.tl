@@ -62,7 +62,9 @@ end
 local function member_type(source: string, record: string?, body: string?,
                            name: string): boolean
   for line in (body or source):gmatch("[^\n]+") do
+    -- `type View = View`, or `type View = Types.View`: an alias of a sibling's record of that name.
     if line:find("^%s+type [%w_]+%s*=%s*" .. name .. "%f[^%w_]") ~= nil or
+        line:find("^%s+type " .. name .. "%s*=%s*[%w_]+%." .. name .. "%f[^%w_]") ~= nil or
         line:find("^%s+record " .. name .. "%f[^%w_]") ~= nil or
         line:find("^%s+enum " .. name .. "%f[^%w_]") ~= nil or
         line:find("^%s+interface " .. name .. "%f[^%w_]") ~= nil then
@@ -213,8 +215,9 @@ local anchors_expected: {string} = { "cosmic.layout Layout", "cosmic.entrypoint 
 ---
 --- A doc anchor is a record of a public `cosmic/` module that exists to
 --- be looked up, not passed around: every field of it is a documented
---- `string` (`tests: string` in [`cosmic.layout`]'s `Layout`), and no function
---- or method in the public catalog takes or returns it. [`cosmic.shape`]'s
+--- `string` (`tests: string` in [`cosmic.layout`]'s `Layout`), no function
+--- or method in the public catalog takes or returns it, and no field holds it
+--- (`examples?: {Example}` in [`cosmic.flags`]'s `Command`). [`cosmic.shape`]'s
 --- `Failure` has only strings too, but `failures` hands it out, so its
 --- fields are an API's, not anchors.
 function tree_docs.anchors(db: Build, expected?: {string}): {string}
@@ -229,12 +232,11 @@ function tree_docs.anchors(db: Build, expected?: {string}): {string}
     all[#all + 1] = { module = r:text(1), symbol = r:text(2), kind = r:text(3), signature = r:text(4),
       text = r:text(5), file = r:text(6), line = tostring(r:integer(7)) }
   end
-  -- What takes or returns a value: a function, a method, or a field
-  -- whose type is a function.
+  -- What takes, returns or holds a value: a function, a method, or a field, whose type may be a function or
+  -- hold the record (`examples?: {Example}`).
   local callable: mut {string} = {}
   for _, r in ipairs(all) do
-    if r.kind == "function" or r.kind == "method" or
-        (r.kind == "field" and r.signature:find("function", 1, true) ~= nil) then
+    if r.kind == "function" or r.kind == "method" or r.kind == "field" then
       callable[#callable + 1] = r.signature
     end
   end
@@ -612,7 +614,7 @@ end
 local FILE_NAMES: {string: boolean} = { zig = true }
 
 --- Whether `hit`, a `build.<name>` found in prose, names a module of the
---- tree (or a package under one): [`build.this_program`], not "the build."
+--- tree (or a package under one): [`build.confine`], not "the build."
 local function names_a_module(hit: string, modules: {string: boolean}): boolean
   local name = hit:match("^build%.([%w_.]*[%w_])")
   if name ~= nil and FILE_NAMES[name] == true then return false end

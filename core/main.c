@@ -27,6 +27,7 @@
 #include "executable.h"
 #include "memory.h"
 #include "process.h"
+#include "profile.h"
 #include "socket.h"
 #include "sqlite3.h"
 #include "store.h"
@@ -412,6 +413,7 @@ static int run_main (lua_State *L, int argc, char **argv) {
 int cosmic_runtime_entry (const struct cosmic_startup *startup, int argc,
                           char **argv) {
   cosmic_coverage_prepare();
+  cosmic_profile_prepare(argc, argv);
   cosmic_process_entered();
   const char *startup_trouble = cosmic_startup_validate(startup);
   if (startup_trouble != NULL) {

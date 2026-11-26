@@ -10,7 +10,18 @@ local sys = require("cosmic.sys")
 
 -- These tests start this program (the pinned driver's own cosmic, or a copy of it
 -- as the bootstrap), which a worker on a sealed database does not have whole.
-Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+Test.policy{
+  profiles = { "cosmic", "system" },
+  env = { "PATH" },
+  grants = {
+    { path = "cosmic_ci/", letters = "r" },
+    { path = "o/bin", letters = "rx" },
+    { path = "/parent/bin/cosmic-bootstrap", letters = "r" },
+    { path = "/parent/bin/vendor", letters = "r" },
+    { path = "/parent/bin/verify-codesign", letters = "r" },
+    { path = "/parent/bin/zig", letters = "r" },
+  },
+}
 
 --- The environment a test's child runs with: this one's, less what
 --- would change which cosmic bin/cosmic-bootstrap names (a
@@ -53,11 +64,10 @@ local function call(argv: {string}, cwd: string, output: string,
   return (assert(result, trouble))
 end
 
---- The candidate checkout root: this test's cwd is `<checkout>/ci`, so
---- its parent is the checkout the self-check runs against.
-local function checkout_root(): string
-  local cwd = assert(Fs.absolute("."))
-  return (assert(cwd:match("^(.*)/[^/]+$"), cwd .. ": no parent directory"))
+--- A file of the checkout this project is `ci/` of, as the module's
+--- policy grants it.
+local function checkout_file(relative: string): string
+  return (assert(Fs.read(Test.parent(relative))))
 end
 
 --- A pin of `commit` whose release is tagged `<tag_prefix><commit>`:
@@ -76,7 +86,7 @@ local function bootstrap_root(tmp: string, commit: string, digest: string): stri
   assert(Fs.mkdirs(root .. "/bin"))
   assert(Fs.mkdirs(root .. "/ci"))
   assert(Fs.write(root .. "/bin/cosmic-bootstrap",
-    (assert(Fs.read(checkout_root() .. "/bin/cosmic-bootstrap"))), 0x1ed))
+    checkout_file("bin/cosmic-bootstrap"), 0x1ed))
   pin(root .. "/ci/cosmic-driver.pin", commit, digest)
   local cache = tmp .. "/xdg/cosmic/bootstrap"
   assert(Fs.mkdirs(cache))
@@ -452,13 +462,12 @@ end
 local function test_each_tool_runs_its_script_through_the_bootstrap(tmp: string)
   local root, _ = bootstrap_root(tmp, string.rep("f", 40), string.rep("0", 64))
   local cosmic = stand_in(tmp)
-  local here = checkout_root()
   assert(Fs.mkdirs(root .. "/build"))
   assert(Fs.write(root .. "/ci/bootstrap-files.txt", "# listed\nbuild/zig.tl\nbuild/vendor.tl\nbuild/verify_codesign.tl\n"))
   for tool, script in pairs({ ["zig"] = "zig.tl", ["vendor"] = "vendor.tl",
       ["verify-codesign"] = "verify_codesign.tl" }) do
     assert(Fs.write(root .. "/bin/" .. tool,
-      (assert(Fs.read(here .. "/bin/" .. tool))), 0x1ed))
+      checkout_file("bin/" .. tool), 0x1ed))
     local result = call({ root .. "/bin/" .. tool, "x", "y z" }, tmp,
       tmp .. "/tool.out", { COSMIC_BOOTSTRAP = cosmic, PATH = fake_curl(tmp),
         DOWNLOAD_SOURCE = tmp .. "/missing", XDG_CACHE_HOME = tmp .. "/xdg" })
@@ -634,7 +643,11 @@ end
 local function test_driver_records_success_failures_timeout_and_interruption(tmp: string)
   local runner = seeded_bootstrap(tmp)
   local project = driver_project(tmp)
-  local candidate = checkout_root()
+  -- A checkout of the test's own, as the driver knows one (its AGENTS.md):
+  -- the test writes beneath it.
+  local candidate = tmp .. "/candidate"
+  assert(Fs.mkdirs(candidate .. "/ci"))
+  assert(Fs.write(candidate .. "/AGENTS.md", ""))
   local driver = project .. "/cosmic_ci/driver.tl"
   -- RUNNER_TEMP always exists in CI; Context.read() resolves its scratch
   -- directory as an external path before creating anything under it, which

@@ -22,7 +22,6 @@ local Store = require("cosmic.store")
 local Sandbox = require("cosmic.sandbox")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
-local this_program = require("build.this_program")
 local ChildPolicy = require("build.child_policy_fixture")
 local fixture = require("build.child_policy_database_fixture")
 
@@ -198,11 +197,12 @@ end
 --- started in "/", which is above every grant a root of isolate file holds.
 local function with_more(options: Child.Options, more?: Sandbox.Policy): Child.Options
   if more == nil then return options end
-  return { ...options, cwd = "/", policy = { ...assert(options.policy), isolate = more.isolate, tmp = more.tmp } }
+  local given = assert(options.policy)
+  return { ...options, cwd = "/", policy = { ...given, isolate = more.isolate, setup = { ...(given.setup or {}), tmp = (more.setup or {}).tmp } } }
 end
 
 local function granting(database: string, port: integer): Child.Options
-  return { policy = { database = { path = database }, grants = { { connect = "127.0.0.2:" .. tostring(port) } } }, stdout = "capture", stderr = "capture",
+  return { policy = { setup = { database = { path = database } }, grants = { { connect = "127.0.0.2:" .. tostring(port) } } }, stdout = "capture", stderr = "capture",
     timeout_ns = Clock.seconds(60) }
 end
 
@@ -268,7 +268,7 @@ end
 --- Under isolate file with a tmp of its own (the agent's Linux shape), the
 --- relay is handed the same grants: the /tmp the root makes drops no other.
 local function test_a_granted_flow_echoes_under_isolate_file_and_tmp(tmp: string)
-  local said = flows(tmp, { isolate = { "file" }, tmp = true })
+  local said = flows(tmp, { isolate = { "file" }, setup = { tmp = true } })
   assert(said["connect"] == "HTTP/1.1 200 Connection established", tostring(said["connect"]))
   assert(said["connect_echo"] == "echo:ping", tostring(said["connect_echo"]))
 end
@@ -371,7 +371,7 @@ local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 return function(argv: {string}): integer
   local started, why = Child.start({ assert(Proc.executable()), "wait" }, { timeout_ns = Child.FOREVER, policy = {
-    database = { path = (argv[1] or ""), sha256 = nil }, grants = { { connect = "127.0.0.2:9" } } }, stdout = "null", stderr = "null" })
+    setup = { database = { path = (argv[1] or ""), sha256 = nil } }, grants = { { connect = "127.0.0.2:9" } } }, stdout = "null", stderr = "null" })
   local pid = sys.getpid()
   local running: mut {string} = {}
   local children, _ = Fs.read("/proc/" .. tostring(pid) .. "/task/" .. tostring(pid) .. "/children")
@@ -397,9 +397,9 @@ end
 local function test_a_relay_that_will_not_serve_fails_the_start_and_ends_the_program(tmp: string)
   local script = tmp .. "/start.tl"
   assert(Fs.write(script, STARTER))
-  local env = this_program.environment()
+  local env = Test.environment()
   env["https_proxy"] = "https://proxy.test:3128"
-  local started = this_program.program({ "--standalone", script, sealed_client(tmp) },
+  local started = Test.cosmic({ "--standalone", script, sealed_client(tmp) },
     { env = env, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
   local result = assert(Child.run(started.argv, started.options))
   assert(result.ok, "exit " .. tostring(result.code) .. ": " .. tostring(result.stderr))
@@ -416,9 +416,9 @@ end
 local function test_an_upstream_whose_host_does_not_resolve_fails_the_start(tmp: string)
   local script = tmp .. "/start.tl"
   assert(Fs.write(script, STARTER))
-  local env = this_program.environment()
+  local env = Test.environment()
   env["https_proxy"] = "http://proxy.invalid:3128"
-  local started = this_program.program({ "--standalone", script, sealed_client(tmp) },
+  local started = Test.cosmic({ "--standalone", script, sealed_client(tmp) },
     { env = env, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
   local result = assert(Child.run(started.argv, started.options))
   assert(result.ok, "exit " .. tostring(result.code) .. ": " .. tostring(result.stderr))
@@ -439,7 +439,7 @@ local Proc = require("cosmic.proc")
 return function(argv: {string}): integer
   local log: Child.RelayLog = if argv[4] == "inherit" then "inherit" else "null" end
   local result, why = Child.run({ assert(Proc.executable()), "flows", (argv[2] or ""), (argv[3] or "") }, { timeout_ns = Child.FOREVER,
-    policy = { database = { path = (argv[1] or ""), sha256 = nil }, grants = { { connect = "127.0.0.2:" .. (argv[2] or "") } } },
+    policy = { setup = { database = { path = (argv[1] or ""), sha256 = nil } }, grants = { { connect = "127.0.0.2:" .. (argv[2] or "") } } },
     stdout = "capture", stderr = "capture", relay_log = log })
   assert(result, why)
   local _, _ = Fs.put(Fs.stdout, assert(result.stdout))
@@ -457,8 +457,8 @@ local function test_the_relays_log_goes_where_the_start_says(tmp: string)
   local refusal: string? = nil
   serving(function(granted: integer, ungranted: integer)
     for _, log in ipairs({ "inherit", "null" }) do
-      local started = this_program.program({ "--standalone", script, database, tostring(granted),
-        tostring(ungranted), log }, { env = this_program.environment(), stdout = "capture",
+      local started = Test.cosmic({ "--standalone", script, database, tostring(granted),
+        tostring(ungranted), log }, { env = Test.environment(), stdout = "capture",
           stderr = "capture", timeout_ns = Clock.seconds(60) })
       local result = assert(Child.run(started.argv, started.options))
       if not result.ok and ChildPolicy.unsandboxable(result.stderr or "") then
@@ -577,7 +577,7 @@ end
 --- the program holds no socket.
 local function test_no_connect_means_no_relay_and_no_extra_descriptors(tmp: string)
   local database = sealed_client(tmp)
-  local plain, why = Child.run({ assert(Proc.executable()), "env" }, { policy = { database = { path = database } },
+  local plain, why = Child.run({ assert(Proc.executable()), "env" }, { policy = { setup = { database = { path = database } } },
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
   if plain == nil then
     assert(ChildPolicy.unsandboxable(tostring(why)), "the start was refused: " .. tostring(why))
@@ -646,9 +646,9 @@ local function test_the_upstream_proxy_is_reached_by_the_relay(tmp: string)
         end)
       end
     end)
-    local env = this_program.environment()
+    local env = Test.environment()
     env["https_proxy"] = "http://127.0.0.2:" .. tostring(assert(listener.address.port))
-    local started = this_program.program({ "--standalone", script, database, tostring(granted),
+    local started = Test.cosmic({ "--standalone", script, database, tostring(granted),
       tostring(ungranted), "null" }, { env = env, stdout = "capture", stderr = "capture",
         timeout_ns = Clock.seconds(60) })
     local result = assert(Child.run(started.argv, started.options))

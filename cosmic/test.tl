@@ -58,19 +58,18 @@
 --- passed. What the host must have for the module to run at all is
 --- declared as `requires` in a policy.
 
--- TODO: take `environment` and `program` from build.this_program, which
--- a test calls to say what a process of this program it starts needs
--- and how to start one past its launcher, once each can be read from the
--- source as `policy` is: another project's tests cannot reach build/.
--- (`confine` stays in build.confine: only the sandbox's own tests nest
--- one sandbox in another.)
-
 -- The core's own `trace`, which cosmic.errors wraps: not cosmic.errors,
 -- which would bring cosmic.sqlite and cosmic.store into every worker
 -- (build/harness_epoch.tl's `library`).
 local errors = require("cosmic.internal.errors")
 -- The policy's terms, which the build's read of one shares: a leaf.
 local TestPolicy = require("cosmic.internal.test_policy")
+-- What `cosmic` and `environment` take: every worker loads these
+-- already, and build/harness_epoch.tl's `library` names each.
+local Env = require("cosmic.env")
+local Proc = require("cosmic.proc")
+local sys = require("cosmic.sys")
+local type Child = require("cosmic.child")
 
 local record Test
   --- What the tests of one module read beyond their default inputs, as
@@ -259,6 +258,22 @@ local record Test
   --- What the tests of one module are held to: [`test_policy.Policy`],
   --- which a test module writes in place of [`Needs`].
   type Policy = TestPolicy.Policy
+
+  --- The variables [`Test.environment`] passes on: those a process of
+  --- this very program reads to run at all (caches, temporary directory,
+  --- PATH, whether it may boot) and those that decide whether a `cosmic
+  --- test` it runs sandboxes its workers. Every test's key pins them,
+  --- as the runner reads this list: a test reads it and never changes it.
+  mut runtime_environment: {string}
+
+  --- How to start this very program ([`Test.cosmic`]): the command
+  --- line and the options to hand [`Child.run`] or [`Child.start`].
+  record Start
+    --- The command line: the program and the words after it.
+    mut argv: {string}
+    --- The options to start it with.
+    options: Child.Options
+  end
 end
 
 --- What a test runner installed as `__runner` on this module's table
@@ -268,7 +283,9 @@ end
 --- the [`Needs`] the policy stands for, whose `loaded` the runner sets once the
 --- module has loaded, and whose `skipped` is called with the reason
 --- each `skip` is given and returns the value `skip` raises to end the
---- test (nothing, to let it go on). Nil when none is installed.
+--- test (nothing, to let it go on). Its `directory`, where it gives
+--- one, is the running test's own directory ([`Test.environment`]).
+--- Nil when none is installed.
 local function runner_in(module: any): {string:any}?
   if module is {string:any} then -- checked: is_on_record
     local installed = module.__runner -- checked: map_field
@@ -345,21 +362,6 @@ local function strings_of(field: string, value: any): {string}?, string
   return nil, field .. " takes a list of strings"
 end
 
---- `value` as a table of names to strings, or nil and why, naming `field`.
-local function names_of(field: string, value: any): {string:string}?, string
-  local out: mut {string:string} = {}
-  if value is {any:any} then -- declared: key_type
-    for k, v in pairs(value) do -- checked: any_use
-      if not (k is string and v is string) then
-        return nil, field .. " takes a table of names to strings"
-      end
-      out[k] = v
-    end
-    return out, ""
-  end
-  return nil, field .. " takes a table of names to strings"
-end
-
 --- `value` as a [`Policy`]'s grants, or nil and why.
 local function grants_of(value: any): {Test.Grant}?, string
   local out: mut {Test.Grant} = {}
@@ -432,33 +434,15 @@ local function policy_of(given: any): Test.Policy?, string
         why = key .. " takes true or false"
       elseif key == "cpu_features" then
         out.cpu_features = value
-      elseif key == "store_text" then
+      else
         out.store_text = value
-      else
-        out.tmp = value
-      end
-    elseif takes == "id" then
-      if not value is integer then
-        why = key .. " takes a whole number"
-      elseif key == "user" then
-        out.user = value
-      else
-        out.group = value
       end
     elseif takes == "seconds" then
       if value is integer then out.timeout = value else why = TestPolicy.timeout_refused() end
-    elseif takes == "string" then
-      if value is string then out.database = value else why = key .. " takes a path" end
     elseif takes == "grants" then
       out.grants, why = grants_of(value)
     elseif takes == "limits" then
       out.limits, why = limits_of(value)
-    elseif takes == "map" then
-      if key == "set_env" then
-        out.set_env, why = names_of(key, value)
-      else
-        out.set_env_digests, why = names_of(key, value)
-      end
     elseif key == "profiles" then
       out.profiles, why = strings_of(key, value)
     elseif key == "isolate" then
@@ -486,11 +470,10 @@ end
 --- "cosmic": `lua`, run on a sealed database of the closure; with the grant of o/bin,
 --- `tool`, itself), the system (profile "system") and nesting (the grant
 --- `{ calls = "nest" }`). What it cannot say is refused, naming the field, rather than
---- accepted as a declaration that moves no key: `isolate`, `set_env`,
---- `limits`, `database`, a grant of more than "r" or from another path, `tmp = false`.
---- A `connect` grant, `set_env_digests`, `user` and `group` are refused outright,
---- since no test reaches a host but loopback, a digest holds no value to
---- set, and the harness chooses a worker's user.
+--- accepted as a declaration that moves no key: `isolate`, `limits`, and
+--- a grant of more than "r" or from another path. A `connect` grant is
+--- refused outright, since no test reaches a host but loopback, and so is
+--- `setup`: what a worker's start sets up is the harness's to choose.
 --- The calls "fork", "jit" and "fattr" are accepted and change
 --- nothing: no worker holds them yet.
 ---
@@ -564,7 +547,8 @@ end
 --- the runner asks once before any worker starts; the build refuses a name
 --- the table does not have and one written twice,
 --- and a `path:` with no host grant of its path or a `program:`
---- without the profile "system" and `env = { "PATH" }`. Raises for a value no
+--- without the profile "system" and `env = { "PATH" }`, or an `env:` whose
+--- variable `env` does not pass. Raises for a value no
 --- [`Policy`] could be, for a second call in the process, naming where the
 --- first was -- so a test module never requires another that calls `policy` --
 --- and, under a runner, for a call once the module has loaded, as from
@@ -709,6 +693,143 @@ function Test.raises(fn: function(), says?: string): string
   assert(says == nil or message:find(says, 1, true) ~= nil,
     "test: expected a raise" .. wanted .. ", but it raised: " .. message)
   return message
+end
+
+Test.runtime_environment = {
+  "HOME", "XDG_CACHE_HOME", "PATH", "TMPDIR", "COSMIC_PORTABLE_CACHE", "COSMIC_VERDICT_CACHE",
+  "COSMIC_BUILD_CACHE", "COSMIC_BUILD_HOME", "COSMIC_AUTO_BOOT", "COSMIC_TEST_SANDBOX", "COSMIC_TEST_HELD",
+}
+
+--- The running test's own directory, as the runner names it, or nil
+--- outside a runner.
+local function test_directory(): string?
+  local installed = runner_in(Test)
+  local directory = if installed ~= nil then installed["directory"] else nil end
+  if directory is string then return directory end
+  return nil
+end
+
+--- The environment to start a process of this very program with, for a
+--- test that would otherwise pass all of its own: each of
+--- `runtime_environment` this process has, read by name, so the test
+--- reads no more of the environment than these. TMPDIR is the exception
+--- while a test runs: it names the test's own directory, so what the
+--- process leaves there goes with the test, not into the host's
+--- temporary directory. Outside a runner, TMPDIR is this process's own,
+--- as the rest are. The core hands a child the directory its
+--- coverage goes to whatever environment it is given.
+---
+---     local env = Test.environment()
+---     env["COSMIC_TEST_SANDBOX"] = "0"
+---     local started = Test.cosmic({ "test" }, { cwd = root, env = env, timeout_ns = Clock.seconds(60) })
+---     local ran = assert(Child.run(started.argv, started.options))
+--- @return a fresh table the caller may change
+function Test.environment(): mut {string:string}
+  local out: mut {string:string} = {}
+  local own = test_directory()
+  for _, name in ipairs(Test.runtime_environment) do
+    if name == "TMPDIR" and own ~= nil then
+      out[name] = own
+    else
+      local value = sys.getenv(name)
+      if value ~= nil then out[name] = value end
+    end
+  end
+  return out
+end
+
+--- The variables of this process's own start that no process it starts
+--- may inherit: the portable startup test's handshake
+--- (core/startup_test.tl's launches), which a child would wait on for
+--- a signal no one sends it.
+local handshake: {string} = {
+  "COSMIC_PORTABLE_STARTUP_TEST_READY", "COSMIC_PORTABLE_STARTUP_TEST_GO",
+}
+
+--- How to start this very program with `args` after it, skipping its
+--- launcher as `cosmic test` starts a worker: the core it runs on,
+--- handed its artifact, database and startup contract directly
+--- ([`Proc.relaunch`]), so starting it takes no shell and lands on no
+--- other core. With no artifact to relaunch, the program is as
+--- [`Proc.executable`] names it.
+---
+--- The options are a copy of `opts`, its tables left as they were except
+--- `env` and `fds`. `env` is the caller's variables or, where it gives
+--- none, the whole of this process's (a child given none inherits them,
+--- and nothing can be added to an inherited environment), with the
+--- relaunch's added and the startup test's handshake removed. `fds` is
+--- the caller's with the relaunch's descriptors beside them; `opts.fds`
+--- naming a number the relaunch hands the child its artifact or core as
+--- raises.
+---
+--- Under `opts.policy` the command line is the one a policy start
+--- takes: [`Child.start`] relaunches the program itself, so `argv` is
+--- [`Proc.executable`] and `args`, `env` is left unset (the policy's own
+--- `env` and `set_env` are the child's whole environment, so `opts.env`
+--- beside a policy raises), and `fds` is the caller's alone.
+---
+--- What the launcher does, a program started this way never sees: it
+--- makes no core cache under XDG_CACHE_HOME or HOME, nor checks the one
+--- COSMIC_PORTABLE_CACHE names, stamps no core `.verified-`, and needs
+--- no PATH, HOME or TMPDIR to start. A test of any of that starts the
+--- program itself, by [`Proc.executable`].
+---
+---     local started = Test.cosmic({ "-e", "print(1)" }, { stdout = "capture", timeout_ns = Clock.seconds(30) })
+---     local ran = assert(Child.run(started.argv, started.options))
+--- @param args the words after the program's name
+--- @param opts the options to start it with; none bounds it by the runner alone
+--- @return the command line and options to hand [`Child.run`] or [`Child.start`]
+function Test.cosmic(args: {string}, opts?: Child.Options): Test.Start
+  -- -1 is Child.FOREVER, which a worker loading this cannot read: cosmic.child
+  -- is not in its store before the test runs. A test's runner bounds it.
+  local given: Child.Options = opts or { timeout_ns = -1 }
+  -- A start with layers is held as one with a policy is.
+  local held = given.policy ~= nil or given.layers ~= nil
+  if held and given.env ~= nil then
+    error("test: cosmic: env beside a policy: the policy's env and set_env are the " ..
+        "child's whole environment", 2)
+  end
+  local relaunch: Proc.Relaunch?
+  if not held then
+    local found, _ = Proc.relaunch()
+    relaunch = found
+  end
+  local argv: mut {string} = {}
+  if relaunch ~= nil then
+    for _, word in ipairs(relaunch.argv) do argv[#argv + 1] = word end
+  else
+    argv[1] = assert(Proc.executable())
+  end
+  for _, word in ipairs(args) do argv[#argv + 1] = word end
+  local env: mut {string:string}?
+  if not held then
+    local fresh: mut {string:string} = {}
+    for name, value in pairs(given.env or Env.all()) do fresh[name] = value end
+    env = fresh
+  end
+  local fds: mut {integer:integer | string} = {}
+  for number, fd in pairs(given.fds or {}) do fds[number] = fd end
+  if relaunch ~= nil and env ~= nil then
+    for name, value in pairs(relaunch.env) do env[name] = value end
+    for number, fd in pairs(relaunch.fds) do
+      if fds[number] ~= nil then
+        error("test: cosmic: descriptor " .. tostring(number) ..
+            " is the one the relaunch hands the program its artifact or core as", 2)
+      end
+      fds[number] = fd
+    end
+  end
+  if env ~= nil then
+    for _, name in ipairs(handshake) do env[name] = nil end
+  end
+  -- Field by field: a record has no copy that keeps its type. A field
+  -- [`Child.Options`] gains is copied here too.
+  return { argv = argv, options = {
+    env = env, fds = fds, cwd = given.cwd, stdin = given.stdin, input = given.input,
+    stdout = given.stdout, stderr = given.stderr, capture_limit = given.capture_limit,
+    process_group = given.process_group, timeout_ns = given.timeout_ns, sandbox = given.sandbox,
+    credentials = given.credentials, policy = given.policy, layers = given.layers, relay_log = given.relay_log,
+  } }
 end
 
 return Test

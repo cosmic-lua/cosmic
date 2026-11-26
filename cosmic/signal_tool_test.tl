@@ -10,7 +10,6 @@ local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
-local this_program = require("build.this_program")
 
 --- The program itself (`tool`), which runs every fixture, started past
 --- its launcher so that no host program is read.
@@ -43,7 +42,7 @@ return function(argv: {string}): integer
   return 0
 end
 ]]))
-  local started = this_program.program({ fixture, report },
+  local started = Test.cosmic({ fixture, report },
     { stderr = "capture", timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, "code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) ..
@@ -79,7 +78,7 @@ return function(argv: {string}): integer
   return 0
 end
 ]]))
-  local started = this_program.program({ fixture, report },
+  local started = Test.cosmic({ fixture, report },
     { stderr = "capture", timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, "code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) ..
@@ -115,7 +114,7 @@ return function(argv: {string}): integer
   return 0
 end
 ]]))
-  local started = this_program.program({ fixture, report },
+  local started = Test.cosmic({ fixture, report },
     { stderr = "capture", timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, "code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) ..
@@ -151,7 +150,7 @@ return function(argv: {string}): integer
   return 0
 end
 ]]))
-  local started = this_program.program({ fixture, report },
+  local started = Test.cosmic({ fixture, report },
     { stderr = "capture", timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   local term = tostring(sys.SIGTERM)
@@ -180,7 +179,7 @@ return function(argv: {string}): integer
   return 0
 end
 ]]))
-  local started = this_program.program({ fixture, report },
+  local started = Test.cosmic({ fixture, report },
     { stderr = "capture", timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   local got, _ = Fs.read(report)

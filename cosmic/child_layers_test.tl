@@ -79,7 +79,7 @@ end
 local function test_a_loopback_is_inet_in_a_network_of_its_own(tmp: string)
   skip_on_macos()
   local program = assert(Fake.build(searchable.open(tmp) .. "/fake", Fake.REPLY))
-  local layers = layers_of({ program }, { loopback = { "127.0.0.2" } })
+  local layers = layers_of({ program }, { grants = { { loopback = "127.0.0.2" } } })
   assert(table.concat(layers.sockets, " ") == "inet", table.concat(layers.sockets, " "))
   local named = table.concat(layers.namespaces, " ")
   local want = if sys.getuid() == 0 then "user pid mount ipc net" else "user net" end
@@ -116,7 +116,7 @@ end
 local function test_tmp_is_granted_where_the_start_grants_it(tmp: string)
   skip_on_macos()
   local own = assert(Proc.executable())
-  local made = layers_of({ own, "print hi" }, { tmp = true, grants = { { path = tmp, letters = "r" } } })
+  local made = layers_of({ own, "print hi" }, { setup = { tmp = true }, grants = { { path = tmp, letters = "r" } } })
   local function written(paths: {Sandbox.Path}): boolean
     for _, grant in ipairs(paths) do
       if grant.letters == "rwc" and grant.path:find("TMPDIR", 1, true) ~= nil then return true end
@@ -124,7 +124,7 @@ local function test_tmp_is_granted_where_the_start_grants_it(tmp: string)
     return false
   end
   assert(written(made.landlock) and written(made.boot), "the directory tmp makes is not granted")
-  local rooted = layers_of({ own, "print hi" }, { isolate = { "file" }, tmp = true,
+  local rooted = layers_of({ own, "print hi" }, { isolate = { "file" }, setup = { tmp = true },
     grants = { { path = tmp, letters = "r" }, { path = "/tmp", letters = "rwxc" } } }, "/")
   assert(holds(rooted.landlock, "/tmp", "rwxc") and holds(rooted.landlock, "/proc", "r"))
 end

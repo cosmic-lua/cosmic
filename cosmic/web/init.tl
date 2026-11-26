@@ -60,6 +60,7 @@ local Testing = require("cosmic.web.testing")
 local Typed = require("cosmic.web.typed")
 local Shape = require("cosmic.shape")
 local Stream = require("cosmic.stream")
+local type Failure = require("cosmic.failure")
 local type Json = require("cosmic.json")
 local Types = require("cosmic.web.types")
 -- Only the type: the tailnet middleware, and the client of tailscaled it
@@ -278,12 +279,12 @@ local record Web
   --- [`Passkeys.middleware`].
   passkeys: function(opts: Passkeys.Options): Types.Middleware
   --- A store of passkeys in SQLite: see [`Passkeys.sqlite_store`].
-  passkey_store: function(db: Sqlite.Handle, opts?: Passkeys.StoreOptions): Passkeys.Store?, string
+  passkey_store: function(db: Sqlite.Handle, opts?: Passkeys.StoreOptions): (Passkeys.Store) | (nil, Failure)
 
   --- Compiles routes and middleware into an app: see [`App.new`].
   app: function(spec: Types.AppSpec): Types.App
   --- Serves an app until the server stops: see [`App.serve`].
-  serve: function(app: Types.App, opts: Types.ServeOptions): boolean, string
+  serve: function(app: Types.App, opts: Types.ServeOptions): (true) | (false, Failure)
 
   --- A client calling an app in-process: see [`Testing.test_client`].
   test_client: function(app: Types.App): Testing.Client
@@ -345,7 +346,7 @@ Web.who = Identity.who
 Web.passkeys = function(opts: Passkeys.Options): Types.Middleware
   return require("cosmic.web.passkeys").middleware(opts)
 end
-Web.passkey_store = function(db: Sqlite.Handle, opts?: Passkeys.StoreOptions): Passkeys.Store?, string
+Web.passkey_store = function(db: Sqlite.Handle, opts?: Passkeys.StoreOptions): (Passkeys.Store) | (nil, Failure)
   return require("cosmic.web.passkeys").sqlite_store(db, opts)
 end
 Web.serve = App.serve

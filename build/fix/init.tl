@@ -1320,7 +1320,10 @@ local function check_templates(ctx: Fix)
       failures[#failures + 1] = said -- checked: view_written
     else
       local made, why = template.compile(source, file)
-      if made == nil then failures[#failures + 1] = why end -- checked: view_written
+      if made == nil then
+        local said = tostring(why)
+        failures[#failures + 1] = said -- checked: view_written
+      end
     end
   end
 end

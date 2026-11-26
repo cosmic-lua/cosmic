@@ -23,6 +23,11 @@ request, the checks a change needs, the pin), [`doc/testing.md`] (tests),
 - `ci/` is a tree of its own: after editing it, run `../bin/cosmic fix
   --check` and `../bin/cosmic-bootstrap fix --check .` (the pinned
   release's older checker, COSMIC_BOOTSTRAP unset) from `ci/`.
+- A change to a module that a file of [`ci/bootstrap-files.txt`] requires,
+  or to one of those files: run `../bin/cosmic-bootstrap
+  cosmic_ci/driver.tl check-islands` from `ci/` (COSMIC_BOOTSTRAP unset).
+  Only it type-checks them on the pinned release; pull request CI fails
+  on it.
 - Run the tool only as [`bin/cosmic`], from any directory; never by its
   path in the build directory. Where there is no tool, it boots first
   (`COSMIC_AUTO_BOOT=0`, which CI sets, refuses, exit 3). A moved or copied checkout is
@@ -46,7 +51,8 @@ directory with the worktree.
    read, run `bin/cosmic fix --check .`, as CI does: only the whole tree
    runs [`build/tree_checks/`].
 3. A tool older than the tree rebuilds itself when a verb runs (`fix`,
-   `test`, `docs` and the rest; not `--version`). A change to the core's C, `build.zig`, the launcher, the
+   `test`, `docs` and the rest; not `--version`, `-e` or `-`, which note
+   on stderr that the tool is older than its checkout). A change to the core's C, `build.zig`, the launcher, the
    artifact format or a vendored pin or patch boots first. A failed boot
    stops the command: check its exit status, do not pipe it away.
 4. Test what you changed: `bin/cosmic test <their *_test.tl files>`.
@@ -112,6 +118,7 @@ change that moves the pin takes up the TODOs it unblocks: `bin/cosmic todos
 [`build/flow.tl`]: build/flow.tl
 [`build/paths.tl`]: build/paths.tl
 [`build/tree_checks/`]: build/tree_checks/init.tl
+[`ci/bootstrap-files.txt`]: ci/bootstrap-files.txt
 [`ci/cosmic-driver.pin`]: ci/cosmic-driver.pin
 [`doc/c.md`]: doc/c.md
 [`doc/contributing.md`]: doc/contributing.md

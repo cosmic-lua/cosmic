@@ -358,6 +358,11 @@ local PR_SKIPS <const> = "github.event_name != 'pull_request'"
 --- How a job that restores a cache starts: in the merge queue, only where
 --- the merge-queue ref's check (`queue-ref`) passed.
 local QUEUE_REF <const> = "!cancelled() && (github.event_name != 'merge_group' || needs.queue-ref.result == 'success')"
+--- A batch's pull request: a branch of this repository that build/batch.tl
+--- stacked (`claude/batch-*`), whose legs and driver check are skipped and
+--- read as passed, the merge queue testing the batch.
+local BATCH_PR <const> = "github.event_name == 'pull_request' && " ..
+  "github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'claude/batch-')"
 --- The parts of a leg ([`expand`]'s `part`) a step runs in: a whole leg
 --- (`all`) runs every part, and the queue runs a leg as its `suite` and
 --- its `product` in two jobs at once, beside linux-x86_64's `format`.
@@ -1538,8 +1543,8 @@ local function test_a_gating_download_is_tried_twice()
 end
 
 --- A pull request runs linux-x86_64's leg and macOS's suite, a light gate; the merge
---- queue and a push to main every leg but macOS, which the daily scheduled
---- run and a manual run add, the runs prerelease.yml publishes from. A leg has the same values whatever the
+--- queue every leg but macOS, and macOS's suite; a push to main, the daily scheduled
+--- run and a manual run of main all four. A leg has the same values whatever the
 --- run, every entry sets the same values, and alpine-x86_64,
 --- linux-x86_64's runner and target in the alpine image, is the only leg in
 --- that image.
@@ -1589,12 +1594,14 @@ local function test_each_kind_of_run_has_its_legs()
   for _, key in ipairs({ "runner", "target", "image" }) do
     assert(format[key] == assert(push["linux-x86_64"])[key], "the queue's format job runs on another host: " .. key)
   end
-  -- A push runs three legs whole and macOS's suite, which stands on the queue's verdicts and saves macOS's caches for
+  -- A push runs all four legs whole, macOS among them, so every commit that lands is tested on each platform within a
+  -- run (the queue runs macOS's suite alone). macOS's job stands on the queue's verdicts and saves macOS's caches for
   -- the queue's next runs, which otherwise only the daily run saved (the queue's macOS job booted cold, 7.3 of its
   -- 18.2 min on 45475769968).
   assert(names_of(push) == "alpine-x86_64 linux-aarch64 linux-x86_64 macos-aarch64", "a push's legs: " .. names_of(push))
   local push_mac = assert(push["macos-aarch64"])
-  for _, key in ipairs({ "part", "runner", "target", "image" }) do
+  assert(push_mac["part"] == "all", "a push runs part of macOS's leg: " .. tostring(push_mac["part"]))
+  for _, key in ipairs({ "runner", "target", "image" }) do
     assert(push_mac[key] == mac[key], "a push runs macOS otherwise than the queue: " .. key)
   end
   -- A suite job's zig build outputs are its boot's alone, saved apart (`<vendor>boot-`), so that the daily run, which
@@ -1772,11 +1779,13 @@ local function test_mains_push_repeats_nothing_the_queue_checked()
   local check, leg_check_at = step_running(steps, "cosmic-driver test cosmic_ci")
   assert(check["if"] == "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || " ..
       "(github.event_name == 'merge_group' && matrix.leg == 'macos-aarch64' && steps.changed.outputs.driver != 'skip')" and
-      map_of(check.env)["COSMIC_TEST_SANDBOX"] == "0",
-    "the legs check the pinned driver on other runs: " .. tostring(check["if"]))
+      map_of(check.env)["COSMIC_TEST_SANDBOX"] == "${{ runner.os == 'Linux' && '1' || '0' }}" and
+      map_of(check.env)["COSMIC_SANDBOX"] == "${{ runner.os == 'Linux' && 'must' || '' }}",
+    "the legs check the pinned driver on other runs, sandboxed on Linux: " .. tostring(check["if"]))
   assert(leg_changed_at < leg_check_at, "the macOS leg asks of the paths changed after its check")
   local driver = job_of(jobs, "driver")
-  assert(driver["if"] == QUEUE_REF .. " && (github.event_name == 'merge_group' || github.event_name == 'pull_request')" and
+  assert(driver["if"] == QUEUE_REF .. " && (github.event_name == 'merge_group' || github.event_name == 'pull_request') && " ..
+      "!(" .. BATCH_PR .. ")" and
       table.concat(needs_of(driver), ",") == "queue-ref",
     "the pinned driver's own job runs on other runs than the queue's and a pull request's, or waits on another job")
   local own = driver.steps
@@ -1790,7 +1799,8 @@ local function test_mains_push_repeats_nothing_the_queue_checked()
     assert((s.run or ""):find("platform boot", 1, true) == nil, "the driver's job boots the tree")
   end
   local queued = step_running(own, "cosmic-driver test cosmic_ci")
-  assert(queued["if"] == "steps.changed.outputs.driver != 'skip'" and map_of(queued.env)["COSMIC_TEST_SANDBOX"] == "0",
+  assert(queued["if"] == "steps.changed.outputs.driver != 'skip'" and map_of(queued.env)["COSMIC_TEST_SANDBOX"] == "1" and
+      map_of(queued.env)["COSMIC_SANDBOX"] == "must",
     "the queue checks the pinned driver otherwise: " .. tostring(queued["if"]))
   local _, check_at = step_named(own, "check the pinned CI driver")
   local _, placed_at = step_named(own, "move the tree to a path of its own")
@@ -2154,7 +2164,7 @@ local function test_the_relay_saves_the_queues_verdicts_under_the_queues_name()
   local pushed: mut {string} = {}
   for _, leg in pairs(platform_legs("push")) do
     -- macOS's push job saves its own: no relay runs on a macOS runner.
-    if leg["part"] == "suite" then continue end
+    if leg["leg"] == "macos-aarch64" then continue end
     pushed[#pushed + 1] = assert(leg["leg"])
     assert(assert(queue_legs[assert(leg["leg"])])["part"] == "suite", "the queue runs no suite of " .. tostring(leg["leg"]))
   end
@@ -2312,22 +2322,25 @@ local function test_the_queue_runs_the_checked_suite_in_three_shares()
 end
 
 --- The gate (`ci`, the one check a ruleset requires) needs every job and
---- fails on any that failed or was cancelled; the checked and narrowing
---- jobs read as passed on a pull request, which skips them. On every
---- other run it compares the legs' products: the queue's and a push's three, the
---- scheduled and a manual run's four, which prerelease.yml publishes from
---- alone.
+--- fails on any that failed or was cancelled, but for a pull request's
+--- cancelled run, which skips it. The checked and narrowing jobs read as
+--- passed on a pull request, which skips them. On every
+--- other run it compares the legs' products: the queue's three, a push's, the
+--- scheduled and a manual run's four (prerelease.yml publishes from the
+--- last two).
 local function test_the_gate_needs_every_job_and_compares_the_legs_products()
   local jobs = ci_workflow().jobs
   local gate = job_of(jobs, "ci")
-  assert(table.concat(needs_of(gate), ",") == "queue-ref,platform,checked,narrowing,driver" and gate["if"] == "always()",
+  assert(table.concat(needs_of(gate), ",") == "queue-ref,platform,checked,narrowing,driver" and
+      gate["if"] == "always() && !(cancelled() && github.event_name == 'pull_request')",
     "the gate needs " .. table.concat(needs_of(gate), ","))
   local passed = step_named(gate.steps, "every job passed")
   local env = map_of(passed.env)
-  assert(env["RESULT"] == "${{ needs.platform.result }}" and
+  assert(env["RESULT"] == "${{ (" .. BATCH_PR .. ") && 'success' || needs.platform.result }}" and
       env["CHECKED"] == "${{ github.event_name == 'pull_request' && 'success' || needs.checked.result }}" and
       env["NARROWING"] == "${{ github.event_name == 'pull_request' && 'success' || needs.narrowing.result }}" and
-      env["DRIVER"] == "${{ (github.event_name == 'merge_group' || github.event_name == 'pull_request') && needs.driver.result || 'success' }}" and
+      env["DRIVER"] == "${{ (" .. BATCH_PR .. ") && 'success' || " ..
+      "(github.event_name == 'merge_group' || github.event_name == 'pull_request') && needs.driver.result || 'success' }}" and
       env["QUEUE_REF"] == "${{ github.event_name == 'merge_group' && needs.queue-ref.result || 'success' }}" and
       (passed.run or ""):find("[ \"$DRIVER\" = success ]", 1, true) ~= nil and
       (passed.run or ""):find("[ \"$QUEUE_REF\" = success ]", 1, true) ~= nil,
@@ -2335,7 +2348,7 @@ local function test_the_gate_needs_every_job_and_compares_the_legs_products()
   local compare = step_named(gate.steps, "compare the Cosmic bytes executed on every native host")
   assert(compare["if"] == PR_SKIPS and
       map_of(compare.env)["COSMIC_CI_PRODUCTS"] ==
-      "${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && " ..
+      "${{ (github.event_name == 'schedule' || github.event_name == 'push' || github.event_name == 'workflow_dispatch' && " ..
       "(github.ref == 'refs/heads/main' || inputs.macos)) && '4' || '3' }}",
     "the join compares other than main's products: " .. tostring(map_of(compare.env)["COSMIC_CI_PRODUCTS"]))
   local function count(legs: {string: {string: string}}): integer
@@ -2461,5 +2474,23 @@ local function test_a_pull_request_runs_the_suites_and_the_light_check()
       types)
   for _, name in ipairs({ "checked", "narrowing" }) do
     assert(job_of(ci.jobs, name)["if"] == QUEUE_REF .. " && " .. PR_SKIPS, name .. " runs on a pull request")
+  end
+end
+
+--- A batch's pull request runs no leg and no driver check, and its gate
+--- passes: build/batch.tl stacks it from members whose newest `ci` passed,
+--- and the merge queue tests the batch on every leg. Only a branch of this
+--- repository takes it, so a fork's pull request named like one still runs.
+local function test_a_batchs_pull_request_skips_its_legs_and_passes()
+  local jobs = ci_workflow().jobs
+  local skip = " && !(" .. BATCH_PR .. ")"
+  assert(job_of(jobs, "platform")["if"] == QUEUE_REF .. skip,
+    "a batch's pull request runs its legs: " .. tostring(job_of(jobs, "platform")["if"]))
+  local driver = job_of(jobs, "driver")["if"] or ""
+  assert(driver:sub(-#skip) == skip, "a batch's pull request runs the driver check: " .. driver)
+  assert(BATCH_PR:find("head.repo.full_name == github.repository", 1, true) ~= nil,
+    "a fork's pull request named like a batch skips its legs")
+  for _, name in ipairs({ "checked", "narrowing" }) do
+    assert(job_of(jobs, name)["if"] == QUEUE_REF .. " && " .. PR_SKIPS, name .. " runs on a batch's pull request")
   end
 end

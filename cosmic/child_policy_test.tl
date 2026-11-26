@@ -147,15 +147,15 @@ local function test_the_environment_is_the_policys_alone(tmp: string)
     if name ~= "TMPDIR" and hidden == nil then hidden = name end
   end
   local script = { "env", "TMPDIR", "SET", "ABSENT", hidden or "NOT_THERE" }
-  local policy: Sandbox.Policy = { grants = itself(probe), env = { "TMPDIR", "ABSENT" },
-    set_env = { SET = "value with spaces" } }
+  local policy: Sandbox.Policy = { grants = itself(probe, { { env = "TMPDIR" }, { env = "ABSENT" } }),
+    setup = { set_env = { SET = "value with spaces" } } }
   local out = under(probe, policy, script)
   assert(out.code == 0, out.said)
   local want = "TMPDIR=" .. passed .. "\nSET=value with spaces\nABSENT unset\n" ..
     (hidden or "NOT_THERE") .. " unset\n"
   assert(out.said == want, out.said)
   -- Set beats passed through, a name a start was given or not.
-  local both = under(probe, { grants = itself(probe), env = { "TMPDIR" }, set_env = { TMPDIR = "mine" } },
+  local both = under(probe, { grants = itself(probe, { { env = "TMPDIR" } }), setup = { set_env = { TMPDIR = "mine" } } },
     { "env", "TMPDIR" })
   assert(both.said == "TMPDIR=mine\n", both.said)
   -- With no env and no set_env the child has none at all.
@@ -165,7 +165,7 @@ end
 
 local function test_tmp_is_made_writable_named_by_tmpdir_and_removed(tmp: string)
   local probe = assert(Fake.build(searchable.open(tmp) .. "/fake", "build.child_policy_fake"))
-  local policy: Sandbox.Policy = { grants = itself(probe), tmp = true }
+  local policy: Sandbox.Policy = { grants = itself(probe), setup = { tmp = true } }
   local out = under(probe, policy,
     { "use-tmp", "hello", "deep" })
   assert(out.code == 0, out.said)
@@ -193,7 +193,7 @@ end
 
 local function test_tmp_is_removed_after_a_child_ended_for_its_timeout(tmp: string)
   local probe = assert(Fake.build(searchable.open(tmp) .. "/fake", "build.child_policy_fake"))
-  local policy: Sandbox.Policy = { grants = itself(probe), tmp = true }
+  local policy: Sandbox.Policy = { grants = itself(probe), setup = { tmp = true } }
   local handle, why = Child.start({ probe, "write-tmp-and-wait" },
     { timeout_ns = Child.FOREVER, policy = policy, stdout = "null", stderr = "null" })
   if handle == nil then
@@ -209,7 +209,7 @@ end
 
 local function test_a_start_that_fails_leaves_no_tmp_behind(tmp: string)
   local probe = assert(Fake.build(searchable.open(tmp) .. "/fake", "build.child_policy_fake"))
-  local policy: Sandbox.Policy = { grants = itself(probe, { { path = tmp .. "/absent", letters = "r" } }), tmp = true }
+  local policy: Sandbox.Policy = { grants = itself(probe, { { path = tmp .. "/absent", letters = "r" } }), setup = { tmp = true } }
   local none, why = Child.start({ probe, "print", "hi" }, { timeout_ns = Child.FOREVER, policy = policy })
   assert(none == nil)
   if unsandboxable(tostring(why)) then
@@ -305,7 +305,7 @@ end
 local function test_the_tmp_directory_is_absolute_and_usable_from_another_directory(tmp: string)
   local probe = assert(Fake.build(searchable.open(tmp) .. "/fake", "build.child_policy_fake"))
   assert(Fs.mkdirs(tmp .. "/elsewhere"))
-  local out = under(probe, { grants = itself(probe), tmp = true },
+  local out = under(probe, { grants = itself(probe), setup = { tmp = true } },
     { "use-tmp", "hi" }, { timeout_ns = Child.FOREVER, cwd = tmp .. "/elsewhere" })
   assert(out.code == 0, out.said)
   assert(out.said:find("^TMPDIR=/") and out.said:find("\nhi\n", 1, true), out.said)

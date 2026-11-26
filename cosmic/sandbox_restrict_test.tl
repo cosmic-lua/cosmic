@@ -414,6 +414,6 @@ say("reaped", after, trouble)
 end
 
 local function test_a_policy_is_merged_first_so_profiles_resolve()
-  local said = Restrict.in_child(restricted("{ profiles = { \"system\" } }", ""))
+  local said = Restrict.in_child(restricted("{ grants = { { profile = \"system\" } } }", ""))
   assert(said.lines["restrict"] == "true ", said.raw)
 end

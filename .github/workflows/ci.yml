@@ -107,33 +107,39 @@
     # A platform leg: the native suite on its host, and, on main's runs,
     # the complete product, its regressions and its portable suite, the
     # bytes it ran uploaded for the join. The merge queue runs what main's
-    # push runs, so a commit that breaks a push breaks its queue entry
-    # first: the same three legs and the checked jobs, and the `driver`
+    # push runs on Linux, so a commit that breaks a push breaks its queue
+    # entry first: the same three legs and the checked jobs, and the `driver`
     # job's check of the pinned CI driver. Each queue leg is two jobs at
     # once, so an entry takes about as long as the longer half: its
     # native suite (part `suite`), and assemble, the regressions, the
     # portable suite and the product (part `product`); the tree's format
     # check is a job of its own beside linux-x86_64's. The queue also runs
-    # macOS's native suite (part `suite`, no product), which a push does
-    # not: macOS failures blocked prereleases, and the daily run was the
-    # first to meet them. A pull request runs
+    # macOS's native suite (part `suite`, no product): macOS failures
+    # blocked prereleases, and the daily run was the first to meet them. A pull request runs
     # a light gate: linux-x86_64's boot, native suite and format check of
     # what it changed (and the launcher fixtures, where it reaches them), the
     # `driver` job, and, once it is not a draft, macOS's suite, each suite
     # on main's verdicts.
     # A draft leaves the few macOS runners to the queue (ci/README.md says
     # why). A push to main runs
-    # three legs whole, all but macOS, and macOS's suite, which saves
-    # macOS's caches for the queue (only a part `suite` job's boot builds
-    # what the zig saves keep there); the daily scheduled run runs all
-    # four whole, macOS among them, as does a manual run of main or one
-    # that asks for it (`macos`). Other manual runs, a branch's checks
+    # all four legs whole, macOS among them, so each commit that lands is
+    # tested in full on every platform within about 25 min of its merge;
+    # its macOS job also saves macOS's caches for the queue. The daily
+    # scheduled run runs all four whole too, as does a manual run of main
+    # or one that asks for it (`macos`). Other manual runs, a branch's checks
     # before the queue, leave macOS to the queue, which runs it on every
     # entry: their macOS jobs took the few macOS runners from the queue's
     # (45561589392 waited 35 min).
+    # A batch's pull request (a branch of this repository named
+    # claude/batch-*, which build/batch.tl stacks from members whose own
+    # newest `ci` passed) runs no leg and no driver check, and its gate
+    # passes: the merge queue tests the batch, on every leg, before it
+    # lands. The skip goes by the branch's name: what vouches for the
+    # members is build/batch.tl's check. The run it skips takes 22 min
+    # (p50) of each batch's way to main.
     platform: {
       needs: ["queue-ref"],
-      if: "!cancelled() && (github.event_name != 'merge_group' || needs.queue-ref.result == 'success')",
+      if: "!cancelled() && (github.event_name != 'merge_group' || needs.queue-ref.result == 'success') && !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'claude/batch-'))",
       name: "${{ matrix.name }}",
       defaults: {run: {"working-directory": "ci", shell: "${{ matrix.image && 'leg-shell {0}' || 'sh' }}"}},
       strategy: {
@@ -158,7 +164,7 @@
         # self-rebuild regression is a job of its own too, `rebuild`
         # (assemble and that fixture alone, COSMIC_CI_SELF_REBUILD).
         matrix: {
-          include: "${{ fromJSON(github.event_name == 'pull_request' && (github.event.pull_request.draft && '[{\"name\": \"linux-x86_64\", \"leg\": \"linux-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}]' || '[{\"name\": \"linux-x86_64\", \"leg\": \"linux-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"macos-aarch64\", \"leg\": \"macos-aarch64\", \"part\": \"suite\", \"runner\": \"macos-15\", \"target\": \"aarch64-macos\", \"image\": \"\"}]') || github.event_name == 'merge_group' && '[{\"name\": \"linux-x86_64\", \"leg\": \"linux-x86_64\", \"part\": \"suite\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-x86_64-product\", \"leg\": \"linux-x86_64\", \"part\": \"product\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-x86_64-rebuild\", \"leg\": \"linux-x86_64\", \"part\": \"rebuild\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-x86_64-format\", \"leg\": \"linux-x86_64\", \"part\": \"format\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-aarch64\", \"leg\": \"linux-aarch64\", \"part\": \"suite\", \"runner\": \"ubuntu-24.04-arm\", \"target\": \"aarch64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-aarch64-product\", \"leg\": \"linux-aarch64\", \"part\": \"product\", \"runner\": \"ubuntu-24.04-arm\", \"target\": \"aarch64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-aarch64-rebuild\", \"leg\": \"linux-aarch64\", \"part\": \"rebuild\", \"runner\": \"ubuntu-24.04-arm\", \"target\": \"aarch64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"alpine-x86_64\", \"leg\": \"alpine-x86_64\", \"part\": \"suite\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72\"}, {\"name\": \"alpine-x86_64-portable\", \"leg\": \"alpine-x86_64\", \"part\": \"portable\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72\"}, {\"name\": \"alpine-x86_64-rebuild\", \"leg\": \"alpine-x86_64\", \"part\": \"rebuild\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72\"}, {\"name\": \"alpine-x86_64-regressions\", \"leg\": \"alpine-x86_64\", \"part\": \"regressions\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72\"}, {\"name\": \"macos-aarch64\", \"leg\": \"macos-aarch64\", \"part\": \"suite\", \"runner\": \"macos-15\", \"target\": \"aarch64-macos\", \"image\": \"\"}]' || github.event_name == 'push' && '[{\"name\": \"linux-x86_64\", \"leg\": \"linux-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-aarch64\", \"leg\": \"linux-aarch64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04-arm\", \"target\": \"aarch64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"alpine-x86_64\", \"leg\": \"alpine-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72\"}, {\"name\": \"macos-aarch64\", \"leg\": \"macos-aarch64\", \"part\": \"suite\", \"runner\": \"macos-15\", \"target\": \"aarch64-macos\", \"image\": \"\"}]' || (github.event_name == 'schedule' || github.ref == 'refs/heads/main' || inputs.macos) && '[{\"name\": \"linux-x86_64\", \"leg\": \"linux-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-aarch64\", \"leg\": \"linux-aarch64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04-arm\", \"target\": \"aarch64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"macos-aarch64\", \"leg\": \"macos-aarch64\", \"part\": \"all\", \"runner\": \"macos-15\", \"target\": \"aarch64-macos\", \"image\": \"\"}, {\"name\": \"alpine-x86_64\", \"leg\": \"alpine-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72\"}]' || '[{\"name\": \"linux-x86_64\", \"leg\": \"linux-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-aarch64\", \"leg\": \"linux-aarch64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04-arm\", \"target\": \"aarch64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"alpine-x86_64\", \"leg\": \"alpine-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72\"}]') }}",
+          include: "${{ fromJSON(github.event_name == 'pull_request' && (github.event.pull_request.draft && '[{\"name\": \"linux-x86_64\", \"leg\": \"linux-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}]' || '[{\"name\": \"linux-x86_64\", \"leg\": \"linux-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"macos-aarch64\", \"leg\": \"macos-aarch64\", \"part\": \"suite\", \"runner\": \"macos-15\", \"target\": \"aarch64-macos\", \"image\": \"\"}]') || github.event_name == 'merge_group' && '[{\"name\": \"linux-x86_64\", \"leg\": \"linux-x86_64\", \"part\": \"suite\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-x86_64-product\", \"leg\": \"linux-x86_64\", \"part\": \"product\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-x86_64-rebuild\", \"leg\": \"linux-x86_64\", \"part\": \"rebuild\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-x86_64-format\", \"leg\": \"linux-x86_64\", \"part\": \"format\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-aarch64\", \"leg\": \"linux-aarch64\", \"part\": \"suite\", \"runner\": \"ubuntu-24.04-arm\", \"target\": \"aarch64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-aarch64-product\", \"leg\": \"linux-aarch64\", \"part\": \"product\", \"runner\": \"ubuntu-24.04-arm\", \"target\": \"aarch64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-aarch64-rebuild\", \"leg\": \"linux-aarch64\", \"part\": \"rebuild\", \"runner\": \"ubuntu-24.04-arm\", \"target\": \"aarch64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"alpine-x86_64\", \"leg\": \"alpine-x86_64\", \"part\": \"suite\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72\"}, {\"name\": \"alpine-x86_64-portable\", \"leg\": \"alpine-x86_64\", \"part\": \"portable\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72\"}, {\"name\": \"alpine-x86_64-rebuild\", \"leg\": \"alpine-x86_64\", \"part\": \"rebuild\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72\"}, {\"name\": \"alpine-x86_64-regressions\", \"leg\": \"alpine-x86_64\", \"part\": \"regressions\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72\"}, {\"name\": \"macos-aarch64\", \"leg\": \"macos-aarch64\", \"part\": \"suite\", \"runner\": \"macos-15\", \"target\": \"aarch64-macos\", \"image\": \"\"}]' || github.event_name == 'push' && '[{\"name\": \"linux-x86_64\", \"leg\": \"linux-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-aarch64\", \"leg\": \"linux-aarch64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04-arm\", \"target\": \"aarch64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"alpine-x86_64\", \"leg\": \"alpine-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72\"}, {\"name\": \"macos-aarch64\", \"leg\": \"macos-aarch64\", \"part\": \"all\", \"runner\": \"macos-15\", \"target\": \"aarch64-macos\", \"image\": \"\"}]' || (github.event_name == 'schedule' || github.ref == 'refs/heads/main' || inputs.macos) && '[{\"name\": \"linux-x86_64\", \"leg\": \"linux-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-aarch64\", \"leg\": \"linux-aarch64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04-arm\", \"target\": \"aarch64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"macos-aarch64\", \"leg\": \"macos-aarch64\", \"part\": \"all\", \"runner\": \"macos-15\", \"target\": \"aarch64-macos\", \"image\": \"\"}, {\"name\": \"alpine-x86_64\", \"leg\": \"alpine-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72\"}]' || '[{\"name\": \"linux-x86_64\", \"leg\": \"linux-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-aarch64\", \"leg\": \"linux-aarch64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04-arm\", \"target\": \"aarch64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"alpine-x86_64\", \"leg\": \"alpine-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72\"}]') }}",
         },
       },
       "runs-on": "${{ matrix.runner }}",
@@ -505,23 +511,20 @@
         # To a path of this commit's and leg's own, so a test that turns
         # on the tree's path fails some run (driver.tl place-tree). After
         # every hashFiles, which reads the checkout.
-        # TODO: move it on the macOS leg alone once "check the pinned CI
-        # driver" runs cosmic_ci's tests sandboxed: the tree's own suites
-        # here already see it at /tree wherever it is (COSMIC_TEST_SANDBOX=1),
-        # and the pinned release sandboxes its workers by default, knows
-        # `system` and takes `/parent/` grants (orchestration_test
-        # declares its own), but a sandboxed `cosmic test
-        # cosmic_ci` from ci/ still fails tests, for the host programs they
-        # start and the files they read without declaring them (`system`
-        # profiles, grants), which that run lists; the macOS leg has no
-        # sandbox at all.
+        # TODO: move it on the macOS leg alone once no Linux step runs a
+        # test unsandboxed: the tree's own suites and "check the pinned CI
+        # driver" see it at /tree wherever it is (COSMIC_TEST_SANDBOX=1),
+        # but the unsandboxed fixtures (orchestration.tl's
+        # `Orchestration.fixture`) see it at its path; the macOS leg has
+        # no sandbox at all.
         {
           name: "move the tree to a path of its own",
           run: "cosmic-driver cosmic_ci/driver.tl place-tree",
         },
-        # Every test, unsandboxed: cosmic_ci's tests start the host's own
-        # programs and are not all declared to run sandboxed. Every leg
-        # of the daily, weekly and a manual run; on a pull request, the
+        # Every test, sandboxed on Linux (each module declares the host
+        # programs and files it reads), and unsandboxed on macOS, which
+        # has no sandbox. Every leg of the daily, weekly and a manual run;
+        # on a pull request, the
         # `driver` job's, and in the queue, that job's and the macOS
         # leg's, where the change touches ci/ or .github/ or its paths are
         # not known (changed_paths.tl's `driver=skip`); never on main's push, whose
@@ -532,7 +535,7 @@
         {
           name: "check the pinned CI driver",
           if: "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'merge_group' && matrix.leg == 'macos-aarch64' && steps.changed.outputs.driver != 'skip')",
-          env: {COSMIC_VERDICT_CACHE: "0", COSMIC_TEST_SANDBOX: "0"},
+          env: {COSMIC_VERDICT_CACHE: "0", COSMIC_TEST_SANDBOX: "${{ runner.os == 'Linux' && '1' || '0' }}", COSMIC_SANDBOX: "${{ runner.os == 'Linux' && 'must' || '' }}"},
           run: "cosmic-driver test cosmic_ci",
         },
         # What bin/cosmic-bootstrap runs must type-check under the pinned
@@ -862,9 +865,11 @@
         # Once per vendor part and leg, not per core change, which the
         # cache cannot hold, where assemble passed and main found no entry
         # of this vendor part; and on the weekly run, which built cold. A
-        # suite job (macOS's on a push) builds only its boot, and saves it
-        # under `<vendor>boot-`, so it does not stand in for the whole
-        # leg's entry, which the daily run still saves.
+        # suite job builds only its boot, and would save it under
+        # `<vendor>boot-`, so it does not stand in for the whole leg's
+        # entry. No saving run has a suite job now: main's push runs
+        # macOS's whole leg, whose `<vendor>full-` entry the queue's macOS
+        # suite restores first.
         {
           name: "save zig build outputs",
           if: "always() && (steps.assemble.outcome == 'success' || matrix.part == 'suite' && steps.boot.outcome == 'success') && env.COSMIC_CI_SAVES == 'true' && (github.event.schedule == '41 3 * * 0' || !startsWith(steps.zig-cache-restore.outputs.cache-matched-key, format('{0}full-', steps.names.outputs.vendor))) && (matrix.part != 'suite' || !startsWith(steps.zig-cache-restore.outputs.cache-matched-key, format('{0}boot-', steps.names.outputs.vendor)))",
@@ -1491,10 +1496,11 @@
     # Test.policy grants), or where the paths changed are not known. A
     # pull request runs it so that a ci/ change which breaks those tests
     # fails there, not in a queue entry. The other runs check it on each
-    # leg ("check the pinned CI driver" above).
+    # leg ("check the pinned CI driver" above). A batch's pull request
+    # skips it, as it skips the legs (`platform` above).
     driver: {
       needs: ["queue-ref"],
-      if: "!cancelled() && (github.event_name != 'merge_group' || needs.queue-ref.result == 'success') && (github.event_name == 'merge_group' || github.event_name == 'pull_request')",
+      if: "!cancelled() && (github.event_name != 'merge_group' || needs.queue-ref.result == 'success') && (github.event_name == 'merge_group' || github.event_name == 'pull_request') && !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'claude/batch-'))",
       name: "linux-x86_64-driver",
       defaults: {run: {"working-directory": "ci", shell: "leg-shell {0}"}},
       "runs-on": "ubuntu-24.04",
@@ -1565,11 +1571,13 @@
           name: "move the tree to a path of its own",
           run: "cosmic-driver cosmic_ci/driver.tl place-tree",
         },
-        # Every test, unsandboxed, as the platform job's step.
+        # Every test, sandboxed, as the platform job's step runs them on
+        # Linux: a module that reads the host without declaring it fails
+        # here, as it does in a plain `cosmic test` in ci/.
         {
           name: "check the pinned CI driver",
           if: "steps.changed.outputs.driver != 'skip'",
-          env: {COSMIC_VERDICT_CACHE: "0", COSMIC_TEST_SANDBOX: "0"},
+          env: {COSMIC_VERDICT_CACHE: "0", COSMIC_TEST_SANDBOX: "1", COSMIC_SANDBOX: "must"},
           run: "cosmic-driver test cosmic_ci",
         },
         # Before checkout's post step, whose git refuses the repository at
@@ -1591,11 +1599,18 @@
     # is read in the queue and on a pull request, where it runs. On every
     # run but a pull request's it is
     # the provenance join too, proving the legs attested identical bytes:
-    # the queue's, a push's and a branch's manual run's three, the
+    # the queue's and a branch's manual run's three, a push's, the
     # scheduled run's and a manual run of main's or with `macos` four.
+    # A pull request's cancelled run (most often one a newer push replaced,
+    # through the concurrency group above) skips the gate, so its check
+    # reads as passed, not failed: the merge queue's run, whose gate fails
+    # on a cancelled job, is what lets a change reach main. Every other
+    # run's gate fails on a cancelled job, since a skipped required check
+    # passes. A batch's pull request, whose legs and driver check are
+    # skipped (`platform` above), reads its legs and driver check as passed.
     ci: {
       needs: ["queue-ref", "platform", "checked", "narrowing", "driver"],
-      if: "always()",
+      if: "always() && !(cancelled() && github.event_name == 'pull_request')",
       "runs-on": "ubuntu-24.04",
       # actions: to list the merge-queue ref's caches again.
       permissions: {contents: "read", actions: "read"},
@@ -1631,10 +1646,10 @@
         {
           name: "every job passed",
           env: {
-            RESULT: "${{ needs.platform.result }}",
+            RESULT: "${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'claude/batch-')) && 'success' || needs.platform.result }}",
             CHECKED: "${{ github.event_name == 'pull_request' && 'success' || needs.checked.result }}",
             NARROWING: "${{ github.event_name == 'pull_request' && 'success' || needs.narrowing.result }}",
-            DRIVER: "${{ (github.event_name == 'merge_group' || github.event_name == 'pull_request') && needs.driver.result || 'success' }}",
+            DRIVER: "${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'claude/batch-')) && 'success' || (github.event_name == 'merge_group' || github.event_name == 'pull_request') && needs.driver.result || 'success' }}",
             QUEUE_REF: "${{ github.event_name == 'merge_group' && needs.queue-ref.result || 'success' }}",
           },
           run: "echo \"merge-queue ref: $QUEUE_REF; legs: $RESULT; checked suite: $CHECKED; checked narrowing: $NARROWING; pinned driver: $DRIVER\"; [ \"$QUEUE_REF\" = success ] && [ \"$RESULT\" = success ] && [ \"$CHECKED\" = success ] && [ \"$NARROWING\" = success ] && [ \"$DRIVER\" = success ]",
@@ -1669,7 +1684,7 @@
           name: "compare the Cosmic bytes executed on every native host",
           if: "github.event_name != 'pull_request'",
           "working-directory": "ci",
-          env: {COSMIC_CI_PRODUCTS: "${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/main' || inputs.macos)) && '4' || '3' }}"},
+          env: {COSMIC_CI_PRODUCTS: "${{ (github.event_name == 'schedule' || github.event_name == 'push' || github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/main' || inputs.macos)) && '4' || '3' }}"},
           run: "cosmic-driver cosmic_ci/driver.tl provenance",
         },
         {

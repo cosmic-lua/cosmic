@@ -1,6 +1,9 @@
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Verdicts = require("cosmic_ci.verdicts")
+local Test = require("cosmic.test")
+
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 --- [`Verdicts.command`], what it returns as three values.
 local function verdicts_command(argv: {string}, env: {string:string}): integer, string, string
@@ -17,7 +20,7 @@ local s <const> = 1000000000
 --- and a table of another shape beside them.
 local function cache(path: string, used: {integer})
   local db = assert(Sqlite.open(path, { writable = true }))
-  assert(db:text_rows("PRAGMA journal_mode = WAL"))
+  assert(db:rows("PRAGMA journal_mode = WAL"))
   assert(db:exec("CREATE TABLE declared_v1 (key TEXT PRIMARY KEY, test TEXT NOT NULL, " ..
       "hits BLOB NOT NULL, elapsed_ns INTEGER NOT NULL, used_ns INTEGER NOT NULL, " ..
       "origin TEXT NOT NULL); CREATE INDEX declared_v1_by_use ON declared_v1 (used_ns); " ..
@@ -35,7 +38,7 @@ end
 local function keys(path: string): {string}
   local db = assert(Sqlite.open(path))
   local out: mut {string} = {}
-  for _, row in ipairs((assert(db:text_rows(
+  for _, row in ipairs((assert(db:rows(
       "SELECT key FROM declared_v1 UNION ALL SELECT key FROM verdicts_v3 ORDER BY 1")))) do
     out[#out + 1] = row:text(1)
   end
@@ -135,9 +138,9 @@ end
 local function addresses(path: string): string
   local db = assert(Sqlite.open(path))
   local out: mut {string} = {}
-  for _, row in ipairs((assert(db:text_rows(
+  for _, row in ipairs((assert(db:rows(
       "SELECT address, used_ns / 1000000000 FROM stores_v1 ORDER BY address")))) do
-    out[#out + 1] = table.concat(row:texts(), " ")
+    out[#out + 1] = row:text(1) .. " " .. tostring(row:integer(2))
   end
   assert(db:close())
   return table.concat(out, "\n")

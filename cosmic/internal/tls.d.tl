@@ -63,7 +63,9 @@ local record tls
     -- True once the handshake is done.
     handshake: function(Session): boolean, string, integer
     -- At most max bytes, and at most 16 KiB, of what the peer sent.
-    -- Raises on a max below 1.
+    -- Raises on a max below 1. ENDED only at the peer's close_notify:
+    -- its socket ending with none is FAILED, as what it sent may have
+    -- been cut short there.
     read: function(Session, max: integer): string?, string, integer
     -- How many bytes of data from `from` were taken; called again with
     -- the same bytes after a wait. Raises on a `from` past the end.

@@ -19,6 +19,7 @@ local Test = require("cosmic.test")
 -- read of the checkout around ci/.
 Test.policy{
   profiles = { "cosmic", "system" },
+  env = { "PATH" },
   grants = {
     { path = "cosmic_ci/", letters = "r" },
     { path = "fixtures/", letters = "r" },
@@ -677,7 +678,7 @@ local function test_the_self_rebuild_seed_copies_the_legs_compiles(tmp: string)
   end
   local function seeded_from(path: string): string
     local db = assert(Sqlite.open(path))
-    local rows = assert(db:text_rows("SELECT key FROM compiles"))
+    local rows = assert(db:rows("SELECT key FROM compiles"))
     assert(db:close())
     assert(#rows == 1, path .. ": " .. tostring(#rows) .. " rows")
     return assert(rows[1]):text(1)
@@ -1204,8 +1205,8 @@ local function test_the_native_suite_writes_its_row_and_a_lost_row_fails_nothing
     assert(outcome.result.ok, case.name .. ": the build phase failed: " .. err)
     local db = assert(Sqlite.open(database))
     if case.broken then
-      local count = assert(db:text_rows("SELECT COUNT(*) FROM suite_runs"))
-      assert(assert(count[1]):text(1) == "0", case.name .. ": " .. assert(count[1]):text(1) .. " rows")
+      local count = assert(db:rows("SELECT COUNT(*) FROM suite_runs"))
+      assert(assert(count[1]):integer(1) == 0, case.name .. ": " .. tostring(assert(count[1]):integer(1)) .. " rows")
       assert(err:find("local suite: row not recorded", 1, true), err)
     else
       local rows = State.suite_rows(db)
@@ -1217,7 +1218,7 @@ local function test_the_native_suite_writes_its_row_and_a_lost_row_fails_nothing
       local parts = assert(row.parts)
       assert(parts["runtime"] == "04" and parts["harness"] == "06")
     end
-    local phases = assert(db:text_rows("SELECT phase, status FROM operation_events " ..
+    local phases = assert(db:rows("SELECT phase, status FROM operation_events " ..
         "WHERE event = 'complete' AND phase IN ('local suite', 'platform: build') ORDER BY id"))
     assert(#phases == 2 and assert(phases[1]):text(2) == "success" and assert(phases[2]):text(2) == "success",
       case.name .. ": the phases did not succeed")
@@ -1570,7 +1571,8 @@ local function test_the_macos_leg_stands_on_verdicts_keyed_by_declarations(tmp: 
   for _, event in ipairs({ "push", "merge_group" }) do
     local words, env = suite_run({
       COSMIC_CI_EVENT = event, COSMIC_CI_REQUIRE_SANDBOX = "0",
-      COSMIC_CI_DECLARED_KEYS = "1", COSMIC_TEST_SANDBOX = "" })
+      -- As the macOS leg's environment, whatever the run of this test holds.
+      COSMIC_CI_DECLARED_KEYS = "1", COSMIC_TEST_SANDBOX = "", COSMIC_SANDBOX = "" })
     assert(table.concat(words, " ") == (if event == "merge_group" then "test --bail" else "test" end),
       event .. ": the macOS leg ran --all")
     assert(env["COSMIC_TEST_NO_SHARED"] == nil, event .. ": the macOS leg stands on no shared verdict")

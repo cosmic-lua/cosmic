@@ -8,7 +8,6 @@ local TestSandboxFixture = require("build.test_sandbox_fixture")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local type raw_process = require("cosmic.internal.process")
-local this_program = require("build.this_program")
 local Fake = require("cosmic.fake")
 
 --- The program itself, which the exit watch starts only to run a chunk
@@ -115,9 +114,9 @@ end
 local function test_an_exit_watch_is_readable_once_its_child_exits()
   Test.raises(function() process.exit_watch(0) end, "pid is out of range")
   local ends = assert(process.pipe())
-  local started = this_program.program({ "-e",
+  local started = Test.cosmic({ "-e",
     'local Fs = require("cosmic.fs") while assert(Fs.take(0, 4096)) ~= "" do end' })
-  local pid = process.spawn(assert(started.argv[1], "this_program.program puts the executable first"), started.argv, started.options.env, nil,
+  local pid = process.spawn(assert(started.argv[1], "Test.cosmic puts the executable first"), started.argv, started.options.env, nil,
     ends.reader, nil, nil, false, TestSandboxFixture.spawn_fds(started))
   sys.close(ends.reader)
   assert(pid, "the child did not start")

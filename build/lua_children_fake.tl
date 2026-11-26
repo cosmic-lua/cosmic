@@ -1,7 +1,7 @@
 --- The fake of build/lua_children_test.tl, run as a [`cosmic.fake`] main:
 --- `print WORDS` prints its words.
 
-local Steps = require("build.fake_steps")
+local Steps = require("cosmic.fake.steps")
 
 --- Each case, handed the words past its name.
 local cases: {string:function({string}): integer} = {

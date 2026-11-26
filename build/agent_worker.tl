@@ -18,8 +18,9 @@
 ---     "ok": false, "output", "error"   it raised `error`, after writing `output`
 ---     "error": "..."                   the request could not be read
 ---
---- Where the checker refuses a snippet and its rewrites of the errors make one it passes ([`lang.rewrite`]), that one
---- runs, and the response holds "fixed": `["run.tl:2:12: concat_type: `n` -> `tostring(n)`"]`.
+--- Where the checker refuses a snippet and its errors have rewrites ([`lang.rewrite`]), the response holds "fixed":
+--- `["run.tl:2:12: concat_type: `n` -> `tostring(n)`"]`. The rewritten snippet runs where the checker passes it; where it
+--- does not, "refused" holds the errors it has left.
 ---
 --- A response of a snippet that ran may hold "changes", where it changed a file through Host.edit or Host.write:
 --- `[{"path":"a.md","edits":[{"old":"...","new":"..."}]}, {"path":"b.md","lines":2}, {"more":3}]`, each text the
@@ -44,6 +45,7 @@ local Fs = require("cosmic.fs")
 local Host = require("cosmic.agent.host")
 local Json = require("cosmic.json")
 local McpModule = require("cosmic.agent.mcp_module")
+local Nearby = require("build.nearby")
 local Pipeline = require("build.pipeline")
 local Rewrite = require("lang.rewrite")
 local Poll = require("cosmic.poll")
@@ -54,7 +56,8 @@ local sys = require("cosmic.sys")
 
 local record worker
   --- `cosmic agent worker`: responds to requests on standard input until it ends. 0 at its end, 1 where it could not start.
-  main: function(): integer
+  --- `modules` is what a snippet may load code from ([`Worker.Options`] `modules`), [`Worker.MODULES`] where nil.
+  main: function(modules?: {string}): integer
 end
 
 --- A response line, as it is sent.
@@ -73,6 +76,9 @@ local MAX_OUTPUT <const> = Worker.OUTPUT_BYTES
 
 --- The name each snippet is checked and run as.
 local SNIPPET <const> = "run.tl"
+
+--- The most rounds of the checker's rewrites a refused snippet is given ([`lang.rewrite`]).
+local ROUNDS <const> = 4
 
 local function failed(id: Json.Value, why: string): Answer
   return { id = id, error = why }
@@ -295,6 +301,18 @@ local record Modules
   values: mut {string: {string: Call}}
 end
 
+--- What a snippet may load code from, and the checker that knows what it loaded.
+local record Loading
+  --- Whether it may require the standard library's modules (`cosmic.*`).
+  cosmic: boolean
+  --- The trees whose modules it may require ([`build.nearby`]).
+  roots: {string}
+  --- The modules of those trees the checker read, by module ([`Pipeline.Options.nearby`]).
+  found: mut {string: Pipeline.Nearby}
+  options: Pipeline.Options
+  mut kept: Pipeline.Kept
+end
+
 --- A function of an MCP server's module, as it runs: what the snippet's checker reads as the tool's own types.
 local type Call = function(arguments?: {string: Json.Value}): Json.Value
 
@@ -373,11 +391,13 @@ end
 
 --- The requires of each [`PRELUDE`] module `code` reads a field of and does not bind itself (each it reads, where
 --- `whole`), on one line: "" where it reads none.
-local function prelude_of(code: string, whole?: boolean): string
+local function prelude_of(code: string, whole?: boolean, cosmic?: boolean): string
   local bound: mut {string} = {}
   for _, entry in ipairs(PRELUDE) do
     local name, module = entry[1] or "", entry[2] or ""
-    if code:find("%f[%w_]" .. name .. "%s*[%.:]") ~= nil and (whole == true or not binds(code, name)) then
+    -- Host is the agent's own; the others are the standard library's, which a snippet may be let load none of.
+    local let = cosmic ~= false or name == "Host"
+    if let and code:find("%f[%w_]" .. name .. "%s*[%.:]") ~= nil and (whole == true or not binds(code, name)) then
       bound[#bound + 1] = "local " .. name .. " = require(\"" .. module .. "\") "
     end
   end
@@ -421,9 +441,9 @@ end
 --- the prelude without it, else the whole one, else the refusal of the first. Otherwise, where that is refused and the
 --- snippet alone is not, the snippet alone; where both are, the refusal of the one with the prelude, unless it tells
 --- of a name the prelude declares (`declared at 1:C`, C within the prelude). A refusal's edits are the snippet's.
-local function snippet_check(kept: Pipeline.Kept, code: string): Pipeline.Alone
-  local prelude = prelude_of(code)
-  local whole = prelude_of(code, true)
+local function snippet_check(kept: Pipeline.Kept, code: string, cosmic: boolean): Pipeline.Alone
+  local prelude = prelude_of(code, false, cosmic)
+  local whole = prelude_of(code, true, cosmic)
   -- [`binds`] reads no comment or string apart: where it takes one for a binding and the snippet is refused for it,
   -- the whole prelude is tried.
   if whole ~= prelude then
@@ -449,15 +469,23 @@ local function snippet_check(kept: Pipeline.Kept, code: string): Pipeline.Alone
 end
 
 --- What `kept` made of `code` ([`snippet_check`]), and, where it refused the snippet and the checker's rewrites of
---- its errors ([`lang.rewrite`]) make one it passes, what that one made and the lines that tell what they changed. The
---- model is told them, so that it writes the next snippet so; a snippet the rewrites leave refused is told as it was.
-local function checked_fixed(kept: Pipeline.Kept, code: string): Pipeline.Alone, {string}
-  local made = snippet_check(kept, code)
-  if made.code ~= nil or made.edits == nil or #made.edits == 0 then return made, {} end
-  local rewritten = Rewrite.apply(code, made.edits)
-  local again = snippet_check(kept, rewritten.text)
-  if again.code == nil then return made, {} end
-  return again, Rewrite.told(SNIPPET, rewritten.made)
+--- its errors ([`lang.rewrite`]) change it, what it made of the rewritten one and the lines that tell what they
+--- changed. The model is told them either way: a rewritten snippet the checker passes runs, and one it still refuses is
+--- told with the errors the rewrites leave, so that the next snippet need not put right what they did. A rewrite adds no
+--- line, so a line of what is left is the line of the snippet as written.
+local function checked_fixed(kept: Pipeline.Kept, code: string, cosmic: boolean): Pipeline.Alone, {string}
+  local first = snippet_check(kept, code, cosmic)
+  local edits = first.edits
+  if first.code ~= nil or edits == nil or #edits == 0 then return first, {} end
+  local made = first
+  -- The text `made` is of.
+  local checked = code
+  local rewritten = Rewrite.rounds(code, function(text: string): {Rewrite.Edit}
+    if text ~= checked then made, checked = snippet_check(kept, text, cosmic), text end
+    return if made.code ~= nil then {} else made.edits or {} end
+  end, ROUNDS)
+  if rewritten.text ~= checked then made = snippet_check(kept, rewritten.text, cosmic) end
+  return made, Rewrite.told(SNIPPET, rewritten.made)
 end
 
 --- Whether `line` is a reply to a call, not a request: an object with a `call_id` and no `code` at its top. A reply
@@ -468,9 +496,86 @@ local function stale(line: string): boolean
   return message ~= nil and message["call_id"] ~= nil and message["code"] == nil
 end
 
+--- Whether a snippet loading as `loading` says may require `name`: Host and an MCP server's module always, a
+--- `cosmic.*` module where it may load the standard library, and a module of one of its trees.
+local function may_require(loading: Loading, name: string): boolean
+  if name == "cosmic.agent.host" or name:find("^mcp%.[%w_]+$") ~= nil then return true end
+  if name == "cosmic" or name:sub(1, 7) == "cosmic." then return loading.cosmic end
+  return #loading.roots > 0 and Nearby.find(loading.roots, name) ~= nil
+end
+
+--- What snippets may load code from, as a refusal says it.
+local function loads_of(loading: Loading): string
+  local words: mut {string} = { "Host", "the MCP servers' modules" }
+  if loading.cosmic then words[#words + 1] = "the standard library (cosmic.*)" end
+  for _, root in ipairs(loading.roots) do
+    words[#words + 1] = "the modules of " .. (if root == "." then "the working directory" else root end)
+  end
+  return table.concat(words, ", ")
+end
+
+--- The trees snippets may load modules of, as a refusal says them.
+local function loads_of_trees(loading: Loading): string
+  local words: mut {string} = {}
+  for _, root in ipairs(loading.roots) do
+    words[#words + 1] = if root == "." then "the working directory" else root end
+  end
+  return table.concat(words, " or ")
+end
+
+--- The lines refusing each module `code`, or a module of a tree it reaches, requires and `loading` lets it load none
+--- of; {} where it lets each.
+local function unloadable(loading: Loading, code: string): {string}
+  local told: mut {string} = {}
+  local seen: mut {string: boolean} = {}
+  local pending: mut {{string}} = { { SNIPPET, code } }
+  while #pending > 0 do
+    local item = assert(table.remove(pending))
+    local file = assert(item[1])
+    local required, _ = Pipeline.requires(file, assert(item[2]))
+    for _, name in ipairs(required or {}) do
+      if seen[file .. " " .. name] == nil then
+        seen[file .. " " .. name] = true
+        local tree_name = name ~= "cosmic" and name:sub(1, 7) ~= "cosmic." and name:find("^mcp%.") == nil
+        if not may_require(loading, name) and tree_name and #loading.roots > 0 then
+          local stem = name:gsub("%.", "/")
+          told[#told + 1] = file .. ": require(" .. Json.quote(name) .. "): no module of that name: neither " .. stem ..
+            ".tl nor " .. stem .. "/init.tl is in " .. loads_of_trees(loading) .. "; write it first, or check the name"
+        elseif not may_require(loading, name) then
+          told[#told + 1] = file .. ": require(" .. Json.quote(name) .. "): a snippet here loads code only from " ..
+            loads_of(loading) .. " (cosmic agent --modules)"
+        elseif #loading.roots > 0 then
+          local near = Nearby.find(loading.roots, name)
+          if near ~= nil then pending[#pending + 1] = { near.file, near.text } end
+        end
+      end
+    end
+  end
+  return told
+end
+
+--- Makes `loading`'s checker anew where a module of its trees it read has changed on disk, or where `code` requires
+--- one it has not read: a module the checker found missing before may be there now.
+local function refresh(loading: Loading, code: string)
+  if #loading.roots == 0 then return end
+  local moved = Nearby.moved(loading.roots, loading.found)
+  if not moved then
+    local required, _ = Pipeline.requires(SNIPPET, code)
+    for _, name in ipairs(required or {}) do
+      if loading.found[name] == nil and Nearby.find(loading.roots, name) ~= nil then
+        moved = true
+      end
+    end
+  end
+  if moved then
+    for name in pairs(loading.found) do loading.found[name] = nil end
+    loading.kept = Pipeline.kept_alone(SNIPPET, loading.options)
+  end
+end
+
 --- The response line to the request `line` holds, checked by `kept` and run within `capture`, its calls sent on `channel`;
 --- the MCP modules a snippet requires are made into `modules`, which `kept` reads.
-local function answer_to(kept: Pipeline.Kept, modules: Modules, capture: Capture, channel: Channel, line: string): Answer
+local function answer_to(loading: Loading, modules: Modules, capture: Capture, channel: Channel, line: string): Answer
   local request, why = Json.decode_object(line)
   if request == nil then
     return failed(Json.null, "the request is no JSON object: " .. tostring(why))
@@ -489,9 +594,16 @@ local function answer_to(kept: Pipeline.Kept, modules: Modules, capture: Capture
   end)
   local trouble = provide(modules, code)
   if trouble ~= nil then return { id = id, refused = Json.array({ trouble }) } end
-  local made, fixed = checked_fixed(kept, code)
+  local refusals = unloadable(loading, code)
+  if #refusals > 0 then return { id = id, refused = Json.array(refusals) } end
+  refresh(loading, code)
+  local made, fixed = checked_fixed(loading.kept, code, loading.cosmic)
   local lua = made.code
-  if lua == nil then return { id = id, refused = Json.array(made.lines) } end
+  if lua == nil then
+    local refusal: mut {string: Json.Value} = { id = id, refused = Json.array(made.lines) }
+    if #fixed > 0 then refusal["fixed"] = Json.array(fixed) end
+    return refusal
+  end
   -- Each snippet gets tables of its own, so one that sets a function changes it for none after.
   local values: mut {string: {string: Call}} = {}
   for module, functions in pairs(modules.values) do
@@ -499,7 +611,14 @@ local function answer_to(kept: Pipeline.Kept, modules: Modules, capture: Capture
     for name, call in pairs(functions) do copy[name] = call end
     values[module] = copy
   end
-  local chunk, load_trouble = standalone.loaded_with(SNIPPET, lua, values)
+  local nearby: mut {string: standalone.Near} = {}
+  for name, near_lua in pairs(made.nearby or {}) do
+    local near = loading.found[name]
+    if near ~= nil then nearby[name] = { file = near.file, code = near_lua } end
+  end
+  local chunk, load_trouble = standalone.loaded_with(SNIPPET, lua, values, nearby, function(name: string): boolean
+    return may_require(loading, name)
+  end)
   if chunk == nil then return failed(id, load_trouble) end
   local ran: mut {string: Json.Value} = {}
   -- The agent sends each request an integer id, which marks its output.
@@ -535,7 +654,7 @@ local function capture_on(output: integer, null: integer): Capture
   }
 end
 
-function worker.main(): integer
+function worker.main(given?: {string}): integer
   local options, why = Pipeline.alone()
   if options == nil then
     local _, _ = Fs.put(Fs.stderr, "cosmic: agent worker: " .. why .. "\n")
@@ -560,12 +679,23 @@ function worker.main(): integer
   local modules: Modules = { teal = {}, values = {} }
   local standard = options.standard or Pipeline.carried()
   local made = Driver.stubs(modules.teal)
-  options.standard = function(module: string): Driver.Source?
-    return made(module) or standard(module)
+  local loads = given or Worker.MODULES
+  local roots: mut {string} = {}
+  local cosmic = false
+  for _, word in ipairs(loads) do
+    if word == "cosmic" then cosmic = true else roots[#roots + 1] = word end
   end
+  local found: mut {string: Pipeline.Nearby} = {}
+  local near = Nearby.provider(roots, found)
+  -- The checker reads the standard library whatever a snippet may load: Host's declarations are made of it.
+  options.standard = function(module: string): Driver.Source?
+    return made(module) or standard(module) or (if #roots > 0 then near(module) else nil end)
+  end
+  options.nearby = found
   -- A snippet runs once and no one reads it after: an unused name is no reason to refuse it.
   options.lax = true
-  local kept = Pipeline.kept_alone(SNIPPET, options)
+  local loading: Loading = { cosmic = cosmic, roots = roots, found = found, options = options,
+    kept = Pipeline.kept_alone(SNIPPET, options) }
   local channel: Channel = { input = input, out = out, pending = "", id = Json.null, next_call = 1, replies = {},
     reading = false, waiting = 0, changes = {} }
   Host.connect(transport_of(channel), function(change: Host.Change)
@@ -576,7 +706,7 @@ function worker.main(): integer
     if line == nil then break end
     -- A reply to a call whose snippet ended already (one a task of it left) is no request, and is let go.
     if not stale(line) then
-      local answer = answer_to(kept, modules, capture, channel, line)
+      local answer = answer_to(loading, modules, capture, channel, line)
       local text, encode_why = Json.encode(answer)
       if text == nil then
         local id = answer["id"]

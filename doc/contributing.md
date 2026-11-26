@@ -68,6 +68,12 @@ conflict with the parent's squash.
   is the same bytecode on the same core share it
   ([`build/check_memo.tl`]). it says which of its checks it is on.
 - a change under `.github/`: `bin/cosmic test build/workflows_test.tl`.
+- a change to a module that a file of [`ci/bootstrap-files.txt`] requires
+  (the bootstrap's scripts, [`build/perf.tl`] and the others it lists), or
+  to one of those files: `../bin/cosmic-bootstrap cosmic_ci/driver.tl
+  check-islands` from `ci/`, with COSMIC_BOOTSTRAP unset. it type-checks
+  those files on the pinned release, which neither the full suite nor
+  `fix --check .` does, and pull request CI fails on it.
 - a change to the artifact format, the launcher or `cosmic build`:
   `bin/zig build boot -Dboot-cores=all` first, so that the tool carries
   every core and the tests that need one (`all_cores`) run rather than
@@ -325,7 +331,7 @@ the second stage compiles everything up to [`build.boot`]. The seed's source
 may use only what that release parses; a boot whose seed refuses it fails
 naming the file and line, and the pin must move to a release that parses it.
 a change to what the generator in [`lang/codegen.tl`] writes also differs from
-the seed, which the bridge refuses unless the change adds [`lang/SEED_DIFFERS`]
+the seed, which the bridge refuses unless the change adds `lang/SEED_DIFFERS`
 naming, one a line, each seed source whose Lua differs ([`lang/codegen.tl`], ...):
 source paths, no comments. a difference in a file not listed still fails the
 boot, as does a listed file that does not differ; the pin move that takes a
@@ -352,10 +358,12 @@ the tool named can be older than the tree's generator.
 [`build/check_memo.tl`]: ../build/check_memo.tl
 [`build/markers.tl`]: ../build/markers.tl
 [`build/paths.tl`]: ../build/paths.tl
+[`build/perf.tl`]: ../build/perf.tl
 [`build/seed.tl`]: ../build/seed.tl
 [`build/seed.txt`]: ../build/seed.txt
 [`build/seeded_boot.tl`]: ../build/seeded_boot.tl
 [`build/zig.tl`]: ../build/zig.tl
+[`ci/bootstrap-files.txt`]: ../ci/bootstrap-files.txt
 [`ci/cosmic-driver.pin`]: ../ci/cosmic-driver.pin
 [`ci/cosmic_ci/requeue.tl`]: ../ci/cosmic_ci/requeue.tl
 [`ci/README.md`]: ../ci/README.md
@@ -366,5 +374,4 @@ the tool named can be older than the tree's generator.
 [`doc/testing.md`]: testing.md
 [`doc/writing.md`]: writing.md
 [`lang/codegen.tl`]: ../lang/codegen.tl
-[`lang/SEED_DIFFERS`]: ../lang/SEED_DIFFERS
 [`Proc.find`]: ../cosmic/proc.tl

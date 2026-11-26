@@ -17,7 +17,6 @@ local type _ = require("build.agent")
 local type _ = require("build.verb_list")
 --- What the MCP server script requires, as its standalone run loads it.
 local type _ = require("cosmic.mcp.server")
-local this_program = require("build.this_program")
 
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "/bin/sh", letters = "r" }, { path = "/bin/sleep", letters = "r" }, { path = "/usr/bin/sleep", letters = "r" }, { path = "/usr/bin/setsid", letters = "r" } },
   -- CI's suites give a test 10 s. On a loaded macOS runner a worker test started with the suite ran past that
@@ -60,7 +59,7 @@ end
 --- about 60 ms; a child of this module ([`build.test_child`]) took 1.3 s, checking its `-e` chunk and loading the
 --- module first.
 local function set_of_worker(): Worker.Set
-  local started = this_program.program({ "agent", "worker" }, { env = this_program.environment(), timeout_ns = -1 })
+  local started = Test.cosmic({ "agent", "worker" }, { env = Test.environment(), timeout_ns = -1 })
   return Worker.new(started.argv, started.options)
 end
 
@@ -128,7 +127,8 @@ local function test_a_refused_snippet_runs_with_the_checkers_rewrites_and_says_s
       both[2] == "run.tl:5:42: condition_type: `maybe(true)` -> `(maybe(true) == true)`", shown(tested))
   local left = run(w, "local n = 1\nprint(\"n=\" .. n)\nlocal s: string = n\n")
   local lines = assert(Json.to_array(left["refused"]))
-  assert(left["fixed"] == nil and #lines == 4 and tostring(lines[1]):find("concat_type", 1, true) ~= nil, shown(left))
+  local made = assert(Json.to_array(left["fixed"]))
+  assert(#made == 1 and #lines == 2 and tostring(lines[1]):find("not_assignable", 1, true) ~= nil, shown(left))
   worker_close(w)
 end
 
@@ -161,15 +161,26 @@ local function test_the_run_tool_shows_what_a_snippet_printed_returned_and_was_r
   assert(refused.is_error and refused.text:find("did not run", 1, true) ~= nil and
       refused.text:find("run.tl:1:", 1, true) ~= nil, refused.text)
   local rewritten = tools_run("run", { code = "local n = 2\nprint(\"n=\" .. n)\n" }, context)
-  assert(not rewritten.is_error and rewritten.text == "[The checker refused the snippet; it ran with these rewrites, " ..
-      "which keep what it meant:\nrun.tl:2:15: concat_type: `n` -> `tostring(n)`]\nn=2\n", rewritten.text)
+  assert(not rewritten.is_error and rewritten.text == "[The snippet ran once, with these rewrites, which keep " ..
+      "what it meant; what it did is done, so do not run it again:\nrun.tl:2:15: concat_type: `n` -> `tostring(n)`]\nn=2\n", rewritten.text)
+  local answered = tools_run("run", { code = "print(1)\nHost.answer(\"one line\")\n" }, context)
+  assert(not answered.is_error and answered.answer == "one line" and answered.text == "1\n", answered.text)
+  local blank = tools_run("run", { code = "Host.answer(\"  \")\n" }, { cwd = dir, worker = w })
+  assert(blank.is_error and blank.answer == nil and blank.text:find("blank", 1, true) ~= nil, blank.text)
+  local raised_after = tools_run("run", { code = "Host.answer(\"no\")\nerror(\"boom\")\n" },
+    { cwd = dir, worker = w })
+  assert(raised_after.is_error and raised_after.answer == nil, raised_after.text)
+  local partly = tools_run("run", { code = "local n = 2\nprint(\"n=\" .. n)\nlocal s: string = n\n" }, context)
+  assert(partly.is_error and partly.text:find("It made these rewrites", 1, true) ~= nil and
+      partly.text:find("run.tl:2:15: concat_type", 1, true) ~= nil and partly.text:find("not_assignable", 1, true) ~= nil,
+    partly.text)
   local raised = tools_run("run", { code = "error(\"boom\")\n" }, context)
   assert(raised.is_error and raised.text:find("Error: run.tl:1: boom", 1, true) ~= nil, raised.text)
   local long = tools_run("run", { code = "for i = 1, 4000 do print(\"line \" .. tostring(i)) end\n" }, context)
-  -- Past 8KB, its start and its end, and between them a line of how much was cut.
+  -- Past 4KB, its start and its end, and between them a line of how much was cut.
   assert(not long.is_error and long.text:find("Output cut", 1, true) ~= nil and long.text:find("line 4000\n", 1, true) ~= nil and
       long.text:find("\nline 1\n", 1, true) ~= nil and long.text:find("line 2000\n", 1, true) == nil and
-      long.text:find(" cut ...]\n", 1, true) ~= nil and #long.text < 8400 and long.raw ~= nil, long.text:sub(1, 200))
+      long.text:find(" cut ...]\n", 1, true) ~= nil and #long.text < 4300 and long.raw ~= nil, long.text:sub(1, 200))
   -- Past 64KB, the count is of all that was cut, not of what the worker sent.
   local huge = tools_run("run", { code = "for i = 1, 40000 do print(\"line \" .. tostring(i)) end\n" }, context)
   local cut_bytes = tonumber(huge.text:match("%[%.%.%. (%d+) bytes cut %.%.%.%]")) or 0
@@ -179,7 +190,7 @@ local function test_the_run_tool_shows_what_a_snippet_printed_returned_and_was_r
   assert(not wide.is_error and wide.text:find("line 2000\n", 1, true) ~= nil and #wide.text > 8400, wide.text:sub(1, 200))
   local narrow = tools_run("run", { code = "print(1)\n", output_bytes = 10 }, context)
   assert(narrow.is_error and narrow.text:find("output_bytes is 10: give 1024 to 65536", 1, true) ~= nil, narrow.text)
-  assert(#long.text < 9 * 1024, tostring(#long.text))
+  assert(#long.text < 5 * 1024, tostring(#long.text))
   local none = tools_run("run", { code = "local x = 1\nassert(x == 1)\n" }, context)
   assert(not none.is_error and none.text == "(no output)", none.text)
   worker_close(w)
@@ -681,7 +692,7 @@ return function(_: {string}): integer
   return 0
 end
 ]=]))
-  local started = this_program.program({ "--standalone", script }, { env = this_program.environment(), timeout_ns = -1 })
+  local started = Test.cosmic({ "--standalone", script }, { env = Test.environment(), timeout_ns = -1 })
   local config = assert(Json.encode({ servers = { adder = { command = Json.array(started.argv), sandbox = "off" } } }))
   assert(Fs.write(dir .. "/mcp.json", config))
   local set = AgentMcp.new(assert(AgentMcp.load(dir .. "/mcp.json")), dir)
@@ -806,7 +817,7 @@ return function(_: {string}): integer
   return 0
 end
 ]=]))
-  local started = this_program.program({ "--standalone", script }, { env = this_program.environment(), timeout_ns = -1 })
+  local started = Test.cosmic({ "--standalone", script }, { env = Test.environment(), timeout_ns = -1 })
   local config = assert(Json.encode({ servers = { adder = { command = Json.array(started.argv), sandbox = "off",
     description = "adds" } } }))
   assert(Fs.write(dir .. "/mcp.json", config))
@@ -948,5 +959,67 @@ local function test_a_snippet_edits_a_file_and_a_miss_says_which_edit()
   local listed = assert(many.changes)
   local last = assert(listed[#listed])
   assert(last.more ~= nil and last.more > 0 and #listed < 80, many.text)
+  worker_close(w)
+end
+
+--- What `answer` returned, as JSON text: "null" for nothing.
+local function value_text(answer: Worker.Answer): string
+  local value = answer["value"]
+  return Json.encode(if value == nil then Json.null else value end)!
+end
+
+--- A snippet requires a module of the working directory's tree, which the checker checks with it and which runs at
+--- its first `require`; an edit of the module on disk is read by the next snippet.
+local function test_a_snippet_requires_a_module_of_the_working_directory_and_sees_its_edits()
+  local w = set_of_worker()
+  local dir = assert(Fs.mkdtemp("agent-worker-"))
+  assert(Fs.mkdirs(dir .. "/lib"))
+  assert(Fs.write(dir .. "/util.tl", "local record U\nend\nfunction U.twice(n: integer): integer return n * 2 end\nreturn U\n"))
+  assert(Fs.write(dir .. "/lib/init.tl", "local util = require(\"util\")\nlocal record L\nend\n" ..
+      "function L.four(n: integer): integer return util.twice(util.twice(n)) end\nreturn L\n"))
+  local first = run(w, "local L = require(\"lib\")\nreturn { n = L.four(1) }\n", nil, dir)
+  assert(first["ok"] == true and value_text(first) == "{\"n\":4}", shown(first))
+  -- An error in the module is told under its own file, and the snippet does not run.
+  assert(Fs.write(dir .. "/util.tl", "local record U\nend\nfunction U.twice(n: integer): integer return \"x\" end\nreturn U\n"))
+  local broken = run(w, "local L = require(\"lib\")\nreturn { n = L.four(1) }\n", nil, dir)
+  local lines = Json.to_array(broken["refused"])!
+  assert(tostring(lines[1]):find("^util%.tl:3:") ~= nil, shown(broken))
+  assert(Fs.write(dir .. "/util.tl", "local record U\nend\nfunction U.twice(n: integer): integer return n * 3 end\nreturn U\n"))
+  local edited = run(w, "local L = require(\"lib\")\nreturn { n = L.four(1) }\n", nil, dir)
+  assert(edited["ok"] == true and value_text(edited) == "{\"n\":9}", shown(edited))
+  -- The module is held to what a run of the tree holds it to: here, a failure's reason is a string.
+  assert(Fs.write(dir .. "/util.tl", "local record U\nend\nfunction U.twice(n: integer): integer?, integer\n" ..
+      "  if n < 0 then return nil, 1 end\n  return n * 2, 0\nend\nreturn U\n"))
+  local held = run(w, "local U = require(\"util\")\nreturn { n = U.twice(1) }\n", nil, dir)
+  local said = Json.to_array(held["refused"])!
+  assert(tostring(said[1]):find("^util%.tl:3: U%.twice: a failure's reason is exactly a string") ~= nil, shown(held))
+  worker_close(w)
+end
+
+--- `modules` holds a snippet to the code it names: with none, it requires no `cosmic.*` module and no module of the
+--- tree, and `load` raises; Host stays.
+local function test_a_snippet_loads_no_code_its_modules_do_not_name()
+  local w = set_of_worker()
+  local dir = assert(Fs.mkdtemp("agent-worker-"))
+  assert(Fs.write(dir .. "/util.tl", "local record U\nend\nfunction U.one(): integer return 1 end\nreturn U\n"))
+  local function under(modules: {string}, code: string): Worker.Answer
+    return assert(worker_run(w, code, { cwd = dir, seconds = 60, modules = modules }))
+  end
+  local fs = under({}, "local Fs = require(\"cosmic.fs\")\nreturn { ok = Fs.exists(\".\") }\n")
+  local refused = Json.to_array(fs["refused"])!
+  assert(tostring(refused[1]):find("require(\"cosmic.fs\"): a snippet here loads code only from Host", 1, true) ~= nil,
+    shown(fs))
+  local tree = under({ "cosmic" }, "local U = require(\"util\")\nreturn { n = U.one() }\n")
+  assert(tree["refused"] ~= nil, shown(tree))
+  local loads = under({}, "local f = load(\"return 1\")\nreturn { f = f ~= nil }\n")
+  assert(loads["ok"] == false and tostring(loads["error"]):find("load: this chunk loads no code", 1, true) ~= nil, shown(loads))
+  local host = under({}, "return { here = Host.exists(\"util.tl\") }\n")
+  assert(host["ok"] == true and value_text(host) == "{\"here\":true}", shown(host))
+  local both = under({ "." }, "local U = require(\"util\")\nreturn { n = U.one() }\n")
+  assert(both["ok"] == true and value_text(both) == "{\"n\":1}", shown(both))
+  local missing = under({ "." }, "local M = require(\"util_test\")\nreturn { m = M ~= nil }\n")
+  local gone = Json.to_array(missing["refused"])!
+  assert(tostring(gone[1]):find("require(\"util_test\"): no module of that name: neither util_test.tl nor " ..
+      "util_test/init.tl is in the working directory", 1, true) ~= nil, shown(missing))
   worker_close(w)
 end

@@ -523,6 +523,7 @@ const core_sources = [_][]const u8{
     "main.c",
     "portable.c",
     "profile.c",
+    "hook.c",
     "promises.c",
     "rand.c",
     "startup.c",
@@ -779,6 +780,7 @@ pub fn build(b: *std.Build) void {
     const cares = patched(b, trees, "cares");
     const curl = patched(b, trees, "curl");
     const yyjson = patched(b, trees, "yyjson");
+    const simdutf = patched(b, trees, "simdutf");
     const expat = patched(b, trees, "expat");
 
     // The patched copies land in the build directory's vendor/.
@@ -793,6 +795,7 @@ pub fn build(b: *std.Build) void {
         .{ "expat", expat },
         .{ "monocypher", monocypher },
         .{ "nanopb", nanopb },
+        .{ "simdutf", simdutf },
     }) |pair| {
         const install = b.addInstallDirectory(.{
             .source_dir = pair[1],
@@ -958,7 +961,7 @@ pub fn build(b: *std.Build) void {
             .optimize = .debug,
         }),
     });
-    const sources: Sources = .{ .own = own, .lua = lua, .sqlite = sqlite, .sqlite_ext = sqlite_ext, .miniz = miniz, .monocypher = monocypher, .nanopb = nanopb, .mbedtls = mbedtls, .bzip2 = bzip2, .xz = xz, .zstd = zstd, .cares = cares, .curl = curl, .yyjson = yyjson, .expat = expat, .config = config };
+    const sources: Sources = .{ .own = own, .lua = lua, .sqlite = sqlite, .sqlite_ext = sqlite_ext, .miniz = miniz, .monocypher = monocypher, .nanopb = nanopb, .mbedtls = mbedtls, .bzip2 = bzip2, .xz = xz, .zstd = zstd, .cares = cares, .curl = curl, .yyjson = yyjson, .simdutf = simdutf, .expat = expat, .config = config };
 
     const host_name = hostName(b);
     for (targets) |t| {
@@ -1552,6 +1555,7 @@ const Sources = struct {
     cares: std.Build.LazyPath,
     curl: std.Build.LazyPath,
     yyjson: std.Build.LazyPath,
+    simdutf: std.Build.LazyPath,
     expat: std.Build.LazyPath,
     /// The configuration headers the libraries read from core/, copied
     /// into the zig cache (see the head of `build`).
@@ -1663,6 +1667,7 @@ fn vendorLibraries(
     const cares = sources.cares;
     const curl = sources.curl;
     const yyjson = sources.yyjson;
+    const simdutf = sources.simdutf;
     const expat = sources.expat;
     const crypto = mbedtls.path(b, "tf-psa-crypto");
 
@@ -1785,6 +1790,41 @@ fn vendorLibraries(
         },
     });
 
+    // simdutf decodes base64 for cosmic.codec (core/text.c falls back to
+    // its own decoder for what simdutf refuses, which names the refusal).
+    // It is C++: core/simd_base64.cpp includes its amalgamation and gives
+    // the core a C call. Only base64 is compiled (SIMDUTF_FEATURE_*). An
+    // x86_64 core is built for x86-64-v3, so simdutf takes Haswell's
+    // kernel (AVX2) as its floor and Ice Lake's (AVX-512) where the host
+    // has it, and compiles no portable one; Westmere's (SSE4.2) could
+    // never be picked, so it is not compiled. aarch64 has one kernel,
+    // NEON's. No C++ runtime is linked: no exceptions, RTTI or guarded
+    // statics, and SIMDUTF_NO_LIBCXX keeps simdutf off libc++, whose
+    // headers alone it reads (`link_libcpp` on a static library adds
+    // them and links nothing).
+    const simdutf_mod = vendorPart(b, &libraries, configuration, target, "simdutf", &.{simdutf});
+    simdutf_mod.link_libcpp = true;
+    simdutf_mod.addCSourceFile(.{
+        .file = sources.own.file("core/simd_base64.cpp"),
+        .language = .cpp,
+        .flags = &.{
+            "-std=c++17",
+            debug_dir,
+            "-fno-exceptions",
+            "-fno-rtti",
+            "-fno-threadsafe-statics",
+            "-DSIMDUTF_NO_LIBCXX=1",
+            "-DSIMDUTF_FEATURE_BASE64=1",
+            "-DSIMDUTF_FEATURE_UTF8=0",
+            "-DSIMDUTF_FEATURE_UTF16=0",
+            "-DSIMDUTF_FEATURE_UTF32=0",
+            "-DSIMDUTF_FEATURE_LATIN1=0",
+            "-DSIMDUTF_FEATURE_ASCII=0",
+            "-DSIMDUTF_FEATURE_DETECT_ENCODING=0",
+            "-DSIMDUTF_IMPLEMENTATION_WESTMERE=0",
+        },
+    });
+
     // expat reads XML for cosmic.xml. core/expat_config.h stands in for
     // the configuration header its own build would generate, on this
     // library's include path alone.
@@ -1829,7 +1869,11 @@ fn vendorLibraries(
     const lua_flags: []const []const u8 =
         if (configuration.sanitize) &lua_checked else &lua_base;
     const lua_src = lua.path(b, "src");
-    vendorPart(b, &libraries, configuration, target, "lua", &.{lua_src}).addCSourceFiles(.{
+    // core/bytes.h, which string.find's plain search scans with
+    // (patch/lua/34-find-byte-include.txt), from a copy in the cache, as a
+    // config header is: the tree's own path would be named in the
+    // checked core's debug information.
+    vendorPart(b, &libraries, configuration, target, "lua", &.{ lua_src, configFile(b, "core/bytes.h") }).addCSourceFiles(.{
         .root = lua_src,
         .files = &lua_sources,
         .flags = lua_flags,

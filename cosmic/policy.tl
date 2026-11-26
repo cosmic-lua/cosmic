@@ -9,8 +9,8 @@
 ---
 ---     local PolicyJson = require("cosmic.policy")
 ---
----     local policy = assert(PolicyJson.decode('{"grants":[{"path":"data","letters":"r"}],"tmp":true}'))
----     print(policy.grants[1].path, policy.tmp) -- data  true
+---     local policy = assert(PolicyJson.decode('{"grants":[{"path":"data","letters":"r"}],"setup":{"tmp":true}}'))
+---     print(policy.grants[1].path, assert(policy.setup).tmp) -- data  true
 
 local FieldPath = require("cosmic.internal.field_path")
 local Fs = require("cosmic.fs")
@@ -28,7 +28,7 @@ end
 --- shape holds, so a fault of any field is named before a missing digest.
 local POLICY <const>: Shape.Typed<Sandbox.Policy> = Shape.record_of("cosmic.sandbox.Policy"):strict()
 
-local DATABASE <const> = FieldPath.field(FieldPath.root, "database")
+local DATABASE <const> = FieldPath.field(FieldPath.field(FieldPath.root, "setup"), "database")
 
 --- The policy `json` holds. Strict: a key this module does not know, a
 --- value of the wrong type, an `isolate` or a promise it does not name,
@@ -46,14 +46,14 @@ local DATABASE <const> = FieldPath.field(FieldPath.root, "database")
 --- changed; the core opens it by its path after that, so a file swapped in
 --- that instant is not caught.
 ---
----     local policy = assert(PolicyJson.decode('{"env":["HOME"],"tmp":true}'))
----     print(policy.env[1], policy.tmp) -- HOME  true
+---     local policy = assert(PolicyJson.decode('{"grants":[{"env":"HOME"}],"setup":{"tmp":true}}'))
+---     print(Sandbox.env(policy)[1], assert(policy.setup).tmp) -- HOME  true
 ---     local bad, why = PolicyJson.decode('{"grants":[{"path":"x","letters":"xr"}]}')
 ---     print(why) -- sandbox: $.grants[0].letters: "xr" is not in the order of "rwxcu", each letter once: "rx"
 function PolicyJson.decode(json: string): Sandbox.Policy?, string
   local policy, why = Shape.decode_into(json, POLICY.spec)
   if policy == nil then return nil, "sandbox: " .. why end
-  local database = policy.database
+  local database = (policy.setup or {}).database
   if database ~= nil and database.sha256 == nil then
     return nil, "sandbox: " .. FieldPath.field(DATABASE, "sha256") .. ": missing"
   end
@@ -73,7 +73,7 @@ function PolicyJson.decode(json: string): Sandbox.Policy?, string
 end
 
 --- A merged policy as canonical JSON: keys in byte order, lists sorted,
---- a field with nothing in it left out, `profiles` resolved away, and
+--- a field with nothing in it left out, profile grants resolved away, and
 --- `set_env`'s values written as `set_env_digests`, so the text names a
 --- variable and shows its value changed without showing it. The same
 --- policy is the same text, and [`PolicyJson.decode`] reads it back to a
@@ -88,36 +88,38 @@ end
 --- hashes to the digest, so encoding never rebases a checked database, or
 --- if it is unreadable. What a profile names is a path of this host, so an
 --- encoding that resolved one is one host's. Raises for a policy that
---- is not merged -- one with `profiles`, or [`Sandbox.union`] would refuse
+--- is not merged -- one with a profile grant, or [`Sandbox.union`] would refuse
 --- -- since text cannot say what was dropped.
 ---
----     local text = PolicyJson.encode(assert(Sandbox.union({ tmp = true, set_env = { MODE = "fast" } })))
----     print(text) -- {"set_env_digests":{"MODE":"..."},"tmp":true}
+---     local text = PolicyJson.encode(assert(Sandbox.union({ setup = { tmp = true, set_env = { MODE = "fast" } } })))
+---     print(text) -- {"setup":{"set_env_digests":{"MODE":"..."},"tmp":true}}
 function PolicyJson.encode(p: Sandbox.Policy): string
-  local profiles = p.profiles
-  if profiles ~= nil and #profiles > 0 then
+  if #Sandbox.profiles(p) > 0 then
     error("sandbox: encode takes a merged policy: resolve profiles with Sandbox.union first", 2)
   end
   local made, why = Sandbox.union(p)
   if made == nil then error(why, 2) end
   local merged: Sandbox.Policy = made
+  local setup = merged.setup or {}
   local digests: mut {string:string} = {}
-  for name, digest in pairs(merged.set_env_digests or {}) do digests[name] = digest end
-  for name, value in pairs(merged.set_env or {}) do digests[name] = Hash.hex_sha256(value) end
+  for name, digest in pairs(setup.set_env_digests or {}) do digests[name] = digest end
+  for name, value in pairs(setup.set_env or {}) do digests[name] = Hash.hex_sha256(value) end
   local fields: mut {string: Json.Value} = {}
   local function put(name: string, list: {string})
     if #list > 0 then fields[name] = Json.array(list) end
   end
   put("isolate", merged.isolate or {})
-  put("loopback", merged.loopback or {})
-  put("env", merged.env or {})
   local grants: mut {Json.Value} = {}
   for _, grant in ipairs(merged.grants or {}) do
     if grant is Sandbox.Calls then
       grants[#grants + 1] = { calls = grant.calls }
     elseif grant is Sandbox.Connect then
       grants[#grants + 1] = { connect = grant.connect }
-    else
+    elseif grant is Sandbox.Env then
+      grants[#grants + 1] = { env = grant.env }
+    elseif grant is Sandbox.Loopback then
+      grants[#grants + 1] = { loopback = grant.loopback }
+    elseif grant is Sandbox.Path then
       local written: mut {string: Json.Value} = { path = grant.path, letters = grant.letters }
       local from = grant.from
       if from ~= nil then written["from"] = from end
@@ -125,12 +127,13 @@ function PolicyJson.encode(p: Sandbox.Policy): string
     end
   end
   if #grants > 0 then fields["grants"] = Json.array(grants) end
-  if next(digests) ~= nil then fields["set_env_digests"] = digests end
-  if merged.tmp == true then fields["tmp"] = true end
-  local user, group = merged.user, merged.group
-  if user ~= nil then fields["user"] = user end
-  if group ~= nil then fields["group"] = group end
-  local database = merged.database
+  local set_up: mut {string: Json.Value} = {}
+  if next(digests) ~= nil then set_up["set_env_digests"] = digests end
+  if setup.tmp == true then set_up["tmp"] = true end
+  local user, group = setup.user, setup.group
+  if user ~= nil then set_up["user"] = user end
+  if group ~= nil then set_up["group"] = group end
+  local database = setup.database
   if database ~= nil then
     local digest = database.sha256
     if digest == nil then
@@ -143,8 +146,9 @@ function PolicyJson.encode(p: Sandbox.Policy): string
       error("sandbox: encode: database " .. database.path .. " is not the one the policy " ..
           "names: its SHA-256 has changed since", 2)
     end
-    fields["database"] = { path = database.path, sha256 = digest }
+    set_up["database"] = { path = database.path, sha256 = digest }
   end
+  if next(set_up) ~= nil then fields["setup"] = set_up end
   local limits = merged.limits or {}
   if limits.open_files ~= nil or limits.file_bytes ~= nil or limits.cpu_seconds ~= nil or
       limits.processes ~= nil then

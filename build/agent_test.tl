@@ -15,7 +15,6 @@ local agent_fixture = require("build.agent_fixture")
 local Sandbox = require("cosmic.sandbox")
 local Sessions = require("cosmic.agent.sessions")
 local Worker = require("cosmic.agent.worker")
-local this_program = require("build.this_program")
 --- What the `cosmic agent worker` run's calls start loads, which the store of this module's run must hold.
 local type _ = require("build.verb_list")
 local sys = require("cosmic.sys")
@@ -112,7 +111,7 @@ local function cli(argv: {string}, env: {string: string}, replies: {Json.Value},
     send = a.send,
     -- `cosmic agent worker` of this program, as a test starts it: the core run on, its artifact handed it.
     worker = function(): Worker.Set
-      local started = this_program.program({ "agent", "worker" }, { env = this_program.environment(), timeout_ns = -1 })
+      local started = Test.cosmic({ "agent", "worker" }, { env = Test.environment(), timeout_ns = -1 })
       return Worker.new(started.argv, started.options)
     end,
   })

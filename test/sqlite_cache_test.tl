@@ -1,4 +1,4 @@
---- The statements a handle keeps for its SQL to run again: [`Sqlite.Handle.run`], [`Sqlite.Handle.rows`], [`Sqlite.Handle.text_rows`] and
+--- The statements a handle keeps for its SQL to run again: [`Sqlite.Handle.run`], [`Sqlite.Handle.rows`] and
 --- [`Sqlite.Handle.map`] take one a release of the same SQL kept ([`raw_sqlite.Handle.prepare_cached_result`]) and give it
 --- back when done ([`raw_sqlite.Statement.release`]), rewound and with its bindings cleared.
 local Sqlite = require("cosmic.sqlite")
@@ -59,8 +59,6 @@ local function test_a_handle_that_kept_statements_closes()
     local rows = assert(db:rows("SELECT name FROM t WHERE id = ?1 AND " .. tostring(i) .. " > 0", { { integer = i } }))
     assert(#rows == 1 and assert(rows[1]):text(1) == "n" .. tostring(i))
   end
-  local texts = assert(db:text_rows("SELECT id FROM t WHERE id = ?1", { { integer = 3 } }))
-  assert(assert(texts[1]):text(1) == "3")
   local closed, why = db:close()
   assert(closed, tostring(why))
 end
@@ -107,8 +105,7 @@ local function test_a_statement_kept_after_a_failure_runs_again()
   assert(db:close())
 end
 
---- A row the core builds keeps each column's kind and value, NULL, an empty blob and an empty text included, and a
---- text row holds every column's bytes as text.
+--- A row the core builds keeps each column's kind and value, NULL, an empty blob and an empty text included.
 local function test_rows_keep_each_kind()
   local db = fresh()
   local rows = assert(db:rows("SELECT 1, 2.5, 'x', x'00ff', NULL, x'', ''"))
@@ -116,8 +113,6 @@ local function test_rows_keep_each_kind()
   assert(row:count() == 7)
   assert(row:integer(1) == 1 and row:number(2) == 2.5 and row:text(3) == "x" and row:blob(4) == "\0\255")
   assert(row:is_null(5) and row:kind(6) == "blob" and row:blob(6) == "" and row:text(7) == "")
-  local texts = assert(db:text_rows("SELECT 1, NULL, x'41'"))
-  assert(assert(texts[1]):kind(2) == "text" and assert(texts[1]):text(1) == "1" and assert(texts[1]):text(2) == "" and assert(texts[1]):text(3) == "A")
   assert(db:close())
 end
 

@@ -88,3 +88,37 @@ local function test_every_decoder_is_total_and_exact(tmp: string)
     })
   end
 end
+
+--- [`Codec.unbase64_lines`] judges text as [`Codec.unbase64`] judges it
+--- with every CR and LF taken out: the same bytes, or a refusal of both.
+local function test_unbase64_lines_is_unbase64_without_line_breaks(tmp: string)
+  Fuzz.run({
+    name = "base64 lines",
+    dir = tmp,
+    gen = function(src: Fuzz.Source): string
+      local text = if src:int(0, 1) == 0 then Codec.base64(Fuzz.bytes(src, 200)) else gen_text(src) end
+      local out: mut {string} = {}
+      for i = 1, #text do
+        out[#out + 1] = text:sub(i, i)
+        local roll = src:int(0, 15)
+        if roll == 0 then
+          out[#out + 1] = "\r\n"
+        elseif roll == 1 then
+          out[#out + 1] = "\n"
+        elseif roll == 2 then
+          out[#out + 1] = "\r"
+        end
+      end
+      return table.concat(out)
+    end,
+    check = function(input: string): boolean, string
+      local lines, why = Codec.unbase64_lines(input)
+      local flat, _ = Codec.unbase64((input:gsub("[\r\n]", "")))
+      if lines ~= flat then
+        return false, ("%q: lines %q (%s), flat %q"):format(input, tostring(lines), tostring(why), tostring(flat))
+      end
+      if lines == nil and tostring(why) == "" then return false, "refused without a reason" end
+      return true, ""
+    end,
+  })
+end

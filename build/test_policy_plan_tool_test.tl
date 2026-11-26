@@ -23,7 +23,6 @@ local Test = require("cosmic.test")
 local test_inputs = require("build.test_inputs")
 local test_policy = require("build.test_policy")
 local test_sandbox = require("build.test_sandbox")
-local this_program = require("build.this_program")
 local support = require("build.test_support_fixture")
 
 --- The program itself, which the case that starts it runs through its
@@ -167,7 +166,7 @@ end
   end
   assert(Fs.mkdirs(tmp .. "/beside/ci"))
   assert(Fs.symlink(Array.at(launched.argv, 3), tmp .. "/beside/cosmic"))
-  local started = this_program.program({ "-e", script })
+  local started = Test.cosmic({ "-e", script })
   local root, scratch = tmp .. "/beside/ci", scratch_in(tmp)
   local env = started.options.env or {}
   env.ROOT, env.SCRATCH, env.PATH = root, scratch, "/usr/bin:/bin" -- checked: map_field*3
@@ -236,7 +235,7 @@ local function test_a_plan_gives_a_scratch_of_its_own_only_where_no_host_directo
   assert(own.own_scratch and own.why_shared == "", own.why_shared)
   assert(#(assert(own.sandbox.unveil).writes or {}) == 0 and (assert(own.sandbox.unveil).at or {})[scratch] == nil)
   local policy = assert(test_policy.worker(own, bare))
-  assert(policy.tmp == true)
+  assert(assert(policy.setup).tmp == true)
   local tmp_grant: Sandbox.Path? = nil
   for _, grant in ipairs(Sandbox.paths(policy)) do
     local from = grant.from
@@ -259,7 +258,7 @@ local function test_a_plan_gives_a_scratch_of_its_own_only_where_no_host_directo
     assert(not made.own_scratch and made.why_shared:find(word, 1, true) ~= nil, word .. ": " .. made.why_shared)
     assert((assert(made.sandbox.unveil).writes or {})[1] == scratch)
     local held = assert(test_policy.worker(made, inputs))
-    assert(held.tmp == nil, word)
+    assert((held.setup or {}).tmp == nil, word)
   end
   shared(function(inputs: test_inputs.Effective): test_inputs.Effective
     return { ...inputs, system = true }

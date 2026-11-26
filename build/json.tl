@@ -67,6 +67,8 @@ local record verb
     mut mode: string
     compact: boolean
     raw: boolean
+    --- Whether the text is JSON Lines, the query run on each line.
+    lines: boolean
   end
 end
 
@@ -104,6 +106,11 @@ local function arguments(argv: {string}): verb.Request?, string
   end
   local raw = parsed.set["-r"] == true or parsed.set["--raw"] == true
   local compact = parsed.set["--compact"] == true
+  local lines = parsed.set["--lines"] == true
+  if lines and #modes == 1 and modes[1] ~= "--exists" then
+    return nil, "--lines prints each line's values, and " .. modes[1] ..
+      " reads one document; give --exists or no mode with --lines"
+  end
   if #modes == 1 and (raw or compact) then
     return nil, (if raw then "--raw" else "--compact" end) .. " changes how the value prints, which " ..
       modes[1] .. (if modes[1] == "--flat" then " prints in one form" else " does not print the value" end)
@@ -124,7 +131,7 @@ local function arguments(argv: {string}): verb.Request?, string
   local after_dashes = argv[slot] == "--" and before == 0
   local request: verb.Request = {
     query = assert(Json.query("$")), singular = true, pathlike = false, mode = "value",
-    compact = compact, raw = raw,
+    compact = compact, raw = raw, lines = lines,
   }
   if #modes == 1 then request.mode = modes[1]:sub(3) end
   local path: string?
@@ -240,6 +247,131 @@ local function outermost(found: {Json.Match}): {Json.Match}
   return kept
 end
 
+--- The steps of a singular `query`, as [`Json.get`] takes them: names,
+--- and indices counted from 1 (or from the end when negative).
+local function steps_of(query: Json.Query): Json.Steps
+  local steps: mut {string | integer} = {}
+  for i, segment in ipairs(query.segments) do
+    local step: string | integer
+    if segment.kind == "name" then
+      step = assert(segment.name, "a name segment names one")
+    else
+      local index = assert(segment.index)
+      step = if index >= 0 then index + 1 else index end
+    end
+    steps[i] = step
+  end
+  return steps
+end
+
+--- One match as a line of output: with `as_text`, its value, a string
+--- as its text; else its `path = value` line. nil and why when the value
+--- does not encode.
+local function match_line(item: Json.Match, as_text: boolean): string?, string
+  local leaf = item.value
+  if as_text and leaf is string then return leaf, "" end
+  if as_text then
+    local encoded, refused = Json.encode_any(leaf)
+    if encoded == nil then return nil, tostring(refused) end
+    return encoded, ""
+  end
+  return json_query.flat_line(item.steps, leaf)
+end
+
+--- How many lines `--lines` decodes at a time, and how many lines of
+--- output it holds before it writes them.
+local lines_held <const> = 4096
+
+--- `--lines`: the query run on each line of the JSON Lines `text`, and
+--- what it finds printed in the lines' order, a value to a line: a
+--- singular query's value as compact JSON (a string as its text with
+--- `-r`), and each match of a query of many values as a query prints it
+--- alone. A line with no match prints nothing. It decodes some lines at
+--- a time ([`Json.line_reader`]), so `--exists` stops at the first line
+--- that holds the path, and what was found before a line that is not
+--- JSON prints before the complaint. The exit code: 0 when some line
+--- holds a match, 1 when none does.
+local function each_line(request: verb.Request, text: string, to: verb.Io,
+                         complain: function(line: string)): integer
+  local steps: Json.Steps? = nil
+  local only: {Json.Steps}? = nil
+  if request.singular then
+    local path = steps_of(request.query)
+    steps = path
+    -- `only` builds only the value at the path, which a step counted
+    -- from the end cannot name before the array is read.
+    local forward = true
+    for _, step in ipairs(path) do
+      if step is integer and step < 1 then forward = false end
+    end
+    if forward then only = { path } end
+  end
+  local reader = assert(Json.line_reader(text, { null_value = Json.null, only = only }))
+  local exists = request.mode == "exists"
+  local found = false
+  local held: mut {string} = {}
+  local function flush(): boolean
+    if #held == 0 then return true end
+    local ok, why = to.out(table.concat(held, "\n") .. "\n")
+    held = {}
+    return bare.delivered(complain, ok, why)
+  end
+  -- What printed so far goes out before a complaint and its exit code.
+  local function stop(line: string, code: integer): integer
+    if not flush() then return bare.undone end
+    complain(line)
+    return code
+  end
+  -- One line of the text, `record`: false when the run must end, with
+  -- its exit code.
+  local function look(record: Json.Value): boolean, integer
+    if steps ~= nil then
+      local value, missing = Json.get(record, steps)
+      if missing ~= nil then return true, 0 end
+      found = true
+      if exists then return false, bare.ok end
+      if request.raw and value is string then
+        held[#held + 1] = value
+        return true, 0
+      end
+      local encoded, refused = Json.encode_any(value)
+      if encoded == nil then return false, stop(plain(tostring(refused)), bare.failed) end
+      held[#held + 1] = encoded
+      return true, 0
+    end
+    local selected, select_trouble = Json.select(record, request.query)
+    if selected == nil then return false, stop(plain(tostring(select_trouble)), bare.refused) end
+    if #selected > 0 then
+      found = true
+      if exists then return false, bare.ok end
+    end
+    for _, item in ipairs(distinct(selected)) do
+      local line, why = match_line(item, request.raw)
+      if line == nil then return false, stop(plain(why), bare.failed) end
+      held[#held + 1] = line
+    end
+    return true, 0
+  end
+  while true do
+    local records, decode_trouble = reader:read(lines_held)
+    if records == nil then
+      return stop((request.file or "standard input") .. ": " .. tostring(decode_trouble), bare.undone)
+    end
+    if records == false then break end
+    for _, record in ipairs(records) do
+      local going, code = look(record)
+      if not going then return code end
+    end
+    if #held >= lines_held and not flush() then return bare.undone end
+  end
+  if not flush() then return bare.undone end
+  if not found then
+    if not exists then complain(request.query.text .. ": no match in any line") end
+    return bare.failed
+  end
+  return bare.ok
+end
+
 --- `cosmic json [options] [<path>] [<file>|-]`: prints the value at the
 --- path, and returns the exit code: 0 found, 1 the path is not there
 --- (or `--keys` was asked of a scalar), 2 a command line it refused, 5 a
@@ -277,6 +409,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     complain(read_trouble)
     return bare.undone
   end
+  if request.lines then return each_line(request, text, to, complain) end
   local document, decode_trouble = Json.decode(text, { null_value = Json.null })
   if document == nil then
     complain((request.file or "standard input") .. ": " .. tostring(decode_trouble))
@@ -294,20 +427,9 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   local function print_lines(found: {Json.Match}, as_text: boolean): integer
     local lines: mut {string} = {}
     for _, item in ipairs(found) do
-      local line: string?
-      local why: string?
-      local leaf = item.value
-      if as_text and leaf is string then
-        line = leaf
-      elseif as_text then
-        local encoded, refused = Json.encode_any(leaf)
-        line = encoded
-        if encoded == nil then why = tostring(refused) end
-      else
-        line, why = json_query.flat_line(item.steps, leaf)
-      end
+      local line, why = match_line(item, as_text)
       if line == nil then
-        complain(plain(why or ""))
+        complain(plain(why))
         return bare.failed
       end
       lines[#lines + 1] = line
@@ -340,18 +462,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   end
   if #matches == 0 then
     if request.mode ~= "exists" then
-      local steps: mut {string | integer} = {}
-      for i, segment in ipairs(request.query.segments) do
-        local step: string | integer
-        if segment.kind == "name" then
-          step = assert(segment.name, "a name segment names one")
-        else
-          local index = assert(segment.index)
-          step = if index >= 0 then index + 1 else index end
-        end
-        steps[i] = step
-      end
-      local _, missing = Json.get(document, steps)
+      local _, missing = Json.get(document, steps_of(request.query))
       if missing == nil then
         error("json: Json.select found nothing where Json.get finds a value")
       end
@@ -378,7 +489,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   if request.raw and value is string then
     return written(to.out(value .. "\n"))
   end
-  local encoded, encode_trouble = Json.encode_any(value, { pretty = not request.compact })
+  local encoded, encode_trouble = Json.encode_any(value, { layout = if request.compact then "compact" else "fractured" end })
   if encoded == nil then
     complain(place .. ": " .. plain(tostring(encode_trouble)))
     return bare.failed

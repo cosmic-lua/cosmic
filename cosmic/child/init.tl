@@ -335,7 +335,7 @@ local record Options
   --- A [`cosmic.sandbox`] policy the child is held to, met or the start
   --- fails (nil, and a message naming what is missing and how to give it).
   --- The policy is merged ([`Sandbox.union`], which resolves its
-  --- `profiles`), and then:
+  --- profile grants), and then:
   ---
   --- - `grants` are the only paths the child reaches, by Landlock (by the
   ---   root alone under the `nest` promise), a relative one from `cwd`; the child's program, found on this
@@ -2413,6 +2413,11 @@ local function holds_place(grants: {Rules.Path}, base: string): boolean
   return false
 end
 
+--- What `p` sets up for its program: its `setup`, or none.
+local function setup_of(p: Rules.Policy): Rules.Setup
+  return p.setup or {}
+end
+
 --- A path a root places, and whether it shows the host's file there.
 local record Placed
   at: string
@@ -2519,7 +2524,8 @@ end
 --- the host's own (Landlock's profiles are not Seatbelt's).
 local function core_of(argv: {string}, opts: Options, merged: Rules.Policy, user: MappedUser?,
                        base: string?, reach: {Rules.Path}): Proc.Relaunch?, string
-  local named_database = merged.database
+  local setup = merged.setup or {}
+  local named_database = setup.database
   local database: string = named_database and named_database.path -- checked: nil_not_allowed
   local program: string?
   if database ~= nil then -- checked: compare_disjoint
@@ -2586,7 +2592,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
   -- or `rwxc`, a /tmp that may run what is made there. It is no bind of the
   -- host's /tmp, so it is no grant of the root's.
   local tmp_exec = false
-  if file and merged.tmp == true then
+  if file and setup_of(merged).tmp == true then
     local others: mut {Rules.Grant} = {}
     for _, grant in ipairs(merged.grants or {}) do
       if grant is Rules.Path and grant.from == nil and named(grant.path, "/") == "/tmp" then
@@ -2623,7 +2629,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
   -- `database` it is the core and that file alone, so this program's own
   -- file, which holds every module of the tree, is none of the child's.
   local relaunch: Proc.Relaunch?
-  local named_database = merged.database
+  local named_database = setup_of(merged).database
   local database: string = named_database and named_database.path -- checked: nil_not_allowed
   local found, relaunch_trouble = core_of(argv, opts, merged, user, base, Rules.paths(merged))
   if found == nil and relaunch_trouble ~= "" then return nil, relaunch_trouble end
@@ -2743,7 +2749,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
     local reached, reach_trouble = reached_by(merged, here, file, user)
     if reached == nil then return nil, "sandbox: " .. reach_trouble end
     idmap = reached
-    if file or proc or #(merged.loopback or {}) > 0 or relayed or isolated_unix(merged) then
+    if file or proc or #Rules.loopback(merged) > 0 or relayed or isolated_unix(merged) then
       proc = true
       -- The namespace is mapped from outside with this process's own group
       -- beside the program's, which may not be one id twice.
@@ -2844,13 +2850,13 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
     end
   end
   local env: mut {string:string} = {}
-  for _, name in ipairs(merged.env or {}) do
+  for _, name in ipairs(Rules.env(merged)) do
     local value = sys.getenv(name)
     if value ~= nil then env[name] = value end
   end
-  for name, value in pairs(merged.set_env or {}) do env[name] = value end
+  for name, value in pairs(setup_of(merged).set_env or {}) do env[name] = value end
   if relayed then
-    for name, value in pairs(RelayConfig.proxy_env(assert(merged.loopback), nil, nil, Rules.connects(merged))) do
+    for name, value in pairs(RelayConfig.proxy_env(Rules.loopback(merged), nil, nil, Rules.connects(merged))) do
       env[name] = value
     end
   end
@@ -2878,7 +2884,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
   -- unix socket to reach: the filter then lets it make inet sockets (the
   -- namespace is their hold) when it declared a loopback or `connect`, and
   -- unix ones when it was granted `u`.
-  local inet = #(merged.loopback or {}) > 0 or relayed
+  local inet = #Rules.loopback(merged) > 0 or relayed
   -- The relay's own start (`online`) makes inet sockets in this process's
   -- network instead: it connects and resolves itself, and holds no
   -- loopback, `connect` or `u` grant of its own.
@@ -2898,11 +2904,11 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
     group = if user ~= nil and drop == nil then user.gid else nil end }
   if root ~= nil then
     sandbox.unveil = root -- checked: field_fixed
-    if merged.tmp == true then
+    if setup_of(merged).tmp == true then
       -- A normalized path beneath /tmp (no empty, `.` or `..` component)
       -- that `set_env` names stays TMPDIR: the program makes it, in the /tmp
       -- it has. Any other value is /tmp.
-      local chosen = (merged.set_env or {}).TMPDIR -- checked: map_field
+      local chosen = (setup_of(merged).set_env or {}).TMPDIR -- checked: map_field
       local normal = chosen ~= nil and chosen:find("^/tmp/[^/]") ~= nil -- untyped: call
       if normal then
         for part in chosen:gmatch("[^/]*") do -- untyped: call
@@ -2918,7 +2924,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
     -- reopens the database by its path after the hash, so a file swapped
     -- in that instant runs. Hand it the checked descriptor once core/main.c
     -- opens SQLite on the descriptor it checked (the TODO in open_database).
-    local holds, held_why = database_holds(assert(merged.database), relaunch.argv[3]) -- checked: index_may_be_nil
+    local holds, held_why = database_holds(assert(setup_of(merged).database), relaunch.argv[3]) -- checked: index_may_be_nil
     if not holds then return nil, "sandbox: " .. held_why end
   end
   -- What spawn is handed, counted once every path the start adds is in:
@@ -2926,7 +2932,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
   -- `tmp` makes, and under `isolate` file the root's own /proc. A start
   -- past the most is refused here, with the count, and not raised inside
   -- spawn ("too many grants", "too many unveiled paths").
-  local made_tmp = if merged.tmp == true and not file then 1 else 0 end
+  local made_tmp = if setup_of(merged).tmp == true and not file then 1 else 0 end
   local handed = (if nest then 0 else #grants end) + made_tmp
   -- The boot ruleset counts only where it is sent: a cosmic child, not under `nest`.
   local laid = if relaunch ~= nil and not nest then #layer + made_tmp else 0 end
@@ -2940,7 +2946,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
       "them), the start holds " .. tostring(most_held) .. ", past the most a start takes, " .. tostring(MAX_GRANTS) ..
       "; grant a directory above them instead"
   end
-  return { path = path, env = env, tmp = "", wants_tmp = merged.tmp == true and not file, -- checked: nil_not_allowed
+  return { path = path, env = env, tmp = "", wants_tmp = setup_of(merged).tmp == true and not file, -- checked: nil_not_allowed
     layer = if relaunch ~= nil and not nest then layer else nil end,
     sandbox = sandbox, cwd = if file then base else nil end, user = user, drop = drop, nests = nest,
     argv = run_argv, fds = if relaunch ~= nil then relaunch.fds else nil end,
@@ -3044,10 +3050,10 @@ local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Pol
   -- held by the trampoline, as its profile is the start's.
   local booted = relaunch ~= nil and serves_relay == nil and core ~= nil and
     startable(core, Rules.paths(merged), opts.cwd)
-  for name in pairs(merged.set_env or {}) do
+  for name in pairs(setup_of(merged).set_env or {}) do
     if name:sub(1, 5) == "DYLD_" then booted = false end
   end
-  for _, name in ipairs(merged.env or {}) do
+  for _, name in ipairs(Rules.env(merged)) do
     if name:sub(1, 5) == "DYLD_" and sys.getenv(name) ~= nil then booted = false end
   end
   options.booted = booted
@@ -3060,11 +3066,11 @@ local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Pol
   local missing = ungranted(files, Rules.paths(merged), opts.cwd)
   if missing ~= "" then return nil, "sandbox: " .. missing end
   local env: mut {string:string} = {}
-  for _, name in ipairs(merged.env or {}) do
+  for _, name in ipairs(Rules.env(merged)) do
     local value = sys.getenv(name)
     if value ~= nil then env[name] = value end
   end
-  for name, value in pairs(merged.set_env or {}) do env[name] = value end
+  for name, value in pairs(setup_of(merged).set_env or {}) do env[name] = value end
   local run_argv: mut {string}?
   if relaunch ~= nil then
     for name, value in pairs(relaunch.env) do env[name] = value end
@@ -3075,7 +3081,7 @@ local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Pol
     for _, word in ipairs(relaunch.argv) do run_argv[#run_argv + 1] = word end -- checked: nil_not_allowed*2
     for i = 2, #argv do run_argv[#run_argv + 1] = argv[i] end -- checked: nil_not_allowed*2
   end
-  local database = merged.database
+  local database = setup_of(merged).database
   if relaunch ~= nil and database ~= nil then
     local holds, held_why = database_holds(database, relaunch.argv[3]) -- checked: index_may_be_nil
     if not holds then return nil, "sandbox: " .. held_why end
@@ -3084,7 +3090,7 @@ local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Pol
     seatbelt = { profile = profile.text, parameters = profile.parameters, boot = booted },
     rlimits = profile.rlimits,
   }
-  return { path = path, env = env, tmp = "", wants_tmp = merged.tmp, tmp_parameter = profile.tmp, -- checked: nil_not_allowed*2
+  return { path = path, env = env, tmp = "", wants_tmp = setup_of(merged).tmp, tmp_parameter = profile.tmp, -- checked: nil_not_allowed*2
     sandbox = sandbox, nests = false, seatbelt = true, seatbelt_boot = booted, argv = run_argv,
     fds = if relaunch ~= nil then relaunch.fds else nil end, relay = if relayed then Rules.connects(merged) else nil end,
     seatbelt_policy = policy, seatbelt_options = options }, ""
@@ -3838,7 +3844,7 @@ function Child.layers(argv: {string}, opts: Options): Rules.Layers?, string
   return {
     landlock = landlock, boot = boot, calls = calls, exec_refused = not runs,
     sockets = sockets, namespaces = namespaces, root = sandbox.unveil ~= nil, relay = held.relay or {},
-    loopback = merged.loopback or {}, rlimits = rlimits,
+    loopback = Rules.loopback(merged), rlimits = rlimits,
   }, ""
 end
 

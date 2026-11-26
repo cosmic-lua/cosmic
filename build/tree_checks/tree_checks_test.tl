@@ -390,6 +390,10 @@ local function test_a_module_reading_store_text_without_declaring_it_is_refused(
     reads("build/prose.tl", 'function reader.run(): string return "Read from links, then stop" end'),
     reads("build/commented.tl", 'function reader.run(): integer return 1 end -- "SELECT 1 FROM docs"'),
     reads("build/kept.tl", 'function reader.run(): string return "SELECT path FROM modules" end'),
+    -- A part of a module (build/undeclared/part.tl beside build.undeclared), and a module further down.
+    reads("build/undeclared/part.tl", "function reader.run(): string? local s, _ = Store.source(\"part\") return s end"),
+    reads("build/undeclared/part/deep.tl",
+      "function reader.run(): string? local s, _ = Store.source(\"deep\") return s end"),
   }
   for _, case in ipairs(cases) do
     local path, text = case[1], case[2]
@@ -405,6 +409,11 @@ local function test_a_module_reading_store_text_without_declaring_it_is_refused(
   for _, name in ipairs({ "build.declared", "build.counts", "build.prose", "build.commented", "build.kept" }) do
     assert(joined:find(name .. " reads", 1, true) == nil, name .. " is not: " .. joined)
   end
+  -- An excused module excuses its parts, one level down, and no module further down.
+  local excused = table.concat(tree_readers.text_readers(db, { ["build.undeclared"] = "a reason" }), "\n")
+  assert(excused:find("build.undeclared reads", 1, true) == nil, excused)
+  assert(excused:find("build.undeclared.part reads", 1, true) == nil, excused)
+  assert(excused:find("build.undeclared.part.deep reads", 1, true) ~= nil, excused)
 end
 
 --- A module outside the list that reads `package` is refused, whether it indexes it, reads a field or holds it under

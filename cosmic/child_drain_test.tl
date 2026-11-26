@@ -9,7 +9,6 @@ local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
-local this_program = require("build.this_program")
 
 --- The next chunk of `reader`: raises where it ended or failed.
 local function chunk_of(reader: Stream.Reader, max_bytes?: integer): string
@@ -23,7 +22,7 @@ end
 Test.policy{ profiles = { "cosmic" } }
 
 local function start(script: string, options?: Child.Options): Child.Handle
-  local started = this_program.program({ "-e", script }, options or { timeout_ns = Child.FOREVER, stdout = "stream" })
+  local started = Test.cosmic({ "-e", script }, options or { timeout_ns = Child.FOREVER, stdout = "stream" })
   return (assert(Child.start(started.argv, started.options)))
 end
 
@@ -359,7 +358,7 @@ local function escaped(tmp: string, script: string): Child.Handle
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
-local program = require("build.this_program").program({ "-e", SCRIPT }, { timeout_ns = -1, process_group = false })
+local program = require("cosmic.test").cosmic({ "-e", SCRIPT }, { timeout_ns = -1, process_group = false })
 local writer = assert(Child.start(program.argv, program.options))
 assert(Fs.write(PIDS, tostring(writer.pid)))
 sys.exit(0)

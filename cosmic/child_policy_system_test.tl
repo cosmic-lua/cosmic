@@ -43,7 +43,7 @@ local function test_the_system_profile_lets_a_host_program_read_what_is_granted(
   assert(Fs.mkdirs(tmp .. "/other"))
   assert(Fs.write(tmp .. "/ro/a", "alpha\n"))
   assert(Fs.write(tmp .. "/other/b", "beta\n"))
-  local policy: Sandbox.Policy = { profiles = { "system" }, grants = { { path = tmp .. "/ro", letters = "r" } } }
+  local policy: Sandbox.Policy = { grants = { { profile = "system" }, { path = tmp .. "/ro", letters = "r" } } }
   local said, code = cat(policy, tmp .. "/ro/a")
   assert(code == 0 and said == "alpha\n", tostring(code) .. ": " .. said)
   local sibling, status = cat(policy, tmp .. "/other/b")
@@ -57,13 +57,21 @@ local function test_the_system_profile_lets_a_host_program_read_what_is_granted(
   assert(hidden ~= 0 or shadow == "", "/etc/hostname was read: " .. shadow)
 end
 
+--- A grant of each of `profiles`, then `grants`.
+local function with_profiles(profiles: {string}, grants: {Sandbox.Grant}): {Sandbox.Grant}
+  local out: mut {Sandbox.Grant} = {}
+  for _, profile in ipairs(profiles) do out[#out + 1] = { profile = profile } end
+  for _, grant in ipairs(grants) do out[#out + 1] = grant end
+  return out
+end
+
 --- "system" reads the host's programs and runs none: the start grants
 --- the shell it starts and the shell's loader, so the shell runs, and the
 --- program the shell runs is refused. "programs" runs it.
 local function test_the_system_profile_runs_no_program_and_programs_does(tmp: string)
   local function shell(profiles: {string}): string, integer
     local result, why = Child.run({ "/bin/sh", "-c", CAT .. " " .. tmp .. "/a; echo status=$?" },
-      { timeout_ns = Child.FOREVER, policy = { profiles = profiles, grants = { { path = tmp, letters = "r" }, { calls = "fork" } } },
+      { timeout_ns = Child.FOREVER, policy = { grants = with_profiles(profiles, { { path = tmp, letters = "r" }, { calls = "fork" } }) },
         stdout = "capture", stderr = "stdout" })
     if result == nil then
       if why.message:find("Landlock", 1, true) or why.message:find("seccomp", 1, true) or why.message:find("not implemented", 1, true) then
@@ -104,7 +112,7 @@ local function test_the_elf_loader_runs_a_readable_program_with_no_x(tmp: string
   searchable.open(tmp)
   assert(Fs.write(tmp .. "/a", "alpha\n"))
   local result, why = Child.run({ "/bin/sh", "-c", loader .. " " .. CAT .. " " .. tmp .. "/a" },
-    { timeout_ns = Child.FOREVER, policy = { profiles = { "system" }, grants = { { path = tmp, letters = "r" }, { calls = "fork" } } },
+    { timeout_ns = Child.FOREVER, policy = { grants = { { profile = "system" }, { path = tmp, letters = "r" }, { calls = "fork" } } },
       stdout = "capture", stderr = "stdout" })
   if result == nil then
     if why.message:find("Landlock", 1, true) or why.message:find("seccomp", 1, true) or why.message:find("not implemented", 1, true) then
@@ -126,7 +134,7 @@ local function test_the_start_grants_no_program_the_policy_lets_be_written(tmp: 
   assert(Fs.chmod(script, 493))
   local function start(letters: string): string
     local result, why = Child.run({ script }, { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "stdout",
-      policy = { profiles = { "system" }, grants = { { path = tmp .. "/w", letters = letters } } } })
+      policy = { grants = { { profile = "system" }, { path = tmp .. "/w", letters = letters } } } })
     if result == nil then
       if why.message:find("Landlock", 1, true) or why.message:find("seccomp", 1, true) or why.message:find("not implemented", 1, true) then
         Test.skip(tostring(why))

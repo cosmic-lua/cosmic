@@ -160,3 +160,29 @@ local function test_as_utf8_keeps_utf8_and_replaces_what_is_not()
   assert(String.as_utf8("\237\160\128") == fffd .. fffd .. fffd)
   assert(utf8.len(String.as_utf8("\244\144\128\128")) ~= nil)
 end
+
+-- string.find's plain search scans for its first byte 64 and 32 bytes at
+-- a step (core/bytes.h): a byte found at every offset of texts around
+-- those widths is found where it is, and one not there is not.
+local function test_plain_find_finds_a_byte_at_every_offset()
+  for n = 0, 140 do
+    local text = string.rep("a", n)
+    assert(text:find("\n", 1, true) == nil, n)
+    for at = 1, n do
+      local with = text:sub(1, at - 1) .. "\n" .. text:sub(at + 1)
+      assert(with:find("\n", 1, true) == at, ("%d of %d"):format(at, n))
+      assert(with:find("\na", 1, true) == (if at < n then at else nil end), ("%d of %d"):format(at, n))
+      -- From past the byte, it is not found.
+      assert(with:find("\n", at + 1, true) == nil, ("%d of %d"):format(at, n))
+    end
+  end
+  -- A first byte that matches where the rest does not is passed over,
+  -- blocks before the match, and a NUL is a byte like any other.
+  local near = ("\nb"):rep(40) .. "\nab"
+  assert(near:find("\nab", 1, true) == 81, near:find("\nab", 1, true))
+  local nul = ("\0x"):rep(40) .. "\0y"
+  assert(nul:find("\0y", 1, true) == 81)
+  -- A byte at 0x80 or above is found as itself.
+  local high = ("a"):rep(70) .. "\255" .. ("a"):rep(3)
+  assert(high:find("\255", 1, true) == 71)
+end

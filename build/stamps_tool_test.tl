@@ -14,7 +14,6 @@ local schema = require("build.schema")
 local stamps = require("build.stamps")
 local test_child = require("build.test_child")
 local test_key = require("build.test_key")
-local this_program = require("build.this_program")
 
 --- The program itself, whose own database the stamps are in.
 Test.policy{
@@ -110,7 +109,7 @@ end)
 --- Runs the child `name` of this module in the program and returns its
 --- exit status, which is 0 or `no_artifact`.
 local function runs(tmp: string, name: string): integer
-  local started = this_program.program(test_child.words(tmp, "build.stamps_tool_test", name, { tmp }),
+  local started = Test.cosmic(test_child.words(tmp, "build.stamps_tool_test", name, { tmp }),
     { cwd = tmp, stdout = "capture", stderr = "stdout", timeout_ns = Clock.seconds(90) })
   local result = assert(Child.run(started.argv, started.options))
   local code = result.code

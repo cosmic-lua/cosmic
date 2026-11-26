@@ -101,8 +101,8 @@ launcher_allowed["build.test_sandbox_test"] = "names COSMIC_PORTABLE_CACHE in th
   "it hands the sandbox's pure functions, and reads none from its own process"
 launcher_allowed["build.test_worker_test"] = "hands the worker's pure start function a made-up " ..
   "launcher start (\"--artifact\", COSMIC_PORTABLE_*_FD) and reads none from its own process"
-launcher_allowed["build.this_program_test"] = "replaces Proc.relaunch with a made-up launcher " ..
-  "start and holds this_program's reading of it, not this process's"
+launcher_allowed["cosmic.test_cosmic_test"] = "replaces Proc.relaunch with a made-up launcher " ..
+  "start and holds Test.cosmic's reading of it, not this process's"
 launcher_allowed["build.tree_checks.tree_checks_test"] = "plants the names in the fixture sources of the check's " ..
   "own test"
 launcher_allowed["build.workflows_test"] = "reads COSMIC_PORTABLE_CACHE in the text of a workflow " ..

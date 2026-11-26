@@ -84,7 +84,16 @@ function Names.module_value(ctx: Ctx, node: Ast.Node, name: string): Type
     if value ~= nil then
       return value
     end
-    unchecked(ctx, "unchecked_binding", node, "the module " .. quoted(name) .. " returns no declaration and no value of a written type")
+    -- A module that returns nothing typed has nothing a require could bind: say what it should return, or, for a test
+    -- module, that it is run, not required.
+    local fix = "end the module with `return M`, where M is a record it declares (`local record M ... end`)"
+    if name:find("_test$") ~= nil then
+      local file = name:gsub("%.", "/")
+      fix = "a test module returns nothing to require: `cosmic test " .. file .. ".tl` runs its " ..
+        "test_* functions"
+    end
+    report(ctx, "unchecked_binding", node, "the module " .. quoted(name) ..
+        " returns no declaration and no value of a written type, so a require of it has nothing to bind", fix)
     return ctx.invalid
   end
   local decl = export.decl

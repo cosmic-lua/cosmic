@@ -12,7 +12,14 @@ local Test = require("cosmic.test")
 
 -- These tests start this program (the pinned driver's own cosmic, or a copy of it
 -- as the bootstrap), which a worker on a sealed database does not have whole.
-Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+Test.policy{
+  profiles = { "cosmic", "system" },
+  grants = {
+    { path = "cosmic_ci/", letters = "r" },
+    { path = "o/bin", letters = "rx" },
+    { path = "testdata/fuzz/", letters = "r" },
+  },
+}
 
 --- A number a closure shares with the test that made it.
 local record Count

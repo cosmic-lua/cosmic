@@ -17,7 +17,6 @@ local verb_list = require("build.verb_list")
 local verbs_fixture = require("build.verbs_fixture")
 local String = require("cosmic.string")
 local support = require("build.test_support_fixture")
-local this_program = require("build.this_program")
 
 --- The tool itself, whose core a program `build` writes runs on, the CA
 --- bundle `refresh` reads, and what bin/zig reads to find or fetch zig.
@@ -547,10 +546,10 @@ end
 --- tool runs from its checkout's build directory, and is not in the sandbox, where that checkout is out of sight.
 --- Only a tool that is no checkout's own skips build.reboot, as a release does.
 local function checkouts_own_tool(tmp: string): boolean
-  local started = this_program.program({ "-e",
+  local started = Test.cosmic({ "-e",
     'local Fs = require("cosmic.fs") local own = require("build.tree").checkout(require("cosmic.store").meta(' ..
       '"built_from")) local _, _ = Fs.put(Fs.stdout, tostring(own ~= nil))' },
-    { env = this_program.environment(), cwd = tmp, stdout = "capture", stderr = "capture",
+    { env = Test.environment(), cwd = tmp, stdout = "capture", stderr = "capture",
       timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stdout) .. tostring(r.stderr))
@@ -563,9 +562,9 @@ end
 local function test_one_verbs_help_loads_no_other_verb(tmp: string)
   local own = checkouts_own_tool(tmp)
   for _, words in ipairs({ { "help", "hash" }, { "hash", "--help" } }) do
-    local env = this_program.environment()
+    local env = Test.environment()
     env["COSMIC_TRACE_REQUIRE"] = "1"
-    local started = this_program.program(words, { env = env, cwd = tmp, stdout = "capture", stderr = "capture",
+    local started = Test.cosmic(words, { env = env, cwd = tmp, stdout = "capture", stderr = "capture",
       timeout_ns = Clock.seconds(30) })
     local r = assert(Child.run(started.argv, started.options))
     assert(r.ok and (r.stdout or ""):find("cosmic hash", 1, true) ~= nil, tostring(r.stdout) .. tostring(r.stderr))
@@ -592,9 +591,9 @@ local function test_a_tool_of_no_checkout_loads_no_reboot(tmp: string)
   end
   local spec = assert(verb_list.find("build"))
   assert(not spec.bare and spec.fresh ~= true and spec.reads ~= true, "build no longer reaches the checkout check")
-  local env = this_program.environment()
+  local env = Test.environment()
   env["COSMIC_TRACE_REQUIRE"] = "1"
-  local started = this_program.program({ "build", "missing.tl" }, { env = env, cwd = tmp,
+  local started = Test.cosmic({ "build", "missing.tl" }, { env = env, cwd = tmp,
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   local traced = r.stderr or ""

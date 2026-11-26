@@ -11,7 +11,6 @@
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
-local this_program = require("build.this_program")
 local shared_compiles = require("build.shared_compiles")
 local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
@@ -69,6 +68,13 @@ local function project_source(name: string): string
   return source
 end
 
+--- The source of `c.tl` with the field `name` added to its record `Box`: an edit to what a module that requires `c`
+--- reads of it, which moves their keys too ([`build.shape_key`]), where a comment or a body does not.
+local function reshaped(name: string): string
+  local source = (project_source("c.tl"):gsub("    value: integer\n", "    value: integer\n    " .. name .. "?: string\n"))
+  return source
+end
+
 --- A checkout of the project at `root`, with `changed` written over it
 --- (a file to "" is left out).
 local function checkout(root: string, changed?: {string:string})
@@ -86,7 +92,7 @@ end
 local function build(root: string, env: {string:string}, fails?: boolean): string
   local output = root .. ".out"
   local fd = assert(Fs.open_write(output))
-  local started = this_program.program({ "test" }, {
+  local started = Test.cosmic({ "test" }, {
     cwd = root, env = env, stdout = fd, stderr = fd,
     process_group = true, timeout_ns = Clock.seconds(60),
   })
@@ -100,7 +106,7 @@ end
 --- The environment the builds of a case run in, sharing through a
 --- cache in `tmp`, and where that cache is.
 local function environment(tmp: string): mut {string:string}, string
-  local env = this_program.environment()
+  local env = Test.environment()
   local path = tmp .. "/cache/cache.db"
   env["COSMIC_BUILD_CACHE"] = path
   env["COSMIC_TEST_ALL"] = nil
@@ -168,10 +174,12 @@ local function test_an_edit_compiles_only_what_it_reaches(tmp: string)
   local alone = "local record d end\nreturn d\n"
   checkout(tmp .. "/first", { ["d.tl"] = alone })
   built(tmp .. "/first", env, "(4 compiled, 0 cached;")
-  -- `c` edited: `a`, `b` and `c` reach it, `d` does not.
-  checkout(tmp .. "/edited_c", { ["d.tl"] = alone,
-    ["c.tl"] = project_source("c.tl") .. "-- edited\n" })
+  -- `c` edited where `b` reads it: `a`, `b` and `c` reach it, `d` does not.
+  checkout(tmp .. "/edited_c", { ["d.tl"] = alone, ["c.tl"] = reshaped("edited") })
   built(tmp .. "/edited_c", env, "(3 compiled, 1 cached, 1 of them taken from another checkout;")
+  -- A comment of `c` edited: `c` alone, since no module that requires it reads a comment.
+  checkout(tmp .. "/commented_c", { ["d.tl"] = alone, ["c.tl"] = project_source("c.tl") .. "-- edited\n" })
+  built(tmp .. "/commented_c", env, "(1 compiled, 3 cached, 3 of them taken from another checkout;")
   -- `d` edited: only `d`.
   checkout(tmp .. "/edited_d", { ["d.tl"] = alone .. "-- edited\n" })
   built(tmp .. "/edited_d", env, "(1 compiled, 3 cached, 3 of them taken from another checkout;")
@@ -312,14 +320,14 @@ local function test_two_builds_writing_at_once_keep_both(tmp: string)
   tmp = assert(Fs.absolute(tmp))
   local env, path = environment(tmp)
   -- Content of their own, so each writes three compiles.
-  checkout(tmp .. "/one", { ["c.tl"] = project_source("c.tl") .. "-- one\n" })
-  checkout(tmp .. "/two", { ["c.tl"] = project_source("c.tl") .. "-- two\n" })
+  checkout(tmp .. "/one", { ["c.tl"] = reshaped("one") })
+  checkout(tmp .. "/two", { ["c.tl"] = reshaped("two") })
   local handles: mut {Child.Handle} = {}
   local outputs: mut {integer} = {}
   for index, name in ipairs({ "one", "two" }) do
     local fd = assert(Fs.open_write(tmp .. "/" .. name .. ".out"))
     outputs[index] = fd
-    local started = this_program.program({ "test" }, { timeout_ns = Child.FOREVER,
+    local started = Test.cosmic({ "test" }, { timeout_ns = Child.FOREVER,
       cwd = tmp .. "/" .. name, env = env, stdout = fd, stderr = fd, process_group = true,
     })
     handles[index] = assert(Child.start(started.argv, started.options))
@@ -336,7 +344,7 @@ local function test_two_builds_writing_at_once_keep_both(tmp: string)
   -- `a` and `b` reach `c`, so no key of one is the other's.
   assert(rows_in(path) == 6, dump(path, "SELECT key FROM compiled_v2"))
   for _, name in ipairs({ "one", "two" }) do
-    checkout(tmp .. "/" .. name .. "_again", { ["c.tl"] = project_source("c.tl") .. "-- " .. name .. "\n" })
+    checkout(tmp .. "/" .. name .. "_again", { ["c.tl"] = reshaped(name) })
     built(tmp .. "/" .. name .. "_again", env,
       "(0 compiled, 3 cached, 3 of them taken from another checkout;")
   end
@@ -367,7 +375,7 @@ assert(db:exec("COMMIT"))
 assert(db:close())
 return 0
 ]], path, held)
-  local started = this_program.program({ "-e", chunk }, { timeout_ns = Child.FOREVER, process_group = true })
+  local started = Test.cosmic({ "-e", chunk }, { timeout_ns = Child.FOREVER, process_group = true })
   local handle = assert(Child.start(started.argv, started.options))
   local waited = 0
   while not assert(Fs.status(held)).exists do

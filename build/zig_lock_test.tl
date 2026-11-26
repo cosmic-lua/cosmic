@@ -12,7 +12,6 @@ local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
 local Zig = require("build.zig")
 local build_paths = require("build.paths")
-local this_program = require("build.this_program")
 local support = require("build.test_support_fixture")
 local type _ = require("build.standalone")
 
@@ -59,7 +58,7 @@ if wait < 0 then local _, _ = Fs.take(Fs.stdin, 1) else local _, _ = Clock.sleep
 ]]
 
 local function start(root: string, wait_ns: integer, flock?: boolean): Child.Handle, string
-  local started = this_program.program({ "-e", (if flock == true then flock_tool else sql_tool end):format(support.build_dir(root), wait_ns) },
+  local started = Test.cosmic({ "-e", (if flock == true then flock_tool else sql_tool end):format(support.build_dir(root), wait_ns) },
     { timeout_ns = Child.FOREVER, stdin = "stream", stdout = "stream", stderr = "capture" })
   local child = assert(Child.start(started.argv, started.options))
   local line = line_of(Stream.lines(assert(child.stdout_stream)))
@@ -113,7 +112,7 @@ Zig.with_lock(%q, { COSMIC_REBUILD_LOCK_HANDED = %q }, function(_: {string:strin
   return 0
 end)
 ]]
-  local started = this_program.program({ "-e", script:format(build_paths.required(root), tmp .. "/other-lock") },
+  local started = Test.cosmic({ "-e", script:format(build_paths.required(root), tmp .. "/other-lock") },
     { timeout_ns = Child.FOREVER, stdin = "stream", stdout = "stream", stderr = "stream" })
   local boot = assert(Child.start(started.argv, started.options))
   local waiting, _ = Stream.lines(assert(boot.stderr_stream)):read()
@@ -245,7 +244,7 @@ assert(status == 1 and signal == sys.SIGTERM)
 print("cancelled")
 local _, _ = Fs.take(Fs.stdin, 1)
 ]]
-  local command = this_program.program({ "-e", script:format(build_paths.required(root)) },
+  local command = Test.cosmic({ "-e", script:format(build_paths.required(root)) },
     { timeout_ns = Child.FOREVER, stdin = "stream", stdout = "stream", stderr = "stream" })
   local boot <close> = assert(Child.start(command.argv, command.options))
   local waiting, _ = Stream.lines(assert(boot.stderr_stream)):read()

@@ -2,7 +2,7 @@
  {
   "cpuinfo": "processor\t: 0\nvendor_id\t: GenuineIntel\ncpu family\t: 6\nmodel\t\t: 207\nmodel name\t: Intel(R) Xeon(R) Processor @ 2.10GHz\nstepping\t: 2\nmicrocode\t: 0x1\ncpu MHz\t\t: 2100.000\ncache size\t: 266240 KB\nphysical id\t: 0\nsiblings\t: 4\ncore id\t\t: 0\ncpu cores\t: 4\napicid\t\t: 0\ninitial apicid\t: 0\nfpu\t\t: yes\nfpu_exception\t: yes\ncpuid level\t: 32\nwp\t\t: yes\nflags\t\t: fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ss ht syscall nx pdpe1gb rdtscp lm constant_tsc rep_good nopl xtopology nonstop_tsc cpuid tsc_known_freq pni pclmulqdq ssse3 fma cx16 pcid sse4_1 sse4_2 x2apic movbe popcnt tsc_deadline_timer aes xsave avx f16c rdrand hypervisor lahf_lm abm 3dnowprefetch cpuid_fault ssbd ibrs ibpb stibp ibrs_enhanced fsgsbase tsc_adjust bmi1 hle avx2 smep bmi2 erms invpcid rtm avx512f avx512dq rdseed adx smap avx512ifma clflushopt clwb avx512cd sha_ni avx512bw avx512vl xsaveopt xsavec xgetbv1 xsaves avx_vnni avx512_bf16 wbnoinvd arat avx512vbmi umip avx512_vbmi2 gfni vaes vpclmulqdq avx512_vnni avx512_bitalg avx512_vpopcntdq rdpid cldemote movdiri movdir64b fsrm md_clear serialize tsxldtrk amx_bf16 avx512_fp16 amx_tile amx_int8 arch_capabilities\nbugs\t\t: spectre_v1 spectre_v2 spec_store_bypass swapgs eibrs_pbrsb bhi ibpb_no_ret spectre_v2_user\nbogomips\t: 4200.00\nclflush size\t: 64\ncache_alignment\t: 64\naddress sizes\t: 52 bits physical, 57 bits virtual\npower management:\n\nprocessor\t: 1\nvendor_id\t: GenuineIntel\ncpu family\t: 6\nmodel\t\t: 207\nmodel name\t: Intel(R) Xeon(R) Processor @ 2.10GHz\nstepping\t: 2\nmicrocode\t: 0x1\ncpu MHz\t\t: 2100.000\ncache size\t: 266240 KB\nphysical id\t: 0\nsiblings\t: 4\ncore id\t\t: 1\ncpu cores\t: 4\napicid\t\t: 1\ninitial apicid\t: 1\nfpu\t\t: yes\nfpu_exception\t: yes\ncpuid level\t: 32\nwp\t\t: yes\nflags\t\t: fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ss ht syscall nx pdpe1gb rdtscp lm constant_tsc rep_good nopl xtopology nonstop_tsc cpuid tsc_known_freq pni pclmulqdq ssse3 fma cx16 pcid sse4_1 sse4_2 x2apic movbe popcnt tsc_deadline_timer aes xsave avx f16c rdrand hypervisor lahf_lm abm 3dnowprefetch cpuid_fault ssbd ibrs ibpb stibp ibrs_enhanced fsgsbase tsc_adjust bmi1 hle avx2 smep bmi2 erms invpcid rtm avx512f avx512dq rdseed adx smap avx512ifma clflushopt clwb avx512cd sha_ni avx512bw avx512vl xsaveopt xsavec xgetbv1 xsaves avx_vnni avx512_bf16 wbnoinvd arat avx512vbmi umip avx512_vbmi2 gfni vaes vpclmulqdq avx512_vnni avx512_bitalg avx512_vpopcntdq rdpid cldemote movdiri movdir64b fsrm md_clear serialize tsxldtrk amx_bf16 avx512_fp16 amx_tile amx_int8 arch_capabilities\nbugs\t\t: spectre_v1 spectre_v2 spec_store_bypass swapgs eibrs_pbrsb bhi ibpb_no_ret spectre_v2_user\nbogomips\t: 4200.00\nclflush size\t: 64\ncache_alignment\t: 64\naddress sizes\t: 52 bits physical, 57 bits virtual\npower management:\n\nprocessor\t: 2\nvendor_id\t: GenuineIntel\ncpu family\t: 6\nmodel\t\t: 207\nmodel name\t: Intel(R) Xeon(R) Processor @ 2.10GHz\nstepping\t: 2\nmicrocode\t: 0x1\ncpu MHz\t\t: 2100.000\ncache size\t: 266240 KB\nphysical id\t: 0\nsiblings\t: 4\ncore id\t\t: 2\ncpu cores\t: 4\napicid\t\t: 2\ninitial apicid\t: 2\nfpu\t\t: yes\nfpu_exception\t: yes\ncpuid level\t: 32\nwp\t\t: yes\nflags\t\t: fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ss ht syscall nx pdpe1gb rdtscp lm constant_tsc rep_good nopl xtopology nonstop_tsc cpuid tsc_known_freq pni pclmulqdq ssse3 fma cx16 pcid sse4_1 sse4_2 x2apic movbe popcnt tsc_deadline_timer aes xsave avx f16c rdrand hypervisor lahf_lm abm 3dnowprefetch cpuid_fault ssbd ibrs ibpb stibp ibrs_enhanced fsgsbase tsc_adjust bmi1 hle avx2 smep bmi2 erms invpcid rtm avx512f avx512dq rdseed adx smap avx512ifma clflushopt clwb avx512cd sha_ni avx512bw avx512vl xsaveopt xsavec xgetbv1 xsaves avx_vnni avx512_bf16 wbnoinvd arat avx512vbmi umip avx512_vbmi2 gfni vaes vpclmulqdq avx512_vnni avx512_bitalg avx512_vpopcntdq rdpid cldemote movdiri movdir64b fsrm md_clear serialize tsxldtrk amx_bf16 avx512_fp16 amx_tile amx_int8 arch_capabilities\nbugs\t\t: spectre_v1 spectre_v2 spec_store_bypass swapgs eibrs_pbrsb bhi ibpb_no_ret spectre_v2_user\nbogomips\t: 4200.00\nclflush size\t: 64\ncache_alignment\t: 64\naddress sizes\t: 52 bits physical, 57 bits virtual\npower management:\n\nprocessor\t: 3\nvendor_id\t: GenuineIntel\ncpu family\t: 6\nmodel\t\t: 207\nmodel name\t: Intel(R) Xeon(R) Processor @ 2.10GHz\nstepping\t: 2\nmicrocode\t: 0x1\ncpu MHz\t\t: 2100.000\ncache size\t: 266240 KB\nphysical id\t: 0\nsiblings\t: 4\ncore id\t\t: 3\ncpu cores\t: 4\napicid\t\t: 3\ninitial apicid\t: 3\nfpu\t\t: yes\nfpu_exception\t: yes\ncpuid level\t: 32\nwp\t\t: yes\nflags\t\t: fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ss ht syscall nx pdpe1gb rdtscp lm constant_tsc rep_good nopl xtopology nonstop_tsc cpuid tsc_known_freq pni pclmulqdq ssse3 fma cx16 pcid sse4_1 sse4_2 x2apic movbe popcnt tsc_deadline_timer aes xsave avx f16c rdrand hypervisor lahf_lm abm 3dnowprefetch cpuid_fault ssbd ibrs ibpb stibp ibrs_enhanced fsgsbase tsc_adjust bmi1 hle avx2 smep bmi2 erms invpcid rtm avx512f avx512dq rdseed adx smap avx512ifma clflushopt clwb avx512cd sha_ni avx512bw avx512vl xsaveopt xsavec xgetbv1 xsaves avx_vnni avx512_bf16 wbnoinvd arat avx512vbmi umip avx512_vbmi2 gfni vaes vpclmulqdq avx512_vnni avx512_bitalg avx512_vpopcntdq rdpid cldemote movdiri movdir64b fsrm md_clear serialize tsxldtrk amx_bf16 avx512_fp16 amx_tile amx_int8 arch_capabilities\nbugs\t\t: spectre_v1 spectre_v2 spec_store_bypass swapgs eibrs_pbrsb bhi ibpb_no_ret spectre_v2_user\nbogomips\t: 4200.00\nclflush size\t: 64\ncache_alignment\t: 64\naddress sizes\t: 52 bits physical, 57 bits virtual\npower management:\n\n",
   "kernel": "39eecf1242a56852",
-  "kept": "aes avx512_vnni avx512f avx512vl avx_vnni pclmulqdq sha_ni sse4_1 ssse3",
+  "kept": "aes avx2 avx512_vbmi2 avx512_vnni avx512_vpopcntdq avx512bw avx512cd avx512f avx512vl avx_vnni bmi1 bmi2 pclmulqdq sha_ni sse4_1 ssse3",
   "machine": "x86_64",
   "name": "this",
   "osrelease": "6.18.44-fc-v70\n",
@@ -12,7 +12,7 @@
  {
   "cpuinfo": "processor\t: 0\nvendor_id\t: GenuineIntel\nflags\t\t: fpu vme sse sse2 ssse3 sse4_1 sse4_2 pclmulqdq aes avx fma avx2 bmi2 erms hypervisor md_clear\nvmx flags\t: ept vpid\nbugs\t\t: cpu_meltdown\n\nprocessor\t: 1\nflags\t\t: md_clear hypervisor erms bmi2 avx2 fma avx aes pclmulqdq sse4_2 sse4_1 ssse3 sse2 sse vme fpu\n",
   "kernel": "86fd0d69b7b0e37d",
-  "kept": "aes pclmulqdq sse4_1 ssse3",
+  "kept": "aes avx2 bmi2 pclmulqdq sse4_1 ssse3",
   "machine": "x86_64",
   "name": "x86",
   "osrelease": "6.17.0-1022-azure\n",
@@ -62,7 +62,7 @@
  {
   "cpuinfo": "processor\t: 0\nvendor_id\t: GenuineIntel\nflags\t\t: fpu vme sse sse2 ssse3 sse4_1 sse4_2 pclmulqdq aes avx fma avx2 bmi2 erms hypervisor md_clear\nvmx flags\t: ept vpid\nbugs\t\t: cpu_meltdown\n\nprocessor\t: 1\nflags\t\t: md_clear hypervisor erms bmi2 avx2 fma avx aes pclmulqdq sse4_2 sse4_1 ssse3 sse2 sse vme fpu\n",
   "kernel": "e3b0c44298fc1c14",
-  "kept": "aes pclmulqdq sse4_1 ssse3",
+  "kept": "aes avx2 bmi2 pclmulqdq sse4_1 ssse3",
   "machine": "x86_64",
   "name": "x86-nokernel",
   "osrelease": null,
@@ -82,7 +82,7 @@
  {
   "cpuinfo": "processor\t: 0\nvendor_id\t: GenuineIntel\nflags\t\t: fpu vme sse sse2 ssse3 sse4_1 sse4_2 pclmulqdq aes avx fma avx2 bmi2 erms hypervisor md_clear\nvmx flags\t: ept vpid\nbugs\t\t: cpu_meltdown\n\nprocessor\t: 1\nflags\t\t: md_clear hypervisor erms bmi2 avx2 fma avx aes pclmulqdq sse4_2 sse4_1 ssse3 sse2 sse vme fpu\n",
   "kernel": "86fd0d69b7b0e37d",
-  "kept": "aes pclmulqdq sse4_1 ssse3",
+  "kept": "aes avx2 bmi2 pclmulqdq sse4_1 ssse3",
   "machine": "x86_64",
   "name": "x86-noversion",
   "osrelease": "6.17.0-1022-azure\n",
@@ -172,7 +172,7 @@
  {
   "cpuinfo": "flags : fpu sse sse2 ssse3 sse4_1 sse4_2 pclmulqdq aes avx fma avx2 bmi2 erms\n",
   "kernel": "86fd0d69b7b0e37d",
-  "kept": "aes pclmulqdq sse4_1 ssse3",
+  "kept": "aes avx2 bmi2 pclmulqdq sse4_1 ssse3",
   "machine": "x86_64",
   "name": "x86-base",
   "osrelease": "6.17.0-1022-azure\n",
@@ -182,7 +182,7 @@
  {
   "cpuinfo": "flags : fpu sse sse2 ssse3 sse4_1 sse4_2 pclmulqdq aes avx fma avx2 bmi2 erms fma4 avx512bw hypervisor md_clear\n",
   "kernel": "86fd0d69b7b0e37d",
-  "kept": "aes pclmulqdq sse4_1 ssse3",
+  "kept": "aes avx2 avx512bw bmi2 pclmulqdq sse4_1 ssse3",
   "machine": "x86_64",
   "name": "x86-extra",
   "osrelease": "6.17.0-1022-azure\n",
@@ -192,7 +192,7 @@
  {
   "cpuinfo": "flags : fpu sse sse2 ssse3 sse4_1 sse4_2 pclmulqdq avx fma avx2 bmi2 erms\n",
   "kernel": "86fd0d69b7b0e37d",
-  "kept": "pclmulqdq sse4_1 ssse3",
+  "kept": "avx2 bmi2 pclmulqdq sse4_1 ssse3",
   "machine": "x86_64",
   "name": "x86-no-aes",
   "osrelease": "6.17.0-1022-azure\n",
@@ -202,7 +202,7 @@
  {
   "cpuinfo": "flags : fpu sse sse2 ssse3 sse4_1 sse4_2 aes avx fma avx2 bmi2 erms\n",
   "kernel": "86fd0d69b7b0e37d",
-  "kept": "aes sse4_1 ssse3",
+  "kept": "aes avx2 bmi2 sse4_1 ssse3",
   "machine": "x86_64",
   "name": "x86-no-pclmulqdq",
   "osrelease": "6.17.0-1022-azure\n",
@@ -212,7 +212,7 @@
  {
   "cpuinfo": "flags : fpu sse sse2 ssse3 sse4_2 pclmulqdq aes avx fma avx2 bmi2 erms\n",
   "kernel": "86fd0d69b7b0e37d",
-  "kept": "aes pclmulqdq ssse3",
+  "kept": "aes avx2 bmi2 pclmulqdq ssse3",
   "machine": "x86_64",
   "name": "x86-no-sse4_1",
   "osrelease": "6.17.0-1022-azure\n",
@@ -222,7 +222,7 @@
  {
   "cpuinfo": "flags : fpu sse sse2 sse4_1 sse4_2 pclmulqdq aes avx fma avx2 bmi2 erms\n",
   "kernel": "86fd0d69b7b0e37d",
-  "kept": "aes pclmulqdq sse4_1",
+  "kept": "aes avx2 bmi2 pclmulqdq sse4_1",
   "machine": "x86_64",
   "name": "x86-no-ssse3",
   "osrelease": "6.17.0-1022-azure\n",
@@ -371,7 +371,7 @@
  {
   "cpuinfo": "processor\t: 0\nvendor_id\t: GenuineIntel\nflags\t\t: fpu vme sse sse2 ssse3 sse4_1 sse4_2 pclmulqdq aes avx fma avx2 bmi2 erms hypervisor md_clear\nvmx flags\t: ept vpid\nbugs\t\t: cpu_meltdown\n\nprocessor\t: 1\nflags\t\t: md_clear hypervisor erms bmi2 avx2 fma avx aes pclmulqdq sse4_2 sse4_1 ssse3 sse2 sse vme fpu\n",
   "kernel": "0de7cf39e1e63661",
-  "kept": "aes pclmulqdq sse4_1 ssse3",
+  "kept": "aes avx2 bmi2 pclmulqdq sse4_1 ssse3",
   "machine": "x86_64",
   "name": "x86-aws-7.0",
   "osrelease": "7.0.0-1014-aws\n",
@@ -381,7 +381,7 @@
 {
   "cpuinfo": "processor\t: 0\nvendor_id\t: GenuineIntel\nflags\t\t: fpu vme sse sse2 ssse3 sse4_1 sse4_2 pclmulqdq aes avx fma avx2 bmi2 erms hypervisor md_clear\nvmx flags\t: ept vpid\nbugs\t\t: cpu_meltdown\n\nprocessor\t: 1\nflags\t\t: md_clear hypervisor erms bmi2 avx2 fma avx aes pclmulqdq sse4_2 sse4_1 ssse3 sse2 sse vme fpu\n",
   "kernel": "0de7cf39e1e63661",
-  "kept": "aes pclmulqdq sse4_1 ssse3",
+  "kept": "aes avx2 bmi2 pclmulqdq sse4_1 ssse3",
   "machine": "x86_64",
   "name": "x86-azure-7.0",
   "osrelease": "7.0.0-1017-azure",
@@ -391,7 +391,7 @@
 {
   "cpuinfo": "processor\t: 0\nvendor_id\t: GenuineIntel\nflags\t\t: fpu vme sse sse2 ssse3 sse4_1 sse4_2 pclmulqdq aes avx fma avx2 bmi2 erms hypervisor md_clear\nvmx flags\t: ept vpid\nbugs\t\t: cpu_meltdown\n\nprocessor\t: 1\nflags\t\t: md_clear hypervisor erms bmi2 avx2 fma avx aes pclmulqdq sse4_2 sse4_1 ssse3 sse2 sse vme fpu\n",
   "kernel": "b3af4c46b211af3e",
-  "kept": "aes pclmulqdq sse4_1 ssse3",
+  "kept": "aes avx2 bmi2 pclmulqdq sse4_1 ssse3",
   "machine": "x86_64",
   "name": "x86-no-series",
   "osrelease": "custom-kernel\n",

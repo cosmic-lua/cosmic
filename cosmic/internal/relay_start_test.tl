@@ -11,15 +11,15 @@ local function test_the_relays_policy_differs_by_platform_only_in_what_holds_it(
   local linux = RelayStart.policy("/tmp/relay.db", DIGEST)
   local macos = RelayStart.policy("/tmp/relay.db", DIGEST, true)
   for _, policy in ipairs({ linux, macos }) do
-    local database = assert(policy.database)
+    local database = assert(assert(policy.setup).database)
     assert(database.path == "/tmp/relay.db" and database.sha256 == DIGEST)
     for _, grant in ipairs(Sandbox.paths(policy)) do
       assert(grant.letters == "r", grant.path .. " is granted " .. grant.letters)
     end
     assert(#Sandbox.connects(policy) == 0 and #Sandbox.calls(policy) == 0)
   end
-  assert(table.concat(assert(linux.isolate), ",") == "proc" and linux.profiles == nil)
-  assert(table.concat(assert(macos.profiles), ",") == "system" and macos.isolate == nil)
+  assert(table.concat(assert(linux.isolate), ",") == "proc" and #Sandbox.profiles(linux) == 0)
+  assert(table.concat(Sandbox.profiles(macos), ",") == "system" and macos.isolate == nil)
 end
 
 local function test_a_numeric_upstream_is_its_own_address_in_canonical_text()

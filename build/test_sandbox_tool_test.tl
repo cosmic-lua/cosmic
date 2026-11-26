@@ -11,7 +11,6 @@ local TestInputsFixture = require("build.test_inputs_fixture")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
-local this_program = require("build.this_program")
 local test_sandbox = require("build.test_sandbox")
 local fixture = require("build.test_sandbox_fixture")
 local Test = require("cosmic.test")
@@ -253,7 +252,7 @@ local function test_a_host_path_that_is_the_trees_is_refused_in_either_mode(tmp:
   assert(Fs.mkdirs(product))
   assert(Fs.write(product .. "/given.txt", "given"))
   assert(Fs.write(product .. "/sibling.txt", "sibling"))
-  local env = this_program.environment()
+  local env = Test.environment()
   env["COSMIC_VERDICT_CACHE"] = "0"
   env["COSMIC_TEST_ALL"] = nil
   env["COSMIC_SANDBOX"] = nil
@@ -280,7 +279,7 @@ end
 local function test_an_unsandboxed_run_reads_the_tree_and_a_platform_with_no_sandbox_says_so(tmp: string)
   local root, hidden = tmp .. "/root", tmp .. "/hidden"
   fixture.view_suite(tmp, root, hidden)
-  local env = this_program.environment()
+  local env = Test.environment()
   env["COSMIC_VERDICT_CACHE"] = "0"
   env["COSMIC_TEST_ALL"] = nil
   env["COSMIC_SANDBOX"] = nil
