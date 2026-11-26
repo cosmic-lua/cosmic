@@ -313,7 +313,7 @@ local function test_url_for_an_asset_the_source_lacks_says_so()
   assert(url == nil and why:find("no such asset", 1, true) ~= nil)
   local bare, bare_why = app:url_for("static", {})
   assert(bare == nil and bare_why ~= "")
-  assert(StaticFiles.url(files(), "/", "LICENSE") ==
+  assert(assert(StaticFiles.url(files(), "/", "LICENSE")) ==
       "/LICENSE." .. assert(files():get("LICENSE")).sha256:sub(1, 10))
   assert(assert(StaticFiles.url(files(), "/assets/v1", "docs/index.html")):find("^/assets/v1/docs/index%.%x+%.html$"))
 end

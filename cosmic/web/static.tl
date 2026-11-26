@@ -22,6 +22,7 @@
 --- @public
 
 local Assets = require("cosmic.web.assets")
+local Failure = require("cosmic.failure")
 local Mime = require("cosmic.mime")
 local Response = require("cosmic.web.response")
 local Route = require("cosmic.web.route")
@@ -317,21 +318,19 @@ end
 --- The URL of the asset at `path` under `prefix`, in its fingerprinted
 --- spelling: "/static/css/app.3f9a1c8e2b.css" for "css/app.css". A file
 --- read from disk is hashed again when it changes, so a page rendered after
---- an edit names the new content. Nil and why for a path the source does
---- not hold: a `href` to a typo is found when the page is made.
+--- an edit names the new content. Nil and a Failure for a path the source
+--- does not hold: a `href` to a typo is found when the page is made.
 --- @param source Assets.Source Where the files come from
 --- @param prefix string The mount's full prefix, "/static"
 --- @param path string The asset's path, "css/app.css"
---- @return string | nil The URL
---- @return string Why there is none
-function StaticFiles.url(source: Assets.Source, prefix: string, path: string): string?, string
+function StaticFiles.url(source: Assets.Source, prefix: string, path: string): (string) | (nil, Failure)
   local asset, why = source:get(path)
-  if asset == nil then return nil, why end
+  if asset == nil then return nil, Failure.new(why) end
   local parts: mut {string} = {}
   for part in fingerprinted(path, asset.sha256):gmatch("[^/]+") do
     parts[#parts + 1] = Url.escape(part)
   end
-  return (if prefix == "/" then "" else prefix end) .. "/" .. table.concat(parts, "/"), ""
+  return (if prefix == "/" then "" else prefix end) .. "/" .. table.concat(parts, "/")
 end
 
 --- The route for `prefix` serving `opts.source`: [`Web.mount_handler`]
@@ -353,7 +352,9 @@ function StaticFiles.mount(prefix: string, opts?: StaticFiles.Options): Types.Ro
     reverse = function(full: string, params: {string:string}): string?, string
       local path = params["path"]
       if path == nil then return nil, "static: url_for needs a 'path' parameter" end
-      return StaticFiles.url(source, full, path)
+      local url, why = StaticFiles.url(source, full, path)
+      if url == nil then return nil, tostring(why) end
+      return url, ""
     end })
 end
 
