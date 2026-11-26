@@ -1399,7 +1399,7 @@ function worker.invocation(given: worker.Invocation): worker.Command
   -- the runner was given already the core passes on as it starts the worker, so this is for `--profile`.
   local profile = given.profile
   if profile ~= nil then
-    env.COSMIC_PROFILE = if given.policy ~= nil then worker.profile_place else profile end -- checked: map_field
+    env["COSMIC_PROFILE"] = if given.policy ~= nil then worker.profile_place else profile end
     for _, name in ipairs({ "COSMIC_PROFILE_CLOCK", "COSMIC_PROFILE_HZ" }) do
       local value = Env.get(name)
       if value ~= nil and env[name] == nil then env[name] = value end
