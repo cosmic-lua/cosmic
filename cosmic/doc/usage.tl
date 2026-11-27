@@ -70,7 +70,7 @@ end
 
 --- The code `query` names exactly (`not_assignable`): its row of the catalog.
 function Usage.coded(view: View, query: string): {Entry}?, string
-  if query:match("^[%l_]+$") == nil then
+  if query:match("^%l[%l%d_]*$") == nil then
     return {}, ""
   end
   return coded_entries(view, "", "c.symbol = ?1", { text(query) }, 1)
