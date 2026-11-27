@@ -57,7 +57,7 @@ local record Agent
     --- holds what the task's truth and setup need, such as files written out in full.
     truth: string
     --- A bash command run in the run's copy once the agent ended: its output must be the truth's. `$tool` is the
-    --- path of the tool under test, for a task whose answer is a program to run.
+    --- path of the tool under test, for a task whose answer is a program to run, and `$files` as for the truth.
     check: string
     --- The project of eval/testdata the task works in, such as "shop", in place of `--fixture`: a small cosmic
     --- project of its own, whose builds and tests take a second, so a check may build it. Nil for `--fixture`.
@@ -573,6 +573,14 @@ local SHOP_MUTANTS <const> = {
   "/text:sub(-1) == \".\"/d",
 }
 
+--- The git tasks: the shop tree as a repository of six commits, made at eval time by cosmic.git, with no git
+--- program (eval/testdata/files/shop-git-commit/shop.tl). Names and dates are fixed, so every copy's commits have
+--- the same oids.
+local GIT_SHOP <const> = "\"$tool\" - < \"$files/../shop-git-commit/shop.tl\""
+--- What the shop-git-commit check reports, from cosmic.git: the last two subjects, what HEAD changed, what is left,
+--- who committed, HEAD's parent, and whether every object HEAD reaches reads.
+local GIT_COMMIT_REPORT <const> = "\"$tool\" - < \"$files/../shop-git-commit/report.tl\""
+
 local function shop_mutants(): string
   local out: mut {string} = { "kept=$(mktemp)", "cp money.tl \"$kept\"" }
   for _, m in ipairs(SHOP_MUTANTS) do
@@ -957,6 +965,26 @@ if (cd mini && $tool test > /dev/null 2>&1); then echo pass; else echo fail; fi]
       "such as `Text.center`, one a line, sorted.",
     truth = "cat \"$files/answer.txt\"",
     check = "LC_ALL=C sort -u answer.txt",
+  },
+  {
+    name = "shop-git-commit",
+    fixture = "shop",
+    setup = GIT_SHOP .. " && sed -i 's/the odd space after it/the odd space after it, trimmed first/' text.tl && " ..
+      "echo '-- Columns are padded.' >> report.tl && echo 'call the printer' > notes.txt",
+    prompt = "This tree is a git repository. Commit the change to text.tl alone, with the message " ..
+      "`text: note the trim rule`, on top of the current branch. Leave the change to report.tl and the file " ..
+      "notes.txt as they are, not committed.",
+    truth = "\"$tool\" - < \"$files/truth.tl\" && " .. GIT_COMMIT_REPORT,
+    check = GIT_COMMIT_REPORT,
+  },
+  {
+    name = "shop-git-history",
+    fixture = "shop",
+    setup = GIT_SHOP,
+    prompt = "This tree is a git repository. Write answer.txt: the subject (first line of the message) of each " ..
+      "commit on the current branch that changed money.tl, newest first, one a line.",
+    truth = "\"$tool\" - < \"$files/truth.tl\"",
+    check = "cat answer.txt",
   },
   {
     name = "fix-rle",
@@ -1400,7 +1428,8 @@ function Agent.execute(options: Agent.Options, system: Agent.System, key: string
           stop()
           if not ran then error(why, 0) end
           local truth = truths[task.name] or ""
-          local left = Agent.lines_of(own.run({ "bash", "-c", "tool=" .. quoted(tool.path) .. "; " .. task.check }, work, nil, 60).stdout)
+          local left = Agent.lines_of(own.run({ "bash", "-c", "tool=" .. quoted(tool.path) .. "; files=" ..
+              quoted((options.testdata or "") .. "/files/" .. task.name) .. "; " .. task.check }, work, nil, 60).stdout)
           local grade = "fail"
           if truth == "" then grade = "unfit" elseif left == truth then grade = "pass" end
           local spent = own.spent(tool.name, work:match("[^/]+$") or marker)

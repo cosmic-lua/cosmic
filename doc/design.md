@@ -160,7 +160,7 @@ kernel                               Linux; macOS
     sqlite3, its ext/misc functions  vendored, patched (patch/)
     mbedtls, miniz, curl, yyjson     vendored, patched (patch/)
     bzip2, xz, zstd, c-ares, expat,  vendored pristine
-    monocypher, nanopb
+    monocypher, nanopb, sha1dc
     argon2, a regex engine           intended
     syscall table                    C, one function per syscall
   cosmic binary
@@ -252,8 +252,9 @@ native, per target:
 - the Lua VM and SQLite.
 - mbedtls, which also serves hashing, HMAC, authenticated encryption,
   X25519, P-256 ECDSA and RSA PKCS #1 v1.5 signatures.
-- Monocypher for Ed25519 signatures, and nanopb for the Protocol
-  Buffers wire format.
+- Monocypher for Ed25519 signatures, nanopb for the Protocol
+  Buffers wire format, and sha1dc for SHA-1 with collision detection,
+  as git names objects.
 - miniz for deflate, yyjson for JSON, and expat for XML.
 - intended: argon2 and a regex engine.
 - the syscall table, the database VFS and the entry.
@@ -1197,7 +1198,7 @@ the build by name.
 
 vendored: Lua 5.5, the SQLite amalgamation and twelve of its ext/misc
 extensions, mbedtls, miniz, bzip2, xz's liblzma (decoder and LZMA2
-encoder), zstd, c-ares, curl, yyjson, expat, Monocypher, nanopb,
+encoder), zstd, c-ares, curl, yyjson, expat, Monocypher, nanopb, sha1dc,
 Mozilla's CA bundle, the IANA time zone database's compiled
 `zoneinfo`, and tl. intended: argon2's reference implementation, built
 without threads, and the regex engine. a library that needs a
