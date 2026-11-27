@@ -40,6 +40,31 @@ end
 
 --- The helpers a snippet composes, named for the commands they do as: find, read, edit, grep, sed, wc, sort, uniq; each
 --- raises where it fails, so a snippet needs no assert.
+--- Host.check reads a data file by its type, as its module reads it, and raises naming where it does not read; a
+--- type it has no check for is refused by name. These need no checker, so they run outside a worker.
+local function test_check_reads_a_data_file_by_its_type(tmp: string)
+  Host.write(tmp .. "/good.json", "{\"a\": [1, 2]}\n")
+  Host.check(tmp .. "/good.json")
+  Host.write(tmp .. "/bad.json", "{\"a\": [1, 2,]}\n")
+  Test.raises(function() Host.check(tmp .. "/bad.json") end, "host: check: " .. tmp .. "/bad.json does not pass: json: ")
+  Host.write(tmp .. "/rows.jsonl", "{\"a\": 1}\n{\"b\": 2}\n")
+  Host.check(tmp .. "/rows.jsonl")
+  Host.write(tmp .. "/rows.ndjson", "{\"a\": 1}\n{\"b\"\n")
+  Test.raises(function() Host.check(tmp .. "/rows.ndjson") end, "rows.ndjson does not pass: ")
+  -- A CSV file is read as Csv.table reads it: every record as wide as the header.
+  Host.write(tmp .. "/good.csv", { "name,n", "a,1", "\"b,c\",2" })
+  Host.check(tmp .. "/good.csv")
+  Host.write(tmp .. "/short.csv", { "name,n", "a,1", "b" })
+  Test.raises(function() Host.check(tmp .. "/short.csv") end, "short.csv does not pass: ")
+  Host.write(tmp .. "/open.CSV", { "name,n", "\"a,1" })
+  Test.raises(function() Host.check(tmp .. "/open.CSV") end, "open.CSV does not pass: ")
+  Host.write(tmp .. "/good.tsv", { "name\tn", "a,b\t1" })
+  Host.check(tmp .. "/good.tsv")
+  Host.write(tmp .. "/notes.txt", "x")
+  Test.raises(function() Host.check(tmp .. "/notes.txt") end, "notes.txt: no check for this type; it checks .tl, .json")
+  Test.raises(function() Host.check(tmp .. "/none.json") end, "host: read: ")
+end
+
 local function test_the_helpers_do_as_their_commands_do(tmp: string)
   assert(Fs.mkdirs(tmp .. "/d/sub"))
   Host.write(tmp .. "/d/a.tl", { "local x = 1", "-- TODO one" })
