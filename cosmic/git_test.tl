@@ -210,3 +210,91 @@ local function test_hostile_inputs_are_refused(tmp: string)
   assert(Fs.write(root .. "/.git/HEAD", "ref: refs/heads/main\n"))
   git(root, { "fsck", "--strict", "--no-dangling" })
 end
+
+--- Untracked files match `git status -uall`: ignore rules from
+--- `.gitignore` at each level, `info/exclude`, negation, anchors,
+--- directory-only rules and `**`, a nested repository, and a tracked
+--- file turned into a directory.
+local function test_untracked_agrees_with_git(tmp: string)
+  local root = scratch(tmp)
+  put(root, ".gitignore", "*.log\n!keep.log\nbuild/\n/top-only\ndeep/**/x\n# a comment\n\\#hash\n")
+  put(root, "keep.log", "kept\n")
+  put(root, "drop.log", "dropped\n")
+  put(root, "build/out", "built\n")
+  put(root, "top-only", "ignored at the top\n")
+  put(root, "dir/top-only", "not ignored below\n")
+  put(root, "deep/a/b/x", "ignored\n")
+  put(root, "deep/x", "ignored too\n")
+  put(root, "deep/y", "kept\n")
+  put(root, "#hash", "ignored\n")
+  put(root, "dir/.gitignore", "*.tmp\n!/dir-only.tmp\n")
+  put(root, "dir/a.tmp", "ignored\n")
+  put(root, "dir/dir-only.tmp", "kept\n")
+  put(root, "dir-x/excluded", "excluded\n")
+  put(root, ".git/info/exclude", "excluded\n")
+  put(root, "nested/x.txt", "nested\n")
+  git(root .. "/nested", { "init", "-q" })
+  assert(Fs.remove(root .. "/a.txt"))
+  put(root, "a.txt/inside", "a file where a file was\n")
+  local want: mut {string} = {}
+  for line in git(root, { "status", "--porcelain=v1", "-uall" }):gmatch("[^\n]+") do
+    if line:sub(1, 3) == "?? " then want[#want + 1] = line:sub(4) end
+  end
+  local status = assert(assert(Git.open(root)):status())
+  assert(table.concat(status.untracked, ",") == table.concat(want, ","),
+    table.concat(status.untracked, ",") .. " against " .. table.concat(want, ","))
+  local unstaged: mut {string} = {}
+  for _, c in ipairs(status.unstaged) do unstaged[#unstaged + 1] = c.kind .. " " .. c.path end
+  assert(table.concat(unstaged, ",") == "deleted a.txt", table.concat(unstaged, ","))
+end
+
+--- Config as git reads it: a value continued over lines, `include`,
+--- and `includeIf` on the gitdir and the branch.
+local function test_config_includes_agree_with_git(tmp: string)
+  local root = scratch(tmp)
+  put(root, ".git/extra.inc", "[user]\n\tname = Inc\\\n luded\n")
+  put(root, ".git/branch.inc", "[user]\n\temail = branch@example.com\n")
+  put(root, ".git/never.inc", "[user]\n\temail = never@example.com\n")
+  local config = assert(Fs.read(root .. "/.git/config"))
+  assert(Fs.write(root .. "/.git/config", config ..
+      "[include]\n\tpath = extra.inc\n" ..
+      "[includeIf \"gitdir:" .. Fs.absolute(root)! .. "/\"]\n\tpath = branch.inc\n" ..
+      "[includeIf \"onbranch:other\"]\n\tpath = never.inc\n"))
+  local repo = assert(Git.open(root))
+  put(root, "a.txt", "by an included identity\n")
+  assert(repo:add({ "a.txt" }))
+  assert(repo:commit({ message = "included" }))
+  local want = git(root, { "config", "user.name" }) .. git(root, { "config", "user.email" })
+  local got = git(root, { "log", "-1", "--format=%an%n%ae" })
+  assert(got == want and got == "Inc luded\nbranch@example.com\n", got .. " against " .. want)
+end
+
+--- A pack whose index cannot be read is skipped: the rest of the store
+--- still reads, and a missing object names the skipped pack.
+local function test_a_damaged_pack_index_is_skipped(tmp: string)
+  local root = scratch(tmp)
+  put(root, ".git/objects/pack/pack-0000000000000000000000000000000000000000.idx", "not an index")
+  local repo = assert(Git.open(root))
+  local first = trimmed(git(root, { "rev-parse", "HEAD~2" }))
+  assert(repo:rev("HEAD~2")! == first)
+  assert(repo:read(first))
+  local _, why = repo:read(string.rep("1", 40))
+  assert(tostring(why):find("skipped", 1, true) ~= nil, tostring(why))
+end
+
+--- Commit holds the index's lock: while git holds it, commit is
+--- refused and leaves the lock and HEAD as they were.
+local function test_commit_waits_for_no_index_lock(tmp: string)
+  local root = scratch(tmp)
+  local head = trimmed(git(root, { "rev-parse", "HEAD" }))
+  put(root, ".git/index.lock", "")
+  local repo = assert(Git.open(root))
+  local made, why = repo:commit({ message = "locked out", allow_empty = true })
+  assert(made == nil and tostring(why):find("lock", 1, true) ~= nil, tostring(why))
+  assert(Fs.read(root .. "/.git/index.lock")! == "")
+  assert(trimmed(git(root, { "rev-parse", "HEAD" })) == head)
+  assert(Fs.remove(root .. "/.git/index.lock"))
+  assert(repo:commit({ message = "unlocked", allow_empty = true }))
+  local lock, _ = Fs.read(root .. "/.git/index.lock")
+  assert(lock == nil)
+end
