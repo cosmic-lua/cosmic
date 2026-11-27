@@ -409,7 +409,9 @@ function declared_key.kept(digests: declared_key.Digests): {{string}}
   table.sort(paths)
   for _, path in ipairs(paths) do
     local was = digests.hashed[path]
+    -- A digest, or one of a carried database's rows ("rows\n" and a digest, [`projection`]'s).
     local said, hash = (was or ""):match("^([^\0]*)\0(%x+)$")
+    if said == nil then said, hash = (was or ""):match("^([^\0]*)\0(rows\n%x+)$") end
     if said ~= nil and hash ~= nil then out[#out + 1] = { path, said, hash } end
   end
   return out

@@ -47,71 +47,38 @@ end
 --- runs, and writes its cache, and nothing else: not the files whose lines
 --- set a later step's environment, nor the driver that step runs; of the
 --- job's variables it gets PATH and HOME alone.
---- `value` as JSON text, or "nil".
-local function encoded(value: Json.Value?): string
-  if value == nil then return "nil" end
-  local text, _ = Json.encode(value)
-  return tostring(text)
-end
-
 local function test_the_smoke_policy_grants_the_tool_and_its_cache_alone()
   local launcher: {string: boolean} = { uname = true, id = true, mkdir = true, stat = true, mktemp = true, dd = true,
     head = true, sha256sum = true, chmod = true, ln = true, rm = true, rmdir = true }
-  for _, in_setup in ipairs({ true, false }) do
-    local text = Prerelease.smoke_policy_text("/runner/release/cosmic", "/tmp/smoke-cache", in_setup)
-    local decoded, trouble = Json.decode(text)
-    local policy = assert(Json.object_of(decoded), tostring(trouble))
-    local granted: mut {string: boolean} = {}
-    local grants: mut {string} = {}
-    local calls: mut {string} = {}
-    local profiles: mut {string} = {}
-    local env: mut {string} = {}
-    local at = 0
-    for _, value in ipairs(assert(Json.array_of(policy["grants"]))) do
-      local grant = assert(Json.object_of(value))
-      local call, profile, name = grant["calls"], grant["profile"], grant["env"]
-      if type(call) == "string" then
-        calls[#calls + 1] = call
-      elseif type(profile) == "string" then
-        profiles[#profiles + 1] = profile
-      elseif type(name) == "string" then
-        env[#env + 1] = name
-      else
-        at = at + 1
-        local path, letters = tostring(grant["path"]), tostring(grant["letters"])
-        if at > 2 then
-          local program = path:match("^/usr/bin/(%w+)$") or path:match("^/bin/(%w+)$") or path:match("^/sbin/(%w+)$")
-          local kernel = path == "/proc/sys/kernel/ostype" or path == "/proc/sys/kernel/arch"
-          assert((program ~= nil and launcher[program] == true and letters == "rx") or
-              (kernel and letters == "r"), path .. " " .. letters)
-          if program ~= nil then granted[program] = true end
-        end
-        grants[#grants + 1] = path .. " " .. letters
-      end
+  local policy = Prerelease.smoke_policy("/runner/release/cosmic", "/tmp/smoke-cache")
+  local granted: mut {string: boolean} = {}
+  local grants: mut {string} = {}
+  for at, grant in ipairs(Sandbox.paths(policy)) do
+    local path, letters = grant.path, tostring(grant.letters)
+    if at > 2 then
+      local program = path:match("^/usr/bin/(%w+)$") or path:match("^/bin/(%w+)$") or path:match("^/sbin/(%w+)$")
+      local kernel = path == "/proc/sys/kernel/ostype" or path == "/proc/sys/kernel/arch"
+      assert((program ~= nil and launcher[program] == true and letters == "rx") or
+          (kernel and letters == "r"), path .. " " .. letters)
+      if program ~= nil then granted[program] = true end
     end
-    assert(table.concat(grants, ",", 1, 2) == "/runner/release/cosmic rx,/tmp/smoke-cache rwxc",
-      table.concat(grants, ","))
-    for name in pairs(launcher) do
-      assert(granted[name] == true, "the launcher's " .. name .. " is not granted")
-    end
-    assert(table.concat(calls, ",") == "fork,fattr" and policy["promises"] == nil, text)
-    if in_setup then
-      assert(table.concat(env, ",") == "PATH,HOME" and policy["env"] == nil, text)
-      assert(table.concat(profiles, ",") == "system" and policy["profiles"] == nil, text)
-    else
-      assert(encoded(policy["env"]) == '["PATH","HOME"]' and #env == 0, text)
-      assert(encoded(policy["profiles"]) == '["system"]' and #profiles == 0, text)
-    end
-    -- What the start sets up is a `setup` of its own in both forms.
-    local set_env = assert(Json.object_of(policy["setup"]))["set_env"]
-    assert(policy["set_env"] == nil, text)
-    assert(encoded(set_env) == '{"COSMIC_PORTABLE_CACHE":"/tmp/smoke-cache"}', text)
-    assert(policy["isolate"] == nil and policy["connect"] == nil, text)
+    grants[#grants + 1] = path .. " " .. letters
   end
-  -- The running cosmic reads one of the two forms.
-  local taken = Prerelease.smoke_policy("/runner/release/cosmic", "/tmp/smoke-cache")
+  assert(table.concat(grants, ",", 1, 2) == "/runner/release/cosmic rx,/tmp/smoke-cache rwxc",
+    table.concat(grants, ","))
+  for name in pairs(launcher) do
+    assert(granted[name] == true, "the launcher's " .. name .. " is not granted")
+  end
+  local calls, env, profiles = Sandbox.calls(policy), Sandbox.env(policy), Sandbox.profiles(policy)
+  assert(table.concat(calls, ",") == "fork,fattr", table.concat(calls, ","))
+  assert(table.concat(env, ",") == "PATH,HOME", table.concat(env, ","))
+  assert(table.concat(profiles, ",") == "system", table.concat(profiles, ","))
+  assert(#Sandbox.connects(policy) == 0 and policy.isolate == nil, "the smoke reaches no host and is not isolated")
+  local set_env = assert(assert(policy.setup).set_env)
+  assert(set_env["COSMIC_PORTABLE_CACHE"] == "/tmp/smoke-cache" and next(set_env, "COSMIC_PORTABLE_CACHE") == nil)
+  -- The running cosmic takes it.
   local digest = Hash.hex_sha256("/tmp/smoke-cache")
-  local written = PolicyJson.encode((assert(Sandbox.union(taken))))
+  local written = PolicyJson.encode((assert(Sandbox.union(policy))))
   assert(written:find('"set_env_digests":{"COSMIC_PORTABLE_CACHE":"' .. digest .. '"}', 1, true) ~= nil, written)
 end
 
