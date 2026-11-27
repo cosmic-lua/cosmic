@@ -41,7 +41,7 @@ local function test_the_run_description_is_its_template_filled()
   assert(tool.description:find("-> {{path, line, text}}:", 1, true) ~= nil, tool.description)
   assert(tool.description:find("^Run a program in cosmic, ") ~= nil, tool.description)
   -- No line ending after the example's last line, as the words were before the template.
-  assert(tool.description:sub(-4) == " end", tool.description)
+  assert(tool.description:sub(-6) == "\", \"))", tool.description)
 end
 
 local function test_tools_are_values_to_pick_and_make()
