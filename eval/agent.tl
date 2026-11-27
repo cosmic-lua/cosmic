@@ -1340,6 +1340,8 @@ function Agent.execute(options: Agent.Options, system: Agent.System, key: string
               "the build directory of " .. task.name .. "'s copy was not named: " .. found.stderr)
             program = directory .. "/bin/cosmic"
             own.retarget(tool.path, program, work)
+            -- The sandbox grants a deep `bin` on PATH as its parent (cosmic/agent/policy.tl): this copy's own build
+            -- directory, which its commands build into all the same.
             if bin ~= nil then run_env["PATH"] = directory .. "/bin:" .. (run_env["PATH"] or "") end
           end
           local argv: mut {string} = { program, "agent", "ask", "--model", options.model }
@@ -1904,7 +1906,13 @@ local function real(out: string): Agent.System
     local parent = to:match("^(.*)/[^/]*$")
     if parent ~= nil and parent ~= "" then assert(Fs.mkdirs(parent)) end
     local real_root = assert(sys.realpath(root))
-    assert(Fs.write(to, ArtifactRow.with(assert(Fs.read(from)), to .. ".retarget.db", real_root)))
+    -- A tool named bare, as `--tool t=cosmic` names it, is the one on PATH, as [`real`]'s `run` finds it.
+    local source = from
+    if from:find("/", 1, true) == nil then
+      local found, _ = Proc.find(from)
+      source = found or from
+    end
+    assert(Fs.write(to, ArtifactRow.with(assert(Fs.read(source)), to .. ".retarget.db", real_root)))
     -- rwxr-xr-x
     assert(Fs.chmod(to, 493))
   end

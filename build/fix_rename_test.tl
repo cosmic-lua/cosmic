@@ -61,6 +61,16 @@ local function test_a_member_is_renamed_through_an_alias(tmp: string)
   assert((result.stdout .. result.stderr):find("fix: 2 Teal files", 1, true), result.stdout .. result.stderr)
 end
 
+--- The run after a rename builds each file that binds the module by `require` too, where a use `cosmic uses` missed
+--- would hide, and not the others.
+local function test_the_run_after_a_rename_covers_the_files_that_require_the_module(tmp: string)
+  local project = project_in(tmp)
+  assert(Fs.write(project .. "/till.tl", "local Money = require(\"money\")\n\nlocal _ = Money\n"))
+  local result = cosmic(project, { "fix", "--rename", "Money.format=render" })
+  assert(result.code == 0, result.stdout .. result.stderr)
+  assert((result.stdout .. result.stderr):find("fix: 3 Teal files", 1, true), result.stdout .. result.stderr)
+end
+
 --- A field is renamed where it is declared and read, and at the key of a table literal and the write, which no use
 --- lists: the tree builds after.
 local function test_a_field_is_renamed_at_its_keys_and_writes(tmp: string)
