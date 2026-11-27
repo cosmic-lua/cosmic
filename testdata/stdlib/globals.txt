@@ -244,6 +244,8 @@ value loadfile: function(p1?: string, p2?: StandardLibrary.LoadMode, p3?: {strin
 value loadfile: function(p1?: string, p2?: string, p3?: {string: any}): ((function(...: any): any...)?, string?)
 value loadfile: function<T>(p1?: string, p2?: StandardLibrary.LoadMode, p3?: {string: T}): ((function(...: any): any...)?, string?)
 value loadfile: function<T>(p1?: string, p2?: string, p3?: {string: T}): ((function(...: any): any...)?, string?)
+value must: function<T>(T?): T
+value must: function<T, U>(T?, U, ...: any): T, U, any...
 value next: function<T is Key, U>({T: U}, p2?: T): T?, U?
 value next: function<T>({T}, p2?: integer): integer?, T?
 value pairs: function<T is Key, U>({T: U}): ((function({T: U}, p2?: T): T, U), {T: U}, T)

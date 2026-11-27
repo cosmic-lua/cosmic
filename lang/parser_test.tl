@@ -345,11 +345,11 @@ local function test_a_call_opens_on_its_line()
 end
 
 --- `e!` is a call of `assert` on `e`, whose name holds no token, and the suffixes after it read on.
-local function test_a_must_is_a_call_of_assert()
-  same(tree("local x = f()!"), "(Local \"local\" [(Binding \"x\")] _ [(Call (Name \"assert\") [(Call (Name \"f\"))])])",
+local function test_a_must_is_a_call_of_must()
+  same(tree("local x = f()!"), "(Local \"local\" [(Binding \"x\")] _ [(Call (Name \"must\") [(Call (Name \"f\"))])])",
     "a call")
   same(tree("local x = t.a!:upper()"),
-    "(Local \"local\" [(Binding \"x\")] _ [(MethodCall (Call (Name \"assert\") [(Field (Name \"t\") \"a\")]) \"upper\")])",
+    "(Local \"local\" [(Binding \"x\")] _ [(MethodCall (Call (Name \"must\") [(Field (Name \"t\") \"a\")]) \"upper\")])",
     "a method after it")
 end
 
