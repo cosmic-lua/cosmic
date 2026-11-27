@@ -1303,20 +1303,21 @@ function Json.string_of(v?: Json.Value): string?
   return nil
 end
 
---- `v` as a number where it is one, nil where it is not, as [`Json.object_of`] tells an object.
+--- The number `v` holds, an integer or a float; nil for a value of any other kind, so the string `"1"` is none here.
 function Json.number_of(v?: Json.Value): number?
   if v is number then return v end
   return nil
 end
 
---- `v` as an integer where it is a number with no fraction (`3` and `3.0`), nil where it is not, as
---- [`Json.object_of`] tells an object.
+--- The whole number `v` holds, an integer even where the text wrote `3.0`; nil for a fraction or for a value
+--- that is no number.
 function Json.integer_of(v?: Json.Value): integer?
   if v is number then return math.tointeger(v) end
   return nil
 end
 
---- `v` as a boolean where it is one, nil where it is not, as [`Json.object_of`] tells an object.
+--- `true` or `false` where `v` is a JSON boolean, nil for anything else, [`Json.null`] among them: it keeps a `false`
+--- that `v or default` would drop.
 function Json.boolean_of(v?: Json.Value): boolean?
   if v is boolean then return v end
   return nil
