@@ -139,7 +139,16 @@ never writes over a file that is there, nor through a symbolic link.
 `cosmic profile <dir>` prints the spans, then the functions with the most
 time of their own and in their stack. `--by line` lists the lines,
 `--by process` the processes, and `--folded` prints folded stacks for a
-flame graph tool.
+flame graph tool. `cosmic --profile <dir> <file.tl>` (or any verb) runs
+the command with the variable set.
+
+`--per-process` adds a row under each span for each process that closed
+one, so a fanned run shows which worker spent a phase's time.
+`--against <old-dir>` sets each span's time beside an older run's, with
+the change. A module the store holds numbered by instruction, with no
+line information, is placed at its source lines through the working
+directory's build; where there is none, a frame names the instruction
+(`module:#k`).
 
 The profile holds what a process loads and how much memory it holds too.
 Each module loaded from the store is a span `[require:<module>]` while its

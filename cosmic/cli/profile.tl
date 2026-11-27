@@ -22,6 +22,11 @@
 --- - `--top N` is how many rows each list has (default 25).
 --- - `--process PID` reads the profile of that process alone. A process in a sandbox has the pid it has there,
 ---   so each sandboxed test worker is pid 2: its command line tells it apart.
+--- - `--per-process` adds a row under each span for each process that closed one (its count, wall and CPU time, its
+---   file and its command), most CPU first: which of a fanned run's workers spent a phase's time.
+--- - `--against OLD` compares the spans with those of an older run's profiles (a directory, a file or `-`): each
+---   span's wall and CPU time then and now, and the change. It takes `--by span` or no `--by`, not `--per-process`;
+---   `--process` keeps a process of the newer run alone.
 --- - `--folded` prints each stack and its microseconds on a line (`a;b;c 1234`), the spans first, for a flame graph
 ---   tool.
 ---
@@ -38,6 +43,7 @@ local command: Flags.Command = {
     { line = "prof", about = "the report of every profile in prof/" },
     { line = "--by line --top 10 prof", about = "the ten lines with the most time" },
     { line = "--folded prof", about = "folded stacks, for a flame graph" },
+    { line = "--against old-prof prof", about = "each span's time against an older run's" },
   },
   spec = {
     ["--by"] = { value = "kind", about = "print one list: functions by own time, stacks, lines, spans, processes or modules loaded",
@@ -45,6 +51,8 @@ local command: Flags.Command = {
     ["--top"] = { value = "n", about = "the rows of each list", integer = { min = 1, max = 100000 }, default = "25" },
     ["--process"] = { value = "pid", about = "read the profile of this process alone", integer = { min = 1 } },
     ["--folded"] = { about = "print each stack and its microseconds, for a flame graph tool" },
+    ["--per-process"] = { about = "under each span, a row for each process that closed one" },
+    ["--against"] = { value = "dir", about = "compare each span's time with an older run's profiles" },
   },
 }
 

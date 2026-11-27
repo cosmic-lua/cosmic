@@ -1030,10 +1030,65 @@ local RETIRED_FLAGS <const>: {string: string} = {
   ["--check-format"] = "use `cosmic fix --check`",
 }
 
+--- `cosmic --profile <dir> <command...>`: runs the command with `COSMIC_PROFILE=<dir>`, so each cosmic process
+--- of it writes `<dir>/<pid>.prof` (`cosmic help profile`). The core reads the variable as it starts, before any
+--- Lua runs, so this process starts the tool again with it set, and exits as that child does (128 plus the signal
+--- that ended it); one that has it set already runs the command. 2 for a line it refuses, 1 where it cannot start
+--- the child.
+--- @param argv the command line, `--profile` at slot 1
+--- @param main what runs the command where the variable is set already
+local function profiled(argv: {string}, main: function({string}): integer): integer
+  local dir = argv[2]
+  if dir == nil or dir == "" or dir:sub(1, 1) == "-" or argv[3] == nil then
+    log:complain("--profile takes a directory and the command to profile, `cosmic --profile <dir> <file.tl> " ..
+        "[args]` or `cosmic --profile <dir> <verb> ...`, not " .. (if dir == nil then "nothing" else dir end) ..
+        "; see `cosmic help profile`")
+    return 2
+  end
+  local rest: mut {string} = {}
+  for slot = 3, #argv do rest[#rest + 1] = argv[slot] end
+  local Env = require("cosmic.env")
+  if Env.get("COSMIC_PROFILE") == dir then
+    return main(rest)
+  end
+  -- Made with its parents, as `cosmic test --profile` makes it: the core makes the last name alone.
+  local made, made_trouble = require("cosmic.fs").mkdirs(dir)
+  if not made then
+    log:complain("--profile: " .. tostring(made_trouble))
+    return 1
+  end
+  local Proc = require("cosmic.proc")
+  local relaunch, trouble = Proc.relaunch()
+  if relaunch == nil then
+    log:complain("--profile: cannot start the tool again: " .. tostring(trouble))
+    return 1
+  end
+  local environment = Env.all()
+  for name, value in pairs(relaunch.env) do environment[name] = value end
+  environment["COSMIC_PROFILE"] = dir
+  local again: mut {string} = {}
+  for _, given in ipairs(relaunch.argv) do again[#again + 1] = given end
+  for _, given in ipairs(rest) do again[#again + 1] = given end
+  -- A child, not an exec: the tool's descriptors (its artifact's) are closed across an exec.
+  local Child = require("cosmic.child")
+  local result, run_trouble = Child.run(again, { env = environment, fds = relaunch.fds, cwd = relaunch.cwd,
+    timeout_ns = Child.FOREVER, process_group = false })
+  if result == nil then
+    log:complain("--profile: cannot start the tool again: " .. tostring(run_trouble))
+    return 1
+  end
+  local code = result.code
+  if code ~= nil then return code end
+  return 128 + (result.signal or 0)
+end
+
 --- Runs the command line and returns its exit code.
 --- @param argv the command line, the verb at slot 1
 function Dispatch.main(argv: {string}): integer
   local word = argv[1]
+  if word == "--profile" then
+    return profiled(argv, Dispatch.main)
+  end
   -- `run`, `eval` and `version` name the pages `cosmic help run`, `help eval` and `help version`, so each word is
   -- taken as its page's short form: `eval` as `-e`, `version` as `--version` and `run <file>` as `<file>`.
   local second_word = argv[2]
