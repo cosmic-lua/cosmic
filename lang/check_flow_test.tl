@@ -339,7 +339,7 @@ end
 
 local function test_a_narrowing_declaration_is_proved_of_the_argument_and_not_of_a_parameter_the_body_assigns()
   assert(codes_of("local function is_s(v: string?): v is string\n  v = \"x\"\n  return v ~= nil\nend\n"):find("narrows_unproved", 1, true) == 1)
-  assert(codes_of("local function must(v: string?): asserts v is string\n  v = \"x\"\n  if v == nil then\n    error(\"no\")\n  end\nend\n"):find("narrows_unproved", 1, true) == 1)
+  assert(codes_of("local function holds(v: string?): asserts v is string\n  v = \"x\"\n  if v == nil then\n    error(\"no\")\n  end\nend\n"):find("narrows_unproved", 1, true) == 1)
   assert(codes_of("local function is_s(v: string?): v is string\n  if v == nil then\n    v = \"x\"\n  end\n  return v ~= nil\nend\n"):find("narrows_unproved", 1, true) == 1)
   -- A copy that the body assigns leaves the parameter as it came.
   stands("local function is_s(v: string?): v is string\n  local w = v\n  w = \"x\"\n  print(w)\n  return v ~= nil\nend\n" ..
@@ -381,8 +381,8 @@ local function test_a_function_may_assign_a_local_around_it_and_the_checker_neve
   refused("local x: string? = nil\nlocal function clear()\n  x = nil\nend\nx = \"abc\"\nprint(#x)\n", "nil_not_allowed")
   refused("local function f(x: string?): integer\n  local function clear()\n    x = nil\n  end\n  if x ~= nil then\n    return #x\n  end\n  return 0\nend\n",
     "nil_not_allowed")
-  refused("local function must(v: string?): asserts v is string\n  if v == nil then\n    error(\"no\")\n  end\nend\n" ..
-      "local x: string? = find()\nlocal function clear()\n  x = nil\nend\nmust(x)\nprint(#x)\n", "nil_not_allowed")
+  refused("local function holds(v: string?): asserts v is string\n  if v == nil then\n    error(\"no\")\n  end\nend\n" ..
+      "local x: string? = find()\nlocal function clear()\n  x = nil\nend\nholds(x)\nprint(#x)\n", "nil_not_allowed")
   -- No regression: a local no function assigns narrows as before, beside one that is assigned.
   stands("local x: string? = nil\nlocal z: string? = find()\nlocal function clear()\n  x = nil\nend\nif z ~= nil then\n  print(#z)\nend\n", "2")
   stands("local x: string? = find()\nlocal g = function(): integer\n  if x ~= nil then\n    return #x\n  end\n  return 0\nend\nprint(g())\n", "2")

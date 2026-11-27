@@ -437,6 +437,10 @@ do
     -- `A | nil` straight back.
     assert: function<A>(v: A?): A
     assert: function<A, B>(v: A?, message: B, ...: any): (A, B, any...)
+    -- What `v!` calls: `v` where it is not nil, `false` among them, and a raise
+    -- of `message` (a Failure as it is) where it is nil.
+    must: function<A>(v: A?): A
+    must: function<A, B>(v: A?, message: B, ...: any): (A, B, any...)
 
     collectgarbage: function(opt?: CollectGarbageCommand): number
     collectgarbage: function(opt: CollectGarbageStep, arg?: integer): boolean
@@ -570,6 +574,7 @@ do
 
   global arg <const> = StandardLibrary.arg
   global assert <const> = StandardLibrary.assert
+  global must <const> = StandardLibrary.must
   global collectgarbage <const> = StandardLibrary.collectgarbage
   global dofile <const> = StandardLibrary.dofile
   global error <const> = StandardLibrary.error

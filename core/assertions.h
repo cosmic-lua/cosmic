@@ -9,7 +9,11 @@
 
 #include "lua.h"
 
-/* Pushes the table of `assert`, `count` and `reset`, declared by
+/* The global `must`, which `v!` calls: its arguments where the first is
+ * not nil, and a raise of the second (or "the value before `!` is nil") where it is. */
+int cosmic_must (lua_State *L);
+
+/* Pushes the table of `assert`, `must`, `count` and `reset`, declared by
  * cosmic/internal/assertions.d.tl. Its count lives in the registry, so
  * every closure of one state shares it. */
 int cosmic_open_assertions (lua_State *L);

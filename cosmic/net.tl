@@ -1092,8 +1092,8 @@ function Net.connect(address: Net.Address, opts?: Net.ConnectOptions): (Net.Conn
 end
 
 --- Raises for the spec's `field`, at the caller of [`Net.serve`].
-local function spec_error(field: string, must: string): never
-  error("net: spec." .. field .. " must be " .. must, 4)
+local function spec_error(field: string, wanted: string): never
+  error("net: spec." .. field .. " must be " .. wanted, 4)
 end
 
 --- Raises, naming the field, where `spec` holds a value the server cannot take.

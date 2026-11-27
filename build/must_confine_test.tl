@@ -84,10 +84,10 @@ local function test_the_sandbox_mode_holds_confine_to_must_confine(tmp: string)
   local probe = fixture.probe(tmp)
   local plain = fixture.run(tmp, "mode", { probe, tmp })
   assert(plain.code == 0 and fixture.field(plain, "fell_back") == "ok", plain.text)
-  local must = fixture.run(tmp, "mode", { probe, tmp }, { COSMIC_SANDBOX = "must" })
-  assert(must.code == 0, must.text)
-  assert(fixture.field(must, "fell_back"):find("^confine %(COSMIC_SANDBOX=must%): .*could not start confined: " ..
-      "unveil could not be applied: ") ~= nil, must.text)
+  local held = fixture.run(tmp, "mode", { probe, tmp }, { COSMIC_SANDBOX = "must" })
+  assert(held.code == 0, held.text)
+  assert(fixture.field(held, "fell_back"):find("^confine %(COSMIC_SANDBOX=must%): .*could not start confined: " ..
+      "unveil could not be applied: ") ~= nil, held.text)
   local misspelt = fixture.run(tmp, "mode", { probe, tmp }, { COSMIC_SANDBOX = "Must" })
   assert(misspelt.text:find('COSMIC_SANDBOX is "Must"', 1, true) ~= nil, misspelt.text)
 end
@@ -99,13 +99,13 @@ local function test_the_sandbox_mode_is_part_of_the_key_of_a_verdict(tmp: string
   local root = tmp .. "/root"
   assert(Fs.mkdirs(root .. "/suite"))
   assert(Fs.write(root .. "/suite/plain_test.tl", "local function test_plain()\n  assert(true)\nend\n"))
-  local function run(must: boolean): string
+  local function run(held: boolean): string
     local env = Test.environment()
     env["COSMIC_VERDICT_CACHE"] = "0"
     env["COSMIC_TEST_ALL"] = nil
     env["COSMIC_TEST_SANDBOX"] = nil
     env["COSMIC_SANDBOX"] = nil
-    if must then env["COSMIC_SANDBOX"] = "must" end
+    if held then env["COSMIC_SANDBOX"] = "must" end
     local started = Test.cosmic({ "test" }, { cwd = root, env = env, stdout = "capture", stderr = "stdout",
       timeout_ns = Clock.seconds(60) })
     local result = assert(Child.run(started.argv, started.options))
@@ -115,12 +115,12 @@ local function test_the_sandbox_mode_is_part_of_the_key_of_a_verdict(tmp: string
   assert(first:find("1 ran", 1, true) ~= nil, first)
   local again = run(false)
   assert(again:find("0 ran, 1 stood", 1, true) ~= nil, again)
-  local must = run(true)
+  local held = run(true)
   -- A run held to sandboxing fails where none of its workers can be, as this one's sandbox may leave them.
-  if must:find("no worker can be sandboxed here", 1, true) ~= nil then
-    Test.skip(confine.unsandboxed_reason(must))
+  if held:find("no worker can be sandboxed here", 1, true) ~= nil then
+    Test.skip(confine.unsandboxed_reason(held))
   end
-  assert(must:find("1 ran", 1, true) ~= nil and must:find("0 ran", 1, true) == nil, must)
+  assert(held:find("1 ran", 1, true) ~= nil and held:find("0 ran", 1, true) == nil, held)
 end
 
 --- Where the platform has no sandbox to confine with, a process under `must_confine` is refused, not run unconfined, and

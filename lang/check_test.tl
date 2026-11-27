@@ -221,15 +221,17 @@ local CASES <const>: {Case} = {
     code = "failure_ignored", at = { line = 2, column = 1 },
     source = "local f: function(): (true, integer) | (false, string) = function() return true, 1 end\nf()\n",
     msg = "`f()` answers one of 2 lists of values, one of which may be a failure, and as a statement it drops which one it answered",
-    fix = "bind its values and test the first (`local ok, why = f()`), match the call, raise where it fails with `f()!`, " ..
+    -- A failure told by `false` passes `!`, which raises at nil alone: `!` is not offered.
+    fix = "bind its values and test the first (`local ok, why = f()`), match the call, " ..
       "or discard them on purpose: `local _, _ = f()`",
   },
   {
-    -- Where `assert` cannot tell the lists apart, `!` is not offered.
+    -- A failure told by `nil` is raised by `!`, whose value may be false.
     code = "failure_ignored", at = { line = 2, column = 1 },
     source = "local f: function(): (boolean, integer) | (nil, string) = function() return true, 1 end\nf()\n",
     msg = "`f()` answers one of 2 lists of values, one of which may be a failure",
-    fix = "bind its values and test the first (`local v, why = f()`), match the call, or discard them on purpose: `local _, _ = f()`",
+    fix = "bind its values and test the first (`local v, why = f()`), match the call, raise where it fails with `f()!`, " ..
+      "or discard them on purpose: `local _, _ = f()`",
   },
   {
     code = "alternatives_as_value",
@@ -1441,27 +1443,28 @@ local function test_assert_of_an_optional_that_may_hold_a_boolean_is_refused()
 end
 
 --- The fix of a value that may be nil sends none that may hold a boolean to `assert(x)`, which is refused in turn: it is
---- named and said to be there. Any other value keeps `assert(x)`, and an array read keeps [`Array.at`].
+--- taken with `!`, which raises at nil alone, so a `false` passes. A map read of booleans is given no `or <default>`,
+--- which would replace a false, and an array read keeps [`Array.at`].
 local function test_the_fix_of_an_optional_that_may_hold_a_boolean_names_no_bare_assert()
   local array = first_error("local function f(flags: {boolean}): boolean\n  return flags[1]\nend\n", "index_may_be_nil")
-  assert(has(array.fix, "`Array.at(flags, 1)`") and has(array.fix, "`local v = flags[1]` then `assert(v ~= nil)`") and
+  assert(has(array.fix, "`Array.at(flags, 1)`") and has(array.fix, "or `flags[1]!`") and
       not has(array.fix, "assert(flags[1])") and not has(array.fix, "`or <default>` where"), array.fix)
   local map = first_error("local function f(seen: {string: boolean}, k: string): boolean\n  return seen[k]\nend\n",
     "index_may_be_nil")
-  assert(has(map.fix, "`local v = seen[k]` then `assert(v ~= nil)`") and not has(map.fix, "assert(seen[k])") and
+  assert(has(map.fix, "take it with `seen[k]!`") and not has(map.fix, "assert(seen[k])") and
       not has(map.fix, "or <default>"), map.fix)
   local name = first_error("local function f(x: boolean?): boolean\n  return x\nend\n", "nil_not_allowed")
-  assert(has(name.fix, "`assert(x ~= nil)`") and not has(name.fix, "`assert(x)`"), name.fix)
+  assert(has(name.fix, "take it with `x!`") and not has(name.fix, "`assert(x)`"), name.fix)
   local field = first_error("local record R\n  flag: boolean?\nend\nlocal function f(r: R): boolean\n  return r.flag\nend\n",
     "nil_not_allowed")
-  assert(has(field.fix, "`assert(v ~= nil)`") and not has(field.fix, "`assert(r.flag)`"), field.fix)
+  assert(has(field.fix, "take it with `r.flag!`") and not has(field.fix, "`assert(r.flag)`"), field.fix)
   local call = first_error("local function h(): boolean?\n  return nil\nend\nlocal b: boolean = h()\nprint(b)\n",
     "nil_not_allowed")
-  assert(has(call.fix, "`local v = h()` then `assert(v ~= nil)`") and not has(call.fix, "assert(h())"), call.fix)
+  assert(has(call.fix, "`local v = h()!`") and not has(call.fix, "assert(h())"), call.fix)
   -- Written as the fixes say, each checks.
-  assert(codes_of("local function f(flags: {boolean}): boolean\n  local v = flags[1]\n  assert(v ~= nil)\n  return v\nend\n") == "")
-  assert(codes_of("local function f(seen: {string: boolean}, k: string): boolean\n  local v = seen[k]\n  assert(v ~= nil)\n" ..
-      "  return v\nend\n") == "")
+  assert(codes_of("local function f(flags: {boolean}): boolean\n  return flags[1]!\nend\n") == "")
+  assert(codes_of("local function f(seen: {string: boolean}, k: string): boolean\n  return seen[k]!\nend\n") == "")
+  assert(codes_of("local function f(x: boolean?): boolean\n  return x!\nend\n") == "")
   -- A value that holds no boolean is taken with `assert` as before.
   local whole = first_error("local function f(xs: {integer}): integer\n  return xs[1]\nend\n", "index_may_be_nil")
   assert(has(whole.fix, "`Array.at(xs, 1)`") and has(whole.fix, "or `xs[1]!`"), whole.fix)

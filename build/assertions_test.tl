@@ -24,6 +24,34 @@ local function test_it_counts_each_call_through_a_tail_call_a_helper_and_a_captu
   assert(Assertions.count() == before + 4, "counted " .. tostring(Assertions.count()))
 end
 
+--- `v!` calls the global `must`, which the worker counts as it counts `assert`.
+local function test_a_must_is_counted()
+  local held: boolean? = false
+  Assertions.reset()
+  local _ = held!
+  assert(Assertions.count() == 1, "counted " .. tostring(Assertions.count()))
+end
+
+--- `must` passes `false` and raises at nil alone: with the reason it is given, a string gaining the caller's position.
+local function test_a_must_raises_at_nil_alone()
+  local function find(on: boolean?): (boolean) | (nil, string)
+    if on == nil then
+      return nil, "gone"
+    end
+    return on
+  end
+  assert(find(false)! == false)
+  local message = position_of(function()
+    local _ = find(nil)!
+  end)
+  assert(tostring(message):find("assertions_test:%d+: gone$"), tostring(message))
+  local bare = position_of(function()
+    local v: string? = nil
+    local _ = v!
+  end)
+  assert(tostring(bare):find(": the value before `!` is nil", 1, true), tostring(bare))
+end
+
 local function test_reset_starts_from_zero()
   assert(true)
   Assertions.reset()

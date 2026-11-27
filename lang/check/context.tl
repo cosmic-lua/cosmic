@@ -448,7 +448,7 @@ end
 --- The text of the tokens of `node`, cut at a length a message can hold.
 function Context.text_of(ctx: Ctx, node: Ast.Node): string
   local b = base_of(node)
-  -- The `assert` of `e!` is written nowhere: its name is its text.
+  -- The `must` of `e!` is written nowhere: its name is its text.
   if b.last < b.first and node.kind == "Name" then
     return node.text
   end
