@@ -285,7 +285,10 @@ end
 --- - "zstd": frames one after another, skippable frames among them,
 ---   and each frame's checksum where it has one.
 --- - "xz": streams and stream padding; the filters LZMA2, delta, x86
----   BCJ and ARM64 BCJ, and the checks CRC32, CRC64 and SHA-256.
+---   BCJ and ARM64 BCJ, and the checks CRC32, CRC64 and SHA-256, each
+---   verified, or none (`xz --check=none`). A stream that names a check
+---   the format reserves is refused with "unsupported xz integrity
+---   check", since none of it could be verified.
 --- - "bz2": streams one after another.
 function Compress.decoder(format: Compress.Format, opts?: Compress.DecodeOptions): (Compress.Stream) | (nil, Failure)
   if opts ~= nil and opts.max_bytes ~= nil then

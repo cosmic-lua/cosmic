@@ -61,19 +61,15 @@ conflict with the parent's squash.
   what changed, then the full suite, `timeout 2700 bin/cosmic test`
   ([`doc/testing.md`] says how long it takes).
 - `bin/cosmic fix --check .` when the change touches what the whole-tree
-  checks read. it takes 5 to 11 minutes (`timeout 2400`) where no
+  checks read, or a stdlib API that `ci/` or a file of
+  [`ci/bootstrap-files.txt`] uses: it also checks `ci/` with this tool and
+  with the pinned release ([`build/fix/ci_project.tl`]). it takes 5 to 11 minutes (`timeout 2400`) where no
   checkout of the host has checked the tree's files with the same
   checking code, and about 3 where one has: what a check found of a file
   is kept by the file's content, and the checkouts whose `cosmic fix`
   is the same bytecode on the same core share it
   ([`build/check_memo.tl`]). it says which of its checks it is on.
 - a change under `.github/`: `bin/cosmic test build/workflows_test.tl`.
-- a change to a module that a file of [`ci/bootstrap-files.txt`] requires
-  (the bootstrap's scripts, [`build/perf.tl`] and the others it lists), or
-  to one of those files: `../bin/cosmic-bootstrap cosmic_ci/driver.tl
-  check-islands` from `ci/`, with COSMIC_BOOTSTRAP unset. it type-checks
-  those files on the pinned release, which neither the full suite nor
-  `fix --check .` does, and pull request CI fails on it.
 - a change to the artifact format, the launcher or `cosmic build`:
   `bin/zig build boot -Dboot-cores=all` first, so that the tool carries
   every core and the tests that need one (`all_cores`) run rather than
@@ -81,9 +77,9 @@ conflict with the parent's squash.
 - a change to C, `ci/`, the launcher, startup, the artifact format or a
   fixture: [`ci/run-local`] (`ci/run-local fixtures` to re-run edited
   fixtures), and for C the checklist in [`doc/c.md`]. a change to `ci/`
-  also needs `../bin/cosmic fix --check` from `ci/`, a tree of its own
-  with its own build directory, and `../bin/cosmic-bootstrap fix --check .`,
-  the pinned release's check of the same files. its `fixtures/*_test.tl` run only under
+  also needs `bin/cosmic fix --check .` at the root, which checks `ci/`,
+  a tree of its own with its own build directory, with this tool and
+  with the pinned release. its `fixtures/*_test.tl` run only under
   the CI driver. run as root, [`ci/run-local`] runs the driver as an
   unprivileged user (`COSMIC_CI_LOCAL_USER`), as CI's runners are. the
   launcher fixture's core is a stand-in that checks nothing: a case about
@@ -331,7 +327,7 @@ the second stage compiles everything up to [`build.boot`]. The seed's source
 may use only what that release parses; a boot whose seed refuses it fails
 naming the file and line, and the pin must move to a release that parses it.
 a change to what the generator in [`lang/codegen.tl`] writes also differs from
-the seed, which the bridge refuses unless the change adds [`lang/SEED_DIFFERS`]
+the seed, which the bridge refuses unless the change adds `lang/SEED_DIFFERS`
 naming, one a line, each seed source whose Lua differs ([`lang/codegen.tl`], ...):
 source paths, no comments. a difference in a file not listed still fails the
 boot, as does a listed file that does not differ; the pin move that takes a
@@ -356,9 +352,9 @@ the tool named can be older than the tree's generator.
 [`build.fix.format`]: ../build/fix/format.tl
 [`build/ceilings_base.tl`]: ../build/ceilings_base.tl
 [`build/check_memo.tl`]: ../build/check_memo.tl
+[`build/fix/ci_project.tl`]: ../build/fix/ci_project.tl
 [`build/markers.tl`]: ../build/markers.tl
 [`build/paths.tl`]: ../build/paths.tl
-[`build/perf.tl`]: ../build/perf.tl
 [`build/seed.tl`]: ../build/seed.tl
 [`build/seed.txt`]: ../build/seed.txt
 [`build/seeded_boot.tl`]: ../build/seeded_boot.tl
@@ -374,5 +370,4 @@ the tool named can be older than the tree's generator.
 [`doc/testing.md`]: testing.md
 [`doc/writing.md`]: writing.md
 [`lang/codegen.tl`]: ../lang/codegen.tl
-[`lang/SEED_DIFFERS`]: ../lang/SEED_DIFFERS
 [`Proc.find`]: ../cosmic/proc.tl

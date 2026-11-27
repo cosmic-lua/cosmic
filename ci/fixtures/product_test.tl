@@ -34,6 +34,10 @@ Test.policy{
   },
   env = { "COSMIC_FIXTURE_TARGET", "COSMIC_FIXTURE_CODESIGN" },
   profiles = { "system" },
+  requires = {
+    "env:COSMIC_FIXTURE_TARGET",
+    "env:COSMIC_FIXTURE_CODESIGN",
+  },
 }
 
 local function expected_hashes(product: string): {string:string}

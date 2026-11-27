@@ -408,6 +408,29 @@ local function test_a_module_listing_lists_data_fields_under_their_record(dir: s
   assert(not text:find("More words", 1, true), text)
 end
 
+--- A module's listing puts its functions before its types, so an output cut to its start keeps the calls.
+local function test_a_module_listing_lists_its_functions_first(dir: string)
+  local db = built(dir, { ["cosmic/firsts.tl"] = source(
+    "--- Calls after records.",
+    "",
+    "local record firsts",
+    "  --- What it takes.",
+    "  record Options",
+    "    size: integer",
+    "  end",
+    "end",
+    "",
+    "--- Makes one.",
+    "function firsts.make(opts: firsts.Options): integer return opts.size end",
+    "",
+    "return firsts") })
+  local found = assert(Doc.lookup(view({ db }), "cosmic.firsts"))
+  local text = table.concat(assert(Doc.render(view({ db }), support.nth(found, 1))), "\n")
+  local call = text:find("function firsts.make", 1, true)
+  local record = text:find("record firsts.Options", 1, true)
+  assert(call ~= nil and record ~= nil and call < record, text)
+end
+
 --- An optional field (`name?: T`) is listed under its record as written,
 --- the `?` kept, with its first sentence.
 local function test_a_module_listing_shows_an_optional_field(dir: string)

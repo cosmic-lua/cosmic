@@ -40,11 +40,11 @@ local DENIED <const> = "Permission denied"
 local function restricted(policy: string, rest: string): string
   return string.format([[
 local restricted, restricted_why = Sandbox.restrict(%s)
-if not restricted and restricted_why:find("Landlock is not available here", 1, true) ~= nil then
+if not restricted and tostring(restricted_why):find("Landlock is not available here", 1, true) ~= nil then
   say("skip", restricted_why)
   return 0
 end
-say("restrict", restricted, restricted_why)
+say("restrict", restricted, if restricted_why == nil then "" else tostring(restricted_why) end)
 if not restricted then return 0 end
 %s
 ]], policy, rest)
@@ -131,7 +131,7 @@ local function test_a_later_x_grant_runs_no_program_after_none(tmp: string)
     string.format("{ grants = { { path = %q, letters = \"r\" } } }", probe),
     string.format([[
 local again, again_why = Sandbox.restrict({ grants = { { path = %q, letters = "rx" } } })
-say("again", again, again_why)
+say("again", again, if again_why == nil then "" else tostring(again_why) end)
 local why = require("cosmic.proc").exec({ %q, "print", "replaced" })
 say("exec", why)
 ]], probe, probe)))
@@ -160,7 +160,7 @@ local function test_two_restrictions_hold_what_intersect_answers(tmp: string)
   local said = Restrict.in_child(restricted(
     string.format("{ grants = { { path = %q, letters = \"rw\" } } }", tmp .. "/a"), string.format([[
 local again, again_why = Sandbox.restrict({ grants = { { path = %q, letters = "r" }, { path = %q, letters = "w" } } })
-say("again", again, again_why)
+say("again", again, if again_why == nil then "" else tostring(again_why) end)
 local held = assert(Sandbox.held())
 say("held", #assert(held.grants))
 %s
@@ -274,7 +274,7 @@ say("b", reads(%q))
 say("c", reads(%q))
 local second, second_why = Sandbox.restrict({ grants = { { path = %q, letters = "r" }, { path = %q, letters = "r" } },
   limits = { cpu_seconds = 100 } })
-say("second", second, second_why)
+say("second", second, if second_why == nil then "" else tostring(second_why) end)
 say("a2", reads(%q))
 say("b2", reads(%q))
 say("c2", reads(%q))
@@ -294,7 +294,7 @@ end
 local function test_a_later_limit_is_lowered_under_the_filter()
   local said = Restrict.in_child(restricted("{}", [[
 local second, second_why = Sandbox.restrict({ limits = { cpu_seconds = 5 } })
-say("second", second, second_why)
+say("second", second, if second_why == nil then "" else tostring(second_why) end)
 say("cpu", limit(sys.RLIMIT_CPU))
 ]]))
   assert(said.lines["second"] == "true " and said.lines["cpu"] == "5 5", said.raw)
@@ -308,7 +308,7 @@ local function test_stacked_restrictions_each_lower_a_limit()
 local seconds = { 50, 25, 10 }
 for i, n in ipairs(seconds) do
   local next_ok, next_why = Sandbox.restrict({ limits = { cpu_seconds = n } })
-  say("r" .. tostring(i), next_ok, next_why)
+  say("r" .. tostring(i), next_ok, if next_why == nil then "" else tostring(next_why) end)
   say("cpu" .. tostring(i), limit(sys.RLIMIT_CPU))
 end
 ]]))
@@ -357,7 +357,7 @@ local before: mut {integer:boolean} = {}
 for n = 3, 80 do
   if sys.fd_flags(n) ~= nil then before[n] = true end
 end
-say("first", Sandbox.restrict({ grants = { { path = %q, letters = "rw" } } }))
+do local ok, trouble = Sandbox.restrict({ grants = { { path = %q, letters = "rw" } } }); say("first", ok, if trouble == nil then "" else tostring(trouble) end) end
 local new: mut {integer} = {}
 for n = 3, 80 do
   if sys.fd_flags(n) ~= nil and before[n] == nil then new[#new + 1] = n end
@@ -367,7 +367,7 @@ say("slots", #new)
 assert(sys.close(slot))
 local fd = assert(sys.open(%q, sys.O_RDWR))
 say("reused", fd == slot)
-say("second", Sandbox.restrict({}))
+do local ok, trouble = Sandbox.restrict({}); say("second", ok, if trouble == nil then "" else tostring(trouble) end) end
 say("write", writes(%q))
 ]], tmp .. "/rw", which, tmp .. "/rw/f", tmp .. "/rw/f"))
   assert(said.lines["first"] == "true " and said.lines["slots"] == "3" and said.lines["reused"] == "true", said.raw)
@@ -392,7 +392,7 @@ local function test_a_named_descriptor_is_kept_and_the_path_it_was_opened_by_is_
   local said = Restrict.in_child(string.format([[
 local fd = assert(sys.open(%q, sys.O_RDONLY))
 local named, trouble = Sandbox.restrict({}, { fds = { fd } })
-say("named", named, trouble)
+say("named", named, if trouble == nil then "" else tostring(trouble) end)
 -- Reached whatever the grants say; the path is not.
 say("through", sys.read(fd, 10))
 say("after", reads(%q))
@@ -408,7 +408,7 @@ local function test_a_child_reaped_does_not_refuse(tmp: string)
 local running = assert(Child.start({ %q, "sleep-forever" }, { timeout_ns = Child.FOREVER, process_group = false }))
 assert(running:close())
 local after, trouble = Sandbox.restrict({})
-say("reaped", after, trouble)
+say("reaped", after, if trouble == nil then "" else tostring(trouble) end)
 ]], probe))
   assert(said.lines["reaped"] == "true ", said.raw)
 end

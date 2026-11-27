@@ -60,30 +60,30 @@ Test.policy{
     "http_proxy",
     "no_proxy",
   },
+  requires = {
+    "env:COSMIC_FIXTURE_COMPILES",
+    "env:COSMIC_FIXTURE_RUNTIME",
+    "env:COSMIC_FIXTURE_SOURCE",
+  },
 }
 
 local start, finish, supervised = Process.start, Process.finish, Process.supervised
 local fifo, await_ready, release = Process.fifo, Process.await_ready, Process.release
 -- A call that finds the tool stale rebuilds it from the tree first. Every
--- case but the docs verb's takes back the compiles the leg's boot made of
--- the tree ([`seeded_compiles`]), so it compiles only what it edited: what
--- they check is the rebuild's way through the lock, the artifact and the
--- re-entry, which a compile of every module only slows. The docs verb's
--- compiles the whole tree cold, as the product rebuilding itself on a
--- fresh checkout does, and that follows the tree: 140 to 177 s for its 952
--- modules, on four cores of a development host (the same cold compile of
--- 954 modules took 156 s), where it took 55 to 60 s for some 500 in
--- October 2026. A macOS runner took 90 s then (run 37630361708 timed out
--- at 90213 ms), and the merge queue run of #3102 XX
--- on the linux-x86_64 leg. The bound keeps 1.5 times the slowest of those host timings, as
--- #2834 did, and names a hung rebuild rather than a slow one. Five cold
--- compiles at once on four cores would take far longer each.
+-- case takes back the compiles the leg's boot made of the tree
+-- ([`seeded_compiles`]), so it compiles only what it edited: what they
+-- check is the rebuild's way through the lock, the artifact and the
+-- re-entry, which a compile of every module only slows. The leg's boot
+-- compiles the whole tree cold already. The docs verb's case and the
+-- refused test's once compiled it cold too, at once, and that followed the
+-- tree: 140 to 177 s for 952 modules on four cores of a development host,
+-- and on a three-core macOS runner beside the other cases it ran past this
+-- bound (push run 45879986997, 2026-11-26: "docs-rebuild: 270493 ms;
+-- timed_out=true"). The bound names a hung rebuild rather than a slow one.
 -- The driver bounds each test here at 300 s (orchestration.tl), which
 -- this leaves room inside.
--- TODO: this bound follows the tree (about 5% a day the week of October
--- 3) and will be passed again: report the docs case's elapsed time against
--- it, so the growth shows before it fails a run, and bring it back down
--- once a cold compile of the tree is quicker.
+-- TODO: bring this bound down to a few times a seeded rebuild's time once
+-- CI's fixture logs show that time on each leg.
 local rebuild_timeout_ns <const> = Clock.seconds(270)
 
 -- The `rename`/`unlink` cases' run once the rebuilt tool is released: it
@@ -491,8 +491,7 @@ end
 -- promise that a tool older than the tree rebuilds itself depends on for
 -- a verb other than `test`. A first call against an edited tree rebuilds
 -- once and shows the edit; a second, now-fresh call shows it again without
--- rebuilding again. It alone takes back no compiles, so the product
--- compiles every module of the tree itself.
+-- rebuilding again.
 local function test_self_rebuild_docs_verb(tmp: string)
   local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
   local case_root = tmp .. "/case-docs"
@@ -505,12 +504,16 @@ local function test_self_rebuild_docs_verb(tmp: string)
   local before_hash = Fixture.hash(program)
   apply_docs_marker_edit(tree)
 
-  local values = Fixture.environment({ COSMIC_PORTABLE_CACHE = cache })
+  local seed = seeded_compiles(case_root)
+  local since = Clock.now_ns()
+  local values = Fixture.environment({ COSMIC_PORTABLE_CACHE = cache,
+    COSMIC_BUILD_CACHE = seed.path })
   local outcome = Fixture.call_with_environment("docs-rebuild",
     { program, "docs", "cosmic.child" }, tree, diagnostics, values,
     rebuild_timeout_ns)
   assert(outcome.result.code == 0, "docs: exit status was " ..
       tostring(outcome.result.code) .. ", want 0")
+  took_compiles("docs", seed, since, Fixture.read(outcome.err))
   Fixture.contains(outcome.out, "step8-docs-marker")
   local stale_lines = Fixture.count_occurrences(Fixture.read(outcome.err),
     "the tool is stale; rebuilding it from the tree")
@@ -544,13 +547,17 @@ local function test_self_rebuild_past_a_refused_test(tmp: string)
   Fixture.write(tree .. "/build/zz_refused_test.tl",
     "local function test_refused()\n  local x: integer = \"no\"\n  assert(x)\nend\n")
 
-  local values = Fixture.environment({ COSMIC_PORTABLE_CACHE = cache })
+  local seed = seeded_compiles(case_root)
+  local since = Clock.now_ns()
+  local values = Fixture.environment({ COSMIC_PORTABLE_CACHE = cache,
+    COSMIC_BUILD_CACHE = seed.path })
   local outcome = Fixture.call_with_environment("refused-test-rebuild",
     { program, "docs", "cosmic.child" }, tree, diagnostics, values,
     rebuild_timeout_ns)
   local err = Fixture.read(outcome.err)
   assert(outcome.result.code == 0, "refused test: exit status was " ..
       tostring(outcome.result.code) .. ", want 0: " .. err)
+  took_compiles("refused test", seed, since, err)
   Fixture.contains(outcome.out, "step8-docs-marker")
   Fixture.contains(outcome.err, "build/zz_refused_test.tl")
   Fixture.contains(outcome.err, "only tests and test support are refused")

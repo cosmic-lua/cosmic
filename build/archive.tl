@@ -236,7 +236,7 @@ local function list(file: string, as_json: boolean, to: verb.Io): Outcome
         if entry.linkpath ~= "" then row["linkpath"] = entry.linkpath end
         rows[#rows + 1] = row
       end
-      local encoded, encode_why = Json.encode(Json.array(rows), { pretty = true })
+      local encoded, encode_why = Json.encode(Json.array(rows), { layout = "expanded" })
       if encoded == nil then return fail(bare.refused, tostring(encode_why)) end
       text = encoded .. "\n"
     else

@@ -582,7 +582,7 @@ local function test_a_ported_case_that_cosmic_takes_has_the_slots_its_place_give
   for _, case in ipairs(ACCEPTED) do
     local out, why = Template.compile(HEAD .. case.source .. case.tail, "t.tmpl")
     if out == nil then
-      wrong[#wrong + 1] = case.name .. ": refused: " .. why
+      wrong[#wrong + 1] = case.name .. ": refused: " .. tostring(why)
     elseif kinds_of(out) ~= case.kinds then
       wrong[#wrong + 1] = case.name .. ": " .. kinds_of(out) .. ", not " .. case.kinds
     end
@@ -597,8 +597,8 @@ local function test_a_ported_case_that_cosmic_refuses_is_refused_where_and_why_i
     local want = "t.tmpl:" .. case.line .. ":" .. case.column .. ": "
     if out ~= nil then
       wrong[#wrong + 1] = case.name .. ": compiled"
-    elseif why:sub(1, #want) ~= want or not why:find(case.reason, 1, true) then
-      wrong[#wrong + 1] = case.name .. " said " .. why .. ", not " .. want .. "..." .. case.reason
+    elseif tostring(why):sub(1, #want) ~= want or not tostring(why):find(case.reason, 1, true) then
+      wrong[#wrong + 1] = case.name .. " said " .. tostring(why) .. ", not " .. want .. "..." .. case.reason
     end
   end
   assert(#wrong == 0, table.concat(wrong, "\n"))
@@ -628,12 +628,12 @@ local function split_wrong(cases: {string}): {string}, integer
   local wrong: mut {string} = {}
   local checked = 0
   for _, body in ipairs(cases) do
-    local plain = Template.compile(HEAD .. body, "t.tmpl")
+    local plain, _ = Template.compile(HEAD .. body, "t.tmpl")
     for cut = 0, #body do
       local split = split_at(body, cut)
       if split ~= nil then
         checked = checked + 1
-        local out = Template.compile(HEAD .. split, "t.tmpl")
+        local out, _ = Template.compile(HEAD .. split, "t.tmpl")
         if out ~= nil and plain == nil then
           wrong[#wrong + 1] = string.format("%q compiled split at %d: %q", body, cut, split)
         elseif out ~= nil and plain ~= nil and kinds_of(out) ~= kinds_of(plain) then

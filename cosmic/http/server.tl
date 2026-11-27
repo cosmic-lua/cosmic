@@ -256,6 +256,8 @@ local record Server
     compress?: boolean | Compression
     --- As [`Net.ServeSpec.on_ready`].
     on_ready?: function(addresses: {Net.Address}, server: Net.Server)
+    --- As [`Net.ServeSpec.on_listen`].
+    on_listen?: function(addresses: {Net.Address}, server: Net.Server)
     --- As [`Net.ServeSpec.on_stop`]: called once, as the server begins
     --- to stop, in a task of its run. The server has by then marked
     --- itself stopping (a reply in flight is sent with `Connection:
@@ -315,7 +317,7 @@ local LINGER_BYTES <const> = 256 * KIB
 
 local SPEC_FIELDS <const>: {string:boolean} = {
   listeners = true, handle = true, limits = true, tls = true, clear = true, compress = true, timeout_ns = true, grace_ns = true,
-  idle_ns = true, head_ns = true, body_ns = true, on_ready = true, on_stop = true,
+  idle_ns = true, head_ns = true, body_ns = true, on_ready = true, on_listen = true, on_stop = true,
   on_error = true,
 }
 
@@ -489,58 +491,62 @@ local function linger(conn: Net.Conn)
   end
 end
 
---- Why `reply`, what a handler returned, is no reply the server can
---- send, or "".
-local function reply_trouble(reply: any): string
+--- True, or false and a Failure saying why `reply`, what a handler returned,
+--- is no reply the server can send.
+local function reply_trouble(reply: any): (true) | (false, Failure)
   if not reply is {any: any} then -- declared: key_type
-    return "the handler answered " .. type(reply) .. ", not a Server.Reply"
+    return false, Failure.new("the handler answered " .. type(reply) .. ", not a Server.Reply")
   end
   for key in pairs(reply) do -- checked: any_use
     if not (key is string and REPLY_FIELDS[key] == true) then
-      return "the reply has no field " .. tostring(key)
+      return false, Failure.new("the reply has no field " .. tostring(key))
     end
   end
   local status = reply.status -- checked: any_use
   if not (status is integer and status >= 200 and status <= 999) then
-    return "the reply's status must be an integer from 200 to 999"
+    return false, Failure.new("the reply's status must be an integer from 200 to 999")
   end
   local headers = reply.headers -- checked: any_use
   if headers ~= nil then
-    if not headers is {any: any} then return "the reply's headers must be a table" end -- declared: key_type
+    if not headers is {any: any} then -- declared: key_type
+      return false, Failure.new("the reply's headers must be a table")
+    end
     for name, value in pairs(headers) do
-      if not name is string then return "the reply's headers must map names to strings" end
+      if not name is string then
+        return false, Failure.new("the reply's headers must map names to strings")
+      end
       if value is {any: any} then -- declared: key_type
         -- A list: keys 1..n, all strings.
         local count = 0
         for key, line in pairs(value) do
           if not (key is integer and line is string) then
-            return "the reply's headers must map names to strings or lists of them"
+            return false, Failure.new("the reply's headers must map names to strings or lists of them")
           end
           count = count + 1
         end
         for i = 1, count do
           if value[i] == nil then
-            return "the reply's headers must map names to strings or lists of them"
+            return false, Failure.new("the reply's headers must map names to strings or lists of them")
           end
         end
       elseif not value is string then
-        return "the reply's headers must map names to strings or lists of them"
+        return false, Failure.new("the reply's headers must map names to strings or lists of them")
       end
     end
   end
   local body = reply.body -- checked: any_use
   if body ~= nil and not body is string and
       not (body is {any: any} and type(body.read) == "function" and type(body.close) == "function") then -- declared: key_type
-    return "the reply's body must be nil, a string or a Stream.Reader"
+    return false, Failure.new("the reply's body must be nil, a string or a Stream.Reader")
   end
   local length, close = reply.length, reply.close -- checked: any_use*2
   if length ~= nil and not length is integer then
-    return "the reply's length must be an integer"
+    return false, Failure.new("the reply's length must be an integer")
   end
   if close ~= nil and not close is boolean then
-    return "the reply's close must be a boolean"
+    return false, Failure.new("the reply's close must be a boolean")
   end
-  return ""
+  return true
 end
 
 --- Closes the Reader body of `reply`, what a handler returned, where it
@@ -563,14 +569,15 @@ end
 --- Content-Length that disagree. A test that calls a handler without a
 --- server asks it what the server would.
 ---
----     assert(Server.check({ status = 200, body = "hi" }) == "")
----     assert(Server.check({ status = 200, body = "hi", length = 5 }) ~= "")
+---     assert(Server.check({ status = 200, body = "hi" }))
+---     local ok, why = Server.check({ status = 200, body = "hi", length = 5 })
+---     assert(not ok and tostring(why):find("Content-Length", 1, true))
 --- @param reply Server.Reply The handler's result
 --- @param method string | nil The request's method
---- @return string Why it cannot be sent, or ""
-function Server.check(reply: Server.Reply, method?: string): string
-  local trouble = reply_trouble(reply)
-  if trouble ~= "" then return trouble end
+--- @return true | false True, or false and a Failure saying why it cannot be sent
+function Server.check(reply: Server.Reply, method?: string): (true) | (false, Failure)
+  local fine, trouble = reply_trouble(reply)
+  if not fine then return false, trouble end
   -- `check` reads no date: the one sent is made as the reply goes out.
   return wire.check({ status = reply.status, headers = reply.headers, body = reply.body,
     length = reply.length, method = method, date = "" })
@@ -892,15 +899,16 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
     return false
   end
   -- A handler is a Reply only by its declaration: it may return nothing.
-  local trouble: string
+  local fine: boolean
+  local trouble: Failure?
   if reply == nil then -- checked: compare_disjoint
-    trouble = reply_trouble(reply)
+    fine, trouble = reply_trouble(reply)
   else
-    trouble = Server.check(reply, head.method)
+    fine, trouble = Server.check(reply, head.method)
   end
-  if trouble ~= "" or reply == nil then -- checked: compare_disjoint
+  if not fine or reply == nil then -- checked: compare_disjoint
     drop_body(reply)
-    report(s, "http: " .. where .. ": " .. trouble)
+    report(s, "http: " .. where .. ": " .. tostring(trouble))
     answer(s, conn, head, 500, "")
     if body.state == "open" then linger(conn) end
     return false
@@ -1188,6 +1196,7 @@ function Server.serve(spec: Server.ServeSpec): (true) | (false, Failure)
     timeout_ns = s.timeout_ns,
     grace_ns = spec.grace_ns,
     on_ready = spec.on_ready,
+    on_listen = spec.on_listen,
     on_stop = function(server: Net.Server)
       s.stopping = true
       local idle: mut {Net.Conn} = {}

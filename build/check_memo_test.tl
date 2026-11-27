@@ -47,6 +47,20 @@ local function test_a_run_keeps_the_rows_it_used_and_drops_the_rest()
   assert(db:close())
 end
 
+--- A run that judged only some files keeps the rows it did not use, for the next whole run.
+local function test_a_partial_run_drops_no_row()
+  local db = assert(Sqlite.memory())
+  assert(check_memo.prepare(db, "k"))
+  check_memo.put(db, "k", "one", "1")
+  check_memo.put(db, "k", "two", "2")
+  check_memo.finish(db, "k")
+  assert(check_memo.prepare(db, "k"))
+  assert(check_memo.get(db, "k", "one") == "1")
+  check_memo.finish(db, "k", nil, true)
+  assert(check_memo.get(db, "k", "two") == "2", "a partial run dropped a row it did not use")
+  assert(db:close())
+end
+
 --- What one checkout's run wrote or used, a fresh checkout's run takes from the file they share and keeps in its own
 --- memo, where it stands with the shared file gone. A checkout whose checking code is another's takes none of it, nor
 --- does any take a row of a kind whose key names the checkout.

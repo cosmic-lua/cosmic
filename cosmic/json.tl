@@ -77,7 +77,7 @@
 --- it takes back, decode with `null_value = Json.null`.
 ---
 --- To explore a document whose shape is not known, `Json.encode_any(v,
---- { pretty = true })` dumps a value, and [`Json.decode_object`] and
+--- { layout = "fractured" })` dumps a value, and [`Json.decode_object`] and
 --- [`Json.decode_array`] narrow the outermost value so a caller can `pairs`
 --- or `ipairs` it without a cast. [`Json.quote`] spells a key in a message
 --- of your own.
@@ -96,7 +96,7 @@
 ---
 --- Text can be handled as text, without building a value:
 --- [`Json.check`] says whether `decode` would read it, [`Json.format`]
---- writes it again compact or laid out, its members in their order and
+--- writes it again compact or laid out (any [`Json.TextLayout`]), its members in their order and
 --- its numbers as they were written, and [`Json.canonical`] writes the
 --- one text RFC 8785 makes of it, for a digest or a signature that two
 --- programs must agree on.
@@ -132,14 +132,58 @@ local raw = require("cosmic.internal.json")
 local type Stream = require("cosmic.stream")
 local Array = require("cosmic.array")
 local Failure = require("cosmic.failure")
+local Fs = require("cosmic.fs")
 local String = require("cosmic.string")
 
 local record Json
+  --- How [`Json.encode`] and [`Json.format`] lay their text out.
+  enum TextLayout
+    --- On one line, with no space (the default).
+    "compact"
+    --- Over lines, one member or element to a line, indented by two
+    --- spaces a level.
+    "expanded"
+    --- As FracturedJson lays it out (https://github.com/j-brooke/FracturedJson),
+    --- for people to read, by its default rules but for a two-space
+    --- indent:
+    ---
+    --- - A line holds at most `width` characters, indent included,
+    ---   where the values allow: a longer value is still written whole.
+    ---   A character is a UTF-8 code point, whatever a terminal draws
+    ---   it as.
+    --- - A value's complexity is how deep it nests: 0 for a scalar and
+    ---   an empty array or object, else 1 more than its most complex
+    ---   member.
+    --- - A value of complexity 2 or less is written on one line when it
+    ---   fits. Its brackets are padded inside when it nests:
+    ---   `[1, 2]`, but `[ [1, 2], [3] ]`.
+    --- - An array of complexity 2 or less, with 3 elements or more, is
+    ---   written several elements to a line when 3 fit on one, lined
+    ---   up in columns when that still fits.
+    --- - An array or object whose members (its rows) are all arrays or
+    ---   all objects (`null` among them too), each of complexity 2 or
+    ---   less, is a table when its rows fit: one member to a line,
+    ---   fields in aligned columns. An object row's fields go in the
+    ---   order they first appear in the rows, and a field a row lacks
+    ---   leaves its column blank. A table too wide drops its deepest
+    ---   columns from the alignment first. Rows where one holds an array
+    ---   or object and another a scalar in the same field are not a
+    ---   table, nor are rows that hold a key twice.
+    --- - A number column lines its numbers up by their decimal point.
+    --- - Anything else is written as `expanded` writes it, an object's
+    ---   values in one column when its longest key is at most 16
+    ---   characters longer than its shortest.
+    "fractured"
+  end
+
   --- What `encode` may be told. Every field is optional.
   record EncodeOptions
-    --- Lay the text out over lines, one member or element to a line,
-    --- indented by two spaces (default false).
-    pretty?: boolean
+    --- How to lay the text out (default `"compact"`).
+    layout?: Json.TextLayout
+    --- The most characters a line of `"fractured"` text holds, indent
+    --- included, where its values allow (default 120). A value longer
+    --- than that is still written whole. Raises when it is less than 1.
+    width?: integer
     --- How many arrays and objects may nest, 1 to [`Json.depth_limit`]
     --- (1000; default [`Json.default_depth`], 64); a value outside that
     --- raises. A table that contains itself fails here.
@@ -155,8 +199,13 @@ local record Json
   --- What [`Json.format`] may be told. Every field is optional, and those
   --- that say how to read the text mean what they mean to `decode`.
   record FormatOptions
-    --- Lay the text out as `encode`'s `pretty` does (default false).
-    pretty?: boolean
+    --- How to lay the text out, as `encode` takes it (default
+    --- `"compact"`).
+    layout?: Json.TextLayout
+    --- The most characters a line of `"fractured"` text holds, as
+    --- `encode` takes it. [`Json.canonical`] takes neither: its text is
+    --- always compact.
+    width?: integer
     --- How many arrays and objects may nest, as `decode` takes it.
     max_depth?: integer
     --- Read JSON5, as `decode` does; what is written is RFC 8259.
@@ -231,12 +280,7 @@ local record Json
   end
 
   --- How a Lua table encodes: see [`Json.layout`].
-  enum TableLayout
-    "array"
-    "object"
-    "hole"
-    "mixed"
-  end
+  type TableLayout = raw.TableLayout
 
   --- What a walk over a table visits: see [`Json.members`].
   record Members
@@ -632,7 +676,7 @@ local function encode_any_text(value: any, opts?: Json.EncodeOptions): string?, 
   if opts == nil then
     text, err = raw.encode(value)
   else
-    text, err = raw.encode(value, opts.pretty, opts.max_depth, opts.ascii)
+    text, err = raw.encode(value, opts.layout, opts.max_depth, opts.ascii, opts.width)
   end
   if text == nil then return refuse(err) end
   return text, ""
@@ -693,13 +737,14 @@ end
 local function format_text(text: string, opts?: Json.FormatOptions): string?, string
   local o: Json.FormatOptions = opts or {}
   local out, err = raw.format(text, o.max_depth, o.json5, o.lone_surrogates, o.hash_comments,
-    o.duplicate_keys, o.pretty, false)
+    o.duplicate_keys, o.layout, false, o.width)
   if out == nil then return refuse(err) end
   return out, ""
 end
 
 --- The JSON value `text` holds, written again as RFC 8259 text:
---- with no space, or laid out as `encode`'s `pretty` lays a value out.
+--- with no space, or laid out as `layout` says, as `encode` lays a value
+--- out.
 --- What `decode` would refuse is refused, with its message. Nothing
 --- else changes: members keep their order, strings their characters
 --- (escaped only where JSON must escape them) and numbers their text,
@@ -718,7 +763,7 @@ end
 local function canonical_text(text: string, opts?: Json.CanonicalOptions): string?, string
   local o: Json.CanonicalOptions = opts or {}
   local out, err = raw.format(text, o.max_depth, o.json5, o.lone_surrogates, o.hash_comments,
-    false, false, true)
+    false, nil, true)
   if out == nil then return refuse(err) end
   return out, ""
 end
@@ -900,10 +945,12 @@ function Json.with_holes<T>(items: {integer: T}): {integer: T}?, string
 end
 
 --- Classifies `t` as [`Json.layout`] says and, when `members` is true,
---- lists them as [`Json.members`] says; else the keys are empty and the
---- extent 0, and a marked array is classified with no scan of it.
---- `gaps` asks for a marked array's integer keys when it has a gap.
-local function classify(t: {any:any}, members: boolean, gaps: boolean): Json.TableLayout, {string | integer}, integer -- declared: key_type
+--- lists them as [`Json.members`] says, by the walk `pairs` makes of it,
+--- for a table with a `__pairs` that the core's raw scan leaves to it;
+--- else the keys are empty and the extent 0, and a marked array is
+--- classified with no scan of it. `gaps` asks for a marked array's
+--- integer keys when it has a gap.
+local function classify_by_pairs(t: {any:any}, members: boolean, gaps: boolean): Json.TableLayout, {string | integer}, integer -- declared: key_type
   if raw.is_array(t) then
     local extent = 0
     local keys: mut {string | integer} = {}
@@ -966,7 +1013,8 @@ end
 ---     assert(Json.layout({ [1] = 1, [3] = 3 }) == "hole")
 ---     assert(Json.layout({ 1, a = 2 }) == "mixed")
 function Json.layout(t: {any:any}): Json.TableLayout -- declared: key_type
-  local layout = classify(t, false, false)
+  local layout = raw.classify(t)
+  if layout == nil then layout = classify_by_pairs(t, false, false) end
   return layout
 end
 
@@ -981,7 +1029,8 @@ end
 --- find that extent and to report "mixed" for one that holds a key
 --- other than a positive integer.
 function Json.members(t: {any:any}, gaps?: boolean): Json.Members -- declared: key_type
-  local layout, keys, extent = classify(t, true, gaps == true)
+  local layout, keys, extent = raw.classify(t, true, gaps == true)
+  if layout == nil then layout, keys, extent = classify_by_pairs(t, true, gaps == true) end
   return { layout = layout, keys = keys, extent = extent }
 end
 
@@ -1245,6 +1294,80 @@ function Json.array_of(v?: Json.Value): {Json.Value}?
   if t == nil then return nil end
   if not raw.is_array(t) and Json.layout(t) ~= "array" then return nil end
   return items_of(v)
+end
+
+--- `v` as a string where it is one, nil where it is not, as [`Json.object_of`] tells an object:
+--- `local name = Json.string_of(row["name"]) or ""`.
+function Json.string_of(v?: Json.Value): string?
+  if v is string then return v end
+  return nil
+end
+
+--- The number `v` holds, an integer or a float; nil for a value of any other kind, so the string `"1"` is none here.
+function Json.number_of(v?: Json.Value): number?
+  if v is number then return v end
+  return nil
+end
+
+--- The whole number `v` holds, an integer even where the text wrote `3.0`; nil for a fraction or for a value
+--- that is no number.
+function Json.integer_of(v?: Json.Value): integer?
+  if v is number then return math.tointeger(v) end
+  return nil
+end
+
+--- `true` or `false` where `v` is a JSON boolean, nil for anything else, [`Json.null`] among them: it keeps a `false`
+--- that `v or default` would drop.
+function Json.boolean_of(v?: Json.Value): boolean?
+  if v is boolean then return v end
+  return nil
+end
+
+-- Json.read, its failure: the file `path` decoded, at `steps` where given.
+local function read_value(path: string, steps?: Json.Steps): Json.Value?, Failure?
+  local text, why = Fs.read(path)
+  if text == nil then return nil, why end
+  local value, bad = Json.decode(text)
+  if value == nil then return nil, Failure.within(bad, path) end
+  if steps == nil then return value, nil end
+  local got, missing = Json.get(value, steps)
+  if got == nil then return nil, Failure.within(missing, path) end
+  return got, nil
+end
+
+--- The JSON file `path` as a value, or the value at `steps` inside it, as [`Json.get`] reaches it: one call in place of
+--- [`Fs.read`], [`Json.decode`] and [`Json.get`]. nil and a [`Failure`] where the file cannot be read, is not JSON or
+--- has nothing at `steps`; its message names the file. [`Json.read_object`] and [`Json.read_array`] narrow what it
+--- reads, and each takes `!` (`Json.read_object(path)!`); a value that may be `false` does not, so bind this one's
+--- values: `local name, why = Json.read("package.json", { "name" })`.
+function Json.read(path: string, steps?: Json.Steps): (Json.Value) | (nil, Failure)
+  local got, why = read_value(path, steps)
+  if got == nil then return nil, why! end
+  return got
+end
+
+--- [`Json.read`] where the value must be an object: its members. nil and a [`Failure`] where it is not one.
+---
+---     for name, leg in pairs(Json.read_object("trip.json", { "legs" })!) do print(name) end
+function Json.read_object(path: string, steps?: Json.Steps): ({string: Json.Value}) | (nil, Failure)
+  local got, why = read_value(path, steps)
+  if got == nil then return nil, why! end
+  local object = Json.object_of(got)
+  if object == nil then
+    return nil, Failure.mismatch("expected a JSON object, got " .. kind(got), path)
+  end
+  return object
+end
+
+--- [`Json.read`] where the value must be an array: its items. nil and a [`Failure`] where it is not one.
+function Json.read_array(path: string, steps?: Json.Steps): ({Json.Value}) | (nil, Failure)
+  local got, why = read_value(path, steps)
+  if got == nil then return nil, why! end
+  local array = Json.array_of(got)
+  if array == nil then
+    return nil, Failure.mismatch("expected a JSON array, got " .. kind(got), path)
+  end
+  return array
 end
 
 --- `value` as an object, a map of [`Json.Value`]: [`Json.to_value`]

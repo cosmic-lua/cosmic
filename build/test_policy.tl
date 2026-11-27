@@ -193,7 +193,7 @@ end
 --- @return why, where it does not
 function test_policy.runs(policy: Sandbox.Policy): {string}?, string
   local merged, why = Sandbox.union(policy)
-  if merged == nil then return nil, why end
+  if merged == nil then return nil, tostring(why) end
   local out: mut {string} = {}
   for _, grant in ipairs(Sandbox.paths(merged)) do
     if grant.letters:find("x", 1, true) then out[#out + 1] = grant.path end
