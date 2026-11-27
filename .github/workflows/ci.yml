@@ -1082,6 +1082,22 @@
           id: "checked-suite",
           run: "cosmic-driver cosmic_ci/driver.tl platform checked",
         },
+        # A share's tests enter only some of the core's C functions: the
+        # ones they did not are a file for the `ci` gate's join, which
+        # fails for a function no share entered, as a whole run does.
+        {
+          name: "upload the C functions this share's tests did not enter",
+          if: "matrix.shard != ''",
+          uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
+          with: {
+            name: "checked-unentered-${{ matrix.name }}",
+            path: "${{ runner.temp }}/checked-unentered/",
+            "if-no-files-found": "error",
+            # A job run again writes its share's list again.
+            overwrite: true,
+            "retention-days": 1,
+          },
+        },
         {
           name: "check performance fixture histories on the checked core",
           if: "matrix.performance == 'run'",
@@ -1652,6 +1668,38 @@
           id: "driver",
           if: "github.event_name != 'pull_request' && github.event_name != 'merge_group'",
           uses: "./.github/actions/cosmic-driver",
+        },
+        # The checked suite's shares (the queue's and a branch's manual
+        # run's, ci.yml's `checked`) each wrote the C functions their
+        # tests did not enter: one in every list is one no test of the
+        # whole suite entered, which fails here as it fails main's push,
+        # which runs the suite whole (cosmic_ci/unentered.tl).
+        {
+          name: "download the C functions each checked share did not enter",
+          id: "unentered-download",
+          if: "needs.checked.result == 'success' && (github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main')",
+          "continue-on-error": true,
+          uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
+          with: {pattern: "checked-unentered-*", "merge-multiple": true, path: "${{ runner.temp }}/checked-unentered"},
+        },
+        {
+          name: "download the C functions each checked share did not enter: wait before the second try",
+          if: "steps.unentered-download.outcome == 'failure'",
+          shell: "sh",
+          run: "rm -rf \"${{ runner.temp }}/checked-unentered\"; sleep 30",
+        },
+        {
+          name: "download the C functions each checked share did not enter: second try",
+          id: "unentered-retry",
+          if: "steps.unentered-download.outcome == 'failure'",
+          uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
+          with: {pattern: "checked-unentered-*", "merge-multiple": true, path: "${{ runner.temp }}/checked-unentered"},
+        },
+        {
+          name: "fail for a C function no checked share entered",
+          if: "steps.unentered-download.outcome == 'success' || steps.unentered-retry.outcome == 'success'",
+          "working-directory": "ci",
+          run: "cosmic-driver cosmic_ci/driver.tl unentered-join \"${{ runner.temp }}/checked-unentered\"",
         },
         {
           name: "download the products to compare",
