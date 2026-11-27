@@ -787,6 +787,61 @@ local function row_lines(rows: {Row}, column: integer, wrap?: integer): {string}
   return lines
 end
 
+--- What [`line_count`] reads of a row, measured once for every column it is tried at.
+local record Measure
+  --- The head's width.
+  head: integer
+  --- Whether the row's line stands as written at any column: nothing said beside the head, words over lines of
+  --- their own, or only spaces.
+  whole: boolean
+  --- The width of what it does, all on one line.
+  first: integer
+  --- The width of each of its words, as [`wrapped`] takes them.
+  words: {integer}
+end
+
+--- The [`Measure`] of each of `rows`.
+local function measures(rows: {Row}): {Measure}
+  local out: mut {Measure} = {}
+  for i, row in ipairs(rows) do
+    local about = row.about or ""
+    local whole = about == "" or about:find("\n", 1, true) ~= nil or about:find("%S") == nil
+    local words: mut {integer} = {}
+    if not whole then
+      for word in about:gmatch("%S+") do words[#words + 1] = columns(word) end
+    end
+    out[i] = { head = columns(row.head), whole = whole, first = if whole then 0 else columns(about) end,
+      words = words }
+  end
+  return out
+end
+
+--- How many lines [`row_lines`] makes of the rows `measured`, laid out at `column` within `wrap`, without making
+--- them.
+local function line_count(measured: {Measure}, column: integer, wrap: integer): integer
+  local count = 0
+  local room = wrap - (2 + column + 2)
+  for _, m in ipairs(measured) do
+    if m.whole or (m.head <= column and 2 + column + 2 + m.first <= wrap) then
+      count = count + 1
+    else
+      -- As [`wrapped`] fills its lines.
+      local lines, width = 1, -1
+      for _, w in ipairs(m.words) do
+        if width < 0 then
+          width = w
+        elseif width + 1 + w <= room then
+          width = width + 1 + w
+        else
+          lines, width = lines + 1, w
+        end
+      end
+      count = count + lines + (if m.head <= column then 0 else 1 end)
+    end
+  end
+  return count
+end
+
 --- The column what `rows` do starts at, counted from the end of the
 --- indent, for lines that stay within `wrap` columns: the widest head
 --- when `wrap` is nil or every row's line fits there. Otherwise the
@@ -816,14 +871,21 @@ local function row_column(rows: {Row}, wrap?: integer): integer
       column = math.max(column, columns(row.head))
     end
   end
-  local fewest = #row_lines(rows, column, wrap)
+  local measured = measures(rows)
+  local fewest = line_count(measured, column, wrap)
+  -- Each head width once, in the order first seen: rows share widths, and the first of equal counts wins.
   local candidates: mut {integer} = { 0 }
+  local tried: mut {integer: boolean} = { [0] = true }
   for _, row in ipairs(rows) do
-    if row.about ~= nil and row.about ~= "" then candidates[#candidates + 1] = columns(row.head) end
+    local width = columns(row.head)
+    if row.about ~= nil and row.about ~= "" and tried[width] == nil then
+      tried[width] = true
+      candidates[#candidates + 1] = width
+    end
   end
   for _, candidate in ipairs(candidates) do
     if 2 + candidate + 2 < wrap then
-      local count = #row_lines(rows, candidate, wrap)
+      local count = line_count(measured, candidate, wrap)
       if count < fewest then
         column, fewest = candidate, count
       end
