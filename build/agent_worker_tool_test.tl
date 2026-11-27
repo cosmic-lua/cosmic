@@ -163,11 +163,11 @@ local function test_the_run_tool_shows_what_a_snippet_printed_returned_and_was_r
   local rewritten = tools_run("run", { code = "local n = 2\nprint(\"n=\" .. n)\n" }, context)
   assert(not rewritten.is_error and rewritten.text == "[The snippet ran once, with these rewrites, which keep " ..
       "what it meant; what it did is done, so do not run it again:\nrun.tl:2:15: concat_type: `n` -> `tostring(n)`]\nn=2\n", rewritten.text)
-  local answered = tools_run("run", { code = "print(1)\nHost.done(\"one line\")\n" }, context)
+  local answered = tools_run("run", { code = "print(1)\nHost.reply(\"one line\")\n" }, context)
   assert(not answered.is_error and answered.answer == "one line" and answered.text == "1\n", answered.text)
-  local blank = tools_run("run", { code = "Host.done(\"  \")\n" }, { cwd = dir, worker = w })
+  local blank = tools_run("run", { code = "Host.reply(\"  \")\n" }, { cwd = dir, worker = w })
   assert(blank.is_error and blank.answer == nil and blank.text:find("blank", 1, true) ~= nil, blank.text)
-  local raised_after = tools_run("run", { code = "Host.done(\"no\")\nerror(\"boom\")\n" },
+  local raised_after = tools_run("run", { code = "Host.reply(\"no\")\nerror(\"boom\")\n" },
     { cwd = dir, worker = w })
   assert(raised_after.is_error and raised_after.answer == nil, raised_after.text)
   local partly = tools_run("run", { code = "local n = 2\nprint(\"n=\" .. n)\nlocal s: string = n\n" }, context)
