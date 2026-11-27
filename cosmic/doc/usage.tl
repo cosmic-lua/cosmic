@@ -11,6 +11,7 @@ local type Command = Types.Command
 local type View = Types.View
 local type Entry = Types.Entry
 local type Use = Types.Use
+local type Unused = Types.Unused
 local entries_of = Examples.entries_of
 local fts_query = Search.fts_query
 local has_docs = Search.has_docs
@@ -21,6 +22,7 @@ local record Usage
   type Command = Command
   type Entry = Entry
   type Use = Use
+  type Unused = Unused
   type View = View
 end
 
@@ -140,6 +142,25 @@ function Usage.uses_of(db: Sqlite.Handle, public: boolean, query: string): {Use}
     out[#out + 1] = { module = row:text(1), symbol = row:text(2), from_module = row:text(3),
       from_file = row:text(4), line = row:integer(5),
       link = true, path = row:text(6), anchor = row:text(7) }
+  end
+  return out, ""
+end
+
+--- The exported functions of `db`'s own modules that no code outside their file uses, a test's left out: a module
+--- whose name ends in `_test`. A link is no use. None of a public source, whose callers are elsewhere.
+function Usage.unused_of(db: Sqlite.Handle, public: boolean): {Unused}?, string
+  if public then return {}, "" end
+  local rows, trouble = db:rows(
+    "SELECT d.module, d.source_symbol, d.file, d.line FROM docs d WHERE d.exported = 1 AND d.kind = 'function' " ..
+      "AND d.module NOT GLOB '*_test' AND NOT EXISTS (SELECT 1 FROM uses u WHERE u.module = d.module AND " ..
+      "u.symbol = d.symbol AND u.from_file <> d.file AND u.from_module NOT GLOB '*_test') " ..
+      "ORDER BY d.file, d.line", {})
+  if rows == nil then
+    return nil, tostring(trouble)
+  end
+  local out: mut {Unused} = {}
+  for _, row in ipairs(rows) do
+    out[#out + 1] = { module = row:text(1), symbol = row:text(2), file = row:text(3), line = row:integer(4) }
   end
   return out, ""
 end

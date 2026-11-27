@@ -416,7 +416,8 @@ local function ran_cosmic(context: Tools.Context, given: {string: Json.Value}, b
     if not (word is string) then return nil, Failure.new("an argument is no string") end
     if verb == "build" then return nil, Failure.new("cosmic build takes no arguments here") end
     -- A word is a name or a path in the tree, not a flag nor a path out of it.
-    if word:sub(1, 1) == "-" or word:sub(1, 1) == "/" or word == ".." or word:find("^%.%./") ~= nil or
+    local flag = verb == "uses" and word == "--unused" and #words == 1
+    if (not flag and word:sub(1, 1) == "-") or word:sub(1, 1) == "/" or word == ".." or word:find("^%.%./") ~= nil or
         word:find("/%.%./") ~= nil or word:find("/%.%.$") ~= nil then
       return nil, Failure.new("cosmic " .. verb .. ": " .. word .. " is no name or path in the tree")
     end

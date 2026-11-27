@@ -297,11 +297,52 @@ end
 --- of the paths, when there are any -- then its summary on stderr. A link is
 --- marked `link`; the symbol may be a file instead, which only links
 --- name ([`doc/writing.md`], `doc/writing.md#every-example-runs`).
+--- `cosmic uses --unused [path...]`: each exported function of the tree's own modules -- in a file under the paths,
+--- when given -- that no code outside its own file uses, tests left out ([`Doc.unused`]), as `file:line: Module.name`.
+local function run_unused(words: {string}): integer
+  local built, build_trouble = require("build.rebuild").here("uses")
+  local started = Clock.monotonic_ns()
+  local sources = docs.databases()
+  local stale = stale_note("uses", built, build_trouble, sources)
+  if stale ~= "" then stale = ", " .. stale end
+  local view, view_trouble = docs.view(sources.handles, sources.public)
+  if view == nil then
+    log:complain("uses: " .. view_trouble)
+    return 1
+  end
+  local found, trouble = Doc.unused(view)
+  if found == nil then
+    log:complain("uses: " .. tostring(trouble))
+    return 1
+  end
+  local root, root_trouble = Fs.absolute(".")
+  if root == nil then
+    log:complain("uses: " .. tostring(root_trouble))
+    return 1
+  end
+  local paths = narrow.paths(root, words)
+  local shown = 0
+  for _, unused in ipairs(found) do
+    if narrow.holds(paths, unused.file) then
+      log:say(unused.file .. ":" .. tostring(unused.line) .. ": " .. unused.symbol)
+      shown = shown + 1
+    end
+  end
+  local _, _ = logger.summary("uses", String.counted(shown, "function") .. " no other file uses" .. stale .. ", " ..
+      clock.took(started))
+  return 0
+end
+
 local function run_uses(argv: {string}): integer
-  local parsed, parse_trouble = Flags.parse(argv, 2, {})
+  local parsed, parse_trouble = Flags.parse(argv, 2, assert(assert(Cli.verbs["uses"]).spec))
   if parsed == nil then
     log:complain("uses: " .. parse_trouble)
     return 2
+  end
+  if parsed.set["--unused"] == true then
+    local exit = require("build.reboot").stale_exit(argv, true)
+    if exit ~= nil then return exit end
+    return run_unused(parsed.words)
   end
   local query = parsed.words[1] or ""
   if query == "" then

@@ -1,4 +1,4 @@
---- Host.uses and Host.test, which run this program's own verbs (`cosmic uses`, `cosmic test`) for a snippet, with
+--- Host.uses, Host.unused and Host.test, which run this program's own verbs (`cosmic uses`, `cosmic test`) for a snippet, with
 --- commands or without ([`cosmic.agent.worker`]'s [`Worker.program`]). They build a tree, so they start the tool itself,
 --- which these tests read and run (o/bin), and the tests that run start workers of their own (`nest`).
 local Fs = require("cosmic.fs")
@@ -34,6 +34,7 @@ for _, h in ipairs(Host.uses("Money.format")) do print(h.path .. ":" .. tostring
 print(#Host.uses("nothing_has_this"))
 local r = Host.test()
 print(r.ok, r.output:find("1 test passed", 1, true) ~= nil)
+print("unused: " .. table.concat(Host.unused(), " "))
 local _, run_why = Host.call("cosmic", { verb = "run", args = Json.array() })
 local _, flag_why = Host.call("cosmic", { verb = "test", args = Json.array({ "--profile", "x" }) })
 local _, out_why = Host.call("cosmic", { verb = "uses", args = Json.array({ "../x" }) })
@@ -43,6 +44,8 @@ print(run_why, flag_why, out_why)
   assert(not ran.is_error and ran.text:find("^money_test.tl:5:   assert%(M.format") ~= nil, ran.text)
   assert(ran.text:find("format the cents", 1, true) == nil, ran.text)
   assert(ran.text:find("\n0\ntrue\ttrue\n", 1, true) ~= nil, ran.text)
+  -- A use in a test leaves an export unused.
+  assert(ran.text:find("\nunused: Money.format\n", 1, true) ~= nil, ran.text)
   -- Only cosmic's own verbs run, and their words are no flags nor paths out of the tree.
   assert(ran.text:find("no verb a snippet may run", 1, true) ~= nil, ran.text)
   assert(ran.text:find("--profile is no name or path in the tree", 1, true) ~= nil, ran.text)
