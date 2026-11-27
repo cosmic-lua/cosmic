@@ -382,19 +382,33 @@ function identity.record_fingerprint(db: Database, root: string): identity.Finge
   if seed == nil then
     return nil, seed_trouble
   end
-  local quoted: mut {string} = { "'build/seed.txt'" }
-  for _, path in ipairs(seed) do quoted[#quoted + 1] = "'" .. path:gsub("'", "''") .. "'" end
   local image, image_trouble = identity.hash_over(db,
     "(path GLOB 'core/*' AND NOT path GLOB 'core/*.tl') OR " ..
       "path IN ('build.zig', 'build.zig.zon', " ..
       "'bin/zig', 'bin/zig.pin', 'build/artifact.tl', 'build/launcher.tl', " ..
-      "'build/patch.tl', 'build/tree.tl') OR " ..
+      "'build/patch.tl', 'build/tree.tl', 'build/seed.txt') OR " ..
       "path GLOB 'vendor/*/PIN' OR " ..
-      "path GLOB 'patch/*' OR " ..
-      "path IN (" .. table.concat(quoted, ", ") .. ")")
+      "path GLOB 'patch/*'")
   if image == nil then
     return nil, image_trouble
   end
+  -- Each seed file by its code text ([`build.code_text`]), not its bytes: an edit to a comment of one moves no
+  -- fingerprint, so it does not boot the tool.
+  local code_text = require("build.code_text")
+  local lines: mut {string} = { image }
+  for _, path in ipairs(seed) do
+    local rows, rows_trouble = db:rows("SELECT data FROM files WHERE path = ?1", { text(path) })
+    if rows == nil then
+      return nil, tostring(rows_trouble)
+    end
+    local row = rows[1]
+    if row == nil then
+      lines[#lines + 1] = path .. " missing"
+    else
+      lines[#lines + 1] = path .. " " .. Hash.hex_sha256(code_text.of(row:blob(1), path))
+    end
+  end
+  image = Hash.hex_sha256(table.concat(lines, "\n"))
   local built_from, built_trouble = tree.built_from(root)
   if built_from == nil then
     return nil, built_trouble
