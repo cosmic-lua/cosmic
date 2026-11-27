@@ -79,7 +79,7 @@ local function replaced(self: Program, module: string, text: string)
     self.dead = true
     return
   end
-  if outcome.text ~= text then self.build:replace(module, text) end
+  if outcome.source.text ~= text then self.build:replace(module, text) end
 end
 
 --- Puts the source `served` in the program as the module it is, as the stub it serves: for a module that is served otherwise
