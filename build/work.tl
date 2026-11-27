@@ -1399,7 +1399,10 @@ function work.stage(handle: work.Handle, standing: tree.Standing): work.Staged?,
       local write_scanned = scan and moved(known.scanned, file, st, mtime_ns) -- checked: map_field
       local write_linked = link_kind ~= nil and moved(known.linked, file, st, mtime_ns) -- checked: map_field
       if write_files or write_tool or write_scanned or write_linked then
-        local data, read_trouble = Fs.read(root .. "/" .. file)
+        -- At most the size the stat saw: a file that grows while it is
+        -- read (a strace log in the tree, written as this run reads)
+        -- is staged as it stood at the stat, not read without end.
+        local data, read_trouble = Fs.read(root .. "/" .. file, st.size)
         if data == nil then
           finish(put)
           return nil, tostring(read_trouble)
@@ -1644,7 +1647,7 @@ find_links = function(handle: work.Handle, texts: {string:string}): boolean, str
     end
   end
   local unread, unread_trouble = db:rows(
-    "SELECT path, kind, sha256 FROM linked l WHERE NOT EXISTS (SELECT 1 FROM linked_texts t " ..
+    "SELECT path, kind, sha256, size FROM linked l WHERE NOT EXISTS (SELECT 1 FROM linked_texts t " ..
       "WHERE t.sha256 = l.sha256 AND t.kind = l.kind) ORDER BY path")
   if unread == nil then
     return false, tostring(unread_trouble)
@@ -1653,7 +1656,9 @@ find_links = function(handle: work.Handle, texts: {string:string}): boolean, str
     local path, kind, sha256 = row:text(1), row:text(2), row:text(3)
     local data = texts[path]
     if data == nil then
-      local read, read_trouble = Fs.read(handle.root .. "/" .. path)
+      -- At most the staged size, as staging reads: a file that grows
+      -- meanwhile then fails the digest below, not the read.
+      local read, read_trouble = Fs.read(handle.root .. "/" .. path, row:integer(4))
       if read == nil then
         return false, tostring(read_trouble)
       end
