@@ -775,6 +775,30 @@ end
 -- TODO: have [`Coverage.Hits`] write its lines through, so `hits` here and in [`take_hits`] can be written, once
 -- `Hits` in cosmic/internal/debug.d.tl is `{string: mut {integer: boolean}}`.
 
+--- The key of what `credited` makes of the rows it names: the tests each run credits, and the texts and bytecode
+--- (`identities`, `codes`) their lines are numbered against, which are all [`fold_credits`] reads besides the rows.
+local function credit_key(credited: test.Credited, identities: {string:string}, codes: {string:string}): string
+  local runs: mut {integer} = {}
+  for run_at_ns in pairs(credited) do runs[#runs + 1] = run_at_ns end
+  table.sort(runs)
+  local parts: mut {string} = { "credit-v1" }
+  for _, run_at_ns in ipairs(runs) do
+    local ids: mut {string} = {}
+    for index, id in ipairs(credited[run_at_ns] or {}) do ids[index] = id end
+    table.sort(ids)
+    parts[#parts + 1] = tostring(run_at_ns) .. "\t" .. table.concat(ids, "\0")
+  end
+  for _, map in ipairs({ identities, codes }) do
+    local names: mut {string} = {}
+    for path in pairs(map) do names[#names + 1] = path end
+    table.sort(names)
+    local rows: mut {string} = {}
+    for index, path in ipairs(names) do rows[index] = path .. "\0" .. (map[path] or "") end
+    parts[#parts + 1] = table.concat(rows, "\0")
+  end
+  return hex_sha256(table.concat(parts, "\n"))
+end
+
 --- Resolves every run `credited` names against `hits_by_test`,
 --- folding the lines its named tests hit into `hits`: only the run-wide
 --- union of hit lines per module matters to [`write_coverage`], never
@@ -783,10 +807,10 @@ end
 --- standing verdict. A module whose lines a row numbers in a text other
 --- than `identities` names is dropped and named in `stale`, and an instruction's ordinal of the bytecode `codes`
 --- names placed at its line by `lines_of` ([`test.decode_hits`]).
-local function credit_hits(handle: Sqlite.Handle, credited: test.Credited,
-                           hits: Coverage.Hits, identities: {string:string},
-                           stale: mut {string:string}, lines_of: function(string): {integer}?, string,
-                           codes: {string:string}): string
+local function fold_credits(handle: Sqlite.Handle, credited: test.Credited,
+                            hits: Coverage.Hits, identities: {string:string},
+                            stale: mut {string:string}, lines_of: function(string): {integer}?, string,
+                            codes: {string:string}): string
   local folded: test.Folded = {}
   -- The rows this checkout took from the shared verdicts, which repeat most of their lines as those of one run do.
   local met: mut {string: State.SharedLine} = {}
@@ -812,6 +836,62 @@ local function credit_hits(handle: Sqlite.Handle, credited: test.Credited,
       end
     end
   end
+  return ""
+end
+
+--- The meta row that keeps the union [`credit_hits`] last made.
+local credit_memo <const> = "credit_union"
+
+--- Folds the lines the runs `credited` names into `hits` as [`fold_credits`] does, from the union an earlier run kept
+--- where the credits, texts and bytecode are the same ([`credit_key`]): a warm suite credits some ten thousand rows
+--- of lines that repeat, which took a quarter of its time to read again. The union is kept as one row of lines, as
+--- [`test.decode_hits`] reads them, under a first line that is its key, then each module it names `stale` and why,
+--- then an empty line. A run that finds no union of its key makes it, folding what it credits into an empty table
+--- first, and keeps it for the next; one that cannot keep it has lost the next run some time, and nothing else.
+local function credit_hits(handle: Sqlite.Handle, credited: test.Credited,
+                           hits: Coverage.Hits, identities: {string:string},
+                           stale: mut {string:string}, lines_of: function(string): {integer}?, string,
+                           codes: {string:string}): string
+  if next(credited) == nil then return "" end
+  local key = credit_key(credited, identities, codes)
+  local kept, _ = handle:rows("SELECT value FROM meta WHERE key = ?1", { text(credit_memo) })
+  local memo = if kept ~= nil and kept[1] ~= nil then kept[1]:text(1) else "" end
+  local header = key .. "\n"
+  if memo:sub(1, #header) ~= header then
+    local fresh: Coverage.Hits = {}
+    local left: mut {string:string} = {}
+    local trouble = fold_credits(handle, credited, fresh, identities, left, lines_of, codes)
+    if trouble ~= "" then return trouble end
+    local paths: mut {string} = {}
+    for path in pairs(fresh) do paths[#paths + 1] = path end
+    table.sort(paths)
+    local notes: mut {string} = {}
+    local lines: mut {string} = {}
+    local plain = true
+    for path, why in pairs(left) do
+      if path:find("[\t\n]") ~= nil or why:find("[\t\n]") ~= nil then plain = false end
+      notes[#notes + 1] = path .. "\t" .. why .. "\n"
+    end
+    table.sort(notes)
+    for _, path in ipairs(paths) do
+      local numbers: mut {integer} = {}
+      for line, hit in pairs(fresh[path] or {}) do
+        if hit then numbers[#numbers + 1] = line end
+      end
+      table.sort(numbers)
+      if #numbers > 0 then lines[#lines + 1] = row_line(identities[path] or "-", path, numbers) end
+    end
+    memo = header .. table.concat(notes) .. "\n" .. table.concat(lines)
+    if plain then
+      local _, _ = handle:run("INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)",
+        { text(credit_memo), text(memo) })
+    end
+  end
+  local separator = assert(memo:find("\n\n", #header, true), "a credit union holds an empty line after its notes")
+  for path, why in memo:sub(#header + 1, separator):gmatch("([^\t\n]+)\t([^\n]*)\n") do
+    stale[path] = why
+  end
+  local _ = test.decode_hits(memo:sub(separator + 2), hits, identities, stale, nil, nil, codes)
   return ""
 end
 
@@ -2635,6 +2715,21 @@ local function read_command(ctx: Run): integer?
     selectors[#selectors + 1] = selector
   end
   ctx.selectors = selectors
+  -- A selector that names a file or directory nothing is at matches no test module whatever the build finds, so
+  -- the run refuses before it compiles the tree (a checked build of it took 97 s). A module name, which only the
+  -- build resolves, and a path the filesystem cannot be asked about go on to [`select_tests`].
+  local absent: mut {string} = {}
+  for _, selector in ipairs(selectors) do
+    local path = split(selector)
+    if path:find("/", 1, true) ~= nil or path:sub(-3) == ".tl" then
+      local there, _ = Fs.status(root .. "/" .. path)
+      if there ~= nil and not there.exists then absent[#absent + 1] = selector end
+    end
+  end
+  if #absent > 0 then
+    log:complain("test: no test module matches: " .. table.concat(absent, ", "))
+    return 1
+  end
   ctx.forced = parsed.set["--all"] == true or Env.read("COSMIC_TEST_ALL") == "1"
   -- A run that stands on nothing another checkout reached, though it
   -- still shares what it reaches: what settles every test is this
