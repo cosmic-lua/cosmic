@@ -2959,7 +2959,15 @@ local function select_tests(ctx: Run): integer?
   -- The module each selector matched, for a named test it lacks.
   local module_of: mut {string:Module} = {}
   for _, m in ipairs(result.modules) do
-    if (m.kind == "test" or m.kind == "example") and #m.tests > 0 then
+    if (m.kind == "test" or m.kind == "example") and #m.tests == 0 then
+      -- A test module with no test, once named, matches and has nothing to run: it is not a missing module.
+      for _, selector in ipairs(selectors) do
+        if test.matches(selector, m.path, m.file) then
+          matched[selector] = true
+          found[selector] = true
+        end
+      end
+    elseif (m.kind == "test" or m.kind == "example") and #m.tests > 0 then
       local chosen: mut {string} = {}
       for _, name in ipairs(m.tests) do
         local wanted = #selectors == 0
