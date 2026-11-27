@@ -305,7 +305,11 @@ local chunk_size = 1 << 16
 --- handles are unnecessary. It returns the bytes alone, or nil and a
 --- [`Failure`] that names `path` and the errno that says why
 --- (`why.errno == sys.ENOENT` for a file that is not there).
-function Fs.read(path: string): (string) | (nil, Failure)
+---
+--- With `limit`, it reads at most that many bytes: a file that grows
+--- while it is read (a log another process appends to) gives the bytes
+--- up to `limit`, not a read that never reaches its end.
+function Fs.read(path: string, limit?: integer): (string) | (nil, Failure)
   local fd, _, errno = sys.open(path, sys.O_RDONLY)
   if fd == nil then
     return nil, Failure.system(errno, path)
@@ -318,9 +322,10 @@ function Fs.read(path: string): (string) | (nil, Failure)
   if st ~= nil and st.kind == "file" and st.size > chunk_size then
     ask = st.size
   end
+  local left = limit or math.maxinteger
   local parts: mut {string} = {}
-  while true do
-    local chunk, _, read_errno = sys.read(fd, ask)
+  while left > 0 do
+    local chunk, _, read_errno = sys.read(fd, math.min(ask, left))
     if chunk == nil then
       local _, _ = sys.close(fd)
       return nil, Failure.system(read_errno, path)
@@ -329,6 +334,7 @@ function Fs.read(path: string): (string) | (nil, Failure)
       break
     end
     parts[#parts + 1] = chunk
+    left = left - #chunk
     ask = chunk_size
   end
   local _, _ = sys.close(fd)
