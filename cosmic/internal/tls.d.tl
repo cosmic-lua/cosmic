@@ -68,7 +68,8 @@ local record tls
     -- been cut short there.
     read: function(Session, max: integer): string?, string, integer
     -- How many bytes of data from `from` were taken; called again with
-    -- the same bytes after a wait. Raises on a `from` past the end.
+    -- the same bytes after a wait. Raises on a `from` past the end. An
+    -- empty `data`, from 1, sends one empty application record: 0.
     write: function(Session, data: string, from: integer): integer?, string, integer
     -- True once the alert that ends the session is sent.
     close_notify: function(Session): boolean, string, integer
