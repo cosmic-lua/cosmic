@@ -611,9 +611,15 @@ function Host.lines(path: string): mut {string}
 end
 
 --- Writes `text` to the file `path`, in place of what it held, as `>` does; a list of lines is written one a line, each ending
---- in a newline. Raises where it cannot be written.
+--- in a newline. It writes text: where the text is not UTF-8 (a raw digest, say), it raises naming the first byte that
+--- is not, and writes nothing; Fs.write writes any bytes. Raises too where it cannot be written.
 function Host.write(path: string, text: string | {string})
   local body = if text is string then text elseif #text == 0 then "" else table.concat(text, "\n") .. "\n" end
+  local _, bad = utf8.len(body)
+  if bad ~= nil then
+    error("host: write: " .. path .. ": byte " .. tostring(bad) .. " is not UTF-8 text, so nothing is written (a digest " ..
+      "from Hash.sha256 is raw bytes: Hash.hex_sha256 spells it as sha256sum does; Fs.write writes bytes)", 2)
+  end
   local ok, why = Fs.write(path, body)
   if not ok then error("host: write: " .. tostring(why), 2) end
   local hears = noted
@@ -775,9 +781,11 @@ end
 
 --- Ends the turn with `text` as the reply to the user, once the snippet has run to its end: no request asks the model
 --- for one, so a snippet that has what the user asked for saves a turn. A snippet that raises gives no answer, and the
---- last answer given is the one. Raises where it fails.
-function Host.answer(text: string)
-  local _, why = Host.call("answer", { text = text })
+--- last answer given is the one. Where `values` is given, each `{name}` of `text` is filled from it
+--- ([`String.fill`]): `Host.answer("{n} files over 1 MB", { n = #big })`. Raises where it fails.
+function Host.answer(text: string, values?: {string: string | number | boolean})
+  local said = if values ~= nil then String.fill(text, values) else text end
+  local _, why = Host.call("answer", { text = said })
   if why ~= nil then error(tostring(why), 2) end
 end
 
