@@ -197,6 +197,9 @@ local record Host
 
   --- What hears each change ([`Host.connect`]).
   type Noted = function(change: Host.Change)
+
+  --- What checks the Teal text of a file: the checker's lines, none where it passes ([`Host.connect`]).
+  type Checks = function(path: string, text: string): {string}
 end
 
 --- The way calls reach the agent; nil outside a worker.
@@ -205,11 +208,15 @@ local transport: Host.Transport? = nil
 --- What hears each change Host.edit and Host.write make; nil outside a worker.
 local noted: Host.Noted? = nil
 
---- Sends each later call by `through`, and tells `changes` each file Host.edit and Host.write change: the worker
---- calls it before it runs a snippet.
-function Host.connect(through: Host.Transport, changes?: Host.Noted)
+--- What checks a file's text; nil outside a worker.
+local checks: Host.Checks? = nil
+
+--- Sends each later call by `through`, tells `changes` each file Host.edit and Host.write change, and checks a file
+--- for [`Host.check`] by `check`: the worker calls it before it runs a snippet.
+function Host.connect(through: Host.Transport, changes?: Host.Noted, check?: Host.Checks)
   transport = through
   noted = changes
+  checks = check
 end
 
 --- The agent's reply to the call `name` with `args`, or why there is none: no agent, a call it does not serve, or
@@ -585,6 +592,19 @@ function Host.edit(path: string, edits: {Host.Replacement}): integer
     hears({ path = path, edits = copy })
   end
   return made
+end
+
+--- The checker's lines on the Teal file `path`, as `cosmic fix` tells them of a file of its tree: none where it passes.
+--- It reads the modules a snippet may require, and tells the lines of each module of a tree it requires too; it runs no
+--- code. Raises where it cannot be read, or where
+--- no checker is here (outside cosmic agent's worker).
+function Host.check(path: string): {string}
+  local text = Host.read(path)
+  local check = checks
+  if check == nil then
+    error("host: check: no checker answers here: a snippet of cosmic agent's run tool reaches one", 2)
+  end
+  return check(path, text)
 end
 
 --- The lines of the file `path` ([`Shell.lines`]); raises where it cannot be read.
