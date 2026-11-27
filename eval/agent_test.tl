@@ -1,6 +1,8 @@
 --- [`agent.tl`] with a fake System: the command line, the runs it makes, how each is graded, what a session
 --- spent, and the report. No agent is started.
 local Agent = require("agent")
+local AgentMcp = require("cosmic.agent.mcp")
+local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
@@ -98,7 +100,8 @@ local function test_runs_are_graded_against_the_truth_of_an_untouched_copy()
       assert(marker:find("^bench%-good%-") ~= nil, marker)
       return { requests = 3, input = 10, output = 20, cache_read = 30, cache_write = 40, cost = 0.5, seconds = 2,
         tools = 4, runs = 1, refused = 1, codes = { semicolon = 1 }, first_read = 5,
-        helpers = { bash = 1, grep = 2 } }
+        causes = { ["prompt: a Lua habit the parser refuses"] = 1 }, layers = { prompt = 1 }, guesses = { ["Json.string_of (field_unknown)"] = 1 },
+        resends = 1, sorts = 2, helpers = { bash = 1, grep = 2 } }
     end,
     put = function(_: string, _: string) error("no task here has a server") end,
     serve = function(_: {string}, _: string, _: string, _: integer): (string, function()) | (nil, string)
@@ -134,6 +137,8 @@ local function test_runs_are_graded_against_the_truth_of_an_untouched_copy()
     "- good: 1 of 1 passed; 3.0 requests, $0.500, 3 s wall (2 s in requests); tokens 10 in, 20 out, 30 cache read (5 by the first request), 40 cache write; 4.0 tool calls, 1.0 of them run, 1.0 refused",
     "  - refused for: semicolon 1",
     "  - snippets naming each Host helper: grep 2.0, bash 1.0",
+    "  - snippets sent again to the letter: 1.0 a run",
+    "  - snippets that sort: 2.0 a run",
     "- bad: 0 of 1 passed; 0.0 requests, $0.000, 3 s wall (0 s in requests); tokens 0 in, 0 out, 0 cache read (0 by the first request), 0 cache write; 0.0 tool calls, 0.0 of them run, 0.0 refused",
     "",
     "## rename",
@@ -141,7 +146,25 @@ local function test_runs_are_graded_against_the_truth_of_an_untouched_copy()
     "- good: unfit on this fixture; 3.0 requests, $0.500, 3 s wall (2 s in requests); tokens 10 in, 20 out, 30 cache read (5 by the first request), 40 cache write; 4.0 tool calls, 1.0 of them run, 1.0 refused",
     "  - refused for: semicolon 1",
     "  - snippets naming each Host helper: grep 2.0, bash 1.0",
+    "  - snippets sent again to the letter: 1.0 a run",
+    "  - snippets that sort: 2.0 a run",
     "- bad: unfit on this fixture; 0.0 requests, $0.000, 3 s wall (0 s in requests); tokens 0 in, 0 out, 0 cache read (0 by the first request), 0 cache write; 0.0 tool calls, 0.0 of them run, 0.0 refused",
+    "",
+    "## refusals by root cause",
+    "",
+    "Each refused snippet counts once for each cause. The layer says what change removes it: lang (a rule of the " ..
+      "language or checker), stdlib (a name or shape the library lacks) or prompt (only the run text's wording). " ..
+      "eval/causes.tl holds the rules.",
+    "",
+    "- good: 2 refused snippets; by layer: prompt 2",
+    "  - prompt: a Lua habit the parser refuses: 2 (rename 1, todos 1)",
+    "",
+    "## names the model guessed that do not exist",
+    "",
+    "Each name counts the runs that tried it. A name that recurs is a candidate for an alias, a function or a better hint.",
+    "",
+    "- good",
+    "  - Json.string_of (field_unknown): 2 (rename 1, todos 1)",
     "",
   }, "\n")
   assert(report == want, report)
@@ -162,7 +185,7 @@ local function test_a_report_of_no_task_is_its_totals()
   local o: Agent.Options = { tools = { { name = "a", path = "/a" } }, fixture = "/f", out = "/o", tasks = {}, reps = 1,
     model = "m", timeout = 1 }
   local spent: Agent.Spent = { requests = 1, input = 1, output = 2, cache_read = 3, cache_write = 4, cost = 0.25,
-    seconds = 1, tools = 0, runs = 0, refused = 0, codes = {}, first_read = 0, helpers = {} }
+    seconds = 1, tools = 0, runs = 0, refused = 0, codes = {}, causes = {}, layers = {}, guesses = {}, resends = 0, sorts = 0, first_read = 0, helpers = {} }
   local report = Agent.report(o, { { tool = "a", task = "todos", rep = 1, grade = "pass", spent = spent, wall = 1 } })
   assert(report == "# cosmic agent evals\n\nModel m; runs of each task with each tool: 1; fixture /f. Each number is " ..
       "the mean of a run.\n\n## all tasks\n\n- a: 1 of 1 passed; $0.2500, 3 cache read, 4 cache write, 2 out a run; " ..
@@ -198,7 +221,7 @@ end
 
 --- A task of an MCP server lays the server out for each run, beside a config the run is given with --mcp, and its
 --- truth reads the server's data from `$data`.
-local function test_a_task_of_a_server_gives_each_run_the_server()
+local function test_a_task_of_a_server_gives_each_run_the_server(tmp: string)
   local o = options({ "--tool", "t=/c", "--fixture", "/f", "--out", "/o", "--tasks", "mcp-low", "--reps", "2" })
   local task = assert(o.tasks[1])
   local servers = assert(task.servers)
@@ -264,6 +287,14 @@ local function test_a_task_of_a_server_gives_each_run_the_server()
     end
   end
   assert(laid == 2)
+  -- The config is one the agent itself takes: a policy it refuses (a profile this build lacks) ends a run at once.
+  for path, text in pairs(put) do
+    if path:find("/mcp%.json$") ~= nil then
+      assert(Fs.write(tmp .. "/mcp.json", text))
+      local loaded, why = AgentMcp.load(tmp .. "/mcp.json")
+      assert(loaded ~= nil and #loaded == 1 and assert(loaded[1]).name == "inventory", tostring(why))
+    end
+  end
 end
 
 --- A task of many servers gives each run one config of them all, each in a directory of its own and said what it
@@ -477,7 +508,9 @@ local function test_a_site_that_does_not_start_fails_its_run()
   end)
   assert(next(left) == nil, "a directory the evals made is left: " .. tostring((next(left))))
   assert(#results == 2 and served == 2 and asked == 0)
-  assert(results[1].grade == "fail" and results[2].grade == "fail")
+  -- It ended before the agent was asked: the setup failed, and the model was not tried.
+  assert(results[1].grade == "broken" and results[2].grade == "broken")
+  assert(results[1].why == "the web API did not start: it ended before it served" and results[2].stopped == nil)
   local answer = assert(written["/o/t/web-low-1.txt"])
   assert(answer:find("exit: 127\n", 1, true) ~= nil and
       answer:find("--- stderr\nthe web API did not start: it ended before it served\n", 1, true) ~= nil, answer)
@@ -514,4 +547,180 @@ local function test_a_step_that_raises_leaves_no_directory()
   local ok, why = pcall(Agent.execute, o, system, "k", {}, function(_: string, _: string) end)
   assert(not ok and tostring(why) == "disk full", tostring(why))
   assert(made > 3 and next(left) == nil, "a directory the evals made is left: " .. tostring((next(left))))
+end
+
+--- A refused snippet's text gives each cause once, the names it guessed that do not exist, and the snippets sent
+--- again to the letter and the ones that sort come from the run's snippets in order.
+local function test_a_runs_refusals_name_their_causes_and_guesses()
+  local db = assert(Sqlite.memory())
+  assert(db:exec([[
+CREATE TABLE sessions (id INTEGER PRIMARY KEY, cwd TEXT);
+CREATE TABLE requests (session INTEGER, input_tokens INTEGER, output_tokens INTEGER, cache_read INTEGER,
+  cache_write_5m INTEGER, cache_write_1h INTEGER, cost REAL, ms INTEGER, status INTEGER);
+CREATE TABLE outputs (session INTEGER, tool TEXT, input TEXT, text TEXT);
+INSERT INTO sessions VALUES (1, '/tmp/bench-a-json-1');
+INSERT INTO requests VALUES (1, 1, 1, 1, 1, 1, 0.1, 100, 200);
+INSERT INTO outputs VALUES
+  (1, 'run', '{"code":"local a = Json.string_of(x)"}', 'The checker refused the snippet, so it did not run:
+run.tl:2:11: `Json` has no field `string_of` (field_unknown): `Json` has: array, decode
+run.tl:3:5: `Json.decode("1")` answers one of 2 lists of values, and `assert` tells none of them apart from the others: it passes one list (alternatives_as_value): bind its values
+run.tl:4:1: `Json.get(v)` answers one of 2 lists of values, which is no value (alternatives_as_value): bind them
+run.tl: 3 errors in its bodies on line 2; follow the fix above'),
+  (1, 'run', '{"code":"local a = Json.string_of(x)"}', 'The checker refused the snippet, so it did not run:
+run.tl:1:11: cosmic has no module `cosmic.nothere` (require_unknown): `cosmic docs` lists them
+run.tl:2:1: `foo` is not declared (unknown_variable): declare it with `local foo = ...`
+run.tl:3:1: `Fs` is not declared (unknown_variable): require its module above this use: `local Fs = require("cosmic.fs")`
+run.tl:4:1: odd one (not_in_any_rule): x'),
+  (1, 'run', '{"code":"table.sort(t)"}', 'ok'),
+  (1, 'run', '{"code":"Host.sort(Host.find(\"a\"))"}', 'ok'),
+  (1, 'run', '{"code":"Host.sort_by(x) my_version_sort(y)"}', 'ok');
+]]))
+  local s = assert(Agent.spent_in(db, "bench-a-json-1"))
+  assert(s.refused == 2 and s.resends == 1 and s.sorts == 2, tostring(s.resends))
+  assert(s.layers["stdlib"] == 2 and s.layers["lang"] == 1 and s.layers["prompt"] == 1 and s.layers["untagged"] == 1)
+  assert(s.causes["lang: `!` on a call whose first value may be false"] == 1, tostring((next(s.causes))))
+  assert(s.causes["stdlib: a call that may fail used as a value"] == 1)
+  assert(s.causes["stdlib: a function or field the stdlib lacks"] == 1 and s.causes["stdlib: a module the stdlib lacks"] == 1)
+  assert(s.causes["prompt: a stdlib module used without `require`"] == 1)
+  assert(s.causes["stdlib: a name that is declared nowhere"] == 1)
+  assert(s.causes["untagged: other: not_in_any_rule"] == 1)
+  -- A name counts once for a run, however often it was tried.
+  assert(s.guesses["Json.string_of (field_unknown)"] == 1 and s.guesses["cosmic.nothere (require_unknown)"] == 1)
+  assert(s.guesses["foo (unknown_variable)"] == 1 and s.guesses["Fs (unknown_variable)"] == 1)
+  assert(s.codes["alternatives_as_value"] == 1 and s.codes["field_unknown"] == 1)
+  assert(db:close())
+end
+
+--- A run that ends with an error before its first request is the setup's, not the model's: it is graded
+--- "broken" with the first line of its error, and where no run before it made a request it ends the round.
+local function test_a_run_that_ends_before_its_first_request_is_broken_and_ends_the_round()
+  local o = options({ "--tool", "t=/c", "--fixture", "/f", "--out", "/o", "--tasks", "todos,rename", "--reps", "3" })
+  local asked, kept = 0, 0
+  local made = 0
+  local system: Agent.System = {
+    fresh = function(prefix: string): string
+      made = made + 1
+      return "/tmp/" .. prefix .. tostring(made)
+    end,
+    discard = function(_: string) end,
+    run = function(argv: {string}, _: string, _: {string: string}?, _: integer): Agent.Output
+      if argv[1] == "/c" then
+        asked = asked + 1
+        return { code = 2, stdout = "", stderr = "\nsandbox: $.profiles[0]: there is no profile \"cosmic\"\nmore\n" }
+      end
+      if argv[1] == "bash" and (argv[3] or ""):find("TODO", 1, true) ~= nil then
+        return { code = 0, stdout = "x.tl:1\n", stderr = "" }
+      end
+      return { code = 0, stdout = "", stderr = "" }
+    end,
+    spent = function(_: string, _: string): Agent.Spent? return nil end,
+    put = function(_: string, _: string) end,
+    serve = function(_: {string}, _: string, _: string, _: integer): (string, function()) | (nil, string)
+      error("no task here has a site")
+    end,
+  }
+  local written: mut {string: string} = {}
+  local results = Agent.execute(o, system, "k", {}, function(path: string, text: string)
+    written[path] = text
+  end)
+  assert(asked == 1 and #results == 1, tostring(asked))
+  local first = assert(results[1])
+  assert(first.grade == "broken" and first.why == "sandbox: $.profiles[0]: there is no profile \"cosmic\"")
+  local stopped = first.stopped or ""
+  assert(stopped:find("before its first request (exit 2)", 1, true) ~= nil, stopped)
+  assert(assert(written["/o/t/todos-1.txt"]):find("grade: broken\n", 1, true) == 1)
+  local report = Agent.report(o, results)
+  assert(report:find("- t: 0 of 0 passed (1 broken, left out: the agent ended before its first request);", 1, true) ~= nil, report)
+  assert(report:find("- t: 0 of 0 passed, 1 broken;", 1, true) ~= nil, report)
+  assert(report:find("  - broken: sandbox: $.profiles[0]: there is no profile \"cosmic\"\n", 1, true) ~= nil, report)
+  -- Once a run made its requests, a later run's error is the model's or the run's own: the round goes on.
+  asked = 0
+  local replied = false
+  local again: Agent.System = {
+    fresh = system.fresh,
+    discard = system.discard,
+    run = function(argv: {string}, _: string, _: {string: string}?, _: integer): Agent.Output
+      if argv[1] == "/c" then
+        asked = asked + 1
+        if asked == 1 then
+          replied = true
+          return { code = 0, stdout = "", stderr = "" }
+        end
+        return { code = 1, stdout = "", stderr = "timed out" }
+      end
+      if argv[1] == "bash" and (argv[3] or ""):find("TODO", 1, true) ~= nil then
+        return { code = 0, stdout = "x.tl:1\n", stderr = "" }
+      end
+      return { code = 0, stdout = "", stderr = "" }
+    end,
+    spent = function(_: string, _: string): Agent.Spent?
+      if not replied then return nil end
+      return { requests = 1, input = 1, output = 1, cache_read = 0, cache_write = 0, cost = 0.1, seconds = 1, tools = 0,
+        runs = 0, refused = 0, codes = {}, causes = {}, layers = {}, guesses = {}, resends = 0, sorts = 0, first_read = 0, helpers = {} }
+    end,
+    put = system.put,
+    serve = system.serve,
+  }
+  local later = Agent.execute(o, again, "k", {}, function(_: string, _: string) kept = kept + 1 end)
+  assert(asked == 6 and #later == 6 and kept == 6, tostring(asked))
+  assert(assert(later[1]).grade == "fail" and assert(later[6]).stopped == nil)
+end
+
+--- `--no-agents-md` leaves AGENTS.md and CLAUDE.md out of every copy of the fixture, the truth's too, and the
+--- report says so; without it, no copy is touched.
+local function test_no_agents_md_leaves_the_instructions_out_of_each_copy()
+  assert(options({ "--tool", "t=/c", "--fixture", "/f", "--out", "/o" }).without_agents_md == nil)
+  local o = options({ "--tool", "t=/c", "--no-agents-md", "--fixture", "/f", "--out", "/o", "--tasks", "todos",
+    "--reps", "1" })
+  assert(o.without_agents_md == true)
+  assert(Agent.parse({ "--tool", "t=/c", "--fixture", "/f", "--out", "/o", "--no-agents-md" }) ~= nil)
+  local removed: mut {string} = {}
+  local system: Agent.System = {
+    fresh = function(prefix: string): string return "/tmp/" .. prefix .. "1" end,
+    discard = function(_: string) end,
+    run = function(argv: {string}, _: string, _: {string: string}?, _: integer): Agent.Output
+      if argv[1] == "rm" then
+        local line = table.concat(argv, " ")
+        removed[#removed + 1] = line
+      end
+      return { code = 0, stdout = "", stderr = "" }
+    end,
+    spent = function(_: string, _: string): Agent.Spent? return nil end,
+    put = function(_: string, _: string) end,
+    serve = function(_: {string}, _: string, _: string, _: integer): (string, function()) | (nil, string)
+      error("no task here has a site")
+    end,
+  }
+  local results = Agent.execute(o, system, "k", {}, function(_: string, _: string) end)
+  assert(#removed == 2 and removed[1]:find("^rm %-f /tmp/truth%-todos%-1/AGENTS%.md /tmp/truth%-todos%-1/CLAUDE%.md$") ~= nil,
+    table.concat(removed, "; "))
+  assert(removed[2]:find("^rm %-f /tmp/bench%-t%-todos%-1/AGENTS%.md") ~= nil)
+  assert(Agent.report(o, results):find("Fixture: AGENTS.md and CLAUDE.md left out of the fixture.\n", 1, true) ~= nil)
+end
+
+--- A run that timed out is slow, not broken: its first request may have been out when it ended.
+local function test_a_timeout_before_the_first_request_is_a_failure_and_goes_on()
+  local o = options({ "--tool", "t=/c", "--fixture", "/f", "--out", "/o", "--tasks", "todos", "--reps", "2" })
+  local asked = 0
+  local system: Agent.System = {
+    fresh = function(prefix: string): string return "/tmp/" .. prefix .. "1" end,
+    discard = function(_: string) end,
+    run = function(argv: {string}, _: string, _: {string: string}?, _: integer): Agent.Output
+      if argv[1] == "/c" then
+        asked = asked + 1
+        return { code = 124, stdout = "", stderr = "" }
+      end
+      if argv[1] == "bash" and (argv[3] or ""):find("TODO", 1, true) ~= nil then
+        return { code = 0, stdout = "x.tl:1\n", stderr = "" }
+      end
+      return { code = 0, stdout = "", stderr = "" }
+    end,
+    spent = function(_: string, _: string): Agent.Spent? return nil end,
+    put = function(_: string, _: string) end,
+    serve = function(_: {string}, _: string, _: string, _: integer): (string, function()) | (nil, string)
+      error("no task here has a site")
+    end,
+  }
+  local results = Agent.execute(o, system, "k", {}, function(_: string, _: string) end)
+  assert(asked == 2 and #results == 2 and assert(results[1]).grade == "fail" and assert(results[2]).stopped == nil)
 end

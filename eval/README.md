@@ -481,11 +481,33 @@ how many of them were run). `<out>/report.md` gives, for each task and tool, the
 `<out>/results.json` has each run; `<out>/<tool>/<task>-<rep>.txt` has what the run left, the truth, the agent's
 words and its stderr. The exit status is 1 when a graded run failed.
 
+`--no-agents-md` leaves AGENTS.md and CLAUDE.md out of every copy of the fixture (the truth's too), so the agent has
+only what the binary tells it, and the report says so. Run a round with it, for example:
+
+```sh
+eval/agent --tool base=/opt/evaltools/cosmic --fixture /tmp/evfix --out /tmp/ev/r1 --model haiku \
+  --tasks json-legs,write-dirs --reps 6 --no-agents-md
+```
+
+Give `--out` a directory in /tmp, then copy report.md and results.json where they should stay: on a network mount
+(such as the project's) every run ends with "cache leaf has a different owner". A run that ends with an error before
+its first request is graded "broken", not "fail", with the first line of its error in the report. When no run before
+it made a request, it ends the round at once and the command prints why, so a wrong flag or path costs seconds.
+
+The report also reads each run's refusals. "refusals by root cause" names each cause of a refused snippet, with its
+layer: `lang` (a rule of the language or checker), `stdlib` (a name or shape the library lacks) or `prompt` (only the
+run text's wording). The rules are in [`causes.tl`], each with the reason beside it; a refusal no rule names is
+`untagged`, listed by its code, and wants a new rule. The layer with the most refusals is where the next change
+should go. "names the model guessed that do not exist" lists each unknown field, module and variable the model tried,
+by the number of runs, and a name that recurs is a candidate for an alias, a function or a better hint. Each task row
+also counts the snippets sent again to the letter and the snippets that sort.
+
 To add a task, add it to [`Agent.tasks`]. Its prompt must say exactly what to leave and in what form. Its truth must
 be a plain shell command that gives the one right answer. Prefer work of several steps over a fixture as large as
 this repository, where the agent's way of working shows in what it spends.
 
 [`Agent.tasks`]: agent.tl
+[`causes.tl`]: causes.tl
 [`cosmic.agent.host`]: https://github.com/cosmic-lua/cosmic/blob/main/cosmic/agent/host.tl
 [`eval/agent.tl`]: agent.tl
 [`eval/agent`]: agent

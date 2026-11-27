@@ -5,16 +5,38 @@ Model {{.model}}; runs of each task with each tool: {{.reps}}; fixture {{.fixtur
 
 {{with .effort}}Effort: {{.}}; the agent's default for the rest.
 
+{{end}}{{with .agents_md}}Fixture: {{.}}.
+
 {{end}}## all tasks
 
 {{range .totals -}}
-- {{.tool}}: {{.passed}} of {{.n}} passed{{with .unfit}} ({{.}} unfit on this fixture, left out){{end}}; ${{.cost | report_data.fixed4}}, {{.cache_read | report_data.fixed0}} cache read, {{.cache_write | report_data.fixed0}} cache write, {{.output | report_data.fixed0}} out a run; ${{.total | report_data.fixed3}} in all
+- {{.tool}}: {{.passed}} of {{.n}} passed{{with .unfit}} ({{.}} unfit on this fixture, left out){{end}}{{with .broken}} ({{.}} broken, left out: the agent ended before its first request){{end}}; ${{.cost | report_data.fixed4}}, {{.cache_read | report_data.fixed0}} cache read, {{.cache_write | report_data.fixed0}} cache write, {{.output | report_data.fixed0}} out a run; ${{.total | report_data.fixed3}} in all
 {{end}}
 {{- range .tasks}}
 ## {{.name}}
 
 {{range .rows -}}
 - {{.tool}}: {{.grade}}; {{.requests | report_data.fixed1}} requests, ${{.cost | report_data.fixed3}}, {{.wall | report_data.fixed0}} s wall ({{.seconds | report_data.fixed0}} s in requests); tokens {{.input | report_data.fixed0}} in, {{.output | report_data.fixed0}} out, {{.cache_read | report_data.fixed0}} cache read ({{.first_read | report_data.fixed0}} by the first request), {{.cache_write | report_data.fixed0}} cache write; {{.tools | report_data.fixed1}} tool calls, {{.runs | report_data.fixed1}} of them run, {{.refused | report_data.fixed1}} refused
-{{with .refused_for}}  - refused for: {{.}}
+{{with .broken}}  - broken: {{.}}
+{{end}}{{with .refused_for}}  - refused for: {{.}}
 {{end}}{{with .helpers}}  - snippets naming each Host helper: {{.}}
+{{end}}{{with .resends}}  - snippets sent again to the letter: {{. | report_data.fixed1}} a run
+{{end}}{{with .sorts}}  - snippets that sort: {{. | report_data.fixed1}} a run
+{{end}}{{end}}{{end}}
+{{- with .causes}}
+## refusals by root cause
+
+Each refused snippet counts once for each cause. The layer says what change removes it: lang (a rule of the language or checker), stdlib (a name or shape the library lacks) or prompt (only the run text's wording). eval/causes.tl holds the rules.
+{{range .}}
+- {{.tool}}: {{.refused}} refused snippets; by layer: {{.layers}}
+{{range .causes}}  - {{.tag}}: {{.name}}: {{.count}} ({{.tasks}})
+{{end}}{{end}}{{end}}
+{{- with .guesses}}
+## names the model guessed that do not exist
+
+Each name counts the runs that tried it. A name that recurs is a candidate for an alias, a function or a better hint.
+{{range .}}
+- {{.tool}}
+{{range .names}}  - {{.name}}: {{.runs}} ({{.tasks}})
+{{end}}{{with .more}}  - and {{.}} more
 {{end}}{{end}}{{end}}{{- "" -}}
