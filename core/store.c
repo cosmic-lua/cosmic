@@ -27,6 +27,7 @@
 #include "hash.h"
 #include "html.h"
 #include "process.h"
+#include "profile.h"
 #include "protobuf.h"
 #include "sign.h"
 #include "tls.h"
@@ -363,50 +364,38 @@ static sqlite3 *binary_database (lua_State *L, int list) {
   return count > 0 ? database_at(L, list, count) : NULL;
 }
 
-/* Whether COSMIC_TRACE_REQUIRE named a module trace when the store was
- * installed ([`cosmic_store_install`]): then each module the searcher
- * finds in a database is loaded through [`traced_loader`]. */
-static bool tracing_requires = false;
-
-/* How deep the traced loads are nested, and the time each open level's
- * nested loads took, so a line can say what a module took itself. A load
- * deeper than the table is still said, with no time of its own. */
-#define TRACE_DEPTH 64
-static int trace_depth = 0;
-static double trace_nested_ms[TRACE_DEPTH];
-
-static double monotonic_ms (void) {
-  struct timespec now;
-  clock_gettime(CLOCK_MONOTONIC, &now);
-  return (double)now.tv_sec * 1000.0 + (double)now.tv_nsec / 1e6;
+/* Closes the span of a module's load (its token, the userdata's value),
+ * as the loader returns or raises: a to-be-closed slot of
+ * [`profiled_loader`]'s, so an error unwinds through it after its
+ * handler ran, and its traceback is the one an unprofiled run gets. */
+static int close_load_span (lua_State *L) {
+  int64_t *token = (int64_t *)luaL_checkudata(L, 1, "cosmic.store.load_span");
+  (void)cosmic_profile_span_close(*token);
+  *token = 0;
+  return 0;
 }
 
-/* The loader of a traced module: its chunk (upvalue 1) called with the
- * arguments `require` gives it, then a line on stderr naming the module
- * (upvalue 2), indented by how deep it was required. The line gives the
- * time the module took: reading its chunk out of the databases (upvalue
- * 3, timed by the searcher) and running it. It gives the time it took
- * itself too, short of the modules it required, and how much of that was
- * the read. Its line is written after the lines of the modules it
- * required. A load that raises writes no line and leaves every later line
- * one level too deep, even where the error is caught: the trace stays out
- * of the error's way, so its traceback is the one an untraced run gets. */
-static int traced_loader (lua_State *L) {
+/* The loader of a module a profiled process loads: its chunk (upvalue
+ * 1) called with the arguments `require` gives it, inside the profile's
+ * span `[require:<name>]` (upvalue 2), so the spans of the modules it
+ * requires stand in it. The span opens here, as the chunk runs, not as
+ * the searcher reads it: a caller that asks the searcher and drops its
+ * loader (Store.closure's lookups, a test worker's gate) opens none. */
+static int profiled_loader (lua_State *L) {
   int given = lua_gettop(L);
+  int64_t *token = (int64_t *)lua_newuserdatauv(L, sizeof *token, 0);
+  *token = 0;
+  if (luaL_newmetatable(L, "cosmic.store.load_span")) {
+    lua_pushcfunction(L, close_load_span);
+    lua_setfield(L, -2, "__close");
+  }
+  lua_setmetatable(L, -2);
+  lua_toclose(L, given + 1);
+  *token = cosmic_profile_span_open("require:", lua_tostring(L, lua_upvalueindex(2)));
   lua_pushvalue(L, lua_upvalueindex(1));
-  lua_insert(L, 1);
-  int depth = trace_depth++;
-  if (depth < TRACE_DEPTH) trace_nested_ms[depth] = 0;
-  double start = monotonic_ms();
+  for (int i = 1; i <= given; i++) lua_pushvalue(L, i);
   lua_call(L, given, LUA_MULTRET);
-  double read = lua_tonumber(L, lua_upvalueindex(3));
-  double took = monotonic_ms() - start + read;
-  trace_depth--;
-  double own = depth < TRACE_DEPTH ? took - trace_nested_ms[depth] : took;
-  if (depth > 0 && depth - 1 < TRACE_DEPTH) trace_nested_ms[depth - 1] += took;
-  fprintf(stderr, "require: %*s%s %.2f ms (%.2f ms its own, %.2f ms reading it)\n",
-          depth * 2, "", lua_tostring(L, lua_upvalueindex(2)), took, own, read);
-  return lua_gettop(L);
+  return lua_gettop(L) - (given + 1);
 }
 
 /* The one searcher. Its upvalue is the list of databases, in the order
@@ -430,7 +419,6 @@ static int store_searcher (lua_State *L) {
   int list = lua_upvalueindex(1);
   lua_Integer count = (lua_Integer)lua_rawlen(L, list);
   int reserved = names_reserved(name);
-  double began = tracing_requires ? monotonic_ms() : 0;
 
   if (names_plain_raw(name) && raw_value(L, name)) {
     /* The value itself, as a module's: `require` caches it under its name. */
@@ -447,10 +435,10 @@ static int store_searcher (lua_State *L) {
     int trusted = 0;
     int found = load_from(L, db, name, i == count, &trusted);
     if (found == 1) {
-      if (tracing_requires) {
+      /* A profiled process's load is a span of its profile. */
+      if (cosmic_profile_taking()) {
         lua_pushstring(L, name);
-        lua_pushnumber(L, monotonic_ms() - began);
-        lua_pushcclosure(L, traced_loader, 3);
+        lua_pushcclosure(L, profiled_loader, 2);
       }
       if (trusted && wrapper_raw(L, name)) {
         return 2;
@@ -1316,8 +1304,6 @@ void cosmic_store_install (lua_State *L, sqlite3 *binary,
   else lua_pushlightuserdata(L, (void *)artifact);
   lua_setfield(L, LUA_REGISTRYINDEX, STORE_ARTIFACT);
 
-  const char *trace = getenv("COSMIC_TRACE_REQUIRE");
-  tracing_requires = trace != NULL && trace[0] != '\0' && strcmp(trace, "0") != 0;
   /* package.searchers keeps the preload searcher and gains ours; the
    * two that read the filesystem go away with package.path. */
   lua_getglobal(L, "package");

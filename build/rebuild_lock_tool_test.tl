@@ -591,6 +591,22 @@ local function test_a_check_that_was_deferred_is_made_once_the_lock_is_free(tmp:
   assert(not reboot.unchecked(root), "a check that found the tool fresh left the tree unchecked")
 end
 
+--- A tool whose core still differs from the tree's after a reboot entered it refuses, and says what to run: it names
+--- the modules that moved, or, where none did, that the core itself differs, rather than a bare "still stale".
+local function test_a_core_still_stale_after_a_reboot_says_what_differs(tmp: string)
+  local root = tmp .. "/tree"
+  local _ = own_tree(root)
+  local layout = build_paths.resolve(root)
+  local built_from = assert(tree.built_from(root))
+  local entered: reboot.Seen = { tool = layout.tool, environment = { COSMIC_REBOOTED = "1" },
+    meta = { image_hash = "not the core's", boot_hash = "not the tree's", built_from = built_from } }
+  local said = captured(2, tmp, function()
+    assert(reboot.recheck({ "lsp" }, root, entered) == 3)
+  end)
+  assert(said:find("still stale after a reboot", 1, true), said)
+  assert(said:find("moved:", 1, true) or said:find("the core differs from the tree's", 1, true), said)
+end
+
 --- The check before a verb that only reads, finding the tool stale by the
 --- tree's Teal alone -- an edit while `cosmic test` holds the rebuild lock,
 --- the commonest case -- waits for none: it rebuilds nothing, says that
