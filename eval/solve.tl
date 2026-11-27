@@ -1,4 +1,4 @@
---- Runs the Claude Code solver for an arena [`eval/arena`] laid, in a
+--- Runs the Claude Code solver for an arena [`arena`] laid, in a
 --- sandbox that leaves it the arena and what the CLI needs to run, and
 --- nothing else of the host's files: no checkout of this repository, no
 --- ~/.claude, no cache, no other arena.
@@ -7,8 +7,8 @@
 ---
 --- It writes transcript.jsonl, stderr, started_at, finished_at and
 --- exit_code beside the arena's PROMPT.md, as eval/README.md's manual
---- launch does. [`eval/solve`] runs this on the bootstrap cosmic, as
---- [`eval/arena`] runs eval/arena.tl: it requires `cosmic.*` modules
+--- launch does. [`solve`] runs this on the bootstrap cosmic, as
+--- [`arena`] runs eval/arena.tl: it requires `cosmic.*` modules
 --- only.
 local Child = require("cosmic.child")
 local Signal = require("cosmic.signal")

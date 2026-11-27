@@ -1,4 +1,4 @@
-{{type Report from eval.report_data}}{{mode text -}}
+{{type Report from report_data}}{{mode text -}}
 # cosmic agent evals
 
 Model {{.model}}; runs of each task with each tool: {{.reps}}; fixture {{.fixture}}. Each number is the mean of a run.
@@ -8,13 +8,13 @@ Model {{.model}}; runs of each task with each tool: {{.reps}}; fixture {{.fixtur
 {{end}}## all tasks
 
 {{range .totals -}}
-- {{.tool}}: {{.passed}} of {{.n}} passed{{with .unfit}} ({{.}} unfit on this fixture, left out){{end}}; ${{.cost | eval.report_data.fixed4}}, {{.cache_read | eval.report_data.fixed0}} cache read, {{.cache_write | eval.report_data.fixed0}} cache write, {{.output | eval.report_data.fixed0}} out a run; ${{.total | eval.report_data.fixed3}} in all
+- {{.tool}}: {{.passed}} of {{.n}} passed{{with .unfit}} ({{.}} unfit on this fixture, left out){{end}}; ${{.cost | report_data.fixed4}}, {{.cache_read | report_data.fixed0}} cache read, {{.cache_write | report_data.fixed0}} cache write, {{.output | report_data.fixed0}} out a run; ${{.total | report_data.fixed3}} in all
 {{end}}
 {{- range .tasks}}
 ## {{.name}}
 
 {{range .rows -}}
-- {{.tool}}: {{.grade}}; {{.requests | eval.report_data.fixed1}} requests, ${{.cost | eval.report_data.fixed3}}, {{.wall | eval.report_data.fixed0}} s wall ({{.seconds | eval.report_data.fixed0}} s in requests); tokens {{.input | eval.report_data.fixed0}} in, {{.output | eval.report_data.fixed0}} out, {{.cache_read | eval.report_data.fixed0}} cache read ({{.first_read | eval.report_data.fixed0}} by the first request), {{.cache_write | eval.report_data.fixed0}} cache write; {{.tools | eval.report_data.fixed1}} tool calls, {{.runs | eval.report_data.fixed1}} of them run, {{.refused | eval.report_data.fixed1}} refused
+- {{.tool}}: {{.grade}}; {{.requests | report_data.fixed1}} requests, ${{.cost | report_data.fixed3}}, {{.wall | report_data.fixed0}} s wall ({{.seconds | report_data.fixed0}} s in requests); tokens {{.input | report_data.fixed0}} in, {{.output | report_data.fixed0}} out, {{.cache_read | report_data.fixed0}} cache read ({{.first_read | report_data.fixed0}} by the first request), {{.cache_write | report_data.fixed0}} cache write; {{.tools | report_data.fixed1}} tool calls, {{.runs | report_data.fixed1}} of them run, {{.refused | report_data.fixed1}} refused
 {{with .refused_for}}  - refused for: {{.}}
 {{end}}{{with .helpers}}  - snippets naming each Host helper: {{.}}
 {{end}}{{end}}{{end}}{{- "" -}}

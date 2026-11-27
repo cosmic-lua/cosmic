@@ -2235,12 +2235,13 @@ end
 
 --- COSMIC_CI_FORMAT_CHANGED names a file of the paths a pull request
 --- changed, one a line: the check lays out only those (`--changed`,
---- after a `--`, so a path is never an option, and none of `ci/`, which the next phase checks as its own project), none where
+--- after a `--`, so a path is never an option, and none of `ci/`, which the next phase checks as its own project, nor of
+--- `eval/`, a project of its own that a step of ci.yml checks), none where
 --- none changed; a file that cannot be read checks the whole tree.
 local function test_the_format_check_lays_out_only_the_paths_changed(tmp: string)
   local base, project = command(tmp)
   local listed = tmp .. "/changed-paths"
-  assert(Fs.write(listed, "cosmic/fs.tl\nci/cosmic_ci/driver.tl\ndoc/a b.md\n"))
+  assert(Fs.write(listed, "cosmic/fs.tl\nci/cosmic_ci/driver.tl\neval/report.tmpl\neval/agent\ndoc/a b.md\n"))
   local empty = tmp .. "/changed-none"
   assert(Fs.write(empty, ""))
   for _, case in ipairs({

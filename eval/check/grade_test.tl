@@ -6,9 +6,9 @@ local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
-local Grader = require("eval.check.grade")
+local Grader = require("check.grade")
 local Fake = require("cosmic.fake")
-local _ = require("eval.check.grade_fake")
+local _ = require("check.grade_fake")
 
 --- A build database with the two tables the evidence reads: one input
 --- per path, and one run per passing or failing test.
@@ -224,7 +224,7 @@ local function graded_with_journal(dir: string, journal: string?): integer, stri
   if journal ~= nil then
     assert(Fs.write(dir .. "/project/JOURNAL.md", journal))
   end
-  local probe = assert(Fake.build(dir .. "/fake", "eval.check.grade_fake"))
+  local probe = assert(Fake.build(dir .. "/fake", "check.grade_fake"))
   assert(Fake.place(probe, dir .. "/bin/cosmic", '{"fix_refuses_journal":true}'))
   return graded("kv", dir)
 end
@@ -328,7 +328,7 @@ local function graded_api(dir: string, lines: {string}, code: integer,
   assert(Fs.write(dir .. "/testdata/kv_api_test.tl", "-- hidden\n"))
   local given = assert(Json.encode_any({ probes = probes or {}, lines = lines, code = code,
     cwd_file = dir .. "/copy.txt" }))
-  local probe = assert(Fake.build(dir .. "/fake", "eval.check.grade_fake"))
+  local probe = assert(Fake.build(dir .. "/fake", "check.grade_fake"))
   assert(Fake.place(probe, dir .. "/bin/cosmic", given))
   return graded("kv", dir, env)
 end
@@ -402,7 +402,7 @@ end
 local function test_a_grade_past_its_deadline_is_a_timeout_not_a_failure(dir: string)
   assert(Fs.mkdirs(dir .. "/bin"))
   assert(Fs.mkdirs(dir .. "/project"))
-  local probe = assert(Fake.build(dir .. "/fake", "eval.check.grade_fake"))
+  local probe = assert(Fake.build(dir .. "/fake", "check.grade_fake"))
   assert(Fake.place(probe, dir .. "/bin/cosmic", '{"sleep_ms":5000}'))
   assert(Fs.write(dir .. "/project/JOURNAL.md", "**Log**\n"))
   local clock = require("cosmic.clock")
