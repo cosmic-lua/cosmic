@@ -132,6 +132,7 @@ local raw = require("cosmic.internal.json")
 local type Stream = require("cosmic.stream")
 local Array = require("cosmic.array")
 local Failure = require("cosmic.failure")
+local Fs = require("cosmic.fs")
 local String = require("cosmic.string")
 
 local record Json
@@ -1293,6 +1294,79 @@ function Json.array_of(v?: Json.Value): {Json.Value}?
   if t == nil then return nil end
   if not raw.is_array(t) and Json.layout(t) ~= "array" then return nil end
   return items_of(v)
+end
+
+--- `v` as a string where it is one, nil where it is not, as [`Json.object_of`] tells an object:
+--- `local name = Json.string_of(row["name"]) or ""`.
+function Json.string_of(v?: Json.Value): string?
+  if v is string then return v end
+  return nil
+end
+
+--- `v` as a number where it is one, nil where it is not, as [`Json.object_of`] tells an object.
+function Json.number_of(v?: Json.Value): number?
+  if v is number then return v end
+  return nil
+end
+
+--- `v` as an integer where it is a number with no fraction (`3` and `3.0`), nil where it is not, as
+--- [`Json.object_of`] tells an object.
+function Json.integer_of(v?: Json.Value): integer?
+  if v is number then return math.tointeger(v) end
+  return nil
+end
+
+--- `v` as a boolean where it is one, nil where it is not, as [`Json.object_of`] tells an object.
+function Json.boolean_of(v?: Json.Value): boolean?
+  if v is boolean then return v end
+  return nil
+end
+
+-- Json.read, its failure: the file `path` decoded, at `steps` where given.
+local function read_value(path: string, steps?: Json.Steps): Json.Value?, Failure?
+  local text, why = Fs.read(path)
+  if text == nil then return nil, why end
+  local value, bad = Json.decode(text)
+  if value == nil then return nil, Failure.within(bad, path) end
+  if steps == nil then return value, nil end
+  local got, missing = Json.get(value, steps)
+  if got == nil then return nil, Failure.within(missing, path) end
+  return got, nil
+end
+
+--- The JSON file `path` as a value, or the value at `steps` inside it, as [`Json.get`] reaches it: one call in place of
+--- [`Fs.read`], [`Json.decode`] and [`Json.get`]. nil and a [`Failure`] where the file cannot be read, is not JSON or
+--- has nothing at `steps`; its message names the file. [`Json.read_object`] and [`Json.read_array`] narrow what it
+--- reads, and each takes `!` (`Json.read_object(path)!`); a value that may be `false` does not, so bind this one's
+--- values: `local name, why = Json.read("package.json", { "name" })`.
+function Json.read(path: string, steps?: Json.Steps): (Json.Value) | (nil, Failure)
+  local got, why = read_value(path, steps)
+  if got == nil then return nil, why! end
+  return got
+end
+
+--- [`Json.read`] where the value must be an object: its members. nil and a [`Failure`] where it is not one.
+---
+---     for name, leg in pairs(Json.read_object("trip.json", { "legs" })!) do print(name) end
+function Json.read_object(path: string, steps?: Json.Steps): ({string: Json.Value}) | (nil, Failure)
+  local got, why = read_value(path, steps)
+  if got == nil then return nil, why! end
+  local object = Json.object_of(got)
+  if object == nil then
+    return nil, Failure.mismatch("expected a JSON object, got " .. kind(got), path)
+  end
+  return object
+end
+
+--- [`Json.read`] where the value must be an array: its items. nil and a [`Failure`] where it is not one.
+function Json.read_array(path: string, steps?: Json.Steps): ({Json.Value}) | (nil, Failure)
+  local got, why = read_value(path, steps)
+  if got == nil then return nil, why! end
+  local array = Json.array_of(got)
+  if array == nil then
+    return nil, Failure.mismatch("expected a JSON array, got " .. kind(got), path)
+  end
+  return array
 end
 
 --- `value` as an object, a map of [`Json.Value`]: [`Json.to_value`]
