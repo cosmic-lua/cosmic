@@ -724,3 +724,34 @@ local function test_a_timeout_before_the_first_request_is_a_failure_and_goes_on(
   local results = Agent.execute(o, system, "k", {}, function(_: string, _: string) end)
   assert(asked == 2 and #results == 2 and assert(results[1]).grade == "fail" and assert(results[2]).stopped == nil)
 end
+
+--- `--against` takes an absolute path; a results.json of an earlier round gives each tool's causes, and the report
+--- sets this round's beside them, with a cause the round no longer has left in at none.
+local function test_a_report_sets_its_causes_beside_an_earlier_rounds()
+  assert(options({ "--tool", "a=/c", "--fixture", "/f", "--out", "/o", "--against", "/r/results.json" }).against ==
+      "/r/results.json")
+  assert(Agent.parse({ "--tool", "a=/c", "--fixture", "/f", "--out", "/o", "--against", "results.json" }) == nil)
+  local before, why = Agent.earlier(
+    '[{"tool":"a","task":"t","refused":3,"causes":{"lang: x":2,"prompt: gone":1},"layers":{"lang":2,"prompt":1}},' ..
+      '{"tool":"a","task":"u","refused":1,"causes":{"lang: x":1},"layers":{"lang":1}},{"tool":"a","task":"v"}]')
+  local a = assert(before, why)["a"]
+  assert(a ~= nil and a.refused == 4 and a.causes["lang: x"] == 3 and a.causes["prompt: gone"] == 1 and a.layers["lang"] == 3)
+  local none, bad = Agent.earlier('[{"tool":"a","task":"t","refused":3}]')
+  assert(none == nil and bad:find("no refusal causes", 1, true) ~= nil, tostring(bad))
+  local broken_text, _ = Agent.earlier("{")
+  assert(broken_text == nil)
+  local o: Agent.Options = { tools = { { name = "a", path = "/a" } }, fixture = "/f", out = "/o", tasks = {}, reps = 1,
+    model = "m", timeout = 1 }
+  local spent: Agent.Spent = { requests = 1, input = 1, output = 2, cache_read = 3, cache_write = 4, cost = 0.25,
+    seconds = 1, tools = 0, runs = 0, refused = 2, codes = {}, causes = { ["lang: x"] = 1, ["stdlib: new"] = 1 },
+    layers = { lang = 1, stdlib = 1 }, guesses = {}, resends = 0, sorts = 0, first_read = 0, helpers = {} }
+  local report = Agent.report(o, { { tool = "a", task = "todos", rep = 1, grade = "pass", spent = spent, wall = 1 } }, before)
+  assert(report:find("- a: 2 refused snippets; by layer: lang 1, stdlib 1; before: 4 refused snippets; by layer: lang 3, " ..
+      "prompt 1\n", 1, true) ~= nil, report)
+  assert(report:find("  - lang: x: 1 (was 3) (todos 1)\n", 1, true) ~= nil, report)
+  assert(report:find("  - stdlib: new: 1 (was 0) (todos 1)\n", 1, true) ~= nil, report)
+  assert(report:find("  - prompt: gone: 0 (was 1)\n", 1, true) ~= nil, report)
+  -- Without an earlier round the lines are as before.
+  assert(Agent.report(o, { { tool = "a", task = "todos", rep = 1, grade = "pass", spent = spent, wall = 1 } }):find(
+    "  - lang: x: 1 (todos 1)\n", 1, true) ~= nil)
+end
