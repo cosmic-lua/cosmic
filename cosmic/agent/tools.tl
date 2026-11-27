@@ -400,7 +400,7 @@ local function stored(context: Tools.Context, name: string, given: {string: Json
 end
 
 --- The verbs of cosmic a snippet may run ([`Host.uses`], [`Host.test`]), with commands or without.
-local VERBS <const>: {string: boolean} = { uses = true, test = true, build = true }
+local VERBS <const>: {string: boolean} = { uses = true, test = true, build = true, fix = true }
 
 --- What `cosmic <verb> <args>` did, run for a snippet of `context` ([`Worker.program`]): in the session's directory,
 --- under its policy, with no program runnable but this one, for the time the snippet has left; as Host.Ran.
@@ -408,7 +408,7 @@ local function ran_cosmic(context: Tools.Context, given: {string: Json.Value}, b
     (Json.Value) | (nil, Failure)
   local verb = given["verb"]
   if not (verb is string) or VERBS[verb] ~= true then
-    return nil, Failure.new("the call names no verb a snippet may run: uses, test or build")
+    return nil, Failure.new("the call names no verb a snippet may run: uses, test, fix or build")
   end
   local words: mut {string} = { verb }
   local listed, _ = Json.to_array(given["args"])
@@ -416,12 +416,15 @@ local function ran_cosmic(context: Tools.Context, given: {string: Json.Value}, b
     if not (word is string) then return nil, Failure.new("an argument is no string") end
     if verb == "build" then return nil, Failure.new("cosmic build takes no arguments here") end
     -- A word is a name or a path in the tree, not a flag nor a path out of it.
-    local flag = verb == "uses" and word == "--unused" and #words == 1
+    local flag = #words == 1 and ((verb == "uses" and word == "--unused") or (verb == "fix" and word == "--rename"))
     if (not flag and word:sub(1, 1) == "-") or word:sub(1, 1) == "/" or word == ".." or word:find("^%.%./") ~= nil or
         word:find("/%.%./") ~= nil or word:find("/%.%.$") ~= nil then
       return nil, Failure.new("cosmic " .. verb .. ": " .. word .. " is no name or path in the tree")
     end
     words[#words + 1] = word
+  end
+  if verb == "fix" and not (#words == 3 and words[2] == "--rename") then
+    return nil, Failure.new("cosmic fix runs here only as fix --rename Old=new (Host.rename)")
   end
   local set = context.worker
   if set == nil then return nil, Failure.new("no worker runs snippets here") end

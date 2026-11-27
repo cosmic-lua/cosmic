@@ -678,6 +678,14 @@ function Host.unused(paths?: {string}): mut {string}
   return names
 end
 
+--- Renames `old`, a module's member or a record's field as [`Host.uses`] names it (`Money.format`,
+--- `Invoice.Line.name`), to `new`, a bare name (`render`), as `cosmic fix --rename old=new` does: at its declaration, at
+--- each place `uses` finds, and at each table key or write the checker refuses by the old name; then it lays out and
+--- builds the tree. A line it could not tell apart is told in `output` and left. `ok` where the tree builds after.
+function Host.rename(old: string, new: string): Host.Ran
+  return cosmic_ran("fix", { "--rename", old .. "=" .. new })
+end
+
 --- Runs the tests of `paths` (the test files, or the directories that hold them; the whole tree where none), as
 --- `cosmic test` runs them, in the snippet's sandbox: what it printed, and `ok` where every test passed. It runs
 --- with commands or without, as only cosmic itself may run.

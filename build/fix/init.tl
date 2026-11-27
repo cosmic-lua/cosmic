@@ -1289,6 +1289,8 @@ local record Fix
   mut checking?: boolean
   mut paths?: {string}
   mut changes_only?: boolean
+  --- The `Old=new` of `--rename`, made before the rest of the run ([`rename_first`]).
+  mut rename?: string
   mut root?: string
   mut standing?: tree.Standing
 
@@ -1338,6 +1340,7 @@ local function read_command(ctx: Fix): integer?
   ctx.checking = parsed.set["--check"] == true
   ctx.paths = parsed.words
   ctx.changes_only = parsed.set["--changed"] == true
+  ctx.rename = parsed.values["--rename"]
 
   local root, root_trouble = Fs.absolute(".")
   if root == nil then
@@ -1345,6 +1348,31 @@ local function read_command(ctx: Fix): integer?
     return 1
   end
   ctx.root = root
+  return nil
+end
+
+--- Makes the `--rename` the command line asks for ([`build.fix.rename`]), before the run lays out and builds the tree.
+--- @return integer | nil The exit code when the rename is refused, else nil
+local function rename_first(ctx: Fix): integer?
+  local Rename = require("build.fix.rename")
+  local old, new = Rename.parse(assert(ctx.rename))
+  if old == nil then
+    log:complain("fix: " .. tostring(new))
+    return 2
+  end
+  local done, trouble = Rename.run(assert(ctx.root), assert(ctx.standing).own, old, assert(new), ctx.checking == true)
+  if done == nil then
+    log:complain("fix: --rename: " .. tostring(trouble))
+    return 1
+  end
+  if ctx.checking == true and done.places > 0 then
+    log:complain("fix: --rename would change " .. String.counted(done.places, "place") .. "; run it without --check")
+    return 1
+  end
+  if #done.left > 0 then
+    log:complain("fix: --rename left " .. String.counted(#done.left, "line") .. " named above: edit them by hand")
+    return 1
+  end
   return nil
 end
 
@@ -2269,6 +2297,10 @@ local function fix_verb(argv: {string}): integer
   if code ~= nil then return code end
   code = choose_files(ctx)
   if code ~= nil then return code end
+  if ctx.rename ~= nil then
+    code = rename_first(ctx)
+    if code ~= nil then return code end
+  end
   -- Only a run over the whole of cosmic's tree makes the memoed checks worth sharing; one that cannot share makes
   -- them itself.
   if assert(ctx.picked).whole and assert(ctx.standing).own then
