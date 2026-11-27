@@ -313,7 +313,7 @@ local function darwin_flush_case(tmp: string, empty: boolean, fail: boolean)
   raw.uname = function(): sys.Uname
     return { ...assert(real_uname()), sysname = "Darwin" }
   end
-  fs.fsync = function(fd: integer): (true) | (false, Failure)
+  fs.fsync = function(fd: integer): (true) | (nil, Failure)
     assert(flushes == 0 or renamed == true, "payload fsync followed the device flush")
     syncs = syncs + 1
     return real_sync(fd)
@@ -336,7 +336,7 @@ local function darwin_flush_case(tmp: string, empty: boolean, fail: boolean)
     if fail then return false, "injected full flush failure", sys.EBADF end
     return true, "", 0
   end
-  fs.rename = function(from: string, to: string): (true) | (false, Failure)
+  fs.rename = function(from: string, to: string): (true) | (nil, Failure)
     assert(flushes == 1 and not fail, "payload published without a successful full flush")
     renamed = true
     return real_rename(from, to)
@@ -411,7 +411,7 @@ local function test_prepare_cleans_its_scratch_when_a_step_raises(dir: string)
   assert(Fs.mkdirs(cache))
   local before = support.descriptors()
   local real_rename = Fs.rename
-  Fs.rename = function(_from: string, _to: string): (true) | (false, Failure) -- checked: field_fixed
+  Fs.rename = function(_from: string, _to: string): (true) | (nil, Failure) -- checked: field_fixed
     error("the rename raised")
   end
   local ok, trouble = pcall(Patch.prepare, dir .. "/root", "lib", cache)
@@ -430,7 +430,7 @@ local function test_zig_lib_cleans_its_scratch_when_a_step_raises(dir: string)
   assert(Fs.mkdirs(cache))
   local before = support.descriptors()
   local real_rename = Fs.rename
-  Fs.rename = function(_from: string, _to: string): (true) | (false, Failure) -- checked: field_fixed
+  Fs.rename = function(_from: string, _to: string): (true) | (nil, Failure) -- checked: field_fixed
     error("the rename raised")
   end
   local ok, trouble = pcall(Patch.zig_lib, dir .. "/root", dir .. "/lib", cache .. "/out")

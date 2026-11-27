@@ -39,7 +39,7 @@ local function test_a_handle_opened_before_is_refused_and_one_opened_after_is_no
       local first = if rows ~= nil then rows[1] else nil end
       read = first ~= nil and first:integer(1) == 7
     end
-    sys.exit(if held and closed and read then 0 else 1 end)
+    sys.exit(if held and closed == true and read then 0 else 1 end)
   end
   local status = assert(process.waitpid(assert(pid), false))
   assert(status.code == 0, "the copy was not held to its own connections")

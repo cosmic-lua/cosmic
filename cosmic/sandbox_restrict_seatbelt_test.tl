@@ -30,7 +30,7 @@ Test.policy{
 }
 
 --- What a restriction of a process a profile holds already returns.
-local HELD <const> = "false sandbox: restrict: this process is held by a Seatbelt profile " ..
+local HELD <const> = "nil sandbox: restrict: this process is held by a Seatbelt profile " ..
   "already, one it applied or was started under: macOS applies one profile to a process " ..
   "and refuses a second"
 
@@ -171,11 +171,11 @@ do local ok, trouble = Sandbox.restrict({}); say("child", ok, if trouble == nil 
 assert(running:close())
 say("still", reads(%q))
 ]], tmp .. "/free", tmp .. "/held", tmp .. "/free"))
-  assert(assert(said.lines["nest"]):find("^false sandbox: restrict: calls \"nest\""), said.raw)
+  assert(assert(said.lines["nest"]):find("^nil sandbox: restrict: calls \"nest\""), said.raw)
   assert(said.lines["free"] == "free" and said.lines["still"] == "free", said.raw)
-  assert(said.lines["unnamed"] == "false sandbox: restrict: descriptor " .. assert(said.lines["fd"]) ..
+  assert(said.lines["unnamed"] == "nil sandbox: restrict: descriptor " .. assert(said.lines["fd"]) ..
       " is open and not named in fds: close it, or name it to keep it", said.raw)
-  assert(assert(said.lines["child"]):find("^false sandbox: restrict: this process has a child, pid %d+, not waited for"),
+  assert(assert(said.lines["child"]):find("^nil sandbox: restrict: this process has a child, pid %d+, not waited for"),
     said.raw)
 end
 
@@ -219,7 +219,7 @@ local Csv = require("cosmic.csv")
 say("loaded", true, assert(assert(Csv.parse("a,b"))[1])[2])
 ]], tmp, build_paths.resolve(".").projection))
   assert(said.lines["mode"] == "wal", said.raw)
-  assert(assert(said.lines["restrict"]):find("^false sandbox: restrict: the store's database .*copy%.db " ..
+  assert(assert(said.lines["restrict"]):find("^nil sandbox: restrict: the store's database .*copy%.db " ..
       "is in WAL mode"), said.raw)
   assert(said.lines["loaded"] == "true b", said.raw)
 end

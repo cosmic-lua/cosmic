@@ -171,16 +171,16 @@ local record McpClient
     --- notice as it comes, and `on_ack` what the server agreed to, once,
     --- first: a server leaves out what it cannot tell of. It runs until
     --- the server ends the subscription, when it returns true, or until
-    --- its task is cancelled, when it returns false and a Failure of
+    --- its task is cancelled, when it returns nil and a Failure of
     --- kind "cancelled"; the request has no time limit. Over stdio,
     --- other tasks may call the session meanwhile. A notice says only
     --- what changed: list or read again to see how.
     listen: function(Session, wanted: Subscription, on_notice: function(Notice),
-                     on_ack?: function(agreed: Subscription)): (true) | (false, Failure)
+                     on_ack?: function(agreed: Subscription)): (true) | (nil, Failure)
     --- Ends the session: over stdio closes the server's stdin and waits
     --- for a spawned server to exit; over HTTP does nothing more. Safe to
     --- call more than once.
-    close: function(Session): (true) | (false, Failure)
+    close: function(Session): (true) | (nil, Failure)
   end
 end
 
@@ -244,7 +244,7 @@ local record State
   --- The `outputSchema` of each tool listed with one this client can check, compiled, by its name.
   mut outputs: {string: JsonSchema.Schema}
   --- Ends the transport.
-  finish: function(): (true) | (false, Failure)
+  finish: function(): (true) | (nil, Failure)
   mut closed: boolean
   elicit?: McpClient.Elicit
 end
@@ -349,25 +349,25 @@ local record Step
   failure?: Failure
 end
 
-local function follow(self: State, method: string, each: function(result: any): Step): (true) | (false, Failure)
+local function follow(self: State, method: string, each: function(result: any): Step): (true) | (nil, Failure)
   local cursor: string? = nil
   local seen: mut {string: boolean} = {}
   for _ = 1, MAX_PAGES do
     local fields: mut {string: Json.Value} = {}
     if cursor ~= nil then fields["cursor"] = cursor end
     local response, why = ask(self, method, fields)
-    if response == nil then return false, why end
+    if response == nil then return nil, why end
     local step = each(response.result)
     local failure, following = step.failure, step.next
-    if failure ~= nil then return false, failure end
+    if failure ~= nil then return nil, failure end
     if following == nil then return true end
     if seen[following] == true then
-      return false, Failure.new("mcp: " .. method .. " answered the cursor " .. Json.quote(following) .. " twice")
+      return nil, Failure.new("mcp: " .. method .. " answered the cursor " .. Json.quote(following) .. " twice")
     end
     seen[following] = true
     cursor = following
   end
-  return false, Failure.new("mcp: " .. method .. " answered more than " .. String.counted(MAX_PAGES, "page"))
+  return nil, Failure.new("mcp: " .. method .. " answered more than " .. String.counted(MAX_PAGES, "page"))
 end
 
 --- A page read whole, and the next one's cursor, nil at the last.
@@ -550,7 +550,7 @@ local NOTICE_KINDS <const>: {string: McpClient.NoticeKind} = {
 }
 
 local function listen(self: State, wanted: McpClient.Subscription, on_notice: function(McpClient.Notice),
-                      on_ack?: function(McpClient.Subscription)): (true) | (false, Failure)
+                      on_ack?: function(McpClient.Subscription)): (true) | (nil, Failure)
   local asked: mut {string: Json.Value} = {}
   if wanted.tools == true then asked["toolsListChanged"] = true end
   if wanted.prompts == true then asked["promptsListChanged"] = true end
@@ -582,7 +582,7 @@ local function listen(self: State, wanted: McpClient.Subscription, on_notice: fu
   end
   local response, why = ask(self, "subscriptions/listen", { notifications = asked },
     { on_notice = heard_notice, forever = true })
-  if response == nil then return false, why end
+  if response == nil then return nil, why end
   return true
 end
 
@@ -610,7 +610,7 @@ local class Running is McpClient.Session
   end
   function prompts(self): ({Mcp.Prompt}) | (nil, Failure) return prompts(self.state) end
   function listen(self, wanted: McpClient.Subscription, on_notice: function(McpClient.Notice),
-                  on_ack?: function(McpClient.Subscription)): (true) | (false, Failure)
+                  on_ack?: function(McpClient.Subscription)): (true) | (nil, Failure)
     return listen(self.state, wanted, on_notice, on_ack)
   end
   function prompt(self, name: string, arguments?: {string: string}): (Mcp.PromptResult) | (nil, Failure)
@@ -619,7 +619,7 @@ local class Running is McpClient.Session
   function complete(self, asked: Mcp.Completing): (Mcp.Completion) | (nil, Failure)
     return complete(self.state, asked)
   end
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     local s = self.state
     if s.closed then return true end
     s.closed = true
@@ -628,7 +628,7 @@ local class Running is McpClient.Session
 end
 
 local function session(send: Send, opts?: McpClient.Options, http: boolean,
-                       finish: function(): (true) | (false, Failure)): McpClient.Session
+                       finish: function(): (true) | (nil, Failure)): McpClient.Session
   local o: McpClient.Options = opts or {}
   local running: Running = {
     state = { send = send, info = o.info or DEFAULT_INFO, http = http, next_id = 0, mirrors = {}, outputs = {}, finish = finish,
@@ -702,7 +702,7 @@ end
 
 --- Writes `text` as one line on `link`, whole, after any other task's line; it is shielded from a cancel once it
 --- begins, so a line is never cut.
-local function write_line(link: Link, text: string): (true) | (false, Failure)
+local function write_line(link: Link, text: string): (true) | (nil, Failure)
   if link.writing then
     local turn = Poll.notifier()
     link.writers[#link.writers + 1] = turn
@@ -720,7 +720,7 @@ local function write_line(link: Link, text: string): (true) | (false, Failure)
         break
       end
     end
-    if why ~= nil then return false, why end
+    if why ~= nil then return nil, why end
   end
   link.writing = true
   local trouble: Failure? = nil
@@ -732,7 +732,7 @@ local function write_line(link: Link, text: string): (true) | (false, Failure)
   -- Each waiting writer looks again, so the turn is never lost to one whose task was cancelled meanwhile.
   for _, turn in ipairs(link.writers) do turn:notify_one() end
   if trouble ~= nil then
-    return false, Failure.new("mcp: writing to the server: " .. tostring(trouble))
+    return nil, Failure.new("mcp: writing to the server: " .. tostring(trouble))
   end
   return true
 end
@@ -924,9 +924,9 @@ end
 function McpClient.stdio(reader: Stream.Reader, writer: Stream.Writer, opts?: McpClient.Options): McpClient.Session
   local lines = Stream.lines(reader, Mcp.MAX_MESSAGE_BYTES)
   return session(stdio_send(lines, writer), opts, false,
-    function(): (true) | (false, Failure)
+    function(): (true) | (nil, Failure)
       local ok, why = writer:close()
-      if not ok then return false, Failure.new("mcp: " .. tostring(why)) end
+      if not ok then return nil, Failure.new("mcp: " .. tostring(why)) end
       return true
     end)
 end
@@ -954,13 +954,13 @@ function McpClient.spawn(argv: {string}, opts: Child.Options, client_opts?: McpC
   if reader == nil or writer == nil then return nil, Failure.new("mcp: the server has no pipes") end
   local lines = Stream.lines(reader, Mcp.MAX_MESSAGE_BYTES)
   return session(stdio_send(lines, writer), client_opts, false,
-    function(): (true) | (false, Failure)
+    function(): (true) | (nil, Failure)
       local _, _ = writer:close()
       local result, _ = handle:wait(5 * 1000000000)
       if result == nil then
         local closed, trouble = handle:close()
         if not closed then
-          return false, Failure.new("mcp: ending the server: " .. tostring(trouble))
+          return nil, Failure.new("mcp: ending the server: " .. tostring(trouble))
         end
       end
       return true
@@ -1153,7 +1153,7 @@ function McpClient.http(url: string, opts: McpClient.HttpOptions): McpClient.Ses
     end
   end
   return session(send, { info = opts.info, elicit = opts.elicit }, true,
-    function(): (true) | (false, Failure) return true end)
+    function(): (true) | (nil, Failure) return true end)
 end
 
 return McpClient

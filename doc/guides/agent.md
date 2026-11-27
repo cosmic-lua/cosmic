@@ -73,7 +73,7 @@ cosmic agent ask 'what does this repository do? keep it short'
 
 > ```teal
 > for _, p in ipairs(Host.find(".")) do print(p) end
-> if Host.exists("README.md") then print(Host.read("README.md"):sub(1, 1500)) end
+> local text = Fs.read("README.md") if text ~= nil then print(text:sub(1, 1500)) end
 > ```
 > ```output
 > .git/COMMIT_EDITMSG
@@ -250,15 +250,12 @@ as the commands they are named for, but give values in place of text,
 and raise where they fail:
 
 - `Host.find(dir, suffix?)`: every file under `dir`, sorted.
-- [`Host.read`], [`Host.edit`] (exact replacements, `{ { old = "...", new = "..." } }`, each old text in the file once), [`Host.lines`], [`Host.wc`], [`Host.exists`], [`Host.write`].
+- [`Host.read`], [`Host.edit`] (exact replacements, `{ { old = "...", new = "..." } }`, each old text in the file once), [`Host.lines`], [`Host.write`].
 - `Host.grep(pattern, paths, plain?)`: the lines that hold a pattern,
   each as `{path, line, text}`.
-- `Host.sed(path, pattern, replacement)`: replaces every match.
-- [`Host.sort`], [`Host.uniq`], [`Host.top`]: lists and counts.
 - `Host.fetch(url, options?)`: an HTTP request to a public address
   with `--network`, or to a `--connect` target. It follows no
   redirect.
-- `Host.sqlite(path, statement, values?)`: SQL on a SQLite file.
 - `Host.output(id)` and `Host.history(query)`: what the sessions
   database keeps (see "sessions" below).
 - [`Host.modules()`] lists the `cosmic.*` modules a program may require,
@@ -579,13 +576,8 @@ written before it is shown.
 [`cosmic.child`]: ../../cosmic/child/init.tl
 [`Host.bash`]: ../../cosmic/agent/host.tl
 [`Host.edit`]: ../../cosmic/agent/host.tl
-[`Host.exists`]: ../../cosmic/agent/host.tl
 [`Host.lines`]: ../../cosmic/agent/host.tl
 [`Host.modules()`]: ../../cosmic/agent/host.tl
 [`Host.read`]: ../../cosmic/agent/host.tl
-[`Host.sort`]: ../../cosmic/agent/host.tl
-[`Host.top`]: ../../cosmic/agent/host.tl
-[`Host.uniq`]: ../../cosmic/agent/host.tl
-[`Host.wc`]: ../../cosmic/agent/host.tl
 [`Host.write`]: ../../cosmic/agent/host.tl
 [`Host`]: ../../cosmic/agent/host.tl

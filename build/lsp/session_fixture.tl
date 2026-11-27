@@ -238,17 +238,17 @@ local class Batches is Stream.Reader
     return piece
   end
 
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     return true
   end
 
   --- Passes over `n` bytes, read and dropped.
-  function skip(self, n: integer): (true) | (false, Failure) -- declared: interface_disagrees
+  function skip(self, n: integer): (true) | (nil, Failure) -- declared: interface_disagrees
     local left = n
     while left > 0 do
       local piece, trouble = self:read(left)
-      if piece == nil then return false, Failure.new(tostring(trouble)) end
-      if piece == false then return false, Failure.new("") end
+      if piece == nil then return nil, Failure.new(tostring(trouble)) end
+      if piece == false then return nil, Failure.new("") end
       left = left - #piece
     end
     return true

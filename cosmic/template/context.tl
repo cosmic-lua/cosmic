@@ -213,7 +213,7 @@ end
 --- @param attributes dialect.Table What the template's dialects say of its attributes
 --- @return boolean True when every slot has a place
 --- @return Failure The reason, as `name:line:col: ...`, on a refusal
-function Context.annotate(template: types.Template, name: string, attributes: dialect.Table): (true) | (false, Failure)
+function Context.annotate(template: types.Template, name: string, attributes: dialect.Table): (true) | (nil, Failure)
   if template.mode == "text" then
     return true
   end
@@ -232,12 +232,12 @@ function Context.annotate(template: types.Template, name: string, attributes: di
   end
   local why = whole(template.body, template.body_end_line, template.body_end_col, "the template")
   if why ~= nil then
-    return false, why
+    return nil, why
   end
   for _, define in ipairs(template.defines) do
     why = whole(define.body, define.end_line, define.end_col, "{{define " .. define.name .. "}}")
     if why ~= nil then
-      return false, why
+      return nil, why
     end
   end
   return true

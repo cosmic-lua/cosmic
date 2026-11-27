@@ -52,7 +52,7 @@ function Narrowing.condition(ctx: Ctx, node: Ast.Exp): Type
   -- Each operand of `not`, `and` and `or` of a condition is only asked whether it holds: a field read there is a probe.
   local function mark_probes(operand: Ast.Exp)
     local at = peel(operand)
-    if (at.kind == "Field") then
+    if (at.kind == "Field") or (at.kind == "Index") then
       ctx.probes[at.id] = true
     elseif (at.kind == "Unary") and at.op == "not" then
       mark_probes(at.operand)
@@ -63,7 +63,19 @@ function Narrowing.condition(ctx: Ctx, node: Ast.Exp): Type
   end
   mark_probes(node)
   local t = ctx.walk.expr(ctx, node, nil)
-  local _ = condition_kind(ctx, node, t)
+  -- Of `a and b` and `a or b`, the left is checked where it is walked, and the right is the operand whose value is asked:
+  -- so `ok and why == nil` of an effect's `true?` holds, and `ok and flag` of a `boolean?` flag is refused.
+  local asked, asked_type = node, t
+  local at = peel(node)
+  while (at.kind == "Binary") and (at.op == "and" or at.op == "or") and asked_type.tag ~= "invalid" do
+    local right = ctx.right_types[at.id]
+    if right == nil then
+      break
+    end
+    asked, asked_type = at.right, right
+    at = peel(at.right)
+  end
+  local _ = condition_kind(ctx, asked, asked_type)
   return t
 end
 

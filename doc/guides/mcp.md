@@ -364,7 +364,7 @@ local McpClient = require("cosmic.mcp.client")
 
 local session = McpClient.http("https://notes.example.com/mcp", { timeout_ns = Clock.seconds(30), oauth = {
   client_id = "notes-desktop",
-  open = function(url: string): (true) | (false, Failure)
+  open = function(url: string): (true) | (nil, Failure)
     print("sign in at " .. url)
     return true
   end,

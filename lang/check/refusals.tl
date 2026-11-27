@@ -53,14 +53,14 @@ Refusals.advice = {
   ["cosmic.fs Fs .readdir"] = "`Fs.list(path)` lists the names in a directory",
 }
 
---- Whether a value of the optional type `t` may be a boolean where it is not nil: `false` is then a value of it, which a
---- test for truth takes for nil.
+--- Whether a value of the optional type `t` may be `false` where it is not nil (a `boolean` or `false`): `false` is then
+--- a value of it, which a test for truth takes for nil. A `true?` holds none.
 function Refusals.holds_boolean(ctx: Ctx, t: Type): boolean
   if not nilable(t) then
     return false
   end
   for _, m in ipairs(members_of(ctx.store, ctx.store:non_nil(t))) do
-    if is_bool(m) then
+    if is_bool(m) and m.tag ~= "true" then
       return true
     end
   end

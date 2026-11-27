@@ -1365,7 +1365,7 @@ local function test_flock_kind_says_whether_a_flock_excludes_an_fcntl_lock(tmp: 
   -- Asked once: a connection waits a minute for a lock by default.
   assert(db:exec("PRAGMA busy_timeout = 0"))
   local taken, why = db:exec("BEGIN IMMEDIATE")
-  assert(taken == (kind == "apart"), kind .. ": " .. tostring(why))
+  assert((taken == true) == (kind == "apart"), kind .. ": " .. tostring(why))
   assert(db:close())
   assert(sys.close(fd))
   local none, said, errno = sys.flock_kind(fd)

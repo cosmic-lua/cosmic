@@ -641,13 +641,13 @@ the one to report.
 local Failure = require("cosmic.failure")
 local Sqlite = require("cosmic.sqlite")
 
-local function add(db: Sqlite.Handle, body: string): (true) | (false, Failure)
+local function add(db: Sqlite.Handle, body: string): (true) | (nil, Failure)
   local began, trouble = db:run("BEGIN")
-  if not began then return false, trouble end
+  if not began then return nil, trouble end
   local ok, why = db:run("INSERT INTO t (body) VALUES (?1)", { { text = body } })
   if not ok then
     local _, _ = db:run("ROLLBACK")
-    return false, why
+    return nil, why
   end
   return db:run("COMMIT")
 end

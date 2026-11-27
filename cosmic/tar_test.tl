@@ -533,7 +533,7 @@ local function trickle(data: string, step: integer): Stream.Reader
       if want > step then want = step end
       return inner:read(want)
     end,
-    close = function(_self: Stream.Reader): (true) | (false, Failure)
+    close = function(_self: Stream.Reader): (true) | (nil, Failure)
       return inner:close()
     end,
   }
@@ -594,7 +594,7 @@ local function test_a_failing_body_names_what_the_writer_was_doing()
     read = function(_self: Stream.Reader, _max_bytes?: integer): (string | false) | (nil, Failure)
       return nil, Failure.new("disk on fire")
     end,
-    close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
+    close = function(_self: Stream.Reader): (true) | (nil, Failure) return true end,
   }
   local ok, trouble = w:add_file("f", bad, { size = 3 })
   assert(not ok and tostring(trouble) == "tar: add_file: disk on fire", tostring(trouble))
@@ -615,10 +615,10 @@ end
 --- A failing Writer's own words are returned by the writer as they
 --- are; a failing body Reader's are told what the writer was doing.
 local function test_a_failing_underlying_writer_is_answered_as_it_said_it()
-  local function closed(_self: Stream.Writer): (true) | (false, Failure) return true end
+  local function closed(_self: Stream.Writer): (true) | (nil, Failure) return true end
   local full: Stream.Writer = { -- checked: literal_shape
-    write = function(_self: Stream.Writer, _data: string): (true) | (false, Failure)
-      return false, Failure.new("disk full")
+    write = function(_self: Stream.Writer, _data: string): (true) | (nil, Failure)
+      return nil, Failure.new("disk full")
     end,
     close = closed, abort = closed,
   }
@@ -677,7 +677,7 @@ local class FailingAfter is Stream.Reader
     return data
   end
 
-  function close(self): (true) | (false, Failure) return true end
+  function close(self): (true) | (nil, Failure) return true end
 end
 
 --- A Reader that gives `data`, as one read, then fails with `failure`.

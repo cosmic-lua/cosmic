@@ -194,6 +194,7 @@ function Operators.disjunction(ctx: Ctx, node: Ast.Binary, left: Type, expected:
   end
   if left_kind == "bool" then
     local right = ctx.walk.expr(ctx, node.right, expected)
+    ctx.right_types[node.id] = right
     -- A `never` left cannot occur: the result is the right operand's, as in the `T?` path below, where `join` drops `never`.
     if left.tag == "never" then
       return right
@@ -240,6 +241,7 @@ function Operators.conjunction(ctx: Ctx, node: Ast.Binary, left: Type, expected:
   -- A `never` left cannot occur, so it is no boolean: the result is the right operand or nil, as for a `T?` left.
   local boolean = left_kind == "bool" and left.tag ~= "never"
   local right = ctx.walk.expr(ctx, node.right, if boolean then expected else nil end)
+  ctx.right_types[node.id] = right
   if right.tag == "invalid" then
     return right
   end

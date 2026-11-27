@@ -699,7 +699,7 @@ function QueueVerdicts.merge(from: string, into: string): QueueVerdicts.Said
       local ok, why = false, tostring(read_trouble)
       if bytes ~= nil then
         local wrote_ok, wrote_why = Fs.write(target, bytes)
-        ok, why = wrote_ok, if wrote_ok then "" else tostring(wrote_why) end
+        ok, why = wrote_ok == true, if wrote_ok then "" else tostring(wrote_why) end
       end
       if ok then
         out[#out + 1] = "verdicts-merge: " .. name .. ": the merge queue's, whole (none was restored)"

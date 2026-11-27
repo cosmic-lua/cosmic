@@ -6,7 +6,7 @@
 --- caller wants: a query that yields rows, all at once (`db:rows`) or
 --- one at a time (`db:query`), a statement run once (`db:run`), and a
 --- transaction that rolls back when the work inside it fails
---- (`db:transact`); each returns nil or false and a [`Failure`] when
+--- (`db:transact`); each returns nil and a [`Failure`] when
 --- SQLite refuses.
 ---
 --- Parameters are a list of values, one per `?N`, in order; a result
@@ -420,7 +420,7 @@ end
 
 --- One step of [`Handle.migrate`]: SQL that [`Handle.exec`] runs, or work
 --- on the handle that returns as [`Handle.transact`]'s work does.
-local type Migration = string | function(Handle): (true) | (false, Failure)
+local type Migration = string | function(Handle): (true) | (nil, Failure)
 
 --- The value `PRAGMA synchronous` takes for each [`Synchronous`].
 local SYNCHRONOUS <const>: {Synchronous: string} = { off = "OFF", normal = "NORMAL", full = "FULL", extra = "EXTRA" }
@@ -528,10 +528,10 @@ local class Query
   --- (`INSERT ... RETURNING`) closed before its last row commits here
   --- in autocommit, and can fail. Closing again returns the same. A
   --- `<close>` variable drops that result: close such a write by hand.
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     finish(self)
     local failure = self.failed
-    if failure ~= nil then return false, failure end
+    if failure ~= nil then return nil, failure end
     return true
   end
 
@@ -683,19 +683,19 @@ local class Statement
   kept: Kept
 
   --- Runs the statement, as [`Handle.run`] does: `true`, or `false` and why.
-  function run(self, values?: {raw_sqlite.Param}): (true) | (false, Failure)
+  function run(self, values?: {raw_sqlite.Param}): (true) | (nil, Failure)
     local held = held_by_query(self.kept)
-    if held ~= nil then return false, held end
+    if held ~= nil then return nil, held end
     local statement = self.statement
     local trouble = bound_to(statement, values)
-    if trouble ~= nil then return false, trouble end
+    if trouble ~= nil then return nil, trouble end
     local state = stepped(statement)
     if state is raw_sqlite.ExecResult then
       local _, _ = statement:reset()
-      return false, failed(state)
+      return nil, failed(state)
     end
     local ended = rewound(statement, state == "row")
-    if ended ~= nil then return false, ended end
+    if ended ~= nil then return nil, ended end
     return true
   end
 
@@ -795,13 +795,13 @@ local class Handle
   --- the others cannot do, since each prepares exactly one statement.
   --- No statement is retried: an earlier statement may already have
   --- changed the database when a later one fails. For SQL holding a NUL
-  --- it returns false and why ([`Sqlite.MISUSE`]).
-  function exec(self, sql: string): (true) | (false, Failure)
+  --- it returns nil and why ([`Sqlite.MISUSE`]).
+  function exec(self, sql: string): (true) | (nil, Failure)
     if sql:find("\0", 1, true) ~= nil then
-      return false, Failure.coded("sqlite: the SQL holds a NUL", MISUSE)
+      return nil, Failure.coded("sqlite: the SQL holds a NUL", MISUSE)
     end
     local outcome = self.connection:exec_result(sql)
-    if outcome.code ~= OK then return false, failed(outcome) end
+    if outcome.code ~= OK then return nil, failed(outcome) end
     return true
   end
 
@@ -816,20 +816,20 @@ local class Handle
   --- and why ([`Sqlite.RANGE`]). A value of no type a parameter takes (a
   --- function, a malformed [`Sqlite.Value`]) raises, as does a key that
   --- is no position from 1; the statement is released first.
-  function run(self, sql: string, values?: {raw_sqlite.Param}): (true) | (false, Failure)
+  function run(self, sql: string, values?: {raw_sqlite.Param}): (true) | (nil, Failure)
     local statement, trouble = prepared(self.connection, sql, values, false, true)
-    if statement == nil then return false, trouble end
+    if statement == nil then return nil, trouble end
     local state = stepped(statement)
     if state == "row" then
       -- A write with RETURNING stopped at its first row commits at this
       -- reset in autocommit, which returns a failure of the commit.
       local reset = statement:reset_result()
       statement:release()
-      if reset.code ~= OK then return false, failed(reset) end
+      if reset.code ~= OK then return nil, failed(reset) end
       return true
     end
     statement:release()
-    if state is raw_sqlite.ExecResult then return false, failed(state) end
+    if state is raw_sqlite.ExecResult then return nil, failed(state) end
     return true
   end
 
@@ -990,7 +990,7 @@ local class Handle
       end
       return nil
     end
-    local function run_step(step: Migration): (true) | (false, Failure)
+    local function run_step(step: Migration): (true) | (nil, Failure)
       if step is string then return self:exec(step) end
       return step(self)
     end
@@ -1001,17 +1001,17 @@ local class Handle
     local early = refusal(first)
     if early ~= nil then return nil, early end
     if first == wanted then return wanted end
-    local ok, why = self:transact(function(): (true) | (false, Failure)
+    local ok, why = self:transact(function(): (true) | (nil, Failure)
       local at, at_why = counted("PRAGMA user_version")
-      if at == nil then return false, at_why end
+      if at == nil then return nil, at_why end
       local refused = refusal(at)
-      if refused ~= nil then return false, refused end
+      if refused ~= nil then return nil, refused end
       if at == wanted then return true end
       if at == 0 then
         local objects, objects_why = counted("SELECT count(*) FROM sqlite_schema WHERE name NOT LIKE 'sqlite\\_%' ESCAPE '\\'")
-        if objects == nil then return false, objects_why end
+        if objects == nil then return nil, objects_why end
         if objects ~= 0 then
-          return false, Failure.new("sqlite: migrate: the database holds a schema but no version (user_version 0): " ..
+          return nil, Failure.new("sqlite: migrate: the database holds a schema but no version (user_version 0): " ..
               "another program's database, or one made before migrate; set PRAGMA user_version to the step it is " ..
               "at to adopt it")
         end
@@ -1021,11 +1021,11 @@ local class Handle
           local done, step_why = run_step(step)
           if not done then
             local said = ("sqlite: migrate: step %d: %s"):format(k, tostring(step_why))
-            if step_why.code == nil then return false, Failure.new(said) end
-            return false, Failure.coded(said, step_why.code, step_why.extended_code, step_why.kind)
+            if step_why.code == nil then return nil, Failure.new(said) end
+            return nil, Failure.coded(said, step_why.code, step_why.extended_code, step_why.kind)
           end
           if not self:in_transaction() then
-            return false, Failure.new(("sqlite: migrate: step %d ended the transaction with a COMMIT or ROLLBACK " ..
+            return nil, Failure.new(("sqlite: migrate: step %d ended the transaction with a COMMIT or ROLLBACK " ..
               "of its own, so what it wrote is not undone; no step after it ran"):format(k))
           end
         end
@@ -1081,13 +1081,13 @@ local class Handle
   --- while a transaction that read that database is open. `ATTACH` it,
   --- `transact`, and `DETACH` once the transaction has committed.
   ---
-  ---     local ok, why = db:transact(function(): (true) | (false, Failure)
+  ---     local ok, why = db:transact(function(): (true) | (nil, Failure)
   ---       local a, trouble = db:run("INSERT INTO t (body) VALUES (?1)", { "a" })
-  ---       if not a then return false, trouble end
+  ---       if not a then return nil, trouble end
   ---       return db:run("INSERT INTO t (body) VALUES (?1)", { "b" })
   ---     end)
-  function transact(self, work: function(): (true) | (false, Failure),
-                    begin?: Begin): (true) | (false, Failure)
+  function transact(self, work: function(): (true) | (nil, Failure),
+                    begin?: Begin): (true) | (nil, Failure)
     local connection = self.connection
     local opening_begin: string? = if begin ~= nil then BEGINS[begin] else nil end
     if begin ~= nil and opening_begin == nil then
@@ -1111,8 +1111,8 @@ local class Handle
       end
     end
     local started = executed(connection, opening)
-    if started ~= nil then return false, started end
-    local called, ok, why = pcall(function(): boolean, Failure?
+    if started ~= nil then return nil, started end
+    local called, ok, why = pcall(function(): (true?, Failure?)
       local done, trouble = work()
       return done, trouble
     end)
@@ -1132,15 +1132,15 @@ local class Handle
     end
     if not ok then
       undo()
-      return false, why or Failure.new("sqlite: transact: the work failed and said no why")
+      return nil, why or Failure.new("sqlite: transact: the work failed and said no why")
     end
     if not open then
-      return false, Failure.new("sqlite: transact: the work ended its transaction with a COMMIT or ROLLBACK of its own")
+      return nil, Failure.new("sqlite: transact: the work ended its transaction with a COMMIT or ROLLBACK of its own")
     end
     local committed = executed(connection, closing)
     if committed ~= nil then
       undo()
-      return false, committed
+      return nil, committed
     end
     return true
   end
@@ -1174,11 +1174,11 @@ local class Handle
   ---
   ---     local db = assert(Sqlite.open(path, { writable = true }))
   ---     assert(db:wal())
-  function wal(self): (true) | (false, Failure)
+  function wal(self): (true) | (nil, Failure)
     local outcome = self.connection:wal_result()
-    if outcome.code ~= OK then return false, failed(outcome) end
+    if outcome.code ~= OK then return nil, failed(outcome) end
     if outcome.mode ~= "wal" and not outcome.temporary then
-      return false, Failure.coded("sqlite: the journal mode stayed " .. outcome.mode .. ", not wal", ERROR)
+      return nil, Failure.coded("sqlite: the journal mode stayed " .. outcome.mode .. ", not wal", ERROR)
     end
     return true
   end
@@ -1239,7 +1239,7 @@ local class Handle
   --- opening a database in write-ahead mode makes its `-wal` and `-shm`
   --- files beside it where they are missing (`immutable` opens none).
   --- A refusal returns [`Sqlite.AUTH`] and says what was refused. Returns
-  --- true, or false and why; calling it again does nothing. A borrowed
+  --- true, or nil and why; calling it again does nothing. A borrowed
   --- handle, such as the store's, raises: the store holds its own to
   --- queries already. [`Sqlite.open`]'s `reads_only` does this as it opens.
   ---
@@ -1247,19 +1247,19 @@ local class Handle
   ---     assert(db:rows("SELECT count(*) FROM t"))
   ---     local ok, why = db:run("DELETE FROM t")
   ---     print(ok, why.code == Sqlite.AUTH) -- false  true
-  function reads_only(self): (true) | (false, Failure)
+  function reads_only(self): (true) | (nil, Failure)
     local held, why = self.connection:reads_only()
-    if not held then return false, Failure.coded("sqlite: " .. why, ERROR) end
+    if not held then return nil, Failure.coded("sqlite: " .. why, ERROR) end
     return true
   end
 
-  --- Closes the connection: true, or false and why, [`Sqlite.BUSY`] as
+  --- Closes the connection: true, or nil and why, [`Sqlite.BUSY`] as
   --- SQLite returns it, while a statement or query is still open.
   --- Closing one already closed does nothing. A borrowed handle, such as
   --- the store's, only lets go of it.
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     local closed, why = self.connection:close()
-    if not closed then return false, Failure.coded("sqlite: " .. why, BUSY) end
+    if not closed then return nil, Failure.coded("sqlite: " .. why, BUSY) end
     return true
   end
 
@@ -1442,7 +1442,7 @@ end
 --- writable handle runs the DDL on it, in one transaction. Then each
 --- table the DDL creates must be in the file with the same columns, in
 --- the same order, of the same declared type, NOT NULL and key.
-local function hold_schema(handle: Handle, path: string, schema: Schema, writable: boolean): (true) | (false, Failure)
+local function hold_schema(handle: Handle, path: string, schema: Schema, writable: boolean): (true) | (nil, Failure)
   local wanted = declared(schema)
   local function objects(): (integer) | (nil, Failure)
     local row, why = handle:one("SELECT count(*) FROM main.sqlite_schema")
@@ -1451,26 +1451,26 @@ local function hold_schema(handle: Handle, path: string, schema: Schema, writabl
   end
   if writable then
     local count, why = objects()
-    if count == nil then return false, why end
+    if count == nil then return nil, why end
     if count == 0 then
       -- Counted again under the write lock: two processes that open a
       -- new file at once take turns, and the second finds the tables.
-      local made, made_why = handle:transact(function(): (true) | (false, Failure)
+      local made, made_why = handle:transact(function(): (true) | (nil, Failure)
         local now, now_why = objects()
-        if now == nil then return false, now_why end
+        if now == nil then return nil, now_why end
         if now ~= 0 then return true end
         local ran, ran_why = handle:exec(schema.ddl)
         if ran then return true end
         local said = ("sqlite: schema: the DDL fails on %s: %s"):format(path, ran_why.message)
         local code = ran_why.code
-        if code == nil then return false, Failure.new(said) end
-        return false, Failure.coded(said, code, ran_why.extended_code, ran_why.kind)
+        if code == nil then return nil, Failure.new(said) end
+        return nil, Failure.coded(said, code, ran_why.extended_code, ran_why.kind)
       end, "immediate")
-      if not made then return false, made_why end
+      if not made then return nil, made_why end
     end
   end
   local listed, held = tables_of(handle, wanted.names)
-  if listed == nil then return false, held end
+  if listed == nil then return nil, held end
   local differences: mut {string} = {}
   for _, name in ipairs(wanted.names) do
     local has = held[name:lower()] or {}
@@ -1483,7 +1483,7 @@ local function hold_schema(handle: Handle, path: string, schema: Schema, writabl
     end
   end
   if #differences == 0 then return true end
-  return false, Failure.new(("sqlite: %s does not hold the schema: %s. A file another program made, or an older " ..
+  return nil, Failure.new(("sqlite: %s does not hold the schema: %s. A file another program made, or an older " ..
     "one: migrate it on a handle given no schema ([`Handle.migrate`]), then give it the schema"):format(path, table.concat(differences, "; ")))
 end
 

@@ -45,14 +45,14 @@ end
 --- @param key string The key
 --- @return boolean Whether it passes
 --- @return Failure Why not
-function Secret.check(key: string): (true) | (false, Failure)
+function Secret.check(key: string): (true) | (nil, Failure)
   if #key < MIN_BYTES then
-    return false, Failure.new(("secret: a key is %s; it must be at least %s (make one with Secret.generate)"):
+    return nil, Failure.new(("secret: a key is %s; it must be at least %s (make one with Secret.generate)"):
         format(String.counted(#key, "byte"), String.counted(MIN_BYTES, "byte")))
   end
   local bytes = spelled(key)
   if bytes == nil or #bytes < MIN_BYTES then
-    return false, Failure.new(("secret: a key of %s is not the hex, base64 or base64url of %s; a key is random " ..
+    return nil, Failure.new(("secret: a key of %s is not the hex, base64 or base64url of %s; a key is random " ..
       "text, never a passphrase (make one with Secret.generate)"):
         format(String.counted(#key, "byte"), String.counted(MIN_BYTES, "random byte")))
   end
@@ -66,7 +66,7 @@ function Secret.check(key: string): (true) | (false, Failure)
     end
   end
   if distinct < 10 then
-    return false, Failure.new(("secret: a key of %s holds only %d distinct byte values; it must hold at least 10 (make one with Secret.generate)"):
+    return nil, Failure.new(("secret: a key of %s holds only %d distinct byte values; it must hold at least 10 (make one with Secret.generate)"):
         format(String.counted(#key, "byte"), distinct))
   end
   return true

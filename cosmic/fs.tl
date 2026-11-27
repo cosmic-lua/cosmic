@@ -14,7 +14,7 @@
 --- [`Fs.remove_tree`], [`Fs.rename`], [`Fs.chmod`], [`Fs.symlink`],
 --- [`Fs.set_mtime`], [`Fs.append`], [`Fs.copy_tree`], [`Fs.put`],
 --- [`Fs.fsync`] and [`Fs.close`] only have an effect, and return
---- `(true) | (false, Failure)`. A call on a descriptor ([`Fs.take`],
+--- `(true) | (nil, Failure)`. A call on a descriptor ([`Fs.take`],
 --- [`Fs.put`], [`Fs.fsync`], [`Fs.close`]) names no path.
 ---
 --- A descriptor from [`Fs.open_read`] or [`Fs.open_write`] is a plain
@@ -121,9 +121,9 @@ local class Dir
   --- Writes `data` to `name` through a temporary neighbor in this
   --- directory and a rename, as [`Fs.write`] does; `mode` defaults
   --- to 0644, less the umask.
-  function write(self, name: string, data: string, mode?: integer): (true) | (false, Failure)
+  function write(self, name: string, data: string, mode?: integer): (true) | (nil, Failure)
     local named = self.path .. "/" .. name
-    if self.fd < 0 then return false, Failure.new("the directory is closed", named) end
+    if self.fd < 0 then return nil, Failure.new("the directory is closed", named) end
     local temporary: string = ""
     local fd: integer? = nil
     local why, errno = "", 0
@@ -134,7 +134,7 @@ local class Dir
       fd, why, errno = sys.openat(self.fd, temporary, sys.O_WRONLY | sys.O_CREAT | sys.O_EXCL, mode or 0x1a4)
       if fd ~= nil or errno ~= sys.EEXIST then break end
     end
-    if fd == nil then return false, dir_failure(errno, why, named) end
+    if fd == nil then return nil, dir_failure(errno, why, named) end
     local wrote, write_why, write_errno = true, "", 0
     local at = 1
     while wrote and at <= #data do
@@ -159,7 +159,7 @@ local class Dir
       failed_why, failed_errno = move_why, move_errno
     end
     local _, _ = sys.unlinkat(self.fd, temporary)
-    return false, dir_failure(failed_errno, failed_why, named)
+    return nil, dir_failure(failed_errno, failed_why, named)
   end
 
   --- What is at `name`, a link as itself, as [`Fs.status`] returns it.
@@ -173,11 +173,11 @@ local class Dir
   end
 
   --- Makes the directory `name`; `mode` defaults to 0755, less the umask.
-  function mkdir(self, name: string, mode?: integer): (true) | (false, Failure)
+  function mkdir(self, name: string, mode?: integer): (true) | (nil, Failure)
     local named = self.path .. "/" .. name
-    if self.fd < 0 then return false, Failure.new("the directory is closed", named) end
+    if self.fd < 0 then return nil, Failure.new("the directory is closed", named) end
     local made, why, errno = sys.mkdirat(self.fd, name, mode or 0x1ed)
-    if not made then return false, dir_failure(errno, why, named) end
+    if not made then return nil, dir_failure(errno, why, named) end
     return true
   end
 
@@ -249,17 +249,17 @@ local record Fs
   --- Every failure names the path, never the temporary file, and is
   --- sticky.
   interface Staged
-    --- Appends `data`: false and a [`Failure`] when it cannot all be
+    --- Appends `data`: nil and a [`Failure`] when it cannot all be
     --- written.
-    write: function(Staged, string): (true) | (false, Failure)
+    write: function(Staged, string): (true) | (nil, Failure)
     --- Flushes what was written to storage, so that the rename `close`
     --- makes cannot reach it before the data does.
-    sync: function(Staged): (true) | (false, Failure)
-    --- Renames the file onto its path: false and a [`Failure`] when a
+    sync: function(Staged): (true) | (nil, Failure)
+    --- Renames the file onto its path: nil and a [`Failure`] when a
     --- write failed, or the rename or the closing of the file does.
     --- Safe to call more than once; after `abort` it renames nothing
     --- and returns true.
-    close: function(Staged): (true) | (false, Failure)
+    close: function(Staged): (true) | (nil, Failure)
     --- Removes the temporary file and leaves the path as it was. It
     --- cannot fail, and is safe to call more than once.
     abort: function(Staged)
@@ -387,21 +387,21 @@ local class StagedFile is Fs.Staged
   mut failure?: Failure
   mut closed: boolean
 
-  function write(self, data: string): (true) | (false, Failure)
-    if self.closed then return false, Failure.new("the file is closed", self.path) end
+  function write(self, data: string): (true) | (nil, Failure)
+    if self.closed then return nil, Failure.new("the file is closed", self.path) end
     local failed = self.failure
-    if failed ~= nil then return false, failed end
+    if failed ~= nil then return nil, failed end
     local ok, why, errno = write_all(self.temporary.fd, data, "")
-    if not ok then return false, failing(self, why, errno) end
+    if not ok then return nil, failing(self, why, errno) end
     return true
   end
 
-  function sync(self): (true) | (false, Failure)
-    if self.closed then return false, Failure.new("the file is closed", self.path) end
+  function sync(self): (true) | (nil, Failure)
+    if self.closed then return nil, Failure.new("the file is closed", self.path) end
     local failed = self.failure
-    if failed ~= nil then return false, failed end
+    if failed ~= nil then return nil, failed end
     local ok, why, errno = sys.fsync(self.temporary.fd)
-    if not ok then return false, failing(self, why, errno) end
+    if not ok then return nil, failing(self, why, errno) end
     return true
   end
 
@@ -412,28 +412,28 @@ local class StagedFile is Fs.Staged
     local _, _ = sys.unlink(self.temporary.path)
   end
 
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     local temporary = self.temporary
     local failed = self.failure
     if self.closed then
-      if failed ~= nil then return false, failed end
+      if failed ~= nil then return nil, failed end
       return true
     end
     self.closed = true
     if failed ~= nil then
       local _, _ = sys.close(temporary.fd)
       local _, _ = sys.unlink(temporary.path)
-      return false, failed
+      return nil, failed
     end
     local closed, close_trouble, close_errno = sys.close(temporary.fd)
     if not closed then
       local _, _ = sys.unlink(temporary.path)
-      return false, failing(self, close_trouble, close_errno)
+      return nil, failing(self, close_trouble, close_errno)
     end
     local moved, why, errno = sys.rename(temporary.path, self.path)
     if not moved then
       local _, _ = sys.unlink(temporary.path)
-      return false, failing(self, why, errno)
+      return nil, failing(self, why, errno)
     end
     return true
   end
@@ -523,15 +523,15 @@ end
 --- new one, so it gets `mode` (default 0644, less the umask) and never
 --- keeps an existing file's mode. Nothing is synced, so a crash can
 --- still lose the write. A device, FIFO or socket at `path` is refused,
---- as [`Fs.create`] says. Returns true, or false and a [`Failure`] that
+--- as [`Fs.create`] says. Returns true, or nil and a [`Failure`] that
 --- names `path` and the errno.
-function Fs.write(path: string, data: string, mode?: integer): (true) | (false, Failure)
+function Fs.write(path: string, data: string, mode?: integer): (true) | (nil, Failure)
   local file, trouble = staged_file(path, mode)
-  if file == nil then return false, trouble end
+  if file == nil then return nil, trouble end
   local wrote, write_failure = file:write(data)
   if not wrote then
     file:abort()
-    return false, write_failure
+    return nil, write_failure
   end
   return file:close()
 end
@@ -546,30 +546,30 @@ local class InPlaceFile is Fs.Staged
   mut failure?: Failure
   mut closed: boolean
 
-  function write(self, data: string): (true) | (false, Failure)
-    if self.closed then return false, Failure.new("the file is closed", self.path) end
+  function write(self, data: string): (true) | (nil, Failure)
+    if self.closed then return nil, Failure.new("the file is closed", self.path) end
     local failed = self.failure
-    if failed ~= nil then return false, failed end
+    if failed ~= nil then return nil, failed end
     local ok, why, errno = write_all(self.fd, data, "")
     if not ok then
       local failure = failure_of(errno, why, self.path)
       self.failure = failure
-      return false, failure
+      return nil, failure
     end
     return true
   end
 
   -- A character device or a FIFO has no storage to flush, and fsync on
   -- one fails EINVAL (Linux) or ENOTSUP: no failure of the write.
-  function sync(self): (true) | (false, Failure)
-    if self.closed then return false, Failure.new("the file is closed", self.path) end
+  function sync(self): (true) | (nil, Failure)
+    if self.closed then return nil, Failure.new("the file is closed", self.path) end
     local failed = self.failure
-    if failed ~= nil then return false, failed end
+    if failed ~= nil then return nil, failed end
     local ok, why, errno = sys.fsync(self.fd)
     if ok or errno == sys.EINVAL or errno == sys.EOPNOTSUPP then return true end
     local failure = failure_of(errno, why, self.path)
     self.failure = failure
-    return false, failure
+    return nil, failure
   end
 
   function abort(self)
@@ -578,19 +578,19 @@ local class InPlaceFile is Fs.Staged
     local _, _ = sys.close(self.fd)
   end
 
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     local failed = self.failure
     if self.closed then
-      if failed ~= nil then return false, failed end
+      if failed ~= nil then return nil, failed end
       return true
     end
     self.closed = true
     local closed, why, errno = sys.close(self.fd)
-    if failed ~= nil then return false, failed end
+    if failed ~= nil then return nil, failed end
     if not closed then
       local failure = failure_of(errno, why, self.path)
       self.failure = failure
-      return false, failure
+      return nil, failure
     end
     return true
   end
@@ -652,13 +652,13 @@ end
 --- Writes `data` to an output a person named ([`Fs.output`]): in place
 --- for a device, a FIFO or one of the process's own descriptors, through
 --- a temporary file and a rename, as [`Fs.write`], for anything else.
-function Fs.write_output(path: string, data: string, mode?: integer): (true) | (false, Failure)
+function Fs.write_output(path: string, data: string, mode?: integer): (true) | (nil, Failure)
   local file, trouble = Fs.output(path, mode)
-  if file == nil then return false, trouble end
+  if file == nil then return nil, trouble end
   local wrote, write_failure = file:write(data)
   if not wrote then
     file:abort()
-    return false, write_failure
+    return nil, write_failure
   end
   return file:close()
 end
@@ -680,19 +680,19 @@ end
 --- file. Each write starts at the file's current end, but short writes
 --- can interleave with another appender, and a failure can leave a
 --- prefix appended. Nothing is synced; use [`Fs.write`] to replace a
---- file atomically instead. Returns true, or false and a [`Failure`]
+--- file atomically instead. Returns true, or nil and a [`Failure`]
 --- naming `path`; a write failure wins over a close failure.
-function Fs.append(path: string, data: string, mode?: integer): (true) | (false, Failure)
+function Fs.append(path: string, data: string, mode?: integer): (true) | (nil, Failure)
   local file <close>: AppendFile = { fd = -1 }
   local fd, open_why, open_errno = sys.open(path, sys.O_WRONLY | sys.O_CREAT | sys.O_APPEND, mode or 0x1a4)
-  if fd == nil then return false, failure_of(open_errno, open_why, path) end
+  if fd == nil then return nil, failure_of(open_errno, open_why, path) end
   file.fd = fd
   local ok, why, errno = write_all(fd, data, "")
   -- close can report failure after releasing the descriptor: never retry it.
   file.fd = -1
   local closed, close_why, close_errno = sys.close(fd)
-  if not ok then return false, failure_of(errno, why, path) end
-  if not closed then return false, failure_of(close_errno, close_why, path) end
+  if not ok then return nil, failure_of(errno, why, path) end
+  if not closed then return nil, failure_of(close_errno, close_why, path) end
   return true
 end
 
@@ -750,7 +750,7 @@ end
 --- umask, as `mkdir(2)` gives it) as it is made, so a private one is
 --- never open to others for a moment; [`sys.mkdir`]'s default where nil.
 --- A directory that is already there keeps its mode.
-function Fs.mkdirs(path: string, mode?: integer): (true) | (false, Failure)
+function Fs.mkdirs(path: string, mode?: integer): (true) | (nil, Failure)
   path = unslashed(path)
   if path == "" then
     return true
@@ -760,13 +760,13 @@ function Fs.mkdirs(path: string, mode?: integer): (true) | (false, Failure)
     return true
   end
   if st == nil and errno ~= sys.ENOENT and errno ~= sys.ENOTDIR then
-    return false, Failure.system(errno, path)
+    return nil, Failure.system(errno, path)
   end
   local parent = path:match("^(.*)/[^/]+$")
   if parent ~= nil and parent ~= "" then
     local ok, trouble = Fs.mkdirs(parent, mode)
     if not ok then
-      return false, trouble
+      return nil, trouble
     end
   end
   local made, _, number: boolean, string, integer
@@ -781,17 +781,17 @@ function Fs.mkdirs(path: string, mode?: integer): (true) | (false, Failure)
   if number == sys.EEXIST then
     local raced, _, race_errno = sys.stat(path)
     if raced == nil and race_errno ~= sys.ENOENT and race_errno ~= sys.ENOTDIR then
-      return false, Failure.system(race_errno, path)
+      return nil, Failure.system(race_errno, path)
     end
     if raced == nil then
       -- A link to nothing: say that something is there.
-      return false, Failure.system(number, path)
+      return nil, Failure.system(number, path)
     end
     if raced.kind == "dir" then
       return true
     end
   end
-  return false, Failure.system(number, path)
+  return nil, Failure.system(number, path)
 end
 
 --- The system temp directory: `TMPDIR` when it is an absolute path, and
@@ -817,23 +817,23 @@ end
 --- one that exists owned by another user, or writable by its group or
 --- by others, is refused, since whatever such a directory holds could
 --- have been put there by someone else.
-local function private_dir(path: string): (true) | (false, Failure)
+local function private_dir(path: string): (true) | (nil, Failure)
   local made, why, number = sys.mkdir(path, 0x1c0)
   if not made and number ~= sys.EEXIST then
-    return false, failure_of(number, why, path)
+    return nil, failure_of(number, why, path)
   end
   local st, trouble, errno = sys.stat(path)
   if st == nil then
-    return false, failure_of(errno, trouble, path)
+    return nil, failure_of(errno, trouble, path)
   end
   if st.kind ~= "dir" then
-    return false, Failure.new("not a directory", path)
+    return nil, Failure.new("not a directory", path)
   end
   if st.uid ~= sys.getuid() then
-    return false, Failure.new("owned by another user", path)
+    return nil, Failure.new("owned by another user", path)
   end
   if st.mode & 0x12 ~= 0 then
-    return false, Failure.new("writable by its group or others", path)
+    return nil, Failure.new("writable by its group or others", path)
   end
   return true
 end
@@ -963,12 +963,12 @@ end
 
 --- Removes a name: the path operation corresponding to os.remove, or
 --- `unlink`. A name that is already gone is not a failure.
-function Fs.remove(path: string): (true) | (false, Failure)
+function Fs.remove(path: string): (true) | (nil, Failure)
   local gone, _, number = sys.unlink(path)
   if gone or number == sys.ENOENT or number == sys.ENOTDIR then
     return true
   end
-  return false, Failure.system(number, path)
+  return nil, Failure.system(number, path)
 end
 
 --- Removes a path and, when it is a directory, everything under it:
@@ -980,9 +980,9 @@ end
 --- to its entries. A path that is already gone is not a failure. A
 --- directory that cannot be opened, or that something keeps filling,
 --- fails the call, with what was removed gone.
-function Fs.remove_tree(path: string): (true) | (false, Failure)
+function Fs.remove_tree(path: string): (true) | (nil, Failure)
   local removed, _, number = sys.remove_tree(path)
-  if not removed then return false, Failure.system(number, path) end
+  if not removed then return nil, Failure.system(number, path) end
   return true
 end
 
@@ -1162,10 +1162,10 @@ end
 
 --- Moves a name, replacing the destination if it is there; this corresponds
 --- to os.rename, or `mv -T` within one file system. A failure names `from`.
-function Fs.rename(from: string, to: string): (true) | (false, Failure)
+function Fs.rename(from: string, to: string): (true) | (nil, Failure)
   local moved, _, number = sys.rename(from, to)
   if not moved then
-    return false, Failure.system(number, from)
+    return nil, Failure.system(number, from)
   end
   return true
 end
@@ -1175,14 +1175,14 @@ end
 --- setgid and sticky included; one outside 0 to 0xfff raises, since
 --- the kernel would silently drop the bits it does not hold.
 --- `assert(Fs.stat(path)).mode & 0xfff` reads them back.
-function Fs.chmod(path: string, mode: integer): (true) | (false, Failure)
+function Fs.chmod(path: string, mode: integer): (true) | (nil, Failure)
   if mode < 0 or mode > 0xfff then
     local shown = if mode > 0 and math.tointeger(mode) ~= nil then string.format("0x%x", mode) else tostring(mode) end
     error("fs: mode " .. shown .. " is outside 0 to 0xfff", 2)
   end
   local changed, _, number = sys.chmod(path, mode)
   if not changed then
-    return false, Failure.system(number, path)
+    return nil, Failure.system(number, path)
   end
   return true
 end
@@ -1230,28 +1230,28 @@ end
 
 --- Closes a descriptor returned by Fs.open_read or Fs.open_write; it does not
 --- accept a Lua io.close file handle.
-function Fs.close(fd: integer): (true) | (false, Failure)
+function Fs.close(fd: integer): (true) | (nil, Failure)
   local ok, why, errno = sys.close(fd)
   if not ok then
-    return false, failure_of(errno, why)
+    return nil, failure_of(errno, why)
   end
   return true
 end
 
 --- Writes bytes to a descriptor, without a newline. Fs.stdout and Fs.stderr
 --- are the standard-stream descriptors used instead of io.write/io.output.
-function Fs.put(fd: integer, data: string): (true) | (false, Failure)
+function Fs.put(fd: integer, data: string): (true) | (nil, Failure)
   local ok, why, errno = write_all(fd, data, "fs: ")
-  if not ok then return false, failure_of(errno, why) end
+  if not ok then return nil, failure_of(errno, why) end
   return true
 end
 
 --- Creates a symbolic link at `path` pointing at `target`, which is
 --- stored verbatim and never resolved: `ln -s target path`.
-function Fs.symlink(target: string, path: string): (true) | (false, Failure)
+function Fs.symlink(target: string, path: string): (true) | (nil, Failure)
   local made, _, number = sys.symlink(target, path)
   if not made then
-    return false, Failure.system(number, path)
+    return nil, Failure.system(number, path)
   end
   return true
 end
@@ -1268,40 +1268,40 @@ end
 --- it in (`st.mtime`, `st.mtime_ns`), leaving its access time as it
 --- is, as `touch -h -m -d` does. Changes the link itself, not its
 --- target. `ns` outside [0, 1e9) raises.
-function Fs.set_mtime(path: string, seconds: integer, ns?: integer): (true) | (false, Failure)
+function Fs.set_mtime(path: string, seconds: integer, ns?: integer): (true) | (nil, Failure)
   if ns ~= nil and (ns < 0 or ns >= 1000000000) then
     error("fs: nanoseconds are outside [0, 1e9)", 2)
   end
   local set, _, number = sys.utimensat(path, nil, nil, seconds, ns)
   if not set then
-    return false, Failure.system(number, path)
+    return nil, Failure.system(number, path)
   end
   return true
 end
 
 --- Flushes a descriptor's data and metadata to storage.
-function Fs.fsync(fd: integer): (true) | (false, Failure)
+function Fs.fsync(fd: integer): (true) | (nil, Failure)
   local ok, why, errno = sys.fsync(fd)
   if not ok then
-    return false, failure_of(errno, why)
+    return nil, failure_of(errno, why)
   end
   return true
 end
 
 --- Copies one regular file's bytes a chunk at a time, so a large file
 --- is never held in memory whole.
-local function copy_bytes(from: string, to: string): (true) | (false, Failure)
+local function copy_bytes(from: string, to: string): (true) | (nil, Failure)
   -- A source swapped for a link, a named pipe or a terminal since its
   -- lstat is refused rather than followed, waited on for a writer, or
   -- taken as this process's terminal.
   local input, _, open_errno = sys.open(from,
     sys.O_RDONLY | sys.O_NOFOLLOW | sys.O_NONBLOCK | sys.O_NOCTTY)
-  if input == nil then return false, Failure.system(open_errno, from) end
+  if input == nil then return nil, Failure.system(open_errno, from) end
   local st, _, stat_errno = sys.fstat(input)
   if st == nil or st.kind ~= "file" then
     local _, _ = Fs.close(input)
-    if st == nil then return false, Failure.system(stat_errno, from) end
-    return false, Failure.new("no longer a regular file", from)
+    if st == nil then return nil, Failure.system(stat_errno, from) end
+    return nil, Failure.new("no longer a regular file", from)
   end
   -- Exclusive: a name that appeared since the target was checked, a
   -- planted link included, is refused rather than written through.
@@ -1309,7 +1309,7 @@ local function copy_bytes(from: string, to: string): (true) | (false, Failure)
     sys.O_WRONLY | sys.O_CREAT | sys.O_EXCL, 0x180)
   if output == nil then
     local _, _ = Fs.close(input)
-    return false, Failure.system(create_errno, to)
+    return nil, Failure.system(create_errno, to)
   end
   local failure: Failure? = nil
   while true do
@@ -1328,8 +1328,8 @@ local function copy_bytes(from: string, to: string): (true) | (false, Failure)
   -- A read-only source has nothing to lose in closing.
   local _, _ = Fs.close(input)
   local closed, close_why = Fs.close(output)
-  if failure ~= nil then return false, failure end
-  if not closed then return false, failure_of(close_why.errno, close_why.message, to) end
+  if failure ~= nil then return nil, failure end
+  if not closed then return nil, failure_of(close_why.errno, close_why.message, to) end
   return true
 end
 
@@ -1349,46 +1349,46 @@ end
 --- else in the tree (a device, a socket, a named pipe) stops the copy
 --- with its path, and a copy that stops leaves what it made so far in
 --- place.
-function Fs.copy_tree(from: string, to: string): (true) | (false, Failure)
+function Fs.copy_tree(from: string, to: string): (true) | (nil, Failure)
   local present, _, number = sys.lstat(to)
   if present ~= nil then
-    return false, Failure.system(sys.EEXIST, to)
+    return nil, Failure.system(sys.EEXIST, to)
   elseif number ~= sys.ENOENT then
-    return false, Failure.system(number, to)
+    return nil, Failure.system(number, to)
   end
-  local function copy(source: string, target: string): (true) | (false, Failure)
+  local function copy(source: string, target: string): (true) | (nil, Failure)
     local st, _, stat_errno = sys.lstat(source)
-    if st == nil then return false, Failure.system(stat_errno, source) end
+    if st == nil then return nil, Failure.system(stat_errno, source) end
     local permissions = st.mode & 0x3ff
     if st.kind == "link" then
       local target_of, link_why = Fs.readlink(source)
-      if target_of == nil then return false, link_why end
+      if target_of == nil then return nil, link_why end
       local linked, symlink_why = Fs.symlink(target_of, target)
-      if not linked then return false, symlink_why end
+      if not linked then return nil, symlink_why end
     elseif st.kind == "file" then
       local copied, copy_why = copy_bytes(source, target)
-      if not copied then return false, copy_why end
+      if not copied then return nil, copy_why end
       local changed, chmod_why = Fs.chmod(target, permissions)
-      if not changed then return false, chmod_why end
+      if not changed then return nil, chmod_why end
     elseif st.kind == "dir" then
       local entries, _, list_errno = sys.readdir(source)
-      if entries == nil then return false, Failure.system(list_errno, source) end
+      if entries == nil then return nil, Failure.system(list_errno, source) end
       local made, _, mkdir_errno = sys.mkdir(target, 0x1c0)
-      if not made then return false, Failure.system(mkdir_errno, target) end
+      if not made then return nil, Failure.system(mkdir_errno, target) end
       for _, name in ipairs(sorted_names(entries)) do
         local copied, why = copy(source .. "/" .. name, target .. "/" .. name)
-        if not copied then return false, why end
+        if not copied then return nil, why end
       end
       -- The directory's own mode last, so a read-only one still took
       -- its entries.
       local changed, chmod_why = Fs.chmod(target, permissions)
-      if not changed then return false, chmod_why end
+      if not changed then return nil, chmod_why end
     else
-      return false, Failure.new("not a file, directory or symbolic link", source)
+      return nil, Failure.new("not a file, directory or symbolic link", source)
     end
     local timed, _, time_errno = sys.utimensat(target, st.atime, st.atime_ns,
       st.mtime, st.mtime_ns)
-    if not timed then return false, Failure.system(time_errno, target) end
+    if not timed then return nil, Failure.system(time_errno, target) end
     return true
   end
   return copy(from, to)

@@ -92,7 +92,7 @@ local record Multipart
     --- it). A failure is kept: every later call returns the same one.
     next_part: function(Reader): (Part | false) | (nil, Failure)
     --- Ends the parser; it does not close the source.
-    close: function(Reader): (true) | (false, Failure)
+    close: function(Reader): (true) | (nil, Failure)
   end
 end
 
@@ -146,7 +146,7 @@ local class BodyReader is Stream.Reader
     return chunk
   end
 
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     self.finished = true
     return true
   end
@@ -159,12 +159,12 @@ local function fail(p: Parser, why: Failure): nil, Failure
   return nil, why
 end
 
---- Reads more of the source into the buffer; false and why when it fails.
+--- Reads more of the source into the buffer; nil and why when it fails.
 --- At the end of the source `eof` is set and nothing is added.
-local function fill(p: Parser): (true) | (false, Failure)
+local function fill(p: Parser): (true) | (nil, Failure)
   if p.eof then return true end
   local chunk, why = p.source:read(CHUNK)
-  if chunk == nil then return false, why end
+  if chunk == nil then return nil, why end
   if chunk == false then
     p.eof = true
     return true
@@ -181,7 +181,7 @@ end
 
 --- Moves to the first delimiter, dropping the preamble. The preamble is
 --- the bytes before the delimiter, at most `max_header_bytes`.
-local function seek_first(p: Parser): (true) | (false, Failure)
+local function seek_first(p: Parser): (true) | (nil, Failure)
   -- The buffer starts with the two bytes of a line end that are no
   -- preamble.
   local dropped = -2
@@ -189,18 +189,18 @@ local function seek_first(p: Parser): (true) | (false, Failure)
   while true do
     local at = p.buf:find(p.delim, 1, true)
     if at ~= nil then
-      if dropped + at - 1 > p.max_header_bytes then return false, no_boundary(p) end
+      if dropped + at - 1 > p.max_header_bytes then return nil, no_boundary(p) end
       p.buf = p.buf:sub(at + #p.delim)
       return true
     end
     if #p.buf > keep then
       dropped = dropped + #p.buf - keep
       p.buf = p.buf:sub(#p.buf - keep + 1)
-      if dropped > p.max_header_bytes then return false, no_boundary(p) end
+      if dropped > p.max_header_bytes then return nil, no_boundary(p) end
     end
-    if p.eof then return false, no_boundary(p) end
+    if p.eof then return nil, no_boundary(p) end
     local ok, why = fill(p)
-    if not ok then return false, why end
+    if not ok then return nil, why end
   end
 end
 
@@ -461,12 +461,12 @@ local function take(p: Parser, max: integer): (string) | (nil, Failure)
 end
 
 --- Skips what is left of the current part, up to its end delimiter.
-local function drain(p: Parser): (true) | (false, Failure)
+local function drain(p: Parser): (true) | (nil, Failure)
   while p.state == "body" do
     local chunk, why = take(p, CHUNK)
     if chunk == nil then
       local _, _ = fail(p, why)
-      return false, why
+      return nil, why
     end
   end
   return true
@@ -535,7 +535,7 @@ local class Parser is Multipart.Reader
     return part
   end
 
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     if self.state ~= "failed" then self.state = "done" end
     self.buf = ""
     return true

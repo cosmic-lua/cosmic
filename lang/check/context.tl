@@ -291,6 +291,9 @@ local record Ctx
   mut cand_node: Ast.Node?
   --- The `or` that has an `and` for its left operand, by the id of the `and`.
   ternaries: mut {integer: Ast.Binary}
+  --- The type of the right operand of each `and` and `or`, by the id of the operator: as a condition, the right operand
+  --- is the one whose value is asked (the left is checked where it is walked).
+  right_types: mut {integer: Type}
   --- The calls whose one value was taken where they may return more, by id: `or` after one cuts the rest.
   spare: mut {integer: boolean}
   --- The offsets of the names the scope builder reported unknown, once asked for.
@@ -373,6 +376,9 @@ local record Ctx
   --- The schemas whose handles' SQL the rest of the module no longer reads: a handle of one was sent SQL that may
   --- make a table or attach a database, or was migrated ([`Calls.sql_arguments`]).
   unread_schemas: mut {Decl: boolean}
+  --- The locals made from an empty literal with no type, by id, until the first store in each gives it one ([`lang.check.unfilled`]).
+  unfilled: mut {integer: Ast.Table}
+  mut unfilled_n: integer
   --- The result columns of each call of `rows` or `one` on a handle of a `local schema` with literal SQL
   --- that SQLite prepares against it, by the id of the call.
   call_columns: mut {integer: {Sql.Column}}

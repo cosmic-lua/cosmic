@@ -20,6 +20,7 @@ local Report = require("cosmic_ci.report")
 local Requeue = require("cosmic_ci.requeue")
 local Review = require("cosmic_ci.review")
 local State = require("cosmic_ci.state")
+local Unentered = require("cosmic_ci.unentered")
 local SuiteOutput = require("cosmic_ci.suite_output")
 local QueueVerdicts = require("cosmic_ci.queue_verdicts")
 local Verdicts = require("cosmic_ci.verdicts")
@@ -157,6 +158,8 @@ local commands: {string:Command} = {
     usage = "", handler = PrereleaseFollow.command },
   ["prerelease-sweep"] = { about = "each hour, publish or retry the newest full run follow started, which fires no workflow_run",
     usage = "", handler = PrereleaseSweep.command },
+  ["unentered-join"] = { about = "fail for a C function none of the checked suite's shares entered, from each share's list",
+    usage = "DIR", handler = Unentered.command },
   requeue = { about = "after a merge queue run that passed, put its pull request back in the queue where the queue dropped it",
     usage = "", handler = Requeue.command },
   fuzz = { about = "fuzz every property on the checked core, for fuzz.yml",

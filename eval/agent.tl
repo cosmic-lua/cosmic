@@ -8,6 +8,11 @@
 ---         [--offer NAME=TOOL,...] [--effort [NAME=]LEVEL] [--tasks T,...|all] [--reps N] [--model M]
 ---         [--timeout S]
 ---
+--- `--control NAME` names a tool whose binary another tool repeats: the report puts each other tool's passes, cost and
+--- refusals against the controls' spread, so a difference inside one binary's noise reads as noise. A task marked
+--- `held` is one the run text and the checker were not changed from: the report totals the tuned and the held-out
+--- tasks apart, so a change that helps only the tasks it was made from shows. Each refusal cause names how many
+--- tasks had it; one task alone is likely a fit to that task.
 --- `--offer NAME=run,read` runs the agent of the tool NAME with `--tools run,read`, for a binary from before run became
 --- the agent's one tool (a newer one refuses `--tools`). `--effort NAME=low` runs the agent of the tool NAME
 --- with `--effort low`, and `--effort low` every tool not named so: one binary under two names compares two efforts.
@@ -56,6 +61,10 @@ local record Agent
     --- A web API the run reaches over HTTP at a loopback port, where the task needs one: `{url}` in the prompt is
     --- its URL, and the run is given `--connect` to it. Its truth runs with `$data` the path of its data.
     site?: Site
+    --- True for a task held out from tuning: the run text and the checker were not changed from its refusals, so
+    --- the report's per-set totals say whether a change helps beyond the tasks it was made from. A task moves to
+    --- the tuned set when a change is made from its refusals.
+    held?: boolean
   end
 
   --- A web API of a task: a program started for each run, which serves its data at 127.0.0.1 on a port the
@@ -105,6 +114,9 @@ local record Agent
     without_agents_md?: boolean
     --- The results.json of an earlier round, whose refusal causes the report sets beside this round's; nil for none.
     against?: string
+    --- The tools that repeat one base tool's binary, named by `--control`: the report puts every other tool's
+    --- totals against their spread, so a difference inside the noise of one binary reads as one.
+    controls?: {string}
   end
 
   --- What an earlier round's results.json says of one tool: the refused snippets and their causes ("TAG: name",
@@ -148,7 +160,7 @@ local record Agent
     guesses: {string: integer}
     --- How many run snippets repeated the one before them to the letter.
     resends: integer
-    --- How many run snippets sorted ([`Host.sort`], `table.sort` or `version_sort`).
+    --- How many run snippets sorted (`table.sort` or `version_sort`).
     sorts: integer
     --- How many snippets of run named each Host helper, by its name (`bash` for Host.bash, a command no other
     --- helper served): the use a helper is kept or pruned by.
@@ -702,6 +714,7 @@ Agent.tasks = {
   },
   {
     name = "json-legs",
+    held = true,
     prompt = "ci/cosmic_ci/capabilities.json has a `legs` object of arrays of strings. For each leg, count its " ..
       "strings that start `program:`. Write to answer.txt one `count leg` per line, such as `7 linux-x`, most first, ties by name.",
     truth = [==[jq -r '.legs | to_entries[] | "\([.value[] | select(startswith("program:"))] | length) \(.key)"' ci/cosmic_ci/capabilities.json | sort -k1,1nr -k2,2]==],
@@ -709,6 +722,7 @@ Agent.tasks = {
   },
   {
     name = "error-lines",
+    held = true,
     prompt = "Write to answer.txt every line of the non-test .tl files directly in cosmic/agent/ that holds " ..
       "`error(`, as `path:line`, such as `cosmic/agent/x.tl:12` (line numbered from 1), one a line, sorted by path, then by line.",
     truth = "for f in $(find cosmic/agent -maxdepth 1 -name '*.tl' ! -name '*_test.tl' | sort); do " ..
@@ -717,6 +731,7 @@ Agent.tasks = {
   },
   {
     name = "append-many",
+    held = true,
     prompt = "Add the line `-- end` at the end of each non-test .tl file directly in cosmic/agent/, and change nothing else.",
     truth = "for f in $(find cosmic/agent -maxdepth 1 -name '*.tl' ! -name '*_test.tl' | sort); do " ..
       "echo \"$f\"; cat \"$f\"; echo '-- end'; done | sha256sum | cut -c1-64",
@@ -725,6 +740,7 @@ Agent.tasks = {
   },
   {
     name = "tested-modules",
+    held = true,
     prompt = "Take each distinct module cosmic/agent/host.tl names as `require(\"cosmic.<...>\")`. For each, count the " ..
       "_test.tl files directly in cosmic/agent/ that hold the text `require(\"<the module>\")`. Write to answer.txt " ..
       "`count module` for each module with a count of 1 or more, such as `3 cosmic.x`, most first, ties by name.",
@@ -733,6 +749,7 @@ Agent.tasks = {
   },
   {
     name = "darwin-dirs",
+    held = true,
     prompt = "ci/darwin-tests.txt lists test modules, one a line, with comment lines that start `#` and blank " ..
       "lines. For each first path component of the listed paths (`cosmic` in `cosmic/x_test.tl`), count its listed " ..
       "paths. Write to answer.txt `count dir` per line, such as `4 cosmic`, most first, ties by name.",
@@ -741,6 +758,7 @@ Agent.tasks = {
   },
   {
     name = "longest-lines",
+    held = true,
     prompt = "For each non-test .tl file directly in cosmic/agent/, find the length in bytes of its longest line. " ..
       "Write to answer.txt the five files with the longest, as `length path`, such as `140 cosmic/agent/x.tl`, " ..
       "longest first, ties by path.",
@@ -751,6 +769,7 @@ Agent.tasks = {
   },
   {
     name = "rename-shared",
+    held = true,
     prompt = "In cosmic/, rename the function format of cosmic/web/cookies.tl (`Cookies.format`) to render, " ..
       "everywhere it is defined, called or named as `Cookies.format` in the .tl files, and change nothing else, " ..
       "comment prose too: other functions named format (Csp.format, Json.format, Example.format, string.format) stay.",
@@ -872,7 +891,7 @@ if (cd mini && $tool test > /dev/null 2>&1); then echo pass; else echo fail; fi]
 
 local USAGE <const> = "usage: eval/agent --tool NAME=PATH [--tool NAME=PATH ...] --fixture DIR --out DIR " ..
   "[--offer NAME=TOOL,...] [--effort [NAME=]LEVEL] [--tasks T,...|all] [--reps N] [--model M] [--timeout S] " ..
-  "[--no-agents-md] [--against RESULTS.json]"
+  "[--no-agents-md] [--against RESULTS.json] [--control NAME ...]"
 
 local EFFORTS <const>: {string: boolean} = { low = true, medium = true, high = true, xhigh = true, max = true }
 
@@ -891,6 +910,7 @@ function Agent.parse(argv: {string}): Agent.Options?, string
   local reps, timeout = 2, 1200
   local without_agents_md = false
   local against: string? = nil
+  local controls: mut {string} = {}
   local tasks: mut {Agent.Task} = {}
   for _, t in ipairs(Agent.tasks) do tasks[#tasks + 1] = t end
   local i = 1
@@ -940,6 +960,13 @@ function Agent.parse(argv: {string}): Agent.Options?, string
         if not found then return nil, "--effort " .. name .. ": name a --tool given before it" end
         efforts[name] = wanted
       end
+    elseif word == "--control" then
+      local found = false
+      for _, t in ipairs(tools) do
+        if t.name == value then found = true end
+      end
+      if not found then return nil, "--control " .. value .. ": name a --tool given before it" end
+      controls[#controls + 1] = value
     elseif word == "--against" then
       if value:sub(1, 1) ~= "/" then return nil, "--against takes an absolute path: " .. value end
       against = value
@@ -988,7 +1015,7 @@ function Agent.parse(argv: {string}): Agent.Options?, string
     offering[#offering + 1] = { name = t.name, path = t.path, tools = offers[t.name], effort = efforts[t.name] or effort }
   end
   return { tools = offering, fixture = fixture, out = out, tasks = tasks, reps = reps, model = model,
-    timeout = timeout, without_agents_md = if without_agents_md then true else nil end, against = against }, ""
+    timeout = timeout, without_agents_md = if without_agents_md then true else nil end, against = against, controls = if #controls > 0 then controls else nil end }, ""
 end
 
 --- `text`'s lines, each without its trailing blanks, and with no blank lines at its end: what grading compares.
@@ -1268,7 +1295,7 @@ function Agent.spent_in(db: Sqlite.Handle, marker: string): Agent.Spent?
     { { integer = id } })
   local snippets, _ = db:rows("SELECT input FROM outputs WHERE session = ?1 AND tool = 'run' ORDER BY rowid",
     { { integer = id } })
-  -- A helper's name starts with a small letter (Host.Count is a record type), after no other word (MyHost.x).
+  -- A helper's name starts with a small letter, after no other word (MyHost.x).
   local helpers: mut {string: integer} = {}
   local resends, sorts = 0, 0
   local before: string? = nil
@@ -1364,7 +1391,7 @@ function Agent.report(options: Agent.Options, results: {Agent.Result}, earlier?:
   local totals: mut {ReportData.Total} = {}
   for _, tool in ipairs(options.tools) do
     local passed, n, unfit, counted, broken = 0, 0, 0, 0, 0
-    local cost, write, read, output = 0.0, 0.0, 0.0, 0.0
+    local cost, write, read, output, refused = 0.0, 0.0, 0.0, 0.0, 0.0
     for _, r in ipairs(results) do
       if r.tool == tool.name and r.grade == "unfit" then
         unfit = unfit + 1
@@ -1378,13 +1405,91 @@ function Agent.report(options: Agent.Options, results: {Agent.Result}, earlier?:
           counted = counted + 1
           cost, write = cost + spent.cost, write + spent.cache_write
           read, output = read + spent.cache_read, output + spent.output
+          refused = refused + spent.refused
         end
       end
     end
     local d = math.max(counted, 1)
-    totals[#totals + 1] = { tool = tool.name, passed = passed, n = n, unfit = if unfit > 0 then unfit else nil end,
+    totals[#totals + 1] = { refused = refused / d, tool = tool.name, passed = passed, n = n, unfit = if unfit > 0 then unfit else nil end,
       broken = if broken > 0 then broken else nil end,
       cost = cost / d, cache_read = read / d, cache_write = write / d, output = output / d, total = cost }
+  end
+  -- Each tool over the tuned tasks and over the held-out ones, where there are both.
+  local held_of: mut {string: boolean} = {}
+  local any_held, any_tuned = false, false
+  for _, task in ipairs(options.tasks) do
+    held_of[task.name] = task.held == true
+    if task.held == true then any_held = true else any_tuned = true end
+  end
+  local sets: mut {ReportData.SetTotal} = {}
+  if any_held and any_tuned then
+    for _, tool in ipairs(options.tools) do
+      for _, wanted in ipairs({ false, true }) do
+        local passed, n, counted = 0, 0, 0
+        local cost, refused = 0.0, 0.0
+        for _, r in ipairs(results) do
+          if r.tool == tool.name and r.grade ~= "unfit" and r.grade ~= "broken" and held_of[r.task] == wanted then
+            n = n + 1
+            if r.grade == "pass" then passed = passed + 1 end
+            local spent = r.spent
+            if spent ~= nil then
+              counted = counted + 1
+              cost, refused = cost + spent.cost, refused + spent.refused
+            end
+          end
+        end
+        local d = math.max(counted, 1)
+        sets[#sets + 1] = { tool = tool.name, set = (if wanted then "held out" else "tuned" end), passed = passed, n = n,
+          cost = cost / d, refused = refused / d }
+      end
+    end
+  end
+  -- Each tool that is not a control, against the controls' spread of one binary's noise.
+  local bands: mut {ReportData.Band} = {}
+  local is_control: mut {string: boolean} = {}
+  local controls = options.controls or {}
+  for _, name in ipairs(controls) do is_control[name] = true end
+  if #controls > 0 then
+    local function range(values: {number}): number, number
+      local low, high = values[1] or 0, values[1] or 0
+      for _, v in ipairs(values) do
+        if v < low then low = v end
+        if v > high then high = v end
+      end
+      return low, high
+    end
+    local function verdict(value: number, low: number, high: number, spread: boolean): string
+      if not spread then return "one control, no spread" end
+      if value < low then return "below the controls" end
+      if value > high then return "above the controls" end
+      return "inside the controls"
+    end
+    local rates: mut {number} = {}
+    local costs: mut {number} = {}
+    local refusals: mut {number} = {}
+    for _, total in ipairs(totals) do
+      if is_control[total.tool] == true then
+        rates[#rates + 1] = total.passed / math.max(total.n, 1)
+        costs[#costs + 1] = total.cost
+        refusals[#refusals + 1] = total.refused
+      end
+    end
+    local spread = #rates > 1
+    local r_low, r_high = range(rates)
+    local c_low, c_high = range(costs)
+    local f_low, f_high = range(refusals)
+    for _, total in ipairs(totals) do
+      if is_control[total.tool] ~= true then
+        local rate = total.passed / math.max(total.n, 1)
+        bands[#bands + 1] = { tool = total.tool, lines = {
+          string.format("passed %.1f%%; controls %.1f%% to %.1f%%: %s", rate * 100, r_low * 100, r_high * 100,
+            verdict(rate, r_low, r_high, spread)),
+          string.format("cost $%.4f a run; controls $%.4f to $%.4f: %s", total.cost, c_low, c_high,
+            verdict(total.cost, c_low, c_high, spread)),
+          string.format("refused %.2f a run; controls %.2f to %.2f: %s", total.refused, f_low, f_high,
+            verdict(total.refused, f_low, f_high, spread)) } }
+      end
+    end
   end
   local tasks: mut {ReportData.Task} = {}
   for _, task in ipairs(options.tasks) do
@@ -1481,8 +1586,12 @@ function Agent.report(options: Agent.Options, results: {Agent.Result}, earlier?:
     local function shown(k: integer): string return tostring(k) end
     for key, k in pairs(by_cause) do
       local tag, name = key:match("^(%l+): (.*)$")
+      local per_task = cause_tasks[key] or {}
+      local breadth = 0
+      for _, _ in pairs(per_task) do breadth = breadth + 1 end
+      local spread = (if breadth == 1 then "one task only, so fitting it is likely" else tostring(breadth) .. " tasks" end)
       listed[#listed + 1] = { tag = tag or "untagged", name = name or key, count = k,
-        tasks = ranked(cause_tasks[key] or {}, shown) or "", was = if before ~= nil then before.causes[key] or 0 else nil end }
+        tasks = spread .. ": " .. (ranked(per_task, shown) or ""), was = if before ~= nil then before.causes[key] or 0 else nil end }
     end
     -- A cause the earlier round had and this one lacks is the change a fix is made for: it stays, at none.
     if before ~= nil then
@@ -1519,7 +1628,8 @@ function Agent.report(options: Agent.Options, results: {Agent.Result}, earlier?:
     end
   end
   return Report.render({ model = options.model, reps = options.reps, fixture = options.fixture,
-    effort = if #set > 0 then table.concat(set, ", ") else nil end, totals = totals, tasks = tasks,
+    effort = if #set > 0 then table.concat(set, ", ") else nil end, totals = totals, sets = sets, bands = bands,
+    tasks = tasks,
     agents_md = if options.without_agents_md == true then "AGENTS.md and CLAUDE.md left out of the fixture" else nil end,
     causes = causes, guesses = guesses })
 end

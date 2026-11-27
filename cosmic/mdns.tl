@@ -181,11 +181,11 @@ local class MdnsResponder
   end
 
   --- Closes the socket, which leaves the group and ends `serve`. Safe to call more than once.
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     self.closed = true
     local ok, why = self.socket:close()
     if ok then return true end
-    return false, why
+    return nil, why
   end
 
   function __close(self)
@@ -553,7 +553,8 @@ local function open(opts: Mdns.Options): Hunt?, string
   if socket == nil then return nil, tostring(why) end
   local vias: {string} = {}
   if is_group(address) then vias = opts.via or default_vias() end
-  local ready, failed = socket:set_multicast({ hops = HOPS })
+  local set, failed = socket:set_multicast({ hops = HOPS })
+  local ready = set == true
   local trouble = if failed ~= nil then failed.message else "" end
   if ready and grouped then ready, trouble = join(socket, address, vias) end
   if not ready then
@@ -1328,7 +1329,8 @@ local function responder_text(instances: {Mdns.Published}, opts?: Mdns.Responder
   local socket, why = Net.datagram(Net.udp("0.0.0.0", port), { shared = true })
   if socket == nil then return nil, tostring(why) end
   local vias = options.via or default_vias()
-  local ready, failed = socket:set_multicast({ hops = HOPS })
+  local set, failed = socket:set_multicast({ hops = HOPS })
+  local ready = set == true
   local trouble = if failed ~= nil then failed.message else "" end
   if ready then ready, trouble = join(socket, address, vias) end
   if not ready then

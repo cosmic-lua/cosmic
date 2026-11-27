@@ -5,8 +5,7 @@
 --- serves only what it offers.
 ---
 --- [`Host.call`] returns a failure. [`Host.describe`], [`Host.declaration`], [`Host.modules`] and [`Host.docs`]
---- return a plain string to print, which says why where they fail. [`Host.sort`] and [`Host.sort_by`] raise what
---- `by` raised, as it is, and [`Host.uniq`] and [`Host.top`] do not fail. Every other call raises where it fails:
+--- return a plain string to print, which says why where they fail. Every other call raises where it fails:
 --- its message begins "host:", or "mcp: <server>.<tool>:" for an MCP tool that failed or gave no
 --- `structuredContent`. So a snippet reads its value with no assert:
 ---
@@ -50,10 +49,10 @@
 ---       for i = 1, 3 do local _ = Poll.spawn(function() got[i] = notes.get({ id = i }).text end) end
 ---     end)
 ---
---- The helpers named after commands ([`Host.find`], [`Host.grep`], [`Host.sed`], [`Host.wc`], [`Host.sort`],
---- [`Host.sqlite`], ...) are [`cosmic.shell`]'s calls, run in the snippet's own process, raising where they fail.
---- A file is read with [`Host.read`] and changed with [`Host.edit`] (exact text), [`Host.sed`] (a pattern on each line)
---- or [`Host.write`] (the whole of it).
+--- [`Host.find`], [`Host.grep`] and [`Host.lines`] are [`cosmic.shell`]'s calls, run in the snippet's own process,
+--- raising where they fail. For the rest of what a command does (sed, wc, sort, uniq, sqlite3, sha256sum), a snippet
+--- requires the module of the same work: [`cosmic.shell`], [`cosmic.sqlite`], [`cosmic.hash`]. A file is read with
+--- [`Host.read`] and changed with [`Host.edit`] (exact text) or [`Host.write`] (the whole of it).
 ---
 --- Outside a worker no agent replies, and each call raises so.
 
@@ -64,7 +63,6 @@ local Clock = require("cosmic.clock")
 local Failure = require("cosmic.failure")
 local type Doc = require("cosmic.doc")
 local Fs = require("cosmic.fs")
-local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
 local Shell = require("cosmic.shell")
 local Json = require("cosmic.json")
@@ -161,9 +159,6 @@ local record Host
   type Replacement = AgentEdit.Replacement
 
   type Hit = Shell.Hit
-
-  --- A key and how often it was counted, as [`Host.top`] lists it ([`Shell.Count`]).
-  type Count = Shell.Count
 
   --- What [`Host.search`] found.
   record Searched
@@ -440,9 +435,9 @@ end
 --- Keeps `value` under `key` for a later snippet of this session, in sessions.db, in place of what was kept there;
 --- no value, or [`Json.null`], lets the key go. A session gone on with reads it again. Small values alone:
 --- a key holds 256KB of JSON and a session 1MB; what is larger goes to a file.
-local function store_of(key: string, value?: Json.Value): (true) | (false, Failure)
+local function store_of(key: string, value?: Json.Value): (true) | (nil, Failure)
   local _, why = Host.call("store.put", { key = key, value = if value == nil then Json.null else value end })
-  if why ~= nil then return false, why end
+  if why ~= nil then return nil, why end
   return true
 end
 
@@ -614,14 +609,6 @@ function Host.lines(path: string): mut {string}
   return lines
 end
 
---- Whether anything is at `path`, as `test -e` tells: false where it or a parent is missing. Raises where it cannot
---- look (a parent it may not search).
-function Host.exists(path: string): boolean
-  local status, why = Fs.status(path)
-  if status == nil then error("host: exists: " .. tostring(why), 2) end
-  return status.exists
-end
-
 --- Writes `text` to the file `path`, in place of what it held, as `>` does; a list of lines is written one a line, each ending
 --- in a newline. Raises where it cannot be written.
 function Host.write(path: string, text: string | {string})
@@ -641,75 +628,6 @@ function Host.grep(pattern: string, paths: {string}, plain?: boolean): mut {Host
   local hits, why = Shell.grep(pattern, paths, plain)
   if hits == nil then raise("grep", why) end
   return hits
-end
-
---- Replaces `pattern` in the file `path`, and returns how many ([`Shell.sed`]); raises where it
---- cannot be read or written, or the pattern is malformed.
-function Host.sed(path: string, pattern: string, replacement: string, plain?: boolean): integer
-  local count, why = Shell.sed(path, pattern, replacement, plain)
-  if count == nil then raise("sed", why) end
-  return count
-end
-
---- How many lines the file `path` has ([`Shell.wc`]); raises where it cannot be read.
-function Host.wc(path: string): integer
-  local count, why = Shell.wc(path)
-  if count == nil then raise("wc", why) end
-  return count
-end
-
---- How often each of `keys` is in it ([`Shell.uniq`]).
-function Host.uniq(keys: {string}): {string: integer} return Shell.uniq(keys) end
-
---- The most counted of `counts` first ([`Shell.top`]).
-function Host.top(counts: {string: integer}, most?: integer): mut {Host.Count}
-  return Shell.top(counts, most)
-end
-
---- A sorted copy of `list`, by `by`'s key where given ([`Shell.sort`]).
-function Host.sort(list: {string}, by?: function(string): string): mut {string}
-  return Shell.sort(list, by)
-end
-
---- A sorted copy of `list` as `sort -V` orders it, a run of digits by its number ([`Shell.version_sort`]): `a.tl:9`
---- before `a.tl:10`.
-function Host.version_sort(list: {string}, by?: function(string): string): mut {string}
-  return Shell.version_sort(list, by)
-end
-
---- A sorted copy of `list`, any kind of item, by the key `by` gives each (`Host.sort_by(items, function(i: Item):
---- string return i.id end)`), as `LC_ALL=C sort` orders bytes; items of one key keep their order.
-function Host.sort_by<T>(list: {T}, by: function(T): string): mut {T}
-  local keys: mut {string} = {}
-  local order: mut {integer} = {}
-  for i, v in ipairs(list) do
-    local key = by(v)
-    keys[#keys + 1] = key
-    order[#order + 1] = i
-  end
-  table.sort(order, function(a: integer, b: integer): boolean
-    local ka, kb = keys[a]!, keys[b]!
-    if ka ~= kb then return ka < kb end
-    return a < b
-  end)
-  local out: mut {T} = {}
-  for _, i in ipairs(order) do out[#out + 1] = list[i]! end
-  return out
-end
-
---- The rows of `statement` on the SQLite file `path` ([`Shell.sqlite`]); raises where it
---- fails.
-function Host.sqlite(path: string, statement: string, values?: {Json.Value}): mut {Host.Row}
-  local rows, why = Shell.sqlite(path, statement, values)
-  if rows == nil then raise("sqlite", why) end
-  return rows
-end
-
---- The SHA-256 of the file `path`, in hex ([`Hash.hex_file`] outside a snippet). Raises where it cannot be read.
-function Host.sha256(path: string): string
-  local hex, why = Hash.hex_file("sha256", path)
-  if hex == nil then error("host: sha256: " .. tostring(why), 2) end
-  return hex
 end
 
 --- The Teal of `require("mcp." .. server)`: the records and functions a snippet calls the server's tools by

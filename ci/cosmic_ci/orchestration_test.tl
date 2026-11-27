@@ -1544,6 +1544,16 @@ local function test_a_share_of_the_checked_suite_runs_only_its_share()
   assert(#words == 4, "the share was added to the caller's words")
 end
 
+--- A share of the checked suite writes the C functions its tests did not enter under the runner's temporary
+--- directory, one file a share, for the `ci` gate's join; a whole run, which checks them itself, writes none.
+local function test_a_share_names_where_it_writes_what_it_did_not_enter()
+  local Orchestration = require("cosmic_ci.orchestration")
+  assert(Orchestration.checked_unentered("2/3", "/tmp/r") == "/tmp/r/checked-unentered/share-2.txt")
+  assert(Orchestration.checked_unentered(nil, "/tmp/r") == nil)
+  assert(Orchestration.checked_unentered("2/3", nil) == nil)
+  assert(Orchestration.checked_unentered("two", "/tmp/r") == nil)
+end
+
 --- The checked suite and the others alike ([`suite_run`]): the words are
 --- decided on the driver's environment, then what names the run is
 --- forgotten and the rest is kept.

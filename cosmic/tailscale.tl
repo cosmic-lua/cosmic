@@ -1016,7 +1016,7 @@ local class FileReader is Stream.Reader
   --- Internal: set by `close`.
   mut closed: boolean
   --- Not offered: a file is read in order.
-  skip?: function(FileReader, integer): (true) | (false, Failure)
+  skip?: function(FileReader, integer): (true) | (nil, Failure)
 
   --- The next bytes of the file, at most `max_bytes` (64 KiB by
   --- default); `false` at its end, or nil and a [`Failure`]. A connection that
@@ -1043,7 +1043,7 @@ local class FileReader is Stream.Reader
   end
 
   --- Ends the transfer, and the connection. Safe to call more than once.
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     if self.closed then return true end
     self.closed = true
     return self.conn:close()
@@ -1197,7 +1197,7 @@ local class Events
   end
 
   --- Ends the stream. Safe to call more than once.
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     self.closed = true
     return self.response:close()
   end
@@ -1242,7 +1242,7 @@ local class Serving
 
   --- Takes the configuration down: the daemon drops it once the
   --- stream ends. Safe to call more than once.
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     return self.events:close()
   end
 
@@ -1454,12 +1454,12 @@ local class Client
   ---     local size = assert(Fs.stat("report.pdf")).size
   ---     assert(ts:send_file(target.node.stable_id, "report.pdf", file, size))
   function send_file(self, to: string, name: string, body: Stream.Reader, size: integer,
-                     opts?: FileOptions): (true) | (false, Failure)
+                     opts?: FileOptions): (true) | (nil, Failure)
     if to == "" or to:find("[^%w]") ~= nil then
-      return false, Failure.new("tailscale: no such target " .. string.format("%q", to))
+      return nil, Failure.new("tailscale: no such target " .. string.format("%q", to))
     end
     if not file_name_ok(name) then
-      return false, Failure.new("tailscale: no file may be named " .. string.format("%q", name))
+      return nil, Failure.new("tailscale: no file may be named " .. string.format("%q", name))
     end
     if math.type(size) ~= "integer" or size < 0 then
       error("tailscale: size must be an integer of at least 0", 2)
@@ -1467,7 +1467,7 @@ local class Client
     local o: FileOptions = opts or {}
     local got, why = exchanged(self.endpoint, o.timeout_ns or self.timeout_ns, "PUT",
       "/localapi/v0/file-put/" .. to .. "/" .. Url.escape(name), body, size)
-    if got == nil then return false, Failure.new(why) end
+    if got == nil then return nil, Failure.new(why) end
     local _, _ = got.conn:close()
     return true
   end
@@ -1532,12 +1532,12 @@ local class Client
   end
 
   --- Removes the waiting file `name`, once it is taken.
-  function delete_file(self, name: string): (true) | (false, Failure)
+  function delete_file(self, name: string): (true) | (nil, Failure)
     if not file_name_ok(name) then
-      return false, Failure.new("tailscale: no file may be named " .. string.format("%q", name))
+      return nil, Failure.new("tailscale: no file may be named " .. string.format("%q", name))
     end
     local got, why = exchanged(self.endpoint, self.timeout_ns, "DELETE", "/localapi/v0/files/" .. Url.escape(name))
-    if got == nil then return false, Failure.new(why) end
+    if got == nil then return nil, Failure.new(why) end
     local _, _ = got.conn:close()
     return true
   end

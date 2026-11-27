@@ -71,14 +71,14 @@ local function write(fields: {string}): string?
       -- reader, which goes by the central directory, must read both alike.
       if #body % 2 == 0 then
         local made, _ = zw:add_file(path, Stream.from_string(body), { method = method })
-        ok = made
+        ok = made == true
       else
         local made, _ = zw:add_file(path, body, { method = method })
-        ok = made
+        ok = made == true
       end
     else
       local made, _ = zw:add_dir(path)
-      ok = made
+      ok = made == true
     end
     if not ok then return nil end
   end
