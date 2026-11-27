@@ -393,6 +393,13 @@ local function after_call(ctx: Ctx, node: Ast.Node, callee: Ast.Exp?, alts: {Alt
     local test: Ast.Binary = { kind = "Binary", id = 0, first = base_of(first).first, last = base_of(first).last,
       op = "~=", left = first, right = absent }
     local yes, _ = Narrowing.compare_edges(ctx, ctx.flow, test)
+    -- As for `assert` below: a call among the arguments may have shortened an array the test reads.
+    for _, given in ipairs(args) do
+      if Tests.has_call(ctx, given) then
+        yes = Flow.forget_lengths(yes)
+        break
+      end
+    end
     ctx.flow = yes
     return
   end

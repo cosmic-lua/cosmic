@@ -606,8 +606,9 @@ end
 -- `e!` calls the global `must`, which the environment of a program here does not hold: its overloads are no value to
 -- store. Each chunk defines it first, on its first line, so that no line moves: the value where it is not nil, `false`
 -- too, else a raise of the reason, as the core's `must` raises.
-local MUST <const> = "local must = function(v, ...) if v == nil then local why = ... " ..
-  "error(why == nil and 'the value before `!` is nil' or why, 2) end return v, ... end "
+local MUST <const> = "local must = function(...) local v, why = ... if select('#', ...) == 0 then " ..
+  "error(\"bad argument #1 to 'must' (value expected)\", 2) elseif v == nil then " ..
+  "error(why == nil and 'the value before `!` is nil' or why, 2) end return ... end "
 
 local function generated(run: Programs.Run, wraps: {integer: string}, kind_only: boolean?): string
   local classes: mut {integer: string} = {}

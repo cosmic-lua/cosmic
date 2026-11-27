@@ -42,8 +42,8 @@ static int counting_assert (lua_State *L) {
  * gaining the caller's position, or of "the value before `!` is nil"
  * where there is none. */
 int cosmic_must (lua_State *L) {
-  if (!lua_isnil(L, 1)) return lua_gettop(L);
   luaL_checkany(L, 1);
+  if (!lua_isnil(L, 1)) return lua_gettop(L);
   lua_remove(L, 1);
   lua_pushliteral(L, "the value before `!` is nil");
   lua_settop(L, 1);
