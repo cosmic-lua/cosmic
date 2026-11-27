@@ -775,13 +775,17 @@ static int session_read (lua_State *L) {
 /* write(data, from): how many bytes of `data` from `from` the session
  * took, handshaking first where that is not done; nil and what
  * `handshake` says otherwise. One that waited must be called again
- * with the same bytes. */
+ * with the same bytes. An empty `data` (from 1) sends one empty
+ * application record and answers 0: a peer may send such records
+ * (OpenSSL once did, before each CBC record), and a reader must take
+ * them, which core/tls_session_test.tl holds a session to. */
 static int session_write (lua_State *L) {
   struct session *s = checked_session(L);
   size_t size;
   const char *data = luaL_checklstring(L, 2, &size);
   lua_Integer from = luaL_checkinteger(L, 3);
-  luaL_argcheck(L, from >= 1 && (lua_Unsigned)from - 1 < size, 3,
+  luaL_argcheck(L, from >= 1 && ((lua_Unsigned)from - 1 < size ||
+                                 (size == 0 && from == 1)), 3,
                 "out of range");
   int took = mbedtls_ssl_write(&s->ssl,
                                (const unsigned char *)data + (from - 1),
