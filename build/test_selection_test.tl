@@ -421,6 +421,16 @@ end
   end
 end
 
+local function test_a_named_test_module_with_no_test_is_not_a_missing_module(tmp: string)
+  local root = project(tmp)
+  assert(Fs.write(root .. "/suite/empty_test.tl", "local record empty end\nreturn empty\n"))
+  local output = tmp .. "/empty.out"
+  local result = invoke(root, output, "suite/empty_test.tl")
+  local text = assert(Fs.read(output))
+  assert(not text:find("no test module matches", 1, true), text)
+  assert(result.ok, text)
+end
+
 local function test_cli_fails_when_no_module_matches(tmp: string)
   for index, selector in ipairs({ "suite/missing_test.tl", "", "/" }) do
     local root = project(tmp .. "/case-" .. tostring(index))

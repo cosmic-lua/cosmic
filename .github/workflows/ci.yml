@@ -521,23 +521,6 @@
           name: "move the tree to a path of its own",
           run: "cosmic-driver cosmic_ci/driver.tl place-tree",
         },
-        # Every test, sandboxed on Linux (each module declares the host
-        # programs and files it reads), and unsandboxed on macOS, which
-        # has no sandbox. Every leg of the daily, weekly and a manual run;
-        # on a pull request, the
-        # `driver` job's, and in the queue, that job's and the macOS
-        # leg's, where the change touches ci/ or .github/ or its paths are
-        # not known (changed_paths.tl's `driver=skip`); never on main's push, whose
-        # commit the queue checked. cosmic_ci's tests start the host's
-        # programs, which macOS keeps elsewhere (/sbin/sha256sum): before
-        # the macOS leg ran them in the queue, such a break showed only in
-        # the next daily or manual run.
-        {
-          name: "check the pinned CI driver",
-          if: "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'merge_group' && matrix.leg == 'macos-aarch64' && steps.changed.outputs.driver != 'skip')",
-          env: {COSMIC_VERDICT_CACHE: "0", COSMIC_TEST_SANDBOX: "${{ runner.os == 'Linux' && '1' || '0' }}", COSMIC_SANDBOX: "${{ runner.os == 'Linux' && 'must' || '' }}"},
-          run: "cosmic-driver test cosmic_ci",
-        },
         # eval/ is a project of its own, built and tested on the pinned
         # driver in place (eval/README.md), as cosmic's own build leaves it
         # out: its format check and its tests. COSMIC_TREE holds the driver
@@ -599,6 +582,24 @@
           name: "run the darwin suite",
           if: "(matrix.part == 'all' || matrix.part == 'suite')",
           run: "cosmic-driver cosmic_ci/driver.tl platform darwin-suite",
+        },
+        # After the leg's own suites, whichever way they ended, so a break here (macOS's host programs, for one)
+        # hides no verdict of theirs. Every test, sandboxed on Linux (each module declares the host
+        # programs and files it reads), and unsandboxed on macOS, which
+        # has no sandbox. Every leg of the daily, weekly and a manual run;
+        # on a pull request, the
+        # `driver` job's, and in the queue, that job's and the macOS
+        # leg's, where the change touches ci/ or .github/ or its paths are
+        # not known (changed_paths.tl's `driver=skip`); never on main's push, whose
+        # commit the queue checked. cosmic_ci's tests start the host's
+        # programs, which macOS keeps elsewhere (/sbin/sha256sum): before
+        # the macOS leg ran them in the queue, such a break showed only in
+        # the next daily or manual run.
+        {
+          name: "check the pinned CI driver",
+          if: "!cancelled() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'merge_group' && matrix.leg == 'macos-aarch64' && steps.changed.outputs.driver != 'skip'))",
+          env: {COSMIC_VERDICT_CACHE: "0", COSMIC_TEST_SANDBOX: "${{ runner.os == 'Linux' && '1' || '0' }}", COSMIC_SANDBOX: "${{ runner.os == 'Linux' && 'must' || '' }}"},
+          run: "cosmic-driver test cosmic_ci",
         },
         # Fails where a part of spawn's sandbox a confined test needs did
         # not hold (COSMIC_CI_REQUIRE_SANDBOX, phase_sandbox).

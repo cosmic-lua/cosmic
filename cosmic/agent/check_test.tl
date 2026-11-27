@@ -60,7 +60,7 @@ local WRITE <const>: Tools.Tool = { name = "write", snippet = "Write a file", gu
   end }
 
 local function test_checks_block_calls_and_after_changes_results()
-  local dir = scratch()
+  local dir = assert(Fs.absolute(scratch()))
   assert(Fs.write(dir .. "/a.txt", "the secret is 42"))
   assert(Fs.write(dir .. "/b.txt", "more"))
   local a = agent_fixture.api({ calling({
@@ -105,7 +105,7 @@ local function test_checks_block_calls_and_after_changes_results()
 end
 
 local function test_a_hook_that_raises_fails_closed()
-  local dir = scratch()
+  local dir = assert(Fs.absolute(scratch()))
   assert(Fs.write(dir .. "/a.txt", "fine"))
   local a = agent_fixture.api({ calling({ { name = "write", input = { path = "b.txt", content = "x" } },
     { name = "read", input = { path = "a.txt" } } }), DONE })
@@ -171,7 +171,7 @@ local function test_paths_are_checked_as_granted()
 end
 
 local function test_ask_blocks_what_the_user_says_no_to()
-  local dir = scratch()
+  local dir = assert(Fs.absolute(scratch()))
   local asked: mut {string} = {}
   local deny = Check.ask(function(call: Agent.Call): boolean
     asked[#asked + 1] = call.name

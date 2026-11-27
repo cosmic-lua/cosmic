@@ -38,9 +38,13 @@ function batch_checks.refusal(runs: {batch_checks.CheckRun}): string?
   local newest: mut {string: batch_checks.CheckRun} = {}
   local names: mut {string} = {}
   for _, check in ipairs(runs) do
-    local known = newest[check.name]
-    if known == nil then names[#names + 1] = check.name end
-    if known == nil or check.started_at > known.started_at then newest[check.name] = check end
+    -- A cancelled run is a run a newer one took over (or one stopped by hand): it holds no verdict, so
+    -- it neither fails the head nor takes the place of the run before it.
+    if check.conclusion ~= "cancelled" then
+      local known = newest[check.name]
+      if known == nil then names[#names + 1] = check.name end
+      if known == nil or check.started_at > known.started_at then newest[check.name] = check end
+    end
   end
   table.sort(names)
   if newest["ci"] == nil then return "no ci check at its head" end

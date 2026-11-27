@@ -13,6 +13,11 @@
 --- is stacked before it. Where main is red (an open `main-red` issue,
 --- ci/cosmic_ci/main_red.tl), it says so first. It writes the batch pull request's body to
 --- standard output; the caller pushes BRANCH and opens the pull request.
+--- A stack of four or more members can run past a foreground tool's
+--- ten minutes; start it in the background and read its standard error.
+--- A member's check runs that were cancelled hold no verdict
+--- (build/batch_checks.tl). A member's own messages are cut at 6000
+--- bytes in its commit.
 --- The repository's squash setting (COMMIT_MESSAGES) keeps each
 --- member's message in main's commit.
 ---
@@ -27,11 +32,14 @@ local BatchChecks = require("build.batch_checks")
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local plural = require("build.plural")
 local Proc = require("cosmic.proc")
 local Shape = require("cosmic.shape")
 
 local REPO <const> = "cosmic-lua/cosmic"
 local TIMEOUT_NS <const> = 120 * 1000000000
+--- The most bytes of a member's own commit messages its batch commit carries.
+local MESSAGE_LIMIT <const> = 6000
 
 local record Ran
   ok: boolean
@@ -146,7 +154,13 @@ local function messages(base: string, head: string): string
     local text = trimmed(table.concat(lines, "\n"))
     if text ~= "" then kept[#kept + 1] = text end
   end
-  return table.concat(kept, "\n\n")
+  local text = table.concat(kept, "\n\n")
+  if #text > MESSAGE_LIMIT then
+    -- A member with a long history (batch 41's was 140 KB) would carry it all into main's commit.
+    local cut = (text:sub(1, MESSAGE_LIMIT):gsub("[\128-\191]+$", ""):gsub("[\192-\255]$", ""))
+    return cut .. "\n\n[" .. plural.count(#text - #cut, "byte") .. " of the member's commit messages left out]"
+  end
+  return text
 end
 
 --- Stacks one member on the checked-out batch: its line for the body,
