@@ -6,18 +6,18 @@ local profile = require("build.profile")
 --- A profile of process `pid` (parent 1) with these span and sample lines.
 local function file(pid: integer, lines: {string}): string
   return ("cosmic-profile 1\nprocess %d parent 1 clock cpu hz 997\ncommand cosmic -e x\n"):format(pid) ..
-    ("total wall_ns 9000000 cpu_ns %d sampled_us 6000 dropped_us 0 other_us 0\n"):format(pid * 1000000) ..
+    ("total wall_ns 9000000 cpu_ns %d sampled_us 6000 dropped_us 0 other_us 0 peak_rss_kb 2048\n"):format(pid * 1000000) ..
     table.concat(lines, "\n") .. "\n"
 end
 
 local A <const> = file(10, {
-  "span [outer] 1 8000000 5000000",
-  "span [outer];[inner] 2 4000000 3000000",
+  "span [outer] 1 8000000 5000000 1024",
+  "span [outer];[inner] 2 4000000 3000000 1024",
   "sample [outer];[inner];main@x:1;spin@x:3 x:4 3000",
   "sample [outer];main@x:1;string.find@[C] x:2 2000",
   "sample main@x:1;spin@x:3;spin@x:3 x:4 1000",
 })
-local B <const> = file(20, { "span [outer] 1 1000000 1000000", "sample main@x:1 x:1 500" })
+local B <const> = file(20, { "span [outer] 1 1000000 1000000 1024", "sample main@x:1 x:1 500" })
 
 local record Ran
   mut code: integer
@@ -79,8 +79,8 @@ end
 local function test_spans_add_up_under_their_parents()
   local ran = run({ "--by", "span", "a.prof", "b.prof" }, { ["a.prof"] = A, ["b.prof"] = B })
   assert(ran.code == 0, ran.err)
-  assert(ran.out == "spans (count, wall, cpu):\n  [outer]  2  9.0 ms  6.0 ms\n    [inner]  2  4.0 ms  3.0 ms\n",
-    ran.out)
+  assert(ran.out == "spans (count, wall, cpu, most heap at a close):\n  [outer]  2  9.0 ms  6.0 ms  1.0 MB\n" ..
+      "    [inner]  2  4.0 ms  3.0 ms  1.0 MB\n", ran.out)
 end
 
 --- A directory stands for its `.prof` files; `--process` keeps one; the processes list puts most CPU first.
@@ -89,11 +89,11 @@ local function test_a_directory_and_one_process()
   local dirs = { d = { "10.prof", "20.prof", "notes.txt" } }
   local all = run({ "--by", "process", "d" }, files, dirs)
   assert(all.code == 0, all.err)
-  assert(all.out == "processes (pid, parent, cpu, sampled, command):\n" ..
-      "  20  1  20.0 ms  6.0 ms  cosmic -e x\n  10  1  10.0 ms  6.0 ms  cosmic -e x\n", all.out)
+  assert(all.out == "processes (pid, parent, cpu, sampled, peak resident set, command):\n" ..
+      "  20  1  20.0 ms  6.0 ms  2.0 MB  cosmic -e x\n  10  1  10.0 ms  6.0 ms  2.0 MB  cosmic -e x\n", all.out)
   local one = run({ "--by", "process", "--process", "10", "d" }, files, dirs)
-  assert(one.out == "processes (pid, parent, cpu, sampled, command):\n  10  1  10.0 ms  6.0 ms  cosmic -e x\n",
-    one.out)
+  assert(one.out == "processes (pid, parent, cpu, sampled, peak resident set, command):\n" ..
+      "  10  1  10.0 ms  6.0 ms  2.0 MB  cosmic -e x\n", one.out)
   local missing = run({ "--process", "30", "d" }, files, dirs)
   assert(missing.code == 5 and missing.err:find("no profile of process 30", 1, true) ~= nil, missing.err)
 end
@@ -103,7 +103,7 @@ local function test_the_whole_report()
   local ran = run({ "a.prof", "e.prof" }, { ["a.prof"] = A, ["e.prof"] = "" })
   assert(ran.code == 0, ran.err)
   assert(ran.out:find("^1 process, 10.0 ms cpu, 6.0 ms sampled on the cpu clock, the longest 9.0 ms wall, " ..
-      "1 empty %(killed by a signal%)\n\nspans") ~= nil, ran.out)
+      "the largest peak resident set 2.0 MB, 1 empty %(killed by a signal%)\n\nspans") ~= nil, ran.out)
   assert(ran.out:find("\n\nown time, of 6.0 ms", 1, true) ~= nil, ran.out)
   assert(ran.out:find("\n\nin the stack, of 6.0 ms", 1, true) ~= nil, ran.out)
 end
@@ -133,7 +133,7 @@ end
 --- A sample with no frame (`-`) is charged to "(no frame)"; a span whose parent no line names still sorts under
 --- that parent, before a later span.
 local function test_a_frameless_sample_and_a_missing_parent()
-  local text = file(30, { "span [a];[b] 1 1000000 1000000", "span [z] 1 1000000 1000000", "span [a];[c] 1 1000 1000",
+  local text = file(30, { "span [a];[b] 1 1000000 1000000 1024", "span [z] 1 1000000 1000000 1024", "span [a];[c] 1 1000 1000 1024",
     "sample - x:1 100" })
   local own = run({ "--by", "function", "f.prof" }, { ["f.prof"] = text })
   assert(own.out:find("100.00%%%s+0.1 ms  %(no frame%)\n") ~= nil, own.out)
@@ -141,4 +141,22 @@ local function test_a_frameless_sample_and_a_missing_parent()
   assert(folded.out == "(no frame) 100\n", folded.out)
   local spans = run({ "--by", "span", "f.prof" }, { ["f.prof"] = text })
   assert(spans.out:find("    %[b%].*\n    %[c%].*\n  %[z%]") ~= nil, spans.out)
+end
+
+--- A module's load is a `[require:<module>]` span: the report's span tree leaves it out, `--by span` keeps it,
+--- `--by require` lists the modules by wall time, and [`profile.loaded`] names them.
+local function test_module_loads_are_spans_of_their_own()
+  local text = file(40, { "span [main] 1 9000000 9000000 2048", "span [main];[require:a] 1 6000000 5000000 1024",
+    "span [main];[require:a];[require:b] 1 2000000 2000000 512", "sample [main];m@x:1 x:1 100" })
+  local whole = run({ "r.prof" }, { ["r.prof"] = text })
+  assert(whole.out:find("\n  [main]  1  9.0 ms  9.0 ms  2.0 MB\n\n", 1, true) ~= nil, whole.out)
+  assert(whole.out:find("require:", 1, true) == nil, whole.out)
+  local spans = run({ "--by", "span", "r.prof" }, { ["r.prof"] = text })
+  assert(spans.out:find("      [require:b]  1", 1, true) ~= nil, spans.out)
+  local modules = run({ "--by", "require", "r.prof" }, { ["r.prof"] = text })
+  assert(modules.out == "modules loaded (2; wall, cpu, with what each required):\n" ..
+      "        6.0 ms        5.0 ms  a\n        2.0 ms        2.0 ms  b\n", modules.out)
+  local read = assert(profile.read(text, "r.prof"))
+  local loaded = profile.loaded({ read })
+  assert(loaded["a"] == true and loaded["b"] == true and loaded["main"] == nil)
 end

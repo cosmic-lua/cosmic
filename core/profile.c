@@ -17,6 +17,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <time.h>
@@ -94,6 +95,9 @@ struct span_total {
   unsigned long count;
   int64_t wall_ns;
   int64_t cpu_ns;
+  /* The most the Lua heap held, in KB, as a span of this path closed;
+   * 0 where none closed with the state at hand. */
+  long heap_kb;
 };
 
 static struct open_span open_spans[SPAN_DEPTH];
@@ -393,7 +397,7 @@ void cosmic_profile_sample (lua_State *L) {
 }
 
 /* Adds the span at the top of `open_spans` to its path's total. */
-static void total_span (const struct open_span *span, uint32_t depth) {
+static void total_span (const struct open_span *span, uint32_t depth, long heap_kb) {
   int64_t wall = now_ns(CLOCK_MONOTONIC) - span->wall_ns;
   int64_t cpu = now_ns(CLOCK_THREAD_CPUTIME_ID) - span->cpu_ns;
   uint32_t ids[SPAN_DEPTH] = {0};
@@ -411,59 +415,64 @@ static void total_span (const struct open_span *span, uint32_t depth) {
       t->count++;
       t->wall_ns += wall;
       t->cpu_ns += cpu;
+      if (heap_kb > t->heap_kb) t->heap_kb = heap_kb;
       return;
     }
     at = (at + 1) & (SPAN_SLOTS - 1);
   }
 }
 
-/* Closes the open spans down to `depth` of them. */
-static void close_spans (int depth) {
+/* Closes the open spans down to `depth` of them, the Lua heap holding
+ * `heap_kb` (0: not read, as the process exits). */
+static void close_spans (int depth, long heap_kb) {
   while (open_depth > depth && open_depth > 0) {
     open_depth--;
-    if (open_depth >= inherited_depth) total_span(&open_spans[open_depth], (uint32_t)open_depth + 1);
+    if (open_depth >= inherited_depth) total_span(&open_spans[open_depth], (uint32_t)open_depth + 1, heap_kb);
   }
   if (inherited_depth > open_depth) inherited_depth = open_depth;
 }
 
-COSMIC_SYSCALL(profile_span_open, 1) {
-  const char *name = luaL_checkstring(L, 1);
-  if (span_totals == NULL) {
-    lua_pushinteger(L, 0);
-    return 1;
-  }
+bool cosmic_profile_taking (void) {
+  return span_totals != NULL;
+}
+
+int64_t cosmic_profile_span_open (const char *prefix, const char *name) {
+  if (span_totals == NULL) return 0;
   /* A span deeper than the stack holds is not taken: its time goes to
    * the span it stands in. */
-  if (open_depth >= SPAN_DEPTH) {
-    lua_pushinteger(L, 0);
-    return 1;
-  }
+  if (open_depth >= SPAN_DEPTH) return 0;
   char text[512];
-  snprintf(text, sizeof text, "[%s]", name);
+  snprintf(text, sizeof text, "[%s%s]", prefix, name);
   plain(text);
   uint32_t id = text_id(text);
-  if (id == UINT32_MAX) {
-    lua_pushinteger(L, 0);
-    return 1;
-  }
+  if (id == UINT32_MAX) return 0;
   struct open_span *span = &open_spans[open_depth++];
   span->id = id;
   span->token = ++last_token;
   span->wall_ns = now_ns(CLOCK_MONOTONIC);
   span->cpu_ns = now_ns(CLOCK_THREAD_CPUTIME_ID);
-  lua_pushinteger(L, span->token);
-  return 1;
+  return span->token;
 }
 
-COSMIC_SYSCALL(profile_span_close, 1) {
-  lua_Integer token = luaL_checkinteger(L, 1);
+bool cosmic_profile_span_close (int64_t token) {
   /* The span `token` names, if it is open still: from the top, since the
    * innermost closes most. */
   int at = open_depth - 1;
   while (at >= 0 && open_spans[at].token != token) at--;
   bool closed = span_totals != NULL && token > 0 && at >= 0;
-  if (closed) close_spans(at);
-  lua_pushboolean(L, closed);
+  /* The heap as the span closes, read on the state that runs it: what
+   * the phase left alive, and garbage not yet collected. */
+  if (closed) close_spans(at, main_state != NULL ? (long)lua_gc(main_state, LUA_GCCOUNT, 0) : 0);
+  return closed;
+}
+
+COSMIC_SYSCALL(profile_span_open, 1) {
+  lua_pushinteger(L, (lua_Integer)cosmic_profile_span_open("", luaL_checkstring(L, 1)));
+  return 1;
+}
+
+COSMIC_SYSCALL(profile_span_close, 1) {
+  lua_pushboolean(L, cosmic_profile_span_close((int64_t)luaL_checkinteger(L, 1)));
   return 1;
 }
 
@@ -636,16 +645,26 @@ void cosmic_profile_report (void) {
   fprintf(f, "cosmic-profile 1\n");
   fprintf(f, "process %ld parent %ld clock %s hz %d\n", (long)getpid(), (long)getppid(), clock_name, hz);
   fprintf(f, "command %s\n", command != NULL ? command : "");
-  fprintf(f, "total wall_ns %lld cpu_ns %lld sampled_us %lu dropped_us %lu other_us %lu\n", (long long)wall,
-          (long long)cpu, sampled_us, dropped, other_total + (unsigned long)ticks_other);
+  /* The resident set's peak: kilobytes on Linux, bytes on macOS. */
+  struct rusage usage;
+  long peak_rss_kb = 0;
+  if (getrusage(RUSAGE_SELF, &usage) == 0) {
+#ifdef __APPLE__
+    peak_rss_kb = (long)(usage.ru_maxrss / 1024);
+#else
+    peak_rss_kb = (long)usage.ru_maxrss;
+#endif
+  }
+  fprintf(f, "total wall_ns %lld cpu_ns %lld sampled_us %lu dropped_us %lu other_us %lu peak_rss_kb %ld\n",
+          (long long)wall, (long long)cpu, sampled_us, dropped, other_total + (unsigned long)ticks_other, peak_rss_kb);
   /* A span open still, a phase the process ended in, closes as it exits. */
-  if (span_totals != NULL) close_spans(0);
+  if (span_totals != NULL) close_spans(0, 0);
   for (size_t i = 0; span_totals != NULL && i < SPAN_SLOTS; i++) {
     const struct span_total *t = &span_totals[i];
     if (t->depth == 0) continue;
     fprintf(f, "span ");
     for (uint32_t k = 0; k < t->depth; k++) fprintf(f, "%s%s", k == 0 ? "" : ";", texts[t->ids[k]].text);
-    fprintf(f, " %lu %lld %lld\n", t->count, (long long)t->wall_ns, (long long)t->cpu_ns);
+    fprintf(f, " %lu %lld %lld %ld\n", t->count, (long long)t->wall_ns, (long long)t->cpu_ns, t->heap_kb);
   }
   for (size_t i = 0; stacks != NULL && i < STACK_SLOTS; i++) {
     const struct stack *s = &stacks[i];

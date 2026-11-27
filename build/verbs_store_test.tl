@@ -17,6 +17,7 @@ local verb_list = require("build.verb_list")
 local verbs_fixture = require("build.verbs_fixture")
 local String = require("cosmic.string")
 local support = require("build.test_support_fixture")
+local tool_fixture = require("build.tool_fixture")
 
 --- The tool itself, whose core a program `build` writes runs on, the CA
 --- bundle `refresh` reads, and what bin/zig reads to find or fetch zig.
@@ -561,15 +562,16 @@ end
 --- where it reads a projection or checks the tool is fresh.
 local function test_one_verbs_help_loads_no_other_verb(tmp: string)
   local own = checkouts_own_tool(tmp)
-  for _, words in ipairs({ { "help", "hash" }, { "hash", "--help" } }) do
+  for slot, words in ipairs({ { "help", "hash" }, { "hash", "--help" } }) do
     local env = Test.environment()
-    env["COSMIC_TRACE_REQUIRE"] = "1"
+    local dir = tmp .. "/prof-" .. tostring(slot)
+    env["COSMIC_PROFILE"] = dir
     local started = Test.cosmic(words, { env = env, cwd = tmp, stdout = "capture", stderr = "capture",
       timeout_ns = Clock.seconds(30) })
     local r = assert(Child.run(started.argv, started.options))
     assert(r.ok and (r.stdout or ""):find("cosmic hash", 1, true) ~= nil, tostring(r.stdout) .. tostring(r.stderr))
-    local traced = r.stderr or ""
-    assert(traced:find(" build.hash ", 1, true), "no trace of build.hash: " .. traced:sub(1, 400))
+    local loaded = tool_fixture.loaded(dir)
+    assert(loaded["build.hash"] == true, "the profile names no load of build.hash")
     local absent: mut {string} = { "build.test", "build.fix", "build.lsp", "build.sql", "build.archive" }
     if not own then
       for _, name in ipairs({ "build.reboot", "build.rebuild", "build.work", "build.writer" }) do
@@ -577,7 +579,7 @@ local function test_one_verbs_help_loads_no_other_verb(tmp: string)
       end
     end
     for _, name in ipairs(absent) do
-      assert(not traced:find(" " .. name .. " ", 1, true), table.concat(words, " ") .. " loaded " .. name)
+      assert(loaded[name] ~= true, table.concat(words, " ") .. " loaded " .. name)
     end
   end
 end
@@ -592,13 +594,14 @@ local function test_a_tool_of_no_checkout_loads_no_reboot(tmp: string)
   local spec = assert(verb_list.find("build"))
   assert(not spec.bare and spec.fresh ~= true and spec.reads ~= true, "build no longer reaches the checkout check")
   local env = Test.environment()
-  env["COSMIC_TRACE_REQUIRE"] = "1"
+  env["COSMIC_PROFILE"] = tmp .. "/prof"
   local started = Test.cosmic({ "build", "missing.tl" }, { env = env, cwd = tmp,
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
-  local traced = r.stderr or ""
-  assert(r.code == 1, tostring(r.code) .. ": " .. traced:sub(-400))
-  assert(traced:find("no cmd/<name>/main.tl", 1, true), traced:sub(-400))
-  assert(traced:find(" build.embed ", 1, true), "no trace of build.embed: " .. traced:sub(1, 400))
-  assert(not traced:find(" build.reboot ", 1, true), "build loaded build.reboot")
+  local said = r.stderr or ""
+  assert(r.code == 1, tostring(r.code) .. ": " .. said:sub(-400))
+  assert(said:find("no cmd/<name>/main.tl", 1, true), said:sub(-400))
+  local loaded = tool_fixture.loaded(tmp .. "/prof")
+  assert(loaded["build.embed"] == true, "the profile names no load of build.embed")
+  assert(loaded["build.reboot"] ~= true, "build loaded build.reboot")
 end
