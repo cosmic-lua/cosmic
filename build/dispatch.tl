@@ -14,6 +14,7 @@
 local exit_status = require("build.exit_status")
 local help_source = require("build.help_source")
 local logger = require("build.logger")
+local type Failure = require("cosmic.failure")
 local type verb_spec = require("build.verb_spec")
 local type flags = require("cosmic.flags")
 local type standalone_type = require("build.standalone")
@@ -734,10 +735,43 @@ local function say_if_stale()
   if note ~= nil then log:complain(note) end
 end
 
+--- The SHA-256 of the file at `path`, hashed once per file: the digest is
+--- kept in `Fs.cache_dir("version")`, named by the file's device, inode,
+--- size, mtime and ctime, so a later run of the same file reads it there
+--- in place of hashing 27 MB again. A file written over, renamed onto or
+--- touched moves its ctime and is hashed again. The cache only saves
+--- time: a cache that cannot be read or written is passed over, with no
+--- word, and the file is hashed.
+local function file_digest(path: string): (string) | (nil, Failure)
+  local Fs = require("cosmic.fs")
+  local Hash = require("cosmic.hash")
+  local st, _ = Fs.stat(path)
+  local key, entry = "", ""
+  if st ~= nil then
+    key = ("%d %d %d %d.%09d %d.%09d"):format(st.dev, st.ino, st.size,
+      st.mtime, st.mtime_ns, st.ctime, st.ctime_ns)
+    local dir, _ = Fs.cache_dir("version")
+    if dir ~= nil then
+      entry = dir .. "/digest"
+      local kept, _ = Fs.read(entry)
+      if kept ~= nil then
+        local named, hex = kept:match("^(.-)\t(%x+)\n$")
+        if named == key and hex ~= nil and #hex == 64 then return hex end
+      end
+    end
+  end
+  local digest, trouble = Hash.hex_file("sha256", path)
+  if digest == nil then return nil, trouble end
+  if entry ~= "" then
+    local _, _ = Fs.write(entry, key .. "\t" .. digest .. "\n", 0x180)
+  end
+  return digest
+end
+
 --- `cosmic --version`: the SHA-256 of the file this binary runs from,
 --- read in pieces, as a release's SHA256SUMS names it: `cosmic <hex>`.
+--- The digest is hashed once per file and kept ([`file_digest`]).
 local function version(argv: {string}): integer
-  local Hash = require("cosmic.hash")
   local Proc = require("cosmic.proc")
   local extra = argv[2]
   if extra ~= nil then
@@ -753,7 +787,7 @@ local function version(argv: {string}): integer
   -- opening the path again, once the store offers the whole file as it
   -- offers its core (trusted_core): a file renamed over this one after
   -- launch is hashed in its place, and an unlinked one fails.
-  local digest, digest_trouble = Hash.hex_file("sha256", path)
+  local digest, digest_trouble = file_digest(path)
   if digest == nil then
     log:complain("--version: " .. tostring(digest_trouble))
     return 1
