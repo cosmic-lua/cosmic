@@ -1,5 +1,6 @@
 --- core/tls.c's sessions over a pair of connected sockets, driven by
---- hand: what a read answers when the peer's socket ends.
+--- hand: what a read answers when the peer's socket ends, or after
+--- empty records.
 
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
@@ -69,6 +70,49 @@ local function test_a_read_after_the_peer_socket_ends_fails_and_says_why()
       client:free()
       return
     end
+    assert(raw.wait(client_socket:fd(), false, 5000))
+  end
+  error("the read never ended")
+end
+
+--- Writes all of `data` to `session` over `fd`, waiting where it must.
+local function written(session: tls.Session, fd: integer, data: string)
+  for _ = 1, 1000 do
+    local took, why, stop = session:write(data, 1)
+    if took ~= nil then
+      assert(took == #data, "took " .. tostring(took) .. " of " .. tostring(#data))
+      return
+    end
+    assert(stop == tls.WRITE or stop == tls.READ, why)
+    assert(raw.wait(fd, stop == tls.WRITE, 5000))
+  end
+  error("the write never finished")
+end
+
+--- Two empty application records in a row are no end: mbedtls answers a
+--- read of them 0, as it does a socket that ended, and the session reads
+--- on to the data after them (#4459 fixed a session that took them for
+--- an end, live).
+local function test_two_empty_records_and_then_data_read_as_the_data()
+  local server_config = assert(tls.config({ { cert = fixture("a.pem"), key = fixture("a.key") } }))
+  local client_config = assert(tls.client(false))
+  local client_socket <close>, accepted = connected()
+  local server_socket <close> = accepted
+  local client = assert(tls.session(client_config, client_socket:fd()))
+  local server = assert(tls.session(server_config, server_socket:fd()))
+  handshaken(client, client_socket:fd(), server, server_socket:fd())
+  written(server, server_socket:fd(), "")
+  written(server, server_socket:fd(), "")
+  written(server, server_socket:fd(), "after")
+  for _ = 1, 100 do
+    local data, why, stop = client:read(100)
+    if data ~= nil then
+      assert(data == "after", data)
+      client:free()
+      server:free()
+      return
+    end
+    assert(stop == tls.READ, "stop " .. tostring(stop) .. ": " .. why)
     assert(raw.wait(client_socket:fd(), false, 5000))
   end
   error("the read never ended")

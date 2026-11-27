@@ -671,6 +671,12 @@ function Host.sort(list: {string}, by?: function(string): string): mut {string}
   return Shell.sort(list, by)
 end
 
+--- A sorted copy of `list` as `sort -V` orders it, a run of digits by its number ([`Shell.version_sort`]): `a.tl:9`
+--- before `a.tl:10`.
+function Host.version_sort(list: {string}, by?: function(string): string): mut {string}
+  return Shell.version_sort(list, by)
+end
+
 --- A sorted copy of `list`, any kind of item, by the key `by` gives each (`Host.sort_by(items, function(i: Item):
 --- string return i.id end)`), as `LC_ALL=C sort` orders bytes; items of one key keep their order.
 function Host.sort_by<T>(list: {T}, by: function(T): string): mut {T}

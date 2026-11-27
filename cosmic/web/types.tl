@@ -747,6 +747,8 @@ local record Types
     grace_ns?: integer
     --- As [`Server.ServeSpec.on_ready`].
     on_ready?: function({Net.Address}, Net.Server)
+    --- As [`Server.ServeSpec.on_listen`]: before `acme` first issues.
+    on_listen?: function({Net.Address}, Net.Server)
     --- Called when the server begins to stop, after `app:stopping()` is
     --- true and the functions of `app:on_stop` have run.
     on_stop?: function(Net.Server)

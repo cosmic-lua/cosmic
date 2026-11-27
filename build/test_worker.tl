@@ -163,6 +163,9 @@ local record worker
     --- Whether the worker reports the violations of the run-time checks
     --- its modules carry (`COSMIC_TEST_TYPES`).
     checks?: boolean
+    --- The host directory, absolute, the worker writes its profile into (`COSMIC_PROFILE`), nil for none. A
+    --- sandboxed worker has it at [`worker.profile_place`], granted to write.
+    profile?: string
     --- The tests a forking worker runs, in order, each in a copy of itself
     --- (`--fork`, [`worker.run`]); nil for a worker that runs the one test
     --- `name`.
@@ -249,6 +252,8 @@ local record worker
 
   --- The descriptor the report is written to.
   mut report_fd: integer
+  --- Where a sandboxed worker of a profiled run has the run's profile directory.
+  mut profile_place: string
 
   record_at: function(buffer: string, at: integer): Forked?
   forked_result: function(record: Forked, printed: string): Child.Result
@@ -294,6 +299,7 @@ local record worker
 end
 
 worker.report_fd = 3
+worker.profile_place = "/profile"
 worker.go_on = "g"
 worker.stop = "s"
 
@@ -1389,6 +1395,16 @@ function worker.invocation(given: worker.Invocation): worker.Command
   for name, value in pairs(given.start.env) do env[name] = value end
   env.COSMIC_COVERAGE_STARTUP = "1" -- checked: map_field
   env.COSMIC_TEST_TYPES = if given.checks == true then "1" else nil end -- checked: map_field
+  -- A profiled run's workers write their profiles where it says, with the run's clock and rate; a variable
+  -- the runner was given already the core passes on as it starts the worker, so this is for `--profile`.
+  local profile = given.profile
+  if profile ~= nil then
+    env["COSMIC_PROFILE"] = if given.policy ~= nil then worker.profile_place else profile end
+    for _, name in ipairs({ "COSMIC_PROFILE_CLOCK", "COSMIC_PROFILE_HZ" }) do
+      local value = Env.get(name)
+      if value ~= nil and env[name] == nil then env[name] = value end
+    end
+  end
   local fds: mut {integer:integer | string} = { [worker.report_fd] = "capture" }
   local relayed_to = given.report
   if relayed_to ~= nil then fds[worker.report_fd] = relayed_to end
@@ -1412,7 +1428,12 @@ function worker.invocation(given: worker.Invocation): worker.Command
     -- it would contradict: what the worker is given, the one place it is
     -- made whole, goes in the policy's `set_env`.
     local held = given_policy2
-    local policy: Sandbox.Policy = { grants = held.grants, isolate = held.isolate, limits = held.limits,
+    local grants: mut {Sandbox.Grant} = {}
+    for _, grant in ipairs(held.grants or {}) do grants[#grants + 1] = grant end
+    if profile ~= nil then
+      grants[#grants + 1] = { path = worker.profile_place, from = profile, letters = "rwc" }
+    end
+    local policy: Sandbox.Policy = { grants = grants, isolate = held.isolate, limits = held.limits,
       setup = { tmp = (held.setup or {}).tmp, database = (held.setup or {}).database, set_env = env } }
     -- `timeout_ns` is Child.FOREVER, which the harness cannot read: it
     -- requires no cosmic.child value. The runner ends a worker past its limit.

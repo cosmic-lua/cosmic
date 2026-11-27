@@ -220,6 +220,50 @@ function Shell.sort(list: {string}, by?: function(string): string): mut {string}
   return out
 end
 
+--- Whether `a` comes before `b` as `sort -V` orders them: each run of digits compares as the number it writes
+--- (`x.tl:56` before `x.tl:1082`, `v9` before `v10`), the rest by bytes; ties by the whole text.
+local function version_less(a: string, b: string): boolean
+  local i, j = 1, 1
+  while i <= #a and j <= #b do
+    local da, ea = a:find("^%d+", i)
+    local db, eb = b:find("^%d+", j)
+    if da ~= nil and ea ~= nil and db ~= nil and eb ~= nil then
+      local na = a:sub(da, ea):match("^0*(%d-)$") or ""
+      local nb = b:sub(db, eb):match("^0*(%d-)$") or ""
+      if #na ~= #nb then return #na < #nb end
+      if na ~= nb then return na < nb end
+      i, j = ea + 1, eb + 1
+    else
+      local ca, cb = a:sub(i, i), b:sub(j, j)
+      if ca ~= cb then
+        -- A digit run against another byte: the byte order of the two bytes still decides.
+        return ca < cb
+      end
+      i, j = i + 1, j + 1
+    end
+  end
+  if (#a - i) ~= (#b - j) then return (#a - i) < (#b - j) end
+  return a < b
+end
+
+--- A sorted copy of `list` as `sort -V` orders it: a run of digits compares as its number, so `path:line` texts
+--- come in the order of their lines (`a.tl:9` before `a.tl:10`), where [`Shell.sort`] puts `a.tl:10` first. By the
+--- key `by` gives each item where given; ties by the whole item.
+function Shell.version_sort(list: {string}, by?: function(string): string): mut {string}
+  local out: mut {string} = {}
+  for _, v in ipairs(list) do out[#out + 1] = v end
+  local keys: mut {string: string} = {}
+  if by ~= nil then
+    for _, v in ipairs(out) do keys[v] = by(v) end
+  end
+  table.sort(out, function(a: string, b: string): boolean
+    local ka, kb = keys[a] or a, keys[b] or b
+    if ka ~= kb then return version_less(ka, kb) end
+    return a < b
+  end)
+  return out
+end
+
 --- `values` as SQLite binds them, `?1` first: a string as text, an integer or a number as itself, a boolean as 1 or
 --- 0, [`Json.null`] as NULL. Or nil, and why one cannot be bound.
 local function params_of(values: {Json.Value}): {Sqlite.Param}, string?
