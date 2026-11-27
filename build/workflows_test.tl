@@ -1816,9 +1816,10 @@ local function test_mains_push_repeats_nothing_the_queue_checked()
   for _, s in ipairs(own) do
     assert(s["id"] ~= "reach", "the driver's job asks in a shell whether the change reaches its tests")
   end
-  local islands = step_named(steps, "type-check the bootstrap's scripts on the pinned driver")
-  assert(islands["if"] == "matrix.leg == 'linux-x86_64' && " .. FORMAT_PART .. " && github.event_name != 'push'",
-    "the bootstrap's scripts")
+  for _, s in ipairs(steps) do
+    assert((s.run or ""):find("check-islands", 1, true) == nil,
+      "a step checks the bootstrap's scripts apart from the tree's format, which `fix --check` already runs on the pinned release")
+  end
   -- The queue's suite job runs the native suite and its boundary, its product and format jobs neither.
   assert(step_named(steps, "run release Cosmic's native suite")["if"] == SUITE_PART,
     "the native suite runs in the queue's format or product job")
@@ -2423,7 +2424,7 @@ end
 --- A pull request runs the `ci` check the merge queue requires of it, lighter than the queue's: linux-x86_64's leg, as
 --- the queue's, boots the tree, runs its native suite and checks its format over the paths the pull request changed
 --- since its merge base with main (`fix --check --changed`, every check spanning files over the whole tree), the
---- markers held to that base, and checks the bootstrap's scripts; and, where a path it changed reaches them, the
+--- markers held to that base; and, where a path it changed reaches them, the
 --- launcher and startup fixtures and the artifacts they run. macOS's leg runs its native suite and darwin suite. Each
 --- suite stands on main's verdicts, so it runs the tests the change reaches, and a failure the queue would meet there
 --- shows on the pull request first. No saved cache, and no other job.
