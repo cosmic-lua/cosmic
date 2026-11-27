@@ -8,7 +8,7 @@ local Json = require("cosmic.json")
 local function written(text: string): string
   local dir = Fs.mkdtemp("json-read-")!
   local path = dir .. "/a.json"
-  Fs.write(path, text)!
+  assert(Fs.write(path, text))
   return path
 end
 

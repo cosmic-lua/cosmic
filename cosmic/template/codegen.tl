@@ -90,7 +90,7 @@ for _, word in ipairs({
     -- not shadow (a module named `string` would break every `string.format`
     -- the template's own stages call), and the types Teal reads by name.
     "_G", "_ENV", "_VERSION", "arg", "assert", "bit32", "collectgarbage", "coroutine", "debug", "dofile",
-    "error", "getmetatable", "io", "ipairs", "load", "loadfile", "loadstring", "math", "module", "next", "os",
+    "error", "getmetatable", "io", "ipairs", "load", "loadfile", "loadstring", "math", "module", "must", "next", "os",
     "package", "pairs", "pcall", "print", "rawequal", "rawget", "rawlen", "rawset", "require", "select",
     "setmetatable", "string", "table", "tonumber", "tostring", "unpack", "utf8", "warn", "xpcall",
     "any", "boolean", "function", "integer", "number", "thread", "userdata",

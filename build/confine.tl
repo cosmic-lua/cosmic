@@ -250,12 +250,12 @@ end
 
 --- `confine`'s work, with `must` naming the call that asked for no
 --- fallback, or nil.
-local function declare(declared: confine.Confinement?, must: string?)
+local function declare(declared: confine.Confinement?, strict: string?)
   if declared == nil then
     declared_by.confinement, declared_by.strict = nil, nil
     return
   end
-  declared_by.confinement, declared_by.strict = absolute(declared), must
+  declared_by.confinement, declared_by.strict = absolute(declared), strict
 end
 
 --- Declares what every process the calling test starts from here on
@@ -953,15 +953,15 @@ confine.unseen = unseen
 --- test made of the spawn's result.
 local refusals: mut {Entry:string} = {}
 
---- Refuses a spawn `must` holds to its sandbox: `program` could not
+--- Refuses a spawn `holder_name` holds to its sandbox: `program` could not
 --- start with `part` of it applied, for `why` (`errno`). Every running
 --- stand-in hears it. Returns the message the spawn fails with.
-local function refuse(must: string, program: string, part: string, why: string,
+local function refuse(holder_name: string, program: string, part: string, why: string,
                       errno: integer): string
   local name = sys.errno_name(errno) or ("errno " .. tostring(errno))
   local message = string.format(
     "%s: %s could not start confined: %s could not be applied: %s (%s)",
-    must, program, part, why, name)
+    holder_name, program, part, why, name)
   for _, each in ipairs(entered) do
     if refusals[each] == nil then refusals[each] = message end
   end
@@ -1046,12 +1046,12 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
         (sandbox == nil and declared_by.confinement ~= nil)) then
       return nil, refuse_nesting(path, holder), sys.EPERM
     end
-    local must = if declared_by.confinement ~= nil then declared_by.strict else nil end
+    local strict = if declared_by.confinement ~= nil then declared_by.strict else nil end
     if plain ~= nil and plain.unveil ~= nil and plain.offline == true then
       local pid, trouble, errno = spawn(path, argv, environment, cwd, stdin, stdout, stderr,
         process_group, fds, plain, credentials, terminal)
-      if pid == nil and unconfinable[errno] == true and must ~= nil and runnable(path) then
-        return nil, refuse(must, path, "its own sandbox's unveil and offline", trouble, errno),
+      if pid == nil and unconfinable[errno] == true and strict ~= nil and runnable(path) then
+        return nil, refuse(strict, path, "its own sandbox's unveil and offline", trouble, errno),
           errno
       end
       return pid, trouble, errno
@@ -1064,8 +1064,8 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
     -- A policy's that builds no root of its own is no more the sandbox the
     -- test was given, so it does not start either; one that does is a
     -- confinement of its own, as an unveil and offline is.
-    if (plain ~= nil or kind == "held" or kind == "isolating") and must ~= nil then
-      return nil, refuse(must, path, "unveil and offline",
+    if (plain ~= nil or kind == "held" or kind == "isolating") and strict ~= nil then
+      return nil, refuse(strict, path, "unveil and offline",
         "a sandbox of its own that does not unveil and take the network, which " ..
           "must_confine does not add to", sys.EINVAL), sys.EINVAL
     end

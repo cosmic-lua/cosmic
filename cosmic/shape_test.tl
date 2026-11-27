@@ -90,7 +90,7 @@ end
 
 local ARTIST <const> = Shape.record_of("Artist")
 
-local function must<T>(v: T?, err: string): T
+local function present_or<T>(v: T?, err: string): T
   if v == nil then
     error(err)
   end
@@ -106,7 +106,7 @@ end
 
 local function test_a_record_answers_a_copy_of_the_fields_it_names()
   local decoded: {string: any} = { host = "localhost", port = 8080, extra = { 1, 2 } } -- checked: any_use*3
-  local s = must(Shape.into(decoded, SERVER.spec))
+  local s = present_or(Shape.into(decoded, SERVER.spec))
   assert(s.host == "localhost" and s.port == 8080 and s.tls == nil)
   assert(assert(Json.encode_any(s)) == '{"host":"localhost","port":8080}', "a field the spec does not name was kept")
   assert(not rawequal(s, decoded), "into answered the table it was given")
@@ -119,7 +119,7 @@ local function test_a_mismatch_names_its_path()
   fails("text", SERVER.spec, "$: want record, got string")
   local got1, why1 = Json.decode('[{"id": "a"}, {"id": 2}]')
   assert(got1 ~= nil, tostring(why1))
-  fails(must(got1, tostring(why1)), Shape.list(Shape.record_of("Row").spec),
+  fails(present_or(got1, tostring(why1)), Shape.list(Shape.record_of("Row").spec),
     "$[1].id: want string, got integer")
   local by_key: {string: {string: boolean}} = { ["a key"] = { id = true } }
   fails(by_key, Shape.map(Shape.record_of("Row").spec), '$["a key"].id: want string, got boolean')
@@ -153,22 +153,22 @@ local function test_a_list_reports_its_first_miss_in_index_order()
 end
 
 local function test_integer_takes_a_whole_float_and_nothing_else()
-  local v = must(Shape.into(8080.0, Shape.integer))
+  local v = present_or(Shape.into(8080.0, Shape.integer))
   assert(math.type(v) == "integer" and v == 8080)
   fails(1.5, Shape.integer, "$: want integer, got 1.5")
   fails(2.0 ^ 63, Shape.integer, "$: want integer, got " .. tostring(2.0 ^ 63))
   fails(0 / 0, Shape.integer, "$: want integer, got " .. tostring(0 / 0))
   fails("1", Shape.integer, "$: want integer, got string")
   fails("1", Shape.number, "$: want number, got string")
-  local f = must(Shape.into(1.5, Shape.number))
+  local f = present_or(Shape.into(1.5, Shape.number))
   assert(f == 1.5)
 end
 
 local function test_a_list_is_keyed_from_one()
   local strings = Shape.list(Shape.string)
-  local l = must(Shape.into({ "a", "b" }, strings))
+  local l = present_or(Shape.into({ "a", "b" }, strings))
   assert(#l == 2 and l[2] == "b")
-  local empty = must(Shape.into({}, strings)) -- checked: literal_needs_type
+  local empty = present_or(Shape.into({}, strings)) -- checked: literal_needs_type
   assert(#empty == 0)
   fails({ [1] = "a", [3] = "c" }, strings, "$[1]: missing")
   fails({ [2] = "b" }, strings, "$[0]: missing")
@@ -183,29 +183,29 @@ local function test_a_list_answers_a_json_array()
   local integers = Shape.list(Shape.integer)
   local got2, why2 = Json.decode("[]")
   assert(got2 ~= nil, tostring(why2))
-  local from_json = must(Shape.into(must(got2, tostring(why2)), integers))
+  local from_json = present_or(Shape.into(present_or(got2, tostring(why2)), integers))
   assert(Json.is_array(from_json))
   assert((assert(Json.encode(from_json))) == "[]")
-  local from_lua = must(Shape.into({}, integers)) -- checked: literal_needs_type
+  local from_lua = present_or(Shape.into({}, integers)) -- checked: literal_needs_type
   assert((assert(Json.encode(from_lua))) == "[]")
 end
 
 local function test_a_map_or_record_refuses_a_json_array()
   local got3, why3 = Json.decode("[]")
   assert(got3 ~= nil, tostring(why3))
-  local empty = must(got3, tostring(why3))
+  local empty = present_or(got3, tostring(why3))
   fails(empty, Shape.map(Shape.string), "$: want map, got array")
   fails(empty, Shape.record_of("Loose").spec, "$: want record, got array")
   local got4, why4 = Json.decode('{"a": [1]}')
   assert(got4 ~= nil, tostring(why4))
-  fails(must(got4, tostring(why4)), Shape.record_of("Pair").spec, "$.a: want string, got array")
+  fails(present_or(got4, tostring(why4)), Shape.record_of("Pair").spec, "$.a: want string, got array")
 end
 
 -- A strict record names the first key it does not know, before the
 -- field that key was probably meant to be, and whatever its value.
 local function test_a_strict_record_refuses_a_key_it_does_not_name()
   local strict = SERVER:strict()
-  local s = must(Shape.into({ host = "h", port = 1, tls = Json.null }, strict.spec))
+  local s = present_or(Shape.into({ host = "h", port = 1, tls = Json.null }, strict.spec))
   assert(s.host == "h" and s.port == 1 and s.tls == nil)
   fails({ host = "h", prot = 1 }, strict.spec, "$.prot: unknown key")
   fails({ host = "h", port = 1, zz = 1, ["a key"] = 1 }, strict.spec, '$[\"a key\"]: unknown key') -- checked: literal_shape
@@ -213,7 +213,7 @@ local function test_a_strict_record_refuses_a_key_it_does_not_name()
   fails({ host = "h", port = 1, [1] = "x" }, strict.spec, "$: want record, got the integer key 1") -- checked: literal_shape
   local got5, why5 = Json.decode("[]")
   assert(got5 ~= nil, tostring(why5))
-  fails(must(got5, tostring(why5)), strict.spec, "$: want record, got array")
+  fails(present_or(got5, tostring(why5)), strict.spec, "$: want record, got array")
   -- A record the strict form is made of is made strict whatever it is nested in.
   local record Outer
     server: Server?
@@ -223,7 +223,7 @@ local function test_a_strict_record_refuses_a_key_it_does_not_name()
 end
 
 local function test_a_map_refuses_a_key_that_is_not_a_string()
-  local m = must(Shape.into({ a = 1, b = 2.0 }, Shape.map(Shape.integer)))
+  local m = present_or(Shape.into({ a = 1, b = 2.0 }, Shape.map(Shape.integer)))
   assert(m.a == 1 and math.type(m.b) == "integer") -- checked: map_field*2
   fails({ a = 1, [2] = 2 }, Shape.map(Shape.integer), "$: want map, got the integer key 2") -- checked: literal_shape
 end
@@ -235,30 +235,30 @@ local function test_json_null_is_a_missing_value()
   local keep: Json.DecodeOptions = { null_value = Json.null }
   local got6, why6 = Json.decode(text, keep)
   assert(got6 ~= nil, tostring(why6))
-  local s = must(Shape.into(must(got6, tostring(why6)), SERVER.spec))
+  local s = present_or(Shape.into(present_or(got6, tostring(why6)), SERVER.spec))
   assert(s.tls == nil)
   local got7, why7 = Json.decode('{"host": null, "port": 1}', keep)
   assert(got7 ~= nil, tostring(why7))
-  fails(must(got7, tostring(why7)), SERVER.spec, "$.host: missing")
+  fails(present_or(got7, tostring(why7)), SERVER.spec, "$.host: missing")
   fails({ host = "h", port = Json.null }, SERVER.spec, "$.port: missing")
   -- An array holds no hole, so a list whose elements may be missing is a map from the indexes that are there.
   local sparse = Shape.sparse_list(Shape.optional(Shape.integer))
   local got8, why8 = Json.decode("[1, null, 3]", keep)
   assert(got8 ~= nil, tostring(why8))
-  local l = must(Shape.into(must(got8, tostring(why8)), sparse))
+  local l = present_or(Shape.into(present_or(got8, tostring(why8)), sparse))
   assert(l[1] == 1 and l[2] == nil and l[3] == 3)
   -- Decoded without a stand-in, the null leaves a hole, which is the
   -- same missing element.
   local got9, why9 = Json.decode("[1, null, 3]")
   assert(got9 ~= nil, tostring(why9))
-  local holed = must(Shape.into(must(got9, tostring(why9)), sparse))
+  local holed = present_or(Shape.into(present_or(got9, tostring(why9)), sparse))
   assert(holed[3] == 3)
   local got10, why10 = Json.decode("[1, null, 3]")
   assert(got10 ~= nil, tostring(why10))
-  fails(must(got10, tostring(why10)), Shape.list(Shape.integer), "$[1]: missing")
+  fails(present_or(got10, tostring(why10)), Shape.list(Shape.integer), "$[1]: missing")
   -- A sparse list of optional elements is walked by its keys, never by
   -- counting up to the highest one.
-  local far = must(Shape.into({ [1 << 40] = 7 }, sparse))
+  local far = present_or(Shape.into({ [1 << 40] = 7 }, sparse))
   assert(far[1 << 40] == 7)
 end
 
@@ -267,11 +267,11 @@ end
 local function test_json_numbers_meet_integer()
   local got11, why11 = Json.decode("8080.0")
   assert(got11 ~= nil, tostring(why11))
-  local port = must(Shape.into(must(got11, tostring(why11)), Shape.integer))
+  local port = present_or(Shape.into(present_or(got11, tostring(why11)), Shape.integer))
   assert(math.type(port) == "integer" and port == 8080)
   local got12, why12 = Json.decode("18446744073709551615", { big_numbers_as_strings = true })
   assert(got12 ~= nil, tostring(why12))
-  local big = must(got12, tostring(why12))
+  local big = present_or(got12, tostring(why12))
   fails(big, Shape.integer, "$: want integer, got string")
 end
 
@@ -281,13 +281,13 @@ local function test_a_checked_payload_re_encodes_without_its_extras()
   local text = '{"port": 8080, "host": "h", "debug": {"x": 1}}'
   local got13, why13 = Json.decode(text)
   assert(got13 ~= nil, tostring(why13))
-  local s = must(Shape.into(must(got13, tostring(why13)), SERVER.spec))
+  local s = present_or(Shape.into(present_or(got13, tostring(why13)), SERVER.spec))
   assert((assert(Json.encode_any(s))) == '{"host":"h","port":8080}')
 end
 
 local function test_one_of_admits_only_its_values()
   local level = Shape.one_of("debug", "info")
-  local v = must(Shape.into("info", level))
+  local v = present_or(Shape.into("info", level))
   assert(v == "info")
   fails("warn", level, '$: want one of "debug", "info", got "warn"')
   fails({}, level, '$: want one of "debug", "info", got table') -- checked: literal_needs_type
@@ -302,7 +302,7 @@ local function test_any_passes_the_value_through()
   -- a field of `any` may be missing, as `any` holds nil
   local missing, why = Shape.into({}, Shape.record_of("Tagged").spec) -- checked: literal_needs_type
   assert(missing ~= nil, why)
-  local anything = must(Shape.into(t, Shape.any))
+  local anything = present_or(Shape.into(t, Shape.any))
   assert(rawequal(anything, t))
   fails(nil, Shape.any, "$: missing")
 end
@@ -312,7 +312,7 @@ local function test_a_failure_names_its_path_from_the_root()
   local function fails_on(text: string, want: string)
     local got14, why14 = Json.decode(text)
     assert(got14 ~= nil, tostring(why14))
-    fails(must(got14, tostring(why14)), spec, want)
+    fails(present_or(got14, tostring(why14)), spec, want)
   end
   local function items(fourth: string): string
     return '{"by_id": {}, "items": [' ..
@@ -320,7 +320,7 @@ local function test_a_failure_names_its_path_from_the_root()
   end
   local got15, why15 = Json.decode(items('{"name": "d", "tags": []}'))
   assert(got15 ~= nil, tostring(why15))
-  local good, good_err = Shape.into(must(got15, tostring(why15)), spec)
+  local good, good_err = Shape.into(present_or(got15, tostring(why15)), spec)
   assert(good ~= nil, good_err)
   fails_on(items('{"name": 4, "tags": []}'), "$.items[3].name: want string, got integer")
   fails_on(items('{"tags": []}'), "$.items[3].name: missing")
@@ -338,14 +338,14 @@ local function test_json_null_is_missing_for_a_required_enum_or_record()
   local cfg = Shape.record_of("Cfg").spec
   local got16, why16 = Json.decode('{"host": "h", "port": 1, "level": null}', keep)
   assert(got16 ~= nil, tostring(why16))
-  fails(must(got16, tostring(why16)), cfg, "$.level: missing")
+  fails(present_or(got16, tostring(why16)), cfg, "$.level: missing")
   local looping = Shape.record_of("Looping").spec
   local got17, why17 = Json.decode('{"name": "n", "self": null}', keep)
   assert(got17 ~= nil, tostring(why17))
-  fails(must(got17, tostring(why17)), looping, "$.self: missing")
+  fails(present_or(got17, tostring(why17)), looping, "$.self: missing")
   local got18, why18 = Json.decode('null', keep)
   assert(got18 ~= nil, tostring(why18))
-  fails(must(got18, tostring(why18)), looping, "$: missing")
+  fails(present_or(got18, tostring(why18)), looping, "$: missing")
   fails(Json.null, Shape.one_of("a", "b"), "$: missing")
 end
 
@@ -357,7 +357,7 @@ local function test_a_key_that_is_not_an_identifier_is_quoted_in_the_path()
     local escaped = key:gsub("%p", "%%%0")
     local got19, why19 = Json.decode((text:gsub('"' .. escaped .. '": "x"', '"' .. key .. '": 1')))
     assert(got19 ~= nil, tostring(why19))
-    fails(must(got19, tostring(why19)), spec, want)
+    fails(present_or(got19, tostring(why19)), spec, want)
   end
   bad("a b", '$["a b"]: want string, got integer')
   bad("a-b", '$["a-b"]: want string, got integer')
@@ -413,7 +413,7 @@ local function test_a_refused_key_is_named_before_any_value_is_looked_at()
   local strict = Shape.record_of("Pair"):strict()
   local got20, why20 = Json.decode('{"prot": 1, "hots": "h", "a": "x", "b": "x", "c": "x"}')
   assert(got20 ~= nil, tostring(why20))
-  fails(must(got20, tostring(why20)), strict.spec, "$.hots: unknown key")
+  fails(present_or(got20, tostring(why20)), strict.spec, "$.hots: unknown key")
   fails({ prot = 1, [2] = true, [1] = true }, strict.spec, "$: want record, got the integer key 1") -- checked: literal_shape
   fails({ nested = { prot = 1, a = 2 } }, Shape.record_of("Nested"):strict().spec, "$.nested.a: unknown key")
 end
@@ -447,8 +447,8 @@ local function test_a_hole_is_a_missing_element_in_every_table_that_has_one()
   local required = Shape.list(Shape.integer)
   local got21, why21 = Json.decode("[1, null, null, 4, null]")
   assert(got21 ~= nil, tostring(why21))
-  local decoded = must(got21, tostring(why21))
-  local l = must(Shape.into(decoded, optional))
+  local decoded = present_or(got21, tostring(why21))
+  local l = present_or(Shape.into(decoded, optional))
   assert(l[1] == 1 and l[2] == nil and l[4] == 4)
   fails(decoded, required, "$[1]: missing")
   -- Keys 1, 3 and 5, with 3 a border of the table.
@@ -456,10 +456,10 @@ local function test_a_hole_is_a_missing_element_in_every_table_that_has_one()
   gappy[2] = nil
   gappy[5] = 5
   fails(gappy, required, "$[1]: missing")
-  local g = must(Shape.into(gappy, optional))
+  local g = present_or(Shape.into(gappy, optional))
   assert(g[1] == 1 and g[3] == 3 and g[5] == 5)
   -- A marked array with one far index is walked by its keys.
-  local far = must(Shape.into(Json.array({ [1 << 40] = 7 } as {any}), optional)) -- checked: cast_refused
+  local far = present_or(Shape.into(Json.array({ [1 << 40] = 7 } as {any}), optional)) -- checked: cast_refused
   assert(far[1 << 40] == 7)
   fails(Json.array({ [1 << 40] = 7 } as {any}), required, "$[0]: missing") -- checked: cast_refused
 end
@@ -481,7 +481,7 @@ local function test_a_marked_array_with_a_stray_key_is_refused()
 end
 
 local function test_decode_into_answers_a_record_from_text()
-  local s = must(Shape.decode_into('{"host": "h", "port": 80, "extra": 1}', SERVER.spec))
+  local s = present_or(Shape.decode_into('{"host": "h", "port": 80, "extra": 1}', SERVER.spec))
   assert(s.host == "h" and s.port == 80 and s.tls == nil)
 end
 
@@ -502,13 +502,13 @@ local function test_decode_into_forwards_the_decode_options()
   local text = "{host: 'h', /* why */ port: 1,}"
   local plain, err = Shape.decode_into(text, SERVER.spec)
   assert(plain == nil and err ~= "")
-  local s = must(Shape.decode_into(text, SERVER.spec, { json5 = true }))
+  local s = present_or(Shape.decode_into(text, SERVER.spec, { json5 = true }))
   assert(s.host == "h" and s.port == 1)
   -- null_value cannot tell: `into` treats the sentinel as missing too.
   local list = Shape.list(Shape.list(Shape.integer))
   local deep, derr = Shape.decode_into("[[1]]", list, { max_depth = 1 })
   assert(deep == nil and derr ~= "" and derr:sub(1, 1) ~= "$", derr)
-  local ok = must(Shape.decode_into("[[1]]", list, { max_depth = 2 }))
+  local ok = present_or(Shape.decode_into("[[1]]", list, { max_depth = 2 }))
   assert(assert(ok[1])[1] == 1)
 end
 
@@ -521,7 +521,7 @@ end
 
 -- What the types refuse: a list whose elements may be missing is no array, and a spec says the type of its result.
 local function test_a_list_of_optional_elements_is_a_map_in_the_type()
-  local slots = must(Shape.into({ 1, 2 }, Shape.sparse_list(Shape.optional(Shape.integer))))
+  local slots = present_or(Shape.into({ 1, 2 }, Shape.sparse_list(Shape.optional(Shape.integer))))
   local first: integer? = slots[1]
   assert(first == 1)
 end
@@ -531,7 +531,7 @@ end
 local function test_a_list_whose_element_may_be_missing_fails_even_where_the_type_cannot_say()
   local got22, why22 = Json.decode("[1, null, 3]")
   assert(got22 ~= nil, tostring(why22))
-  fails(must(got22, tostring(why22)), Shape.list(Shape.optional(Shape.any)), "$[1]: missing")
+  fails(present_or(got22, tostring(why22)), Shape.list(Shape.optional(Shape.any)), "$[1]: missing")
   fails({ [1] = 1, [3] = 3 }, Shape.list(Shape.optional(Shape.any)), "$[1]: missing")
 end
 
@@ -567,11 +567,11 @@ local function test_a_spec_written_by_hand_composes_by_its_check()
   assert(why == "$: a string, by hand", why)
   local _, trouble = Shape.decode_into("5", text)
   assert(trouble == "$: a string, by hand", trouble)
-  local list = must(Shape.into({ "a", "b" }, Shape.list(text)))
+  local list = present_or(Shape.into({ "a", "b" }, Shape.list(text)))
   assert(#list == 2 and list[2] == "b")
   local got23, why23 = Json.decode("[\"a\", 2]")
   assert(got23 ~= nil, tostring(why23))
-  fails(must(got23, tostring(why23)), Shape.list(text), "$[1]: a string, by hand")
+  fails(present_or(got23, tostring(why23)), Shape.list(text), "$[1]: a string, by hand")
   fails({ k = 1 }, Shape.map(text), "$.k: a string, by hand")
   assert(Shape.into(Json.null, Shape.optional(text)) == nil)
   fails({ [1] = "a", [3] = "c" }, Shape.list(text), "$[1]: missing")
@@ -604,19 +604,19 @@ local function test_a_lenient_record_passes_over_what_does_not_fit()
       '"tags": [{"name": "techno", "count": 9}, "house", {"count": 2}, {"name": "ambient", "count": 1.5}], ' ..
       '"aliases": ["The Wizard", 7, "Millsart"], "links": {"ra": "https://ra.co/dj/jeffmills", "x": false}, ' ..
       '"grown": true}')
-  local untidy = must(decoded, tostring(decode_why))
+  local untidy = present_or(decoded, tostring(decode_why))
   -- The plain record refuses it at the first field that does not fit.
   local _, why = ARTIST:into(untidy)
   assert(why == "Artist: $.aliases[1]: want string, got integer", why)
-  local a = must(ARTIST:lenient():into(untidy))
+  local a = present_or(ARTIST:lenient():into(untidy))
   assert(a.name == "Jeff Mills" and a.score == nil and a.area == nil)
   -- An element that does not fit is dropped, one of a record whose required field does not fit too, and an optional
   -- field of a kept element that does not fit reads as nil.
-  local tags = must(a.tags, "tags")
+  local tags = present_or(a.tags, "tags")
   assert(#tags == 2 and tags[1].name == "techno" and tags[1].count == 9, #tags)
   assert(tags[2].name == "ambient" and tags[2].count == nil)
   assert(#a.aliases == 2 and a.aliases[1] == "The Wizard" and a.aliases[2] == "Millsart")
-  local links = must(a.links, "links")
+  local links = present_or(a.links, "links")
   assert(links["ra"] == "https://ra.co/dj/jeffmills" and links["x"] == nil)
   -- What is kept is still a JSON array.
   local kept, _ = Json.encode(a.aliases)
@@ -636,7 +636,7 @@ local function test_a_lenient_record_still_fails_on_a_required_field()
   assert(none == "Artist: $: want record, got string", none)
   -- An empty list stays one.
   local decoded, decode_why = Json.decode('{"name": "n", "aliases": [7]}')
-  local empty = must(lenient:into(must(decoded, tostring(decode_why))))
+  local empty = present_or(lenient:into(present_or(decoded, tostring(decode_why))))
   local text, _ = Json.encode(empty.aliases)
   assert(#empty.aliases == 0 and text == "[]")
 end

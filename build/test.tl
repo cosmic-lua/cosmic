@@ -2833,7 +2833,7 @@ local function choose_sandbox(ctx: Run): integer?
   -- through a file COSMIC_VERDICT_CACHE names ([`shared_verdicts.chosen`]):
   -- no sandbox held what its tests read, so what it reached is another
   -- checkout's to stand on only where both were asked to.
-  local must = Env.read("COSMIC_SANDBOX") == "must"
+  local must_mode = Env.read("COSMIC_SANDBOX") == "must"
   local unenforced = "each test is keyed by what it declares, which nothing holds it to"
   local sandboxed, sandbox_summary = false, ""
   -- A run started, however deep, in a worker a Landlock ruleset holds
@@ -2865,7 +2865,7 @@ local function choose_sandbox(ctx: Run): integer?
       -- The runtime holds whether it is held to confining what it starts
       -- ([`confine.must_confine`]), which a test's verdict turns on.
       ctx.runtime = test_key.sandboxed_runtime(assert(ctx.runtime), assert(ctx.harness).modules,
-        must)
+        must_mode)
       sandbox_summary = "; sandboxed, under a policy"
       log:say("test: sandbox: each worker is held to its inputs, the tree at " ..
           test_sandbox.tree)
@@ -2873,7 +2873,7 @@ local function choose_sandbox(ctx: Run): integer?
       -- A run held to sandboxing fails where no worker can be, rather than
       -- run them without and pass having confined nothing.
       local held = if sandbox_mode == "on" then test_sandbox.switch .. "=1" elseif
-        must then "COSMIC_SANDBOX=must" elseif
+        must_mode then "COSMIC_SANDBOX=must" elseif
         Env.read("COSMIC_CI_REQUIRE_SANDBOX") == "1" then "COSMIC_CI_REQUIRE_SANDBOX=1" else nil end
       if held ~= nil then
         local _, _ = work.close(handle)
@@ -2893,7 +2893,7 @@ local function choose_sandbox(ctx: Run): integer?
   end
   local shares = sandboxed or shared_verdicts.chosen()
   if not sandboxed then
-    ctx.runtime = test_key.declared_runtime(assert(ctx.runtime), must)
+    ctx.runtime = test_key.declared_runtime(assert(ctx.runtime), must_mode)
     sandbox_summary = sandbox_summary .. ", keyed by declared inputs" ..
       (if shares then "" else ", sharing no verdicts" end)
   end

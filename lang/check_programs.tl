@@ -218,6 +218,8 @@ do
     pairs: function<K is Key, V>({K: V}): (function({K: V}, p2?: K): (K, V), {K: V}, K)
     assert: function<A>(A?): A
     assert: function<A, B>(A?, B, ...: any): (A, B, any...)
+    must: function<A>(A?): A
+    must: function<A, B>(A?, B, ...: any): (A, B, any...)
     error: function(p1?: any): never
     require: function(string): any
     pcall: function((function())): (true) | (false, any)
@@ -255,6 +257,7 @@ do
   global ipairs <const> = Lib.ipairs
   global pairs <const> = Lib.pairs
   global assert <const> = Lib.assert
+  global must <const> = Lib.must
   global error <const> = Lib.error
   global require <const> = Lib.require
   global pcall <const> = Lib.pcall
@@ -628,7 +631,7 @@ function Programs.execute(source: string, facts: boolean, modules?: {string: str
   done.lua = generated(run, wraps, kind_only) -- checked: field_fixed
   local loader: function(name: string): any
   local env: {string: any} = {
-    assert = assert, ipairs = ipairs, pairs = pairs, math = math, tostring = tostring, tonumber = tonumber, type = type, error = error, pcall = pcall, xpcall = xpcall, -- checked: any_use*6, overload_value*4
+    assert = assert, must = must, ipairs = ipairs, pairs = pairs, math = math, tostring = tostring, tonumber = tonumber, type = type, error = error, pcall = pcall, xpcall = xpcall, -- checked: any_use*6, overload_value*5
     string = string, table = table, select = select, setmetatable = setmetatable, getmetatable = getmetatable, -- checked: any_use*4, overload_value
     coroutine = typed_coroutines(), -- checked: any_use
     require = function(name: string): any -- checked: any_use, not_assigned

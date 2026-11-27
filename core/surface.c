@@ -13,6 +13,7 @@
 #define COSMIC_USABLE_SIZE(block) malloc_usable_size(block)
 #endif
 
+#include "assertions.h"
 #include "check.h"
 #include "coverage.h"
 #include "profile.h"
@@ -413,7 +414,7 @@ void cosmic_surface_close (lua_State *L) {
  * path leads from it to either. A program that needs more passes an
  * environment. */
 static const char *const load_env_names[] = {
-  "assert", "error", "ipairs", "next", "pairs", "pcall", "print",
+  "assert", "error", "ipairs", "must", "next", "pairs", "pcall", "print",
   "rawequal", "rawget", "rawlen", "rawset", "select", "setmetatable",
   "tonumber", "tostring", "type", "xpcall", "_VERSION", NULL,
 };
@@ -613,7 +614,7 @@ bool cosmic_surface_set_inert (lua_State *L, int idx) {
 
 static bool mark_inert (lua_State *L) {
   static const char *const base[] = {
-    "assert", "type", "tostring", "tonumber", "select", "rawlen",
+    "assert", "must", "type", "tostring", "tonumber", "select", "rawlen",
   };
   static const char *const libraries[] = {
     LUA_STRLIBNAME, LUA_MATHLIBNAME, LUA_UTF8LIBNAME,
@@ -668,6 +669,8 @@ lua_State *cosmic_surface_open (const char *logical_executable) {
   open_library(L, LUA_STRLIBNAME, luaopen_string, 1);
   open_library(L, LUA_MATHLIBNAME, luaopen_math, 1);
   open_library(L, LUA_UTF8LIBNAME, luaopen_utf8, 1);
+  lua_pushcfunction(L, cosmic_must);
+  lua_setglobal(L, "must");
   if (!mark_inert(L)) {
     cosmic_surface_close(L);
     return NULL;

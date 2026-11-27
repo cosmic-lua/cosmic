@@ -330,8 +330,8 @@ local REPLY_FIELDS <const>: {string:boolean} = {
 }
 
 --- Raises for the spec's `field`, at the caller of [`Server.serve`].
-local function spec_error(field: string, must: string): never
-  error("http: spec." .. field .. " must be " .. must, 4)
+local function spec_error(field: string, wanted: string): never
+  error("http: spec." .. field .. " must be " .. wanted, 4)
 end
 
 --- Raises, naming the field, where `spec` is no [`Server.ServeSpec`]; an

@@ -104,8 +104,8 @@ local record Calls
   --- arguments. A weak "v" map may lose a value at any allocation, so the checker must never narrow a map index read
   --- (`m[k] ~= nil` then `m[k]`): only arrays have element facts, and no array is weak.
   weak_mode: function(args: {Ast.Exp}): string?
-  prepare: function(ctx: Ctx, args: {Ast.Exp}, wants: {integer: Type}?, asserting?: boolean): Prepared
-  asserted: function(ctx: Ctx, alts: {Alt}): Alt?
+  prepare: function(ctx: Ctx, args: {Ast.Exp}, wants: {integer: Type}?, asserting?: string): Prepared
+  asserted: function(ctx: Ctx, alts: {Alt}, by_nil?: boolean): Alt?
   --- Notes that the call `node` runs no code of the program through the standard library: it was given a `string` receiver
   --- or none, and arguments of the types `types` and the `tail` an expanding last one gives, all plain ([`Tests.plain`]).
   note_plain: function(ctx: Ctx, node: Ast.Node, recv: Type?, types: {Type}, tail: Type?, lists: {Alt}?)
@@ -403,9 +403,10 @@ end
 --- Types the arguments of a call that are not literals, and notes the literals. `wants` are the types a position expects
 --- where the callee is known to expect one.
 ---
---- Given `assert` (`asserting`), a last argument that returns several lists gives the values of the one list whose first
---- value is never nil or false: `assert` raises at any other, so `assert(Fs.read(path))` is the text.
-function Calls.prepare(ctx: Ctx, args: {Ast.Exp}, wants: {integer: Type}?, asserting?: boolean): Prepared
+--- Given `asserting`, the name of the callee `assert` or `must`, a last argument that returns several lists gives the
+--- values of the one list whose first value is never nil or false (for `must`, never nil): the callee raises at any
+--- other, so `assert(Fs.read(path))` is the text, and `Json.decode(text)!` the value.
+function Calls.prepare(ctx: Ctx, args: {Ast.Exp}, wants: {integer: Type}?, asserting?: string): Prepared
   local n = #args
   local last = args[n]
   local open = last ~= nil and ((last.kind == "Call") or (last.kind == "MethodCall") or (last.kind == "Vararg"))
@@ -430,8 +431,8 @@ function Calls.prepare(ctx: Ctx, args: {Ast.Exp}, wants: {integer: Type}?, asser
     end
     local vals = values_of(ctx, { last }, if wants ~= nil then alone else nil end, nil)
     local several = vals.lists
-    if several ~= nil and asserting == true then
-      local passed = ValueLists.asserted(ctx, several)
+    if several ~= nil and asserting ~= nil then
+      local passed = ValueLists.asserted(ctx, several, asserting == "must")
       if passed ~= nil then
         for _, item in ipairs(passed.items) do
           vals.types[#vals.types + 1] = item
@@ -447,13 +448,20 @@ function Calls.prepare(ctx: Ctx, args: {Ast.Exp}, wants: {integer: Type}?, asser
     prep.count = written + #vals.types
     prep.tail = vals.tail
     prep.last = vals.last
-    if several ~= nil and asserting == true then
-      -- `assert` raises at a nil or a false first value, so it passes a list only where that value is neither.
+    if several ~= nil and asserting ~= nil then
+      -- `assert` raises at a nil or a false first value, so it passes a list only where that value is neither; `must`
+      -- (`e!`) raises at a nil one alone.
       prep.lists = several
       local call = Naming.call(ctx, last)
+      local said = if asserting == "must" then
+        "`" .. call .. "!` tells none of them apart from the others: `!` passes one list whose first value is never nil " ..
+          "where the first value of each other list is `nil`, and these lists are not so"
+        else
+        "`assert` tells none of them apart from the others: it passes one list whose first value is never nil or " ..
+          "false where the first value of each other list is `nil` or `false`, and these lists are not so"
+        end
       report(ctx, "alternatives_as_value", last, subject(ctx, last) .. " answers one of " .. tostring(#several) ..
-          " lists of values, and `assert` tells none of them apart from the others: it passes one list whose first value " ..
-          "is never nil or false where the first value of each other list is `nil` or `false`, and these lists are not so",
+          " lists of values, and " .. said,
         "bind its values and test the one that tells the lists apart (`local " .. Naming.bound(several) .. " = " .. call ..
           "`), or match the call: `match " .. call .. " do | ... end`")
       -- The argument is reported: it stands as no type, so no overload is refused for lacking it.
@@ -1125,8 +1133,11 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
                                expected: Type?, key?: string): {Alt}
   local off = if recv ~= nil then 1 else 0 end
   -- `assert(f())` alone: in `assert(x, f())` it is `x` that `assert` tests, and the call is no value as anywhere else.
-  local prep = Calls.prepare(ctx, args, nil, callee == "assert" and #args == 1 and (node.kind == "Call") and
-      Tests.quiet_callee(node.callee))
+  local asserting: string? = nil
+  if (callee == "assert" or callee == "must") and #args == 1 and (node.kind == "Call") and Tests.quiet_callee(node.callee) then
+    asserting = callee
+  end
+  local prep = Calls.prepare(ctx, args, nil, asserting)
   local known, pending, tail, count = prep.known, prep.pending, prep.tail, prep.count
   local reasons: mut {string} = {}
   -- Whether each of `reasons` is of a candidate that takes as many arguments as the call gives.
@@ -1786,7 +1797,8 @@ function Calls.result_columns(ctx: Ctx, e: Ast.Node): {Sql.Column}?, boolean
   if (at.kind == "Call") then
     local callee = peel(at.callee)
     local first = at.args[1]
-    if (callee.kind == "Name") and callee.binding == nil and callee.text == "assert" and first ~= nil then
+    if (callee.kind == "Name") and callee.binding == nil and (callee.text == "assert" or callee.text == "must") and
+        first ~= nil then
       at = peel(first)
     end
   end
