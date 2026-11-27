@@ -103,13 +103,13 @@ local class Guard is Innermost.Held
   --- dispositions the process had and delivers the last signal caught
   --- again; another leaves it to the guards still open. False and a
   --- Failure when they cannot be restored, and again on every later close.
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     if self.state.closed then
-      if self._trouble ~= "" then return false, Failure.new(self._trouble) end
+      if self._trouble ~= "" then return nil, Failure.new(self._trouble) end
       return true
     end
     local trouble, last, owing = restore_guard(self)
-    if trouble ~= "" then return false, Failure.new(trouble) end
+    if trouble ~= "" then return nil, Failure.new(trouble) end
     if not last then
       -- The caller's dispositions are not back yet: the guards still
       -- open have seen the signal, if they opened before it, and the
@@ -234,7 +234,7 @@ end
 --- and delivers: one closed while another is open leaves the signal to
 --- the guards still open, and the last to close delivers it though it
 --- opened after it. `close`
---- returns false and a Failure when the dispositions could not be restored,
+--- returns nil and a Failure when the dispositions could not be restored,
 --- and again on every later close; the signal is not delivered then.
 --- A guard never closed holds the signals for the rest of the
 --- process's life: hold it in a `<close>` variable.

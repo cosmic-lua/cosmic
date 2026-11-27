@@ -379,10 +379,11 @@ local function provide(modules: Modules, code: string): string?
   return nil
 end
 
---- The modules a snippet may use with no require, each by the name it is given: where a snippet reads a field of one
+--- The modules a snippet may use with no require that are the agent's own, each by the name it is given (the standard
+--- library's, `Fs` and `Json` among them, are bound by the checker: [`Pipeline.implied`]): where a snippet reads a field of one
 --- ([`Host.read`], `Fs:...`), the require goes before its first line, on that line, so the lines the checker tells of
 --- stay the snippet's own.
-local PRELUDE <const>: {{string}} = { { "Host", "cosmic.agent.host" }, { "Fs", "cosmic.fs" }, { "Json", "cosmic.json" } }
+local PRELUDE <const>: {{string}} = { { "Host", "cosmic.agent.host" } }
 
 --- Whether `code` binds `name` itself, as a local (`local Json = ...`, `local A, Json = ...`) or a local function.
 local function binds(code: string, name: string): boolean
@@ -450,17 +451,17 @@ local function snippet_check(kept: Pipeline.Kept, code: string, cosmic: boolean)
   -- [`binds`] reads no comment or string apart: where it takes one for a binding and the snippet is refused for it,
   -- the whole prelude is tried.
   if whole ~= prelude then
-    local fewer = kept:check(prelude .. code)
+    local fewer = kept:check(prelude .. code, not cosmic)
     if fewer.code ~= nil then return fewer end
-    local all = kept:check(whole .. code)
+    local all = kept:check(whole .. code, not cosmic)
     if all.code ~= nil then return all end
     return { code = nil, lines = unshifted(fewer.lines, #prelude), stages = fewer.stages,
       edits = edits_of(fewer, #prelude) }
   end
-  if prelude == "" then return kept:check(code) end
-  local made = kept:check(prelude .. code)
+  if prelude == "" then return kept:check(code, not cosmic) end
+  local made = kept:check(prelude .. code, not cosmic)
   if made.code ~= nil then return made end
-  local alone = kept:check(code)
+  local alone = kept:check(code, not cosmic)
   if alone.code ~= nil then return alone end
   for _, line in ipairs(made.lines) do
     for column in line:gmatch("declared at 1:(%d+)") do

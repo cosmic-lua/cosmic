@@ -97,7 +97,7 @@ local function test_tmp_leaves_its_parent_and_a_read_granted_file_unwritable(tmp
       'local inside, _ = Fs.write(dir .. "/in", "x") local beside, _ = Fs.write(parent .. "/beside", "x") ' ..
       'local changed, _ = Fs.write(granted, "changed") print(inside, beside, changed)', { setup = { tmp = true },
         grants = { { profile = "system" }, { path = granted, letters = "r" } } }, { granted })
-  expect(result.ok and result.stdout == "true\tfalse\tfalse\n", result)
+  expect(result.ok and result.stdout == "true\tnil\tnil\n", result)
   assert(assert(Fs.read(granted)) == "granted-bytes", "the read-granted file was written")
 end
 

@@ -122,7 +122,7 @@ local function test_open_of_a_stream_reads_a_plain_tar_from_a_stream_one_byte_at
       at = at + 1
       return bytes:sub(at - 1, at - 1)
     end,
-    close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
+    close = function(_self: Stream.Reader): (true) | (nil, Failure) return true end,
   }
   local by = walked((assert(Archive.open(source))))
   local short, link = by["adir/short.txt"], by["adir/link"]
@@ -788,7 +788,7 @@ local function reader_of_one_file(path: string, size: integer,
           end
           return chunk
         end,
-        close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
+        close = function(_self: Stream.Reader): (true) | (nil, Failure) return true end,
       }
       return r
     end,
@@ -800,7 +800,7 @@ local function reader_of_one_file(path: string, size: integer,
       given = true
       return entry
     end,
-    close = function(_self: Archive.Reader): (true) | (false, Failure) return true end,
+    close = function(_self: Archive.Reader): (true) | (nil, Failure) return true end,
   }
 end
 
@@ -1080,7 +1080,7 @@ local function test_extract_of_a_reader_closes_the_reader_when_it_refuses(tmp: s
     next = function(_self: Archive.Reader): (Archive.Entry | false) | (nil, Failure)
       return inner:next()
     end,
-    close = function(_self: Archive.Reader): (true) | (false, Failure)
+    close = function(_self: Archive.Reader): (true) | (nil, Failure)
       closes = closes + 1
       return inner:close()
     end,
@@ -1206,7 +1206,7 @@ local function test_list_of_a_reader_lists_a_reader_to_its_end_and_closes_it()
       next = function(_self: Archive.Reader): (Archive.Entry | false) | (nil, Failure)
         return inner:next()
       end,
-      close = function(_self: Archive.Reader): (true) | (false, Failure)
+      close = function(_self: Archive.Reader): (true) | (nil, Failure)
         closes.count = closes.count + 1
         return inner:close()
       end,
@@ -1378,7 +1378,7 @@ local class FailingAfter is Stream.Reader
     return data
   end
 
-  function close(self): (true) | (false, Failure) return true end
+  function close(self): (true) | (nil, Failure) return true end
 end
 
 --- A Reader that gives `data`, as one read, then fails with `failure`.

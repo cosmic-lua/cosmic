@@ -76,7 +76,7 @@ local class Watch is Stream.Reader
   daemon: Daemon
   mut started: boolean
   mut ended: boolean
-  skip?: function(Watch, integer): (true) | (false, Failure)
+  skip?: function(Watch, integer): (true) | (nil, Failure)
 
   function read(self, _max_bytes?: integer): (string | false) | (nil, Failure)
     if not self.started then
@@ -87,7 +87,7 @@ local class Watch is Stream.Reader
     return "\n"
   end
 
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     if self.ended then return true end
     self.ended = true
     self.daemon.open = self.daemon.open - 1
@@ -235,6 +235,6 @@ local function test_a_refused_configuration_fails_the_serve_and_leaves_nothing(t
     end,
   })
   assert(table.concat(said, "\n") ==
-      "served false web: tailnet: tailscale: serve-config: Funnel not available (status 403)\ntrue",
+      "served nil web: tailnet: tailscale: serve-config: Funnel not available (status 403)\ntrue",
     table.concat(said, "\n"))
 end

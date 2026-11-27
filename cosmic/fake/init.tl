@@ -131,14 +131,14 @@ end
 -- TODO: make a hard link to `program` where one can be made (the same
 -- file system), falling back to this copy, once cosmic.sys carries
 -- link: a checked core's program is 39.5 MB, about 0.2 s a copy.
-function Fake.place(program: string, path: string, text?: string): (true) | (false, Failure)
+function Fake.place(program: string, path: string, text?: string): (true) | (nil, Failure)
   local bytes, trouble = Fs.read(program)
-  if bytes == nil then return false, trouble end
+  if bytes == nil then return nil, trouble end
   local written, write_trouble = Fs.write(path, bytes, 0x1ed)
-  if not written then return false, write_trouble end
+  if not written then return nil, write_trouble end
   if text ~= nil then
     local wrote, written_why = Fs.write(path .. ".do", text)
-    if not wrote then return false, written_why end
+    if not wrote then return nil, written_why end
   else
     local _, _ = Fs.remove(path .. ".do")
   end
@@ -159,9 +159,9 @@ end
 ---       ["rev-parse"] = { stdout = "abc1234\n" },
 ---       ["*"] = { stderr = "git: not faked\n", code = 1 },
 ---     }))
-function Fake.reply(program: string, path: string, replies: {string: Fake.Reply}): (true) | (false, Failure)
+function Fake.reply(program: string, path: string, replies: {string: Fake.Reply}): (true) | (nil, Failure)
   local text, trouble = Json.encode_any(replies)
-  if text == nil then return false, trouble end
+  if text == nil then return nil, trouble end
   return Fake.place(program, path, text)
 end
 

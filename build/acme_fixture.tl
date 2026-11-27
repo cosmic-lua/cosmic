@@ -89,7 +89,7 @@ local record acme_fixture
   BASE: string
   read_csr: function(csr: string): Csr
   new_server: function(): Server
-  no_pause: function(ns: integer): (true) | (false, Failure)
+  no_pause: function(ns: integer): (true) | (nil, Failure)
 end
 
 local type Request = acme_fixture.Csr
@@ -563,7 +563,7 @@ local function new_server(): Server
   return server
 end
 
-local function no_pause(_ns: integer): (true) | (false, Failure)
+local function no_pause(_ns: integer): (true) | (nil, Failure)
   return true
 end
 

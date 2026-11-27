@@ -188,7 +188,7 @@ return function(argv: {string}): integer
   return 0
 end
 ]])
-  assert(said == "false http://files.test/moved: HTTP 302 library 302\nexists false\nbody of /final", said)
+  assert(said == "nil http://files.test/moved: HTTP 302 library 302\nexists false\nbody of /final", said)
   assert(seen == "/moved @files.test|/moved @files.test|/final @files.test", seen)
 end
 

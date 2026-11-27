@@ -40,30 +40,30 @@ local record Stream
     -- every Reader here instead, as Stream.lines does on its own.
     read: function(Reader, max_bytes?: integer): (string | false) | (nil, Failure)
     --- Releases what the Reader holds. Safe to call more than once.
-    close: function(Reader): (true) | (false, Failure)
+    close: function(Reader): (true) | (nil, Failure)
 
     --- Present only on a Reader that can move forward without reading
     --- (one over a regular file): skips `n` bytes, failing when that
     --- would pass the end of the file. A caller checks for it and
     --- falls back to reading and discarding.
-    skip?: function(Reader, n: integer): (true) | (false, Failure)
+    skip?: function(Reader, n: integer): (true) | (nil, Failure)
   end
 
   interface Writer
     --- Takes one chunk; `false` and a [`Failure`] when it cannot.
-    write: function(Writer, string): (true) | (false, Failure)
+    write: function(Writer, string): (true) | (nil, Failure)
     --- Commits what was written. Safe to call more than once.
-    close: function(Writer): (true) | (false, Failure)
+    close: function(Writer): (true) | (nil, Failure)
     --- Discards what was written, where that means anything. Safe to
     --- call more than once.
-    abort: function(Writer): (true) | (false, Failure)
+    abort: function(Writer): (true) | (nil, Failure)
   end
 
   --- What [`Stream.create`] returns: a Writer that can also `sync`.
   interface FileWriter is Writer
     --- Flushes what was written to storage, so that the rename `close`
     --- makes cannot reach it before the data does.
-    sync: function(FileWriter): (true) | (false, Failure)
+    sync: function(FileWriter): (true) | (nil, Failure)
   end
 
   --- How [`Stream.from_fd`] and [`Stream.to_fd`] wait for a descriptor
@@ -180,20 +180,20 @@ local record Stream
   interface Sticky
     --- Writes `data` to the Writer, failing as `fail` does when it
     --- cannot.
-    put: function(Sticky, data: string): (true) | (false, Failure)
+    put: function(Sticky, data: string): (true) | (nil, Failure)
     --- Keeps `trouble` as the failure (words become a [`Failure`], or
     --- "<name>: write failed" when they are ""), and aborts the Writer,
-    --- the first time; false and the failure kept, every time.
-    fail: function(Sticky, trouble: string | Failure): (true) | (false, Failure)
-    --- True while more may be written; false and the failure, or
+    --- the first time; nil and the failure kept, every time.
+    fail: function(Sticky, trouble: string | Failure): (true) | (nil, Failure)
+    --- True while more may be written; nil and the failure, or
     --- "<name>: the writer is closed" once `close` or `abort` ran.
-    usable: function(Sticky): (true) | (false, Failure)
-    --- Puts `trailer` and closes the Writer, once: false and the
+    usable: function(Sticky): (true) | (nil, Failure)
+    --- Puts `trailer` and closes the Writer, once: nil and the
     --- failure kept when there is one, and true when it is already
     --- closed.
-    close: function(Sticky, trailer: string): (true) | (false, Failure)
+    close: function(Sticky, trailer: string): (true) | (nil, Failure)
     --- Aborts the Writer unless it is closed or failed already.
-    abort: function(Sticky): (true) | (false, Failure)
+    abort: function(Sticky): (true) | (nil, Failure)
   end
 
   --- One incremental transform, a chunk at a time: what
@@ -286,7 +286,7 @@ local record Stream
     --- than passing as a complete archive.
     next: function(ArchiveReader): (ArchiveEntry | false) | (nil, Failure)
     --- Closes the file or stream the archive is read from.
-    close: function(ArchiveReader): (true) | (false, Failure)
+    close: function(ArchiveReader): (true) | (nil, Failure)
   end
 
   --- How an archive stores an entry's bytes where it has the choice:
@@ -339,18 +339,18 @@ local record Stream
     --- [`Stream.Reader`] body is read to `opts.size` bytes (to its end, when
     --- the format allows no size), and is not closed. Returns `true`,
     --- or `false` and a Failure.
-    add_file: function(ArchiveWriter, path: string, data: string | Reader, opts?: EntryOptions): (true) | (false, Failure)
+    add_file: function(ArchiveWriter, path: string, data: string | Reader, opts?: EntryOptions): (true) | (nil, Failure)
     --- Adds a directory entry at `path`, to which a trailing `/` is
     --- added if missing. Returns `true`, or `false` and a Failure.
-    add_dir: function(ArchiveWriter, path: string, opts?: EntryOptions): (true) | (false, Failure)
+    add_dir: function(ArchiveWriter, path: string, opts?: EntryOptions): (true) | (nil, Failure)
     --- Adds a symbolic link at `path` pointing at `target`. Returns
     --- `true`, or `false` and a Failure.
-    add_symlink: function(ArchiveWriter, path: string, target: string, opts?: EntryOptions): (true) | (false, Failure)
+    add_symlink: function(ArchiveWriter, path: string, target: string, opts?: EntryOptions): (true) | (nil, Failure)
     --- Writes the archive's end and closes the underlying [`Stream.Writer`],
     --- committing it. Returns `true`, or `false` and a Failure.
-    close: function(ArchiveWriter): (true) | (false, Failure)
+    close: function(ArchiveWriter): (true) | (nil, Failure)
     --- Abandons the archive: aborts the underlying [`Stream.Writer`].
-    abort: function(ArchiveWriter): (true) | (false, Failure)
+    abort: function(ArchiveWriter): (true) | (nil, Failure)
   end
 end
 
@@ -424,18 +424,18 @@ local class FromStringReader is Stream.Reader
     return data:sub(at, stop)
   end
 
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     self.closed = true
     return true
   end
 
-  function skip(self, n: integer): (true) | (false, Failure) -- declared: interface_disagrees
-    if self.closed then return false, failure_of(closed_reader) end
-    if n < 0 then return false, failure_of("stream: skip of a negative count") end
+  function skip(self, n: integer): (true) | (nil, Failure) -- declared: interface_disagrees
+    if self.closed then return nil, failure_of(closed_reader) end
+    if n < 0 then return nil, failure_of("stream: skip of a negative count") end
     -- Compared this way round, so a huge `n` cannot wrap `at + n`.
     if n > #self.data + 1 - self.at then
       self.at = #self.data + 1
-      return false, failure_of("stream: skip past the end of the data")
+      return nil, failure_of("stream: skip past the end of the data")
     end
     self.at = self.at + n
     return true
@@ -493,7 +493,7 @@ local function resumable(why: string): boolean
 end
 
 -- Closes the descriptor the Reader owns, once.
-local function release(self: FdReader): (true) | (false, Failure)
+local function release(self: FdReader): (true) | (nil, Failure)
   if self.released or not self.owned then return true end
   self.released = true
   return Fs.close(self.fd)
@@ -514,7 +514,7 @@ local class FdReader is Stream.Reader
   -- The file's size, which `skip` checks the new position against; set
   -- with `skip`, only on a regular file.
   mut size?: integer
-  skip?: function(FdReader, n: integer): (true) | (false, Failure)
+  skip?: function(FdReader, n: integer): (true) | (nil, Failure)
 
   function read(self, max_bytes?: integer): (string | false) | (nil, Failure)
     local failed = self.failed
@@ -547,7 +547,7 @@ local class FdReader is Stream.Reader
     end
   end
 
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     if self.closed then return true end
     self.closed = true
     return release(self)
@@ -557,20 +557,20 @@ end
 -- Only a regular file can seek, so only its Reader has a `skip` (a pipe or
 -- socket reads and discards, which a caller tests for): it is set as a field
 -- of that Reader, not put on the shared methods.
-local function file_skip(self: FdReader, n: integer): (true) | (false, Failure)
+local function file_skip(self: FdReader, n: integer): (true) | (nil, Failure)
   local failed = self.failed
-  if failed then return false, failure_of(failed) end
-  if self.closed then return false, failure_of(closed_reader) end
+  if failed then return nil, failure_of(failed) end
+  if self.closed then return nil, failure_of(closed_reader) end
   if n == 0 then return true end
   if self.ended then
     local why = "stream: skip past the end of the file"
     self.failed = why
-    return false, failure_of(why)
+    return nil, failure_of(why)
   end
   local at, trouble = sys.lseek(self.fd, n, sys.SEEK_CUR)
   if at == nil then
     self.failed = trouble
-    return false, failure_of(trouble)
+    return nil, failure_of(trouble)
   end
   -- lseek happily moves past the end; the size says whether that
   -- skipped bytes the file never had. It is asked for again only
@@ -585,7 +585,7 @@ local function file_skip(self: FdReader, n: integer): (true) | (false, Failure)
     if at > size then
       local why = "stream: skip past the end of the file"
       self.failed = why
-      return false, failure_of(why)
+      return nil, failure_of(why)
     end
   end
   return true
@@ -697,7 +697,7 @@ local class TransformReader is Stream.Reader
     return batch:sub(at, at + want - 1)
   end
 
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     if self.closed then return true end
     self.closed = true
     self.batch, self.at = "", 1
@@ -734,7 +734,7 @@ local class LimitReader is Stream.Reader
     return chunk
   end
 
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     self.closed = true
     return true
   end
@@ -767,7 +767,7 @@ local class PrependReader is Stream.Reader
     return self.source:read(max_bytes)
   end
 
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     if self.closed then return true end
     self.closed = true
     return self.source:close()
@@ -831,7 +831,7 @@ end
 --- Moves `reader` forward `n` bytes: with its `skip` when it has one,
 --- by reading and discarding otherwise. Returns `true`, or `false` and
 --- a Failure when the stream ends first or fails.
-function Stream.skip(reader: Stream.Reader, n: integer): (true) | (false, Failure)
+function Stream.skip(reader: Stream.Reader, n: integer): (true) | (nil, Failure)
   if n <= 0 then return true end
   if reader.skip ~= nil then return reader:skip(n) end
   local left = n
@@ -839,9 +839,9 @@ function Stream.skip(reader: Stream.Reader, n: integer): (true) | (false, Failur
     local want = left
     if want > chunk_size then want = chunk_size end
     local chunk, trouble = reader:read(want)
-    if chunk == nil then return false, trouble end
+    if chunk == nil then return nil, trouble end
     if chunk == false then
-      return false, Failure.new("stream: truncated: skipping " .. String.counted(n, "byte"))
+      return nil, Failure.new("stream: truncated: skipping " .. String.counted(n, "byte"))
     end
     left = left - #chunk
   end
@@ -870,7 +870,7 @@ local class StickyWriter is Stream.Sticky
   mut closed: boolean
   mut failed?: Failure
 
-  function fail(self, trouble: string | Failure): (true) | (false, Failure)
+  function fail(self, trouble: string | Failure): (true) | (nil, Failure)
     local failed = self.failed
     if failed == nil then
       if trouble is string then
@@ -883,38 +883,38 @@ local class StickyWriter is Stream.Sticky
       self.failed = failed
       local _, _ = self.writer:abort()
     end
-    return false, failed
+    return nil, failed
   end
 
-  function put(self, data: string): (true) | (false, Failure)
+  function put(self, data: string): (true) | (nil, Failure)
     local ok, trouble = self.writer:write(data)
     if not ok then return self:fail(trouble) end
     return true
   end
 
-  function usable(self): (true) | (false, Failure)
+  function usable(self): (true) | (nil, Failure)
     local failed = self.failed
-    if failed then return false, failed end
-    if self.closed then return false, Failure.new(self.name .. ": the writer is closed") end
+    if failed then return nil, failed end
+    if self.closed then return nil, Failure.new(self.name .. ": the writer is closed") end
     return true
   end
 
-  function close(self, trailer: string): (true) | (false, Failure)
+  function close(self, trailer: string): (true) | (nil, Failure)
     local failed = self.failed
-    if failed then return false, failed end
+    if failed then return nil, failed end
     if self.closed then return true end
     self.closed = true
     local ok, trouble = self:put(trailer)
-    if not ok then return false, trouble end
+    if not ok then return nil, trouble end
     local closed, why = self.writer:close()
     if not closed then
       self.failed = why
-      return false, why
+      return nil, why
     end
     return true
   end
 
-  function abort(self): (true) | (false, Failure)
+  function abort(self): (true) | (nil, Failure)
     if self.closed or self.failed ~= nil then return true end
     self.closed = true
     return self.writer:abort()
@@ -947,7 +947,7 @@ local class SpentReader is Stream.Reader
     return nil, failure_of(self.why)
   end
 
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     if self.closed then return true end
     self.closed = true
     return self.source:close()
@@ -1141,19 +1141,19 @@ end
 ---
 ---     local ok, why = Stream.copy_n(reader, writer, size)
 ---     if not ok then writer:abort() end
-function Stream.copy_n(reader: Stream.Reader, writer: Stream.Writer, n: integer): (true) | (false, Failure)
+function Stream.copy_n(reader: Stream.Reader, writer: Stream.Writer, n: integer): (true) | (nil, Failure)
   local left = n
   while left > 0 do
     local want = left
     if want > chunk_size then want = chunk_size end
     local chunk, trouble = reader:read(want)
-    if chunk == nil then return false, trouble end
+    if chunk == nil then return nil, trouble end
     if chunk == false then
-      return false, Failure.new("stream: truncated before its stated size: wanted " ..
+      return nil, Failure.new("stream: truncated before its stated size: wanted " ..
           String.counted(n, "byte") .. ", got " .. tostring(n - left))
     end
     local ok, wtrouble = writer:write(chunk)
-    if not ok then return false, wtrouble end
+    if not ok then return nil, wtrouble end
     left = left - #chunk
   end
   return true
@@ -1166,10 +1166,10 @@ local class ToFdWriter is Stream.FdWriter
   mut failed?: string
   mut went: integer
 
-  function write(self, data: string): (true) | (false, Failure)
-    if self.closed then return false, failure_of(closed_writer) end
+  function write(self, data: string): (true) | (nil, Failure)
+    if self.closed then return nil, failure_of(closed_writer) end
     local failed = self.failed
-    if failed then return false, failure_of(failed) end
+    if failed then return nil, failure_of(failed) end
     local fd, options = self.fd, self.options
     local deadline: integer? = nil
     local timeout = options.timeout_ns
@@ -1189,16 +1189,16 @@ local class ToFdWriter is Stream.FdWriter
         if put == 0 then
           local why = "stream: write made no progress"
           self.failed = why
-          return false, failure_of(why)
+          return nil, failure_of(why)
         end
         at = at + put
         self.went = self.went + put
       elseif options.nonblocking == true and (errno == sys.EAGAIN or errno == sys.EINTR) then
         local ready, why = wait_for(fd, sys.POLLOUT, options, deadline)
         if not ready then
-          if resumable(why) then return false, failure_of(why) end
+          if resumable(why) then return nil, failure_of(why) end
           self.failed = why
-          return false, failure_of(why)
+          return nil, failure_of(why)
         end
       elseif errno == sys.EINTR then
         -- A blocking write a signal interrupted before it took a byte
@@ -1206,10 +1206,10 @@ local class ToFdWriter is Stream.FdWriter
       elseif errno == sys.EAGAIN then
         -- A descriptor the caller made non-blocking without saying so:
         -- no room now, which a later write may find.
-        return false, failure_of(trouble)
+        return nil, failure_of(trouble)
       else
         self.failed = trouble
-        return false, failure_of(trouble)
+        return nil, failure_of(trouble)
       end
     end
     return true
@@ -1219,13 +1219,13 @@ local class ToFdWriter is Stream.FdWriter
     return self.went
   end
 
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     self.closed = true
     return true
   end
 
   -- Nothing is written beyond `write`, so there is nothing for an abort to take back.
-  function abort(self): (true) | (false, Failure)
+  function abort(self): (true) | (nil, Failure)
     return self:close()
   end
 end
@@ -1258,19 +1258,19 @@ end
 local class StagedWriter is Stream.FileWriter
   staged: Fs.Staged
 
-  function write(self, data: string): (true) | (false, Failure)
+  function write(self, data: string): (true) | (nil, Failure)
     return self.staged:write(data)
   end
 
-  function sync(self): (true) | (false, Failure)
+  function sync(self): (true) | (nil, Failure)
     return self.staged:sync()
   end
 
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     return self.staged:close()
   end
 
-  function abort(self): (true) | (false, Failure)
+  function abort(self): (true) | (nil, Failure)
     self.staged:abort()
     return true
   end
@@ -1298,18 +1298,18 @@ local class CollectWriter is Stream.Collector
   mut parts: mut {string}
   mut closed: boolean
 
-  function write(self, data: string): (true) | (false, Failure)
-    if self.closed then return false, failure_of(closed_writer) end
+  function write(self, data: string): (true) | (nil, Failure)
+    if self.closed then return nil, failure_of(closed_writer) end
     self.parts[#self.parts + 1] = data
     return true
   end
 
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     self.closed = true
     return true
   end
 
-  function abort(self): (true) | (false, Failure)
+  function abort(self): (true) | (nil, Failure)
     self.closed = true
     self.parts = {}
     return true
@@ -1337,13 +1337,13 @@ local class HashingWriter is Stream.Hashing
   mut result?: string
   mut failure: string
 
-  function write(self, data: string): (true) | (false, Failure)
-    if self.closed or self.result ~= nil then return false, failure_of(closed_writer) end
+  function write(self, data: string): (true) | (nil, Failure)
+    if self.closed or self.result ~= nil then return nil, failure_of(closed_writer) end
     self.hasher:update(data)
     return true
   end
 
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     self.closed = true
     return true
   end
@@ -1363,7 +1363,7 @@ local class HashingWriter is Stream.Hashing
     return result, ""
   end
 
-  function abort(self): (true) | (false, Failure)
+  function abort(self): (true) | (nil, Failure)
     return self:close()
   end
 end
@@ -1396,21 +1396,21 @@ local class TeeWriter is Stream.Writer
   first: Stream.Writer
   second: Stream.Writer
 
-  function write(self, data: string): (true) | (false, Failure)
+  function write(self, data: string): (true) | (nil, Failure)
     local ok, trouble = self.first:write(data)
-    if not ok then return false, trouble end
+    if not ok then return nil, trouble end
     return self.second:write(data)
   end
 
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     local ok, trouble = self.first:close()
     local ok2, trouble2 = self.second:close()
-    if not ok then return false, trouble end
-    if not ok2 then return false, trouble2 end
+    if not ok then return nil, trouble end
+    if not ok2 then return nil, trouble2 end
     return true
   end
 
-  function abort(self): (true) | (false, Failure)
+  function abort(self): (true) | (nil, Failure)
     local _, _ = self.first:abort()
     local _, _ = self.second:abort()
     return true
@@ -1425,22 +1425,22 @@ function Stream.tee(a: Stream.Writer, b: Stream.Writer): Stream.Writer
 end
 
 -- Writes `out` on, unless it is empty.
-local function emit(self: TransformWriter, out: string): (true) | (false, Failure)
+local function emit(self: TransformWriter, out: string): (true) | (nil, Failure)
   if #out == 0 then return true end
   return self.writer:write(out)
 end
 
 -- Feeds `data` to the codec and writes its output on, then keeps
 -- draining while the codec says it is still holding output.
-local function feed(self: TransformWriter, data: string): (true) | (false, Failure)
+local function feed(self: TransformWriter, data: string): (true) | (nil, Failure)
   local codec, hold = self.codec, self.hold
   local parts: mut {string} = {}
   while true do
     local out, trouble = codec:update(data)
-    if out == nil then return false, trouble end
+    if out == nil then return nil, trouble end
     if hold == 0 then
       local ok, why = emit(self, out)
-      if not ok then return false, why end
+      if not ok then return nil, why end
     else
       parts[#parts + 1] = out
     end
@@ -1469,29 +1469,29 @@ local class TransformWriter is Stream.Writer
   -- With `hold`, one entry per write: its output, in order.
   mut held: mut {string}
 
-  function write(self, data: string): (true) | (false, Failure)
-    if self.closed then return false, failure_of(closed_writer) end
+  function write(self, data: string): (true) | (nil, Failure)
+    if self.closed then return nil, failure_of(closed_writer) end
     local failed = self.failed
-    if failed then return false, failed end
+    if failed then return nil, failed end
     if self.hold > 0 and #data == 0 then return true end
     local ok, trouble = feed(self, data)
     if not ok then
       self.failed, self.held = trouble, {}
-      return false, trouble
+      return nil, trouble
     end
     return true
   end
 
-  function abort(self): (true) | (false, Failure)
+  function abort(self): (true) | (nil, Failure)
     if self.closed then return true end
     self.closed, self.held = true, {}
     return self.writer:abort()
   end
 
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     if self.closed then
       local failed = self.failed
-      if failed then return false, failed end
+      if failed then return nil, failed end
       return true
     end
     self.closed = true
@@ -1509,12 +1509,12 @@ local class TransformWriter is Stream.Writer
     local failed = self.failed
     if failed then
       local _, _ = self.writer:abort()
-      return false, failed
+      return nil, failed
     end
     local ok, why = self.writer:close()
     if not ok then
       self.failed = why
-      return false, why
+      return nil, why
     end
     return true
   end

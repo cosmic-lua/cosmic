@@ -40,7 +40,7 @@ local function test_a_run_parks_at_a_write_lock(tmp: string)
   local holder, waiter = held(tmp .. "/run.db", "BEGIN IMMEDIATE")
   local ok, first = race(holder, Clock.ms(30), function(): boolean
     local done, _ = waiter:run("INSERT INTO t VALUES (?1)", { 1 })
-    return done
+    return done == true
   end)
   assert(ok and first)
   assert(assert(waiter:one("SELECT count(*) FROM t")):integer(1) == 1)
@@ -51,10 +51,10 @@ end
 local function test_a_transact_parks_at_its_begin(tmp: string)
   local holder, waiter = held(tmp .. "/transact.db", "BEGIN IMMEDIATE")
   local ok, first = race(holder, Clock.ms(30), function(): boolean
-    local done, _ = waiter:transact(function(): (true) | (false, Failure)
+    local done, _ = waiter:transact(function(): (true) | (nil, Failure)
       return waiter:run("INSERT INTO t VALUES (2)")
     end)
-    return done
+    return done == true
   end)
   assert(ok and first)
   assert(not waiter:in_transaction())
@@ -106,9 +106,9 @@ local function test_a_task_waits_its_turn_behind_one_parked_on_its_handle(tmp: s
       order[#order + 1] = "run"
     end)
     local undoing = Poll.spawn(function()
-      local done, _ = waiter:transact(function(): (true) | (false, Failure)
+      local done, _ = waiter:transact(function(): (true) | (nil, Failure)
         assert(waiter:run("INSERT INTO t VALUES (2)"))
-        return false, Failure.new("rolled back")
+        return nil, Failure.new("rolled back")
       end)
       assert(not done)
       order[#order + 1] = "transact"

@@ -61,7 +61,7 @@ local function test_issue_answers_the_chain_after_an_http_01_challenge()
   local certificate_key = Key.generate("p256")
   local chain, why = client:issue({ "example.com", "www.example.com" }, {
     key = certificate_key,
-    present = function(c: Acme.Challenge): (true) | (false, Failure)
+    present = function(c: Acme.Challenge): (true) | (nil, Failure)
       assert(c.type == "http-01")
       assert(c.path == "/.well-known/acme-challenge/" .. c.token)
       assert(c.key_authorization == c.token .. "." .. client.thumbprint)
@@ -89,7 +89,7 @@ local function test_issue_answers_a_dns_01_challenge_for_a_wildcard()
   local chain, why = client:issue({ "*.example.com" }, {
     key = Key.generate("p256"),
     challenge = "dns-01",
-    present = function(c: Acme.Challenge): (true) | (false, Failure)
+    present = function(c: Acme.Challenge): (true) | (nil, Failure)
       assert(c.type == "dns-01" and c.domain == "example.com")
       assert(c.dns_value == Codec.base64url(Hash.sha256(c.key_authorization)))
       records[c.dns_name] = c.dns_value
@@ -105,7 +105,7 @@ local function test_a_wildcard_has_no_http_01_challenge()
   local server = new_server()
   local chain, why = client_of(server):issue({ "*.example.com" }, {
     key = Key.generate("p256"),
-    present = function(_c: Acme.Challenge): (true) | (false, Failure) return true end,
+    present = function(_c: Acme.Challenge): (true) | (nil, Failure) return true end,
   })
   assert(chain == nil and tostring(why) == "acme: the server offers no http-01 challenge for example.com", tostring(why))
 end
@@ -116,7 +116,7 @@ local function test_an_invalid_challenge_stops_the_issue_and_says_so()
   local cleaned = false
   local chain, why = client_of(server):issue({ "example.com" }, {
     key = Key.generate("p256"),
-    present = function(_c: Acme.Challenge): (true) | (false, Failure) return true end,
+    present = function(_c: Acme.Challenge): (true) | (nil, Failure) return true end,
     cleanup = function(_c: Acme.Challenge) cleaned = true end,
   })
   assert(chain == nil and cleaned)
@@ -127,8 +127,8 @@ local function test_a_present_that_fails_stops_the_issue()
   local server = new_server()
   local chain, why = client_of(server):issue({ "example.com" }, {
     key = Key.generate("p256"),
-    present = function(_c: Acme.Challenge): (true) | (false, Failure)
-      return false, Failure.new("no web server")
+    present = function(_c: Acme.Challenge): (true) | (nil, Failure)
+      return nil, Failure.new("no web server")
     end,
   })
   assert(chain == nil and tostring(why) == "acme: present: no web server", tostring(why))
@@ -254,7 +254,7 @@ local function test_issue_takes_rsa_account_and_certificate_keys()
   local secret = rsa_fixture.SECOND
   local chain, why = client:issue({ "example.com" }, {
     key = assert(Key.secret("rsa", secret)),
-    present = function(c: Acme.Challenge): (true) | (false, Failure)
+    present = function(c: Acme.Challenge): (true) | (nil, Failure)
       assert(c.key_authorization == c.token .. "." .. client.thumbprint)
       return true
     end,
@@ -271,7 +271,7 @@ local function test_an_rsa_certificate_key_may_sign_for_a_p256_account()
   local client = client_of(server)
   local chain, why = client:issue({ "example.com" }, {
     key = assert(Key.secret("rsa", rsa_fixture.FIRST)),
-    present = function(_c: Acme.Challenge): (true) | (false, Failure) return true end,
+    present = function(_c: Acme.Challenge): (true) | (nil, Failure) return true end,
   })
   assert(chain ~= nil, tostring(why))
   assert(read_csr(server.csr).verified)
@@ -283,14 +283,14 @@ local function test_a_finalize_that_is_still_processing_is_waited_out()
   local slept: mut {integer} = {}
   local client = Acme.client({
     directory = BASE .. "/directory", key = Key.generate("p256"), request = server.request,
-    pause = function(ns: integer): (true) | (false, Failure)
+    pause = function(ns: integer): (true) | (nil, Failure)
       table.insert(slept, ns)
       return true
     end,
   })
   local chain, why = client:issue({ "example.com" }, {
     key = Key.generate("p256"),
-    present = function(_c: Acme.Challenge): (true) | (false, Failure) return true end,
+    present = function(_c: Acme.Challenge): (true) | (nil, Failure) return true end,
   })
   assert(chain ~= nil, tostring(why))
   -- The processing authorization asked for three seconds.
@@ -314,7 +314,7 @@ local function test_the_certificate_key_must_not_be_the_account_key()
   local key = Key.generate("p256")
   local chain, why = client_of(new_server(), key):issue({ "example.com" }, {
     key = key,
-    present = function(_c: Acme.Challenge): (true) | (false, Failure) return true end,
+    present = function(_c: Acme.Challenge): (true) | (nil, Failure) return true end,
   })
   assert(chain == nil and tostring(why) == "acme: the certificate's key is the account's; use another", tostring(why))
 end
@@ -324,7 +324,7 @@ local function test_a_body_that_is_no_pem_certificate_is_refused()
   server.chain = "<html>oops</html>"
   local chain, why = client_of(server):issue({ "example.com" }, {
     key = Key.generate("p256"),
-    present = function(_c: Acme.Challenge): (true) | (false, Failure) return true end,
+    present = function(_c: Acme.Challenge): (true) | (nil, Failure) return true end,
   })
   assert(chain == nil and tostring(why) == "acme: certificate: the server sent no PEM certificate", tostring(why))
 end
@@ -335,7 +335,7 @@ local function test_a_token_that_is_not_base64url_is_never_presented()
   local presented = false
   local chain, why = client_of(server):issue({ "example.com" }, {
     key = Key.generate("p256"),
-    present = function(_c: Acme.Challenge): (true) | (false, Failure)
+    present = function(_c: Acme.Challenge): (true) | (nil, Failure)
       presented = true
       return true
     end,
@@ -352,7 +352,7 @@ local function test_a_429_is_waited_out_by_its_retry_after_and_sent_again()
   local client = Acme.client({
     directory = BASE .. "/directory", key = Key.generate("p256"),
     request = server.request,
-    pause = function(ns: integer): (true) | (false, Failure)
+    pause = function(ns: integer): (true) | (nil, Failure)
       paused[#paused + 1] = ns
       return true
     end,
@@ -386,7 +386,7 @@ local function test_a_429_past_the_most_it_waits_fails_saying_how_long()
   local refused, said = Acme.client({
     directory = BASE .. "/directory", key = Key.generate("p256"),
     request = zero.request, rate_limit_wait_ns = 0,
-    pause = function(_ns: integer): (true) | (false, Failure)
+    pause = function(_ns: integer): (true) | (nil, Failure)
       paused = true
       return true
     end,
@@ -409,7 +409,7 @@ local function test_a_429_asking_for_no_wait_counts_a_tenth_of_a_second_each()
   local url, why = Acme.client({
     directory = BASE .. "/directory", key = Key.generate("p256"),
     request = server.request, rate_limit_wait_ns = Clock.seconds(1),
-    pause = function(ns: integer): (true) | (false, Failure)
+    pause = function(ns: integer): (true) | (nil, Failure)
       assert(ns == Clock.ms(100), tostring(ns))
       paused = paused + 1
       return true
@@ -428,7 +428,7 @@ local function test_a_429_with_an_http_date_waits_until_then()
   local client = Acme.client({
     directory = BASE .. "/directory", key = Key.generate("p256"),
     request = server.request,
-    pause = function(ns: integer): (true) | (false, Failure)
+    pause = function(ns: integer): (true) | (nil, Failure)
       waited[#waited + 1] = ns
       return true
     end,
@@ -444,8 +444,8 @@ local function test_a_pause_that_fails_ends_the_request()
   local url, why = Acme.client({
     directory = BASE .. "/directory", key = Key.generate("p256"),
     request = server.request,
-    pause = function(_ns: integer): (true) | (false, Failure)
-      return false, Failure.new("cancelled")
+    pause = function(_ns: integer): (true) | (nil, Failure)
+      return nil, Failure.new("cancelled")
     end,
   }):account({ terms_agreed = true })
   assert(url == nil and tostring(why) == "acme: newAccount: cancelled", tostring(why))
@@ -468,7 +468,7 @@ local function issue_counted(server: Server, names: {string}, challenge?: Acme.C
   local chain, why = client_of(server):issue(names, {
     key = Key.generate("p256"),
     challenge = challenge,
-    present = function(_c: Acme.Challenge): (true) | (false, Failure)
+    present = function(_c: Acme.Challenge): (true) | (nil, Failure)
       counted.presented = counted.presented + 1
       return true
     end,
@@ -545,7 +545,7 @@ local function test_every_url_is_https_and_no_redirect_is_followed()
     })
     local chain, why = client:issue({ "example.com" }, {
       key = Key.generate("p256"),
-      present = function(_c: Acme.Challenge): (true) | (false, Failure) return true end,
+      present = function(_c: Acme.Challenge): (true) | (nil, Failure) return true end,
     })
     assert(chain == nil and tostring(why) == expected, tostring(why))
     assert(not followed, "a request followed redirects")

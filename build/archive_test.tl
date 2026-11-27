@@ -264,7 +264,7 @@ local function write_big_tgz(path: string, mib: integer): integer
       left = left - 1
       return chunk
     end,
-    close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
+    close = function(_self: Stream.Reader): (true) | (nil, Failure) return true end,
   }
   assert(w:add_file("big.bin", body, { size = #chunk * rounds }))
   assert(w:close())
@@ -289,7 +289,7 @@ local function test_list_of_a_large_piped_tar_gz_keeps_memory_bounded(tmp: strin
       reads = reads + 1
       return inner:read(max_bytes)
     end,
-    close = function(_self: Stream.Reader): (true) | (false, Failure) return inner:close() end,
+    close = function(_self: Stream.Reader): (true) | (nil, Failure) return inner:close() end,
   }
   local ran = run({ "list", "-" }, piped)
   assert(ran.code == 0 and ran.err == "", ran.err)
@@ -527,7 +527,7 @@ local function test_create_streams_a_large_file_into_a_zip_in_bounded_memory(tmp
         reads = reads + 1
         return inner:read(max_bytes)
       end,
-      close = function(_self: Stream.Reader): (true) | (false, Failure) return inner:close() end,
+      close = function(_self: Stream.Reader): (true) | (nil, Failure) return inner:close() end,
     }
     return wrapped
   end
@@ -583,7 +583,7 @@ local function create_counting(src: string, out: string, extra: string): Ran, in
         if got == nil then return nil, trouble end
         return got
       end,
-      close = function(_self: Stream.Reader): (true) | (false, Failure)
+      close = function(_self: Stream.Reader): (true) | (nil, Failure)
         closes = closes + 1
         return inner:close()
       end,
@@ -1077,10 +1077,10 @@ local function test_a_move_that_fails_partway_is_undone(tmp: string)
   local real = Fs.rename
   local patched = Fs as {string:any} -- checked: cast_refused
   local into = 0
-  patched.rename = function(from: string, to: string): (true) | (false, Failure)
+  patched.rename = function(from: string, to: string): (true) | (nil, Failure)
     if to:find(dest .. "/", 1, true) == 1 and from:find("/tree/", 1, true) ~= nil then
       into = into + 1
-      if into == 3 then return false, Failure.new("injected failure", from) end
+      if into == 3 then return nil, Failure.new("injected failure", from) end
     end
     return real(from, to)
   end
@@ -1138,7 +1138,7 @@ local function test_extract_of_a_large_piped_tar_gz_keeps_memory_bounded(tmp: st
       reads = reads + 1
       return inner:read(max_bytes)
     end,
-    close = function(_self: Stream.Reader): (true) | (false, Failure) return inner:close() end,
+    close = function(_self: Stream.Reader): (true) | (nil, Failure) return inner:close() end,
   }
   local ran = run({ "extract", "-", "-C", dest }, piped)
   assert(ran.code == 0 and ran.err == "", ran.err)

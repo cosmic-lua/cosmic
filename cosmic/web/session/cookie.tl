@@ -114,7 +114,7 @@ function SessionCookie.store(opts: SessionCookie.Options): Session.Store
       end
       return token
     end,
-    destroy = function(_: Session.Store, _token: string): (true) | (false, Failure)
+    destroy = function(_: Session.Store, _token: string): (true) | (nil, Failure)
       return true
     end,
   }

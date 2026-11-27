@@ -678,18 +678,18 @@ local class OutputWriter is Stream.Writer
   out: function(text: string): boolean, string
   mut lost: string?
 
-  function write(self, text: string): (true) | (false, Failure)
+  function write(self, text: string): (true) | (nil, Failure)
     local ok, why = self.out(text)
     if ok then return true end
     self.lost = why
-    return false, Failure.new(why)
+    return nil, Failure.new(why)
   end
 
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     return true
   end
 
-  function abort(self): (true) | (false, Failure)
+  function abort(self): (true) | (nil, Failure)
     return true
   end
 end

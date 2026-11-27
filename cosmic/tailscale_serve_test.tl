@@ -73,7 +73,7 @@ local class Watch is Stream.Reader
   session: string
   mut started: boolean
   mut ended: boolean
-  skip?: function(Watch, integer): (true) | (false, Failure)
+  skip?: function(Watch, integer): (true) | (nil, Failure)
 
   function read(self, _max_bytes?: integer): (string | false) | (nil, Failure)
     if not self.started then
@@ -87,7 +87,7 @@ local class Watch is Stream.Reader
     return "\n"
   end
 
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     if self.ended then return true end
     self.ended = true
     local d = self.daemon

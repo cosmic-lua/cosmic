@@ -347,7 +347,7 @@ local function chunked(bytes: string): Stream.Reader
       at = at + #chunk
       return chunk
     end,
-    close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
+    close = function(_self: Stream.Reader): (true) | (nil, Failure) return true end,
   }
   return r
 end
@@ -576,7 +576,7 @@ local function understating(reader: Archive.Reader): Archive.Reader
       }
       return lie
     end,
-    close = function(_self: Archive.Reader): (true) | (false, Failure) return reader:close() end,
+    close = function(_self: Archive.Reader): (true) | (nil, Failure) return reader:close() end,
   }
   return r
 end

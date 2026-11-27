@@ -27,7 +27,7 @@ local function test_a_raise_during_install_leaves_no_scratch_directory(tmp: stri
   local _, _ = ZigFetch.install(cache, cache .. "/warm", "0.1.0", "x86_64-linux", nil)
   local before = support.descriptors()
   local real = Http.download
-  Http.download = function(_url: string, _path: string, _options: Http.DownloadOptions): (true) | (false, Failure) -- checked: field_fixed
+  Http.download = function(_url: string, _path: string, _options: Http.DownloadOptions): (true) | (nil, Failure) -- checked: field_fixed
     error("the download raised")
   end
   local ok, trouble = pcall(ZigFetch.install, cache, cache .. "/0.1.0-x86_64-linux", "0.1.0", "x86_64-linux", "abc")
@@ -86,7 +86,7 @@ local function scripted(replies: {string:{Reply}}, calls: mut {string},
   local served: mut {string:integer} = {}
   local clock = { value = 0 }
   return {
-    download = function(url: string, path: string, opts: Http.DownloadOptions): (true) | (false, Failure)
+    download = function(url: string, path: string, opts: Http.DownloadOptions): Failure?
       local digests = assert(opts.digests, "an attempt has no digest")
       assert(digests["sha256"] == "abc")
       assert((opts.connect_timeout_ns or 0) > 0 and (opts.low_speed_bytes or 0) >= 1024 and (opts.low_speed_ns or 0) > 0,
@@ -102,9 +102,9 @@ local function scripted(replies: {string:{Reply}}, calls: mut {string},
       local attempt = assert(served[url], "the attempt was counted")
       local reply = script[attempt] or support.nth(script, #script)
       local why = reply.why
-      if why ~= nil then return false, why end
+      if why ~= nil then return why end
       assert(Fs.write(path, "tarball"))
-      return true
+      return nil
     end,
     sleep = function(ns: integer)
       sleeps[#sleeps + 1] = ns
@@ -212,10 +212,12 @@ end
 local function test_fetch_sees_a_real_mismatch(tmp: string)
   local calls: mut {string} = {}
   local fetcher: ZigFetch.Fetcher = {
-    download = function(url: string, path: string, opts: Http.DownloadOptions): (true) | (false, Failure)
+    download = function(url: string, path: string, opts: Http.DownloadOptions): Failure?
       calls[#calls + 1] = url
-      return Http.download(url, path, { timeout_ns = opts.timeout_ns, digests = opts.digests,
+      local done, why = Http.download(url, path, { timeout_ns = opts.timeout_ns, digests = opts.digests,
         script = { "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nwrong" } })
+      if done == true then return nil end
+      return why
     end,
     sleep = function(_: integer) end,
     now = function(): integer return 0 end,

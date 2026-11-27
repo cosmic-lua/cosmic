@@ -151,7 +151,7 @@ local function test_a_caught_signal_ends_a_download_that_waits(tmp: string)
 ]], function(conn: Net.Conn, _head: string)
   assert(conn:write("HTTP/1.1 200 OK\r\nContent-Length: 100000\r\n\r\npart"))
 end)
-  assert(said == "false interrupted " .. tostring(sys.SIGINT), said)
+  assert(said == "nil interrupted " .. tostring(sys.SIGINT), said)
   for _, name in ipairs((assert(Fs.list(tmp)))) do
     assert(not name:find(".target", 1, true), "left behind: " .. name)
   end

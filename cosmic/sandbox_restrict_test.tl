@@ -372,7 +372,7 @@ say("write", writes(%q))
 ]], tmp .. "/rw", which, tmp .. "/rw/f", tmp .. "/rw/f"))
   assert(said.lines["first"] == "true " and said.lines["slots"] == "3" and said.lines["reused"] == "true", said.raw)
   -- Refused, naming the descriptor or failing closed; never accepted.
-  assert(assert(said.lines["second"]):find("^false sandbox: restrict: "), said.raw)
+  assert(assert(said.lines["second"]):find("^nil sandbox: restrict: "), said.raw)
 end
 
 local function test_a_replaced_threads_handle_is_not_trusted(tmp: string)

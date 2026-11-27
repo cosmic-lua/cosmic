@@ -200,8 +200,8 @@ local function test_failed_retired_file_removal_withholds_save_digest(tmp: strin
   local retired = path .. ".corrupt-1"
   assert(Fs.write(retired, "retired"))
   local original = Fs.remove
-  Fs.remove = function(name: string): (true) | (false, Failure) -- checked: field_fixed
-    if name == retired then return false, Failure.new("injected unlink failure", name) end
+  Fs.remove = function(name: string): (true) | (nil, Failure) -- checked: field_fixed
+    if name == retired then return nil, Failure.new("injected unlink failure", name) end
     return original(name)
   end
   local ok, result = pcall(function(): maintenance.Result return trim(path, "compiles", 5) end)

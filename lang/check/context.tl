@@ -291,6 +291,9 @@ local record Ctx
   mut cand_node: Ast.Node?
   --- The `or` that has an `and` for its left operand, by the id of the `and`.
   ternaries: mut {integer: Ast.Binary}
+  --- The type of the right operand of each `and` and `or`, by the id of the operator: as a condition, the right operand
+  --- is the one whose value is asked (the left is checked where it is walked).
+  right_types: mut {integer: Type}
   --- The calls whose one value was taken where they may return more, by id: `or` after one cuts the rest.
   spare: mut {integer: boolean}
   --- The offsets of the names the scope builder reported unknown, once asked for.
