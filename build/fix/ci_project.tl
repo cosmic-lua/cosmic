@@ -8,7 +8,7 @@
 --- - `bin/cosmic-bootstrap cosmic_ci/driver.tl check-islands` (ci/cosmic_ci/islands.tl), which checks the bootstrap's
 ---   files and all of `ci/` on the pinned release, fetched and verified by its digest the first time.
 ---
---- Both start before the tree's own checks and run beside them; [`CiProject.finish`] waits for them. `COSMIC_BOOTSTRAP` is
+--- Both start before the tree's own checks and run beside them, each with a build base of its own; [`CiProject.finish`] waits for them. `COSMIC_BOOTSTRAP` is
 --- left out of the release's environment: it names another host in place of the pin's, which is not the check.
 
 local Child = require("cosmic.child")
@@ -41,6 +41,30 @@ function CiProject.applies(root: string): boolean
   return driver ~= nil and driver.exists and bootstrap ~= nil and bootstrap.exists
 end
 
+--- The build base the pinned release's check of `ci/` uses, made private (a base that others can write is refused), or nil
+--- where there is none to name: inside COSMIC_BUILD_HOME where it is set, else in the user's cache.
+local function pinned_base(env: {string:string}): string?
+  local given = env["COSMIC_BUILD_HOME"] or ""
+  local parent: string
+  if given ~= "" then
+    parent = given
+  else
+    local cache = env["XDG_CACHE_HOME"] or ""
+    local home = env["HOME"] or ""
+    if cache:sub(1, 1) == "/" then
+      parent = cache
+    elseif home:sub(1, 1) == "/" then
+      parent = home .. "/.cache"
+    else
+      return nil
+    end
+  end
+  local base = parent .. "/cosmic-pinned-ci"
+  local made, _ = Fs.mkdirs(base, 448)
+  if not made then return nil end
+  return base
+end
+
 --- Starts both checks of `root .. "/ci"`; `checking` passes `--check` to this tool's `fix`, which otherwise mends.
 function CiProject.start(root: string, checking: boolean): CiProject.Started
   local ci = root .. "/ci"
@@ -63,6 +87,11 @@ function CiProject.start(root: string, checking: boolean): CiProject.Started
   launch("`../bin/cosmic fix" .. (if checking then " --check" else "" end) .. "` in ci/", argv, Env.all())
   local env = Env.all()
   env["COSMIC_BOOTSTRAP"] = nil
+  -- Its own build base: both tools build `ci/` into the build directory of that root, and a second tool finds a
+  -- database another's writer made unreadable (build/writer.tl), answers from empty ones, and fails every link, as the
+  -- release did when the two started together on a cold cache (queue run 45922217954).
+  local base = pinned_base(env)
+  if base ~= nil then env["COSMIC_BUILD_HOME"] = base end
   launch("`bin/cosmic-bootstrap cosmic_ci/driver.tl check-islands` (the pinned release) in ci/",
     { root .. "/bin/cosmic-bootstrap", "cosmic_ci/driver.tl", "check-islands" }, env)
   return started
