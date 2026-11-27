@@ -365,7 +365,7 @@ local function fix_check(g: Grade, cosmic: string, project: string, set_aside: b
   local moved = false
   if set_aside then
     local renamed, _ = Fs.rename(journal, aside)
-    moved = renamed
+    moved = renamed == true
   end
   command_step(g, { cosmic, "fix", "--check" }, project)
   if moved then
@@ -458,12 +458,12 @@ local function hidden_api(g: Grade, cosmic: string, project: string, test: strin
   local ready, why = copy_project(project, copy)
   if ready then
     local wrote, wrote_why = Fs.write(copy .. "/" .. name, source)
-    ready = wrote
+    ready = wrote == true
     if not wrote then why = tostring(wrote_why) end
   end
   if ready then
     local mkdirs_ok, mkdirs_why = Fs.mkdirs(scratch .. "/tmp")
-    ready, why = mkdirs_ok, if mkdirs_ok then "" else tostring(mkdirs_why) end
+    ready, why = mkdirs_ok == true, if mkdirs_ok then "" else tostring(mkdirs_why) end
   end
   local output = ""
   if ready then
@@ -2382,15 +2382,15 @@ local function grade_checks(g: Grade, task: Task, testdata: string): boolean
     local trouble = if bytes == nil then tostring(failure) else "" end
     if copied then
       local remove_tree_ok, remove_tree_why = Fs.remove_tree(g.empty)
-      copied, trouble = remove_tree_ok, if remove_tree_ok then "" else tostring(remove_tree_why) end
+      copied, trouble = remove_tree_ok == true, if remove_tree_ok then "" else tostring(remove_tree_why) end
     end
     if copied then
       local mkdirs_ok, mkdirs_why = Fs.mkdirs(g.empty)
-      copied, trouble = mkdirs_ok, if mkdirs_ok then "" else tostring(mkdirs_why) end
+      copied, trouble = mkdirs_ok == true, if mkdirs_ok then "" else tostring(mkdirs_why) end
     end
     if copied then
       local wrote, wrote_trouble = Fs.write(g.empty .. "/" .. name, assert(bytes), 0x1ed)
-      copied = wrote
+      copied = wrote == true
       if not wrote then trouble = tostring(wrote_trouble) end
     end
     if not copied then
@@ -2434,7 +2434,7 @@ function Grader.grade(name: string, dir: string, testdata: string,
   local homed, htrouble = false, "the grading environment has no XDG_CACHE_HOME"
   if cache_home ~= nil then
     local mkdirs_ok, mkdirs_why = Fs.mkdirs(cache_home)
-    homed, htrouble = mkdirs_ok, if mkdirs_ok then "" else tostring(mkdirs_why) end
+    homed, htrouble = mkdirs_ok == true, if mkdirs_ok then "" else tostring(mkdirs_why) end
   end
   if not homed then
     say("FAIL " .. htrouble)
