@@ -1291,6 +1291,8 @@ local record Fix
   mut changes_only?: boolean
   --- The `Old=new` of `--rename`, made before the rest of the run ([`rename_first`]).
   mut rename?: string
+  --- The files `--rename` wrote, root-relative ([`rename_first`]).
+  mut renamed?: {string}
   mut root?: string
   mut standing?: tree.Standing
 
@@ -1373,6 +1375,7 @@ local function rename_first(ctx: Fix): integer?
     log:complain("fix: --rename left " .. String.counted(#done.left, "line") .. " named above: edit them by hand")
     return 1
   end
+  ctx.renamed = done.written
   return nil
 end
 
@@ -1425,10 +1428,11 @@ local function choose_files(ctx: Fix): integer?
   end
   ctx.picked = picked
   -- ci/ is a project of its own, which the tree's own checks read none of: it is checked beside them, as CI does.
-  if picked.whole and CiProject.applies(assert(ctx.root)) then
+  -- A rename reaches none of it, and the run after it covers the files it wrote.
+  if picked.whole and ctx.rename == nil and CiProject.applies(assert(ctx.root)) then
     ctx.ci = CiProject.start(assert(ctx.root), ctx.checking == true)
   end
-  if picked.whole then
+  if picked.whole and ctx.rename == nil then
     log:say("fix: eval/ is a project of its own and is not checked here: run `cosmic fix --check` with eval/ as the " ..
         "working directory (CI does)")
   end
@@ -2300,6 +2304,17 @@ local function fix_verb(argv: {string}): integer
   if ctx.rename ~= nil then
     code = rename_first(ctx)
     if code ~= nil then return code end
+    -- With no paths named, the rest of the run lays out and checks the files the rename wrote, not the whole tree:
+    -- in cosmic's own tree that is seconds, not minutes of the checks that span it.
+    local renamed = ctx.renamed
+    if renamed ~= nil and #renamed > 0 and #assert(ctx.paths) == 0 and ctx.changes_only ~= true then
+      local root = assert(ctx.root)
+      local paths: mut {string} = {}
+      for _, file in ipairs(renamed) do paths[#paths + 1] = root .. "/" .. file end
+      ctx.paths = paths
+      code = choose_files(ctx)
+      if code ~= nil then return code end
+    end
   end
   -- Only a run over the whole of cosmic's tree makes the memoed checks worth sharing; one that cannot share makes
   -- them itself.

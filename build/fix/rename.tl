@@ -1,7 +1,8 @@
 --- `cosmic fix --rename Old=new`: renames a module's member, or a field of a record a module declares, at its declaration
 --- and at each place `cosmic uses` finds ([`cosmic.doc`]'s [`Doc.uses`]): a read or a call through the module, an alias of
 --- it, or a value the checker typed, and each link to it in a comment or a Markdown file. The rest of the run is the fix it
---- is part of, which lays out and builds the tree, so a place left fails that build at its line.
+--- is part of, over the files written where it names no paths, which lays them out and builds them, so a place left
+--- there fails that build at its line.
 ---
 --- An edit is made only where it names one place. On a line of code that is a `.old` or `:old` after a name: the only one
 --- of the line, or each one after a name that the file binds to the module by `require`, or after the member's own

@@ -57,6 +57,8 @@ local function test_a_member_is_renamed_through_an_alias(tmp: string)
   assert(money:find("return string.format(", 1, true), money)
   local shop = read(project .. "/shop.tl")
   assert(shop:find("string.format(\"%s %s\", l.name, Cash.render(l.cents))", 1, true), shop)
+  -- The run after it covers the two files written, not shop_test.tl.
+  assert((result.stdout .. result.stderr):find("fix: 2 Teal files", 1, true), result.stdout .. result.stderr)
 end
 
 --- A field is renamed where it is declared and read, and at the key of a table literal and the write, which no use
