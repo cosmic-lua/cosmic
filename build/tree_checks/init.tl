@@ -457,6 +457,9 @@ function tree_checks.whole(given: tree_checks.Whole): tree_checks.Found
   for _, line in ipairs(tree_tests.test_clones(root)) do
     findings[#findings + 1] = "copied helpers: " .. line
   end
+  for _, line in ipairs(tree_tests.undeclared_programs(root)) do
+    findings[#findings + 1] = "programs: " .. line
+  end
   local marking: Ceilings.Marking = { sink = sink }
   local marks_began = Clock.monotonic_ns()
   local marks = tree_checked.markers(root)
