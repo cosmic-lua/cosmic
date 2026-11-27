@@ -26,6 +26,7 @@
 #include "check.h"
 #include "hook.h"
 #include "lauxlib.h"
+#include "ldebug.h"
 #include "lstate.h"
 #include "memory.h"
 #include "syscalls.h"
@@ -321,6 +322,27 @@ static long take (volatile long *ticks) {
   return __atomic_exchange_n(ticks, 0, __ATOMIC_SEQ_CST);
 }
 
+/* The first ordinal of a chunk numbered by instruction (build/lua_tail.tl's
+ * `ordinal_base`; core/coverage.c's ORDINAL_BASE is the same): a function
+ * of such a chunk is defined on line ORDINAL_BASE + k, k the instructions
+ * before its first, and holds no line information. */
+#define ORDINAL_BASE (1u << 24)
+
+/* The line `d`'s running instruction counts on where its function has no
+ * line information and is numbered by instruction, as core/coverage.c
+ * counts it: the ordinal of the instruction in its chunk, past
+ * ORDINAL_BASE, which `cosmic profile` places at a source line. -1 for any
+ * other function, whose `currentline` Lua gives. */
+static int ordinal_line (const lua_Debug *d) {
+  CallInfo *ci = d->i_ci;
+  if (ci == NULL || !isLua(ci)) return -1;
+  const Proto *p = ci_func(ci)->p;
+  if (p->lineinfo != NULL) return -1;
+  if (p->linedefined != 0 && (unsigned)p->linedefined <= ORDINAL_BASE) return -1;
+  unsigned first = p->linedefined > 0 ? (unsigned)p->linedefined : ORDINAL_BASE;
+  return (int)(first + (unsigned)pcRel(ci->u.l.savedpc, p) + 1);
+}
+
 /* Records `us` microseconds against the stack `L` stands in, with the C function
  * `c` innermost where it is set. */
 static void record (lua_State *L, unsigned long us, const void *c) {
@@ -337,7 +359,8 @@ static void record (lua_State *L, unsigned long us, const void *c) {
     } else {
       snprintf(text, sizeof text, "%s@%s:%d", name, d.short_src, d.linedefined);
       if (line[0] == '\0') {
-        snprintf(line, sizeof line, "%s:%d", d.short_src, d.currentline);
+        int at = d.currentline >= 0 ? d.currentline : ordinal_line(&d);
+        snprintf(line, sizeof line, "%s:%d", d.short_src, at);
         plain(line);
       }
     }

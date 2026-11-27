@@ -1,6 +1,7 @@
 --- `cosmic profile` (build/profile.tl), run in this process on profiles held in memory: what each list adds up, the
 --- spans' tree, folded stacks, and what it refuses. build/profile_tool_test.tl profiles a real run and reads it.
 
+local lua_tail = require("build.lua_tail")
 local profile = require("build.profile")
 
 --- A profile of process `pid` (parent 1) with these span and sample lines.
@@ -26,8 +27,9 @@ local record Ran
 end
 
 --- Runs `cosmic profile` on `words`, with `files` as the files there are, and `dirs` the directories (each named
---- by its path, holding the names listed).
-local function run(words: {string}, files: {string: string}, dirs?: {string: {string}}): Ran
+--- by its path, holding the names listed), and `chunk` what holds a module's bytecode.
+local function run(words: {string}, files: {string: string}, dirs?: {string: {string}},
+                   chunk?: function(name: string): string?): Ran
   local argv: mut {string} = { "profile" }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
   local ran: Ran = { code = -1, out = "", err = "" }
@@ -46,6 +48,7 @@ local function run(words: {string}, files: {string: string}, dirs?: {string: {st
       if dirs == nil then return nil end
       return dirs[path]
     end,
+    chunk = chunk or function(_: string): string? return nil end,
   })
   return ran
 end
@@ -159,4 +162,57 @@ local function test_module_loads_are_spans_of_their_own()
   local read = assert(profile.read(text, "r.prof"))
   local loaded = profile.loaded({ read })
   assert(loaded["a"] == true and loaded["b"] == true and loaded["main"] == nil)
+end
+
+--- `--per-process` puts a row under each span for each process that closed one, most CPU first.
+local function test_spans_per_process()
+  local ran = run({ "--by", "span", "--per-process", "a.prof", "b.prof" }, { ["a.prof"] = A, ["b.prof"] = B })
+  assert(ran.code == 0, ran.err)
+  assert(ran.out == "spans (count, wall, cpu, most heap at a close):\n  [outer]  2  9.0 ms  6.0 ms  1.0 MB\n" ..
+      "    | 1  8.0 ms  5.0 ms  a.prof  -e x\n    | 1  1.0 ms  1.0 ms  b.prof  -e x\n" ..
+      "    [inner]  2  4.0 ms  3.0 ms  1.0 MB\n      | 2  4.0 ms  3.0 ms  a.prof  -e x\n", ran.out)
+end
+
+--- `--against` sets each span's time beside an older run's; a span the older run had not is new.
+local function test_spans_against_an_older_run()
+  local files = { ["a.prof"] = A, ["b.prof"] = B }
+  local ran = run({ "--by", "span", "--against", "b.prof", "a.prof" }, files)
+  assert(ran.code == 0, ran.err)
+  assert(ran.out == "spans against the older run (wall then -> now, change; cpu then -> now, change):\n" ..
+      "  [outer]  1.0 ms -> 8.0 ms  +700.0%;  1.0 ms -> 5.0 ms  +400.0%\n" ..
+      "    [inner]  0.0 ms -> 4.0 ms  new;  0.0 ms -> 3.0 ms  new\n", ran.out)
+  local back = run({ "--by", "span", "--against", "a.prof", "b.prof" }, files)
+  assert(back.out:find("    [inner]  4.0 ms -> 0.0 ms  -100.0%;", 1, true) ~= nil, back.out)
+  local refused = run({ "--by", "function", "--against", "b.prof", "a.prof" }, files)
+  assert(refused.code == 2 and refused.err:find("--against compares the spans", 1, true) ~= nil, refused.err)
+  local missing = run({ "--against", "old.prof", "a.prof" }, files)
+  assert(missing.code == 5 and missing.err:find("old.prof: no such file", 1, true) ~= nil, missing.err)
+end
+
+--- A frame or line of a chunk numbered by instruction (past 1 << 24) is placed at its source line through the
+--- build's bytecode of the module, and names the instruction `#k` where there is none.
+local function test_numbered_frames_are_placed_at_source_lines()
+  local source = "local x = 1\nlocal function f()\n  local y = x + 1\n  return y\nend\nreturn f\n"
+  local bytecode = assert(lua_tail.bytecode_of(source, "m", "m.lua"))
+  local defines = assert(lua_tail.defined_lines(bytecode, "m"))
+  local lines = assert(lua_tail.instruction_lines(bytecode, "m"))
+  local k: integer = assert(next(defines))
+  assert(defines[k] == 2, tostring(defines[k]))
+  -- The first instruction of f, whose body opens on line 3.
+  local j = k + 1
+  assert(lines[j] == 3, tostring(lines[j]))
+  local base = 1 << 24
+  local text = file(10, { ("sample main@m:0;f@m:%d m:%d 1000"):format(base + k, base + j) })
+  local ran = run({ "--by", "function", "a.prof" }, { ["a.prof"] = text }, nil, function(name: string): string?
+    if name == "m" then return bytecode end
+    return nil
+  end)
+  assert(ran.code == 0, ran.err)
+  assert(ran.out:find("  f@m:2\n", 1, true) ~= nil, ran.out)
+  local line = run({ "--by", "line", "a.prof" }, { ["a.prof"] = text }, nil, function(_: string): string?
+    return bytecode
+  end)
+  assert(line.out:find("  m:3\n", 1, true) ~= nil, line.out)
+  local unplaced = run({ "--by", "function", "a.prof" }, { ["a.prof"] = text })
+  assert(unplaced.out:find(("  f@m:#%d\n"):format(k), 1, true) ~= nil, unplaced.out)
 end
