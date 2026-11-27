@@ -10,6 +10,7 @@
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
+local sys = require("cosmic.sys")
 local Sandbox = require("cosmic.sandbox")
 local Test = require("cosmic.test")
 local searchable = require("build.searchable")
@@ -113,6 +114,11 @@ end
 --- build directory, under the base the policy gives it, is written; a
 --- grant to read alone refuses, saying where.
 local function test_a_policy_may_build_the_tree_around_the_file(tmp: string)
+  -- A root caller's child is another user, and a build directory refuses one owned by another user (which a
+  -- grant cannot make this one's), so the case has no root form.
+  if sys.getuid() == 0 then
+    Test.skip("this process is root: its child's user may not use a build directory owned by root")
+  end
   local work = scripted(tmp, 'local helper = require("helper")\n' ..
       'return function(argv: {string}): integer\n  print(helper .. (argv[1] or ""))\n  return 0\nend\n')
   assert(Fs.write(work .. "/helper.tl", 'local greeting: string = "from "\nreturn greeting\n'))
