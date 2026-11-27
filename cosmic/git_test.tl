@@ -269,6 +269,66 @@ local function test_config_includes_agree_with_git(tmp: string)
   assert(got == want and got == "Inc luded\nbranch@example.com\n", got .. " against " .. want)
 end
 
+--- What git's untracked list leaves out or keeps where it is easy to
+--- differ: a .gitignore that is a symbolic link (git reads none), POSIX
+--- classes, a bracket left open (it matches nothing), a BOM, and a
+--- `.git` file that names no repository (the directory is walked).
+local function test_untracked_edge_cases_agree_with_git(tmp: string)
+  local root = scratch(tmp)
+  put(root, "secret", "*\n")
+  put(root, "linked/f", "kept, as git reads no linked .gitignore\n")
+  assert(Fs.symlink("../secret", root .. "/linked/.gitignore"))
+  put(root, ".gitignore", "\xEF\xBB\xBFbom\n[[:digit:]]x\n[a-\n*[\n[[:nonsense:]]y\n")
+  put(root, "bom", "ignored, past the BOM\n")
+  put(root, "1x", "ignored\n")
+  put(root, "[a-", "kept\n")
+  put(root, "a[", "kept\n")
+  put(root, "zy", "kept\n")
+  put(root, "fake/.git", "gitdir: /nonexistent\n")
+  put(root, "fake/f", "listed, as fake is no repository\n")
+  local want: mut {string} = {}
+  for line in git(root, { "status", "--porcelain=v1", "-uall" }):gmatch("[^\n]+") do
+    if line:sub(1, 3) == "?? " then want[#want + 1] = (line:sub(4):gsub('^"(.*)"$', "%1")) end
+  end
+  local status = assert(assert(Git.open(root)):status())
+  assert(table.concat(status.untracked, ",") == table.concat(want, ","),
+    table.concat(status.untracked, ",") .. " against " .. table.concat(want, ","))
+end
+
+--- A config value as git reads it (CRLF, whitespace in and around
+--- quotes, a continuation), a line git refuses, and an `includeIf`
+--- gitdir pattern that names the gitdir itself rather than below it.
+local function test_config_values_agree_with_git(tmp: string)
+  local root = scratch(tmp)
+  local base = assert(Fs.read(root .. "/.git/config"))
+  local function author(extra: string): string?
+    assert(Fs.write(root .. "/.git/config", base .. extra))
+    local repo, _ = Git.open(root)
+    if repo == nil then return nil end
+    put(root, "a.txt", "changed for " .. extra .. "\n")
+    assert(repo:add({ "a.txt" }))
+    assert(repo:commit({ message = "values" }))
+    return git(root, { "log", "-1", "--format=%an" })
+  end
+  for _, case in ipairs({
+      "[user]\r\n\tname = a \\\r\n\tb\r\n",
+      "[user]\n\tname = a \\\n\tb\n",
+      "[user]\n\tname = \"x  \"  y \t# a comment\n",
+      "[user]\n\tname = \"\"  lead\n",
+  }) do
+    assert(Fs.write(root .. "/.git/config", base .. case))
+    local want = git(root, { "config", "user.name" })
+    local got = author(case)
+    assert(got == want, case .. ": " .. tostring(got) .. " against " .. want)
+  end
+  for _, case in ipairs({ "[user]\n\tna\\\nme = a\n", "[user\\\n]\n\tname = a\n", "[user]\n\t9name = a\n" }) do
+    local got = author(case)
+    assert(got == nil, case .. ": read as " .. tostring(got))
+  end
+  put(root, ".git/i.inc", "[user]\n\tname = Included\n")
+  local got = author("[includeIf \"gitdir:./\"]\n\tpath = i.inc\n")
+  assert(got == "Test\n", tostring(got))
+end
 --- A pack whose index cannot be read is skipped: the rest of the store
 --- still reads, and a missing object names the skipped pack.
 local function test_a_damaged_pack_index_is_skipped(tmp: string)

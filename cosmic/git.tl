@@ -257,11 +257,21 @@ end
 -- config
 ------------------------------------------------------------------
 
+--- The Lua pattern class of each POSIX class a bracket may name, as
+--- `[[:digit:]]`.
+local POSIX_CLASSES <const>: {string:string} = {
+  alnum = "%w", alpha = "%a", blank = "[ \t]", cntrl = "%c", digit = "%d", graph = "%g", lower = "%l",
+  print = "[%g ]", punct = "%p", space = "%s", upper = "%u", xdigit = "%x",
+}
+
 --- Whether `text` matches the glob `pattern` as git's wildmatch does
 --- with WM_PATHNAME: `*` and `?` stop at `/`, `**` bounded by `/`
---- spans directories, `[...]` is a class (`!` or `^` negates), and `\`
---- quotes. `fold` compares ASCII letters without case. Results are
---- kept by position, so a pattern of many stars stays polynomial.
+--- spans directories, `[...]` is a class (`!` or `^` negates, and
+--- `[:digit:]` and the other POSIX classes may appear in it), and `\`
+--- quotes. A bracket left open, or an unknown POSIX class, matches
+--- nothing, as in git. `fold` compares ASCII letters without case.
+--- Results are kept by position, so a pattern of many stars stays
+--- polynomial.
 local function wildmatch(pattern: string, text: string, fold: boolean): boolean
   local p = if fold then pattern:lower() else pattern end
   local t = if fold then text:lower() else text end
@@ -315,6 +325,7 @@ local function wildmatch(pattern: string, text: string, fold: boolean): boolean
         local matched = false
         local first = true
         local closed = false
+        local malformed = false
         while i <= #p do
           local a = p:sub(i, i)
           if a == "]" and not first then
@@ -322,21 +333,36 @@ local function wildmatch(pattern: string, text: string, fold: boolean): boolean
             break
           end
           first = false
-          if a == "\\" and i < #p then
-            i = i + 1
-            a = p:sub(i, i)
-          end
-          if p:sub(i + 1, i + 1) == "-" and i + 2 <= #p and p:sub(i + 2, i + 2) ~= "]" then
-            local b = p:sub(i + 2, i + 2)
-            if ch >= a and ch <= b then matched = true end
-            i = i + 3
+          local stop: integer? = if a == "[" and p:sub(i + 1, i + 1) == ":" then p:find(":]", i + 2, true) else nil end
+          if stop ~= nil then
+            local class = POSIX_CLASSES[p:sub(i + 2, stop - 1)]
+            if class == nil then
+              malformed = true
+              break
+            end
+            -- Under ignorecase git lets [:upper:] and [:lower:] match a letter of either case.
+            if ch:find(class) ~= nil or (fold and (class == "%u" or class == "%l") and ch:find("%a") ~= nil) then
+              matched = true
+            end
+            i = stop + 2
           else
-            if ch == a then matched = true end
-            i = i + 1
+            if a == "\\" and i < #p then
+              i = i + 1
+              a = p:sub(i, i)
+            end
+            if p:sub(i + 1, i + 1) == "-" and i + 2 <= #p and p:sub(i + 2, i + 2) ~= "]" then
+              local b = p:sub(i + 2, i + 2)
+              if ch >= a and ch <= b then matched = true end
+              i = i + 3
+            else
+              if ch == a then matched = true end
+              i = i + 1
+            end
           end
         end
-        if not closed then
-          result = ch == "[" and at(pi + 1, ti + 1)
+        if not closed or malformed then
+          -- git's wildmatch gives up on the whole match (WM_ABORT_ALL): the pattern matches nothing.
+          result = false
         else
           result = ch ~= "/" and matched ~= negate and at(i + 1, ti + 1)
         end
@@ -359,59 +385,89 @@ end
 local type Config = mut {string: mut {string}}
 
 --- A value's text: quotes dropped, escapes read, a comment cut off.
+--- As git's parse_value: each whitespace byte outside quotes reads as
+--- one space, and those at the end are dropped.
 local function config_value(raw: string): string
   local out: mut {string} = {}
   local quoted = false
+  local spaces, length = 0, 0
+  local function put(s: string)
+    if spaces > 0 and length > 0 then
+      local gap = string.rep(" ", spaces)
+      out[#out + 1] = gap
+    end
+    spaces = 0
+    out[#out + 1] = s
+    length = length + #s
+  end
   local i = 1
   while i <= #raw do
     local c = raw:sub(i, i)
     if c == "\"" then
+      put("")
       quoted = not quoted
     elseif c == "\\" then
       local n = raw:sub(i + 1, i + 1)
-      out[#out + 1] = if n == "n" then "\n" elseif n == "t" then "\t" elseif n == "b" then "\b" else n end
+      put(if n == "n" then "\n" elseif n == "t" then "\t" elseif n == "b" then "\b" else n end)
       i = i + 1
     elseif (c == "#" or c == ";") and not quoted then
       break
+    elseif c:find("^%s") ~= nil and not quoted then
+      spaces = spaces + 1
     else
-      out[#out + 1] = c
+      put(c)
     end
     i = i + 1
   end
-  return (table.concat(out):gsub("%s+$", ""))
+  return table.concat(out)
 end
 
 --- Where a config text came from, for its includes: the file (an
 --- include is read relative to its directory), the repository's
 --- gitdir and HEAD's branch (for `includeIf`), and how deep the
---- includes go.
+--- includes go, and how many files the includes of one open read.
 local record ConfigSource
   file: string
   gitdir?: string
   branch?: string
   depth: integer
+  included: IncludeCount
+end
+
+--- How many files the includes of one open have read.
+local record IncludeCount
+  mut files: integer
 end
 
 --- Includes deeper than this are refused, as git refuses them.
 local MAX_INCLUDE_DEPTH <const> = 10
+--- The most files the includes of one open may read. git has no such
+--- limit, but ten levels of twenty includes each would read 20^10.
+local MAX_INCLUDED_FILES <const> = 1000
 
---- `text` split into logical lines: a backslash that ends a line
---- outside a comment joins it to the next, as git reads it.
+--- `text` split into logical lines, as git reads it: a UTF-8 BOM at the
+--- start goes, CRLF reads as LF, and a backslash that ends a line in a
+--- value (past its `=`, outside a comment) joins it to the next. One
+--- that ends a line anywhere else is kept, for the line to be refused.
 local function config_lines(text: string): {string}
+  if text:sub(1, 3) == "\xEF\xBB\xBF" then text = text:sub(4) end
+  text = text:gsub("\r\n", "\n")
   local lines: mut {string} = {}
   local current: mut {string} = {}
-  local quoted, comment = false, false
+  local quoted, comment, value = false, false, false
   local i = 1
   while i <= #text do
     local c = text:sub(i, i)
     if c == "\n" then
       lines[#lines + 1] = table.concat(current)
       current = {}
-      quoted, comment = false, false
+      quoted, comment, value = false, false, false
     elseif c == "\\" and not comment then
       local n = text:sub(i + 1, i + 1)
-      if n == "\n" then
+      if n == "\n" and value then
         i = i + 1
+      elseif n == "\n" then
+        current[#current + 1] = c
       else
         current[#current + 1] = c .. n
         i = i + 1
@@ -419,6 +475,7 @@ local function config_lines(text: string): {string}
     else
       if c == "\"" and not comment then quoted = not quoted end
       if (c == "#" or c == ";") and not quoted then comment = true end
+      if c == "=" and not quoted and not comment then value = true end
       current[#current + 1] = c
     end
     i = i + 1
@@ -450,7 +507,7 @@ local function include_holds(cond: string, from: ConfigSource): boolean
       pattern = "**/" .. pattern
     end
     if pattern:sub(-1) == "/" then pattern = pattern .. "**" end
-    return wildmatch(pattern, gitdir, kind == "gitdir/i") or wildmatch(pattern, gitdir .. "/", kind == "gitdir/i")
+    return wildmatch(pattern, gitdir, kind == "gitdir/i")
   elseif kind == "onbranch" then
     local branch = from.branch
     if branch == nil then return false end
@@ -464,7 +521,8 @@ end
 --- includes read in place. Refuses an include deeper than git allows.
 local function parse_config(text: string, into: Config, from: ConfigSource): (true) | (nil, Failure)
   local section = ""
-  for _, raw_line in ipairs(config_lines(text)) do
+  for number, raw_line in ipairs(config_lines(text)) do
+    local bad = "bad config line " .. tostring(number) .. ", which git refuses too"
     local line = raw_line:gsub("^%s+", "")
     if line:sub(1, 1) == "[" then
       local name, sub = line:match("^%[%s*([%w%.%-]+)%s+\"(.*)\"%s*%]")
@@ -472,13 +530,17 @@ local function parse_config(text: string, into: Config, from: ConfigSource): (tr
         section = name:lower() .. "." .. sub:gsub("\\(.)", "%1")
       else
         local plain = line:match("^%[%s*([%w%.%-]+)%s*%]")
-        section = if plain ~= nil then plain:lower() else "" end
+        if plain == nil then return refuse(bad, from.file) end
+        section = plain:lower()
       end
       line = line:gsub("^%b[]%s*", "")
     end
-    if line ~= "" and line:sub(1, 1) ~= "#" and line:sub(1, 1) ~= ";" and section ~= "" then
-      local key, rest = line:match("^([%w%-]+)%s*(.*)$")
-      if key ~= nil and rest ~= nil then
+    if line ~= "" and line:sub(1, 1) ~= "#" and line:sub(1, 1) ~= ";" then
+      local key, rest = line:match("^(%a[%w%-]*)%s*(.*)$")
+      if section == "" or key == nil or rest == nil or not (rest == "" or rest:find("^[=#;]") ~= nil) then
+        return refuse(bad, from.file)
+      end
+      do
         local value = "true"
         if rest:sub(1, 1) == "=" then value = config_value((rest:sub(2):gsub("^%s+", ""))) end
         local name = section .. "." .. key:lower()
@@ -495,10 +557,15 @@ local function parse_config(text: string, into: Config, from: ConfigSource): (tr
           end
           local target = expand_home(value)
           if target:sub(1, 1) ~= "/" then target = Fs.dirname(from.file) .. "/" .. target end
+          from.included.files = from.included.files + 1
+          if from.included.files > MAX_INCLUDED_FILES then
+            return refuse("config includes read more than " .. tostring(MAX_INCLUDED_FILES) .. " in all", from.file)
+          end
           local included, _ = Fs.read(target)
           if included ~= nil then
             local ok, trouble = parse_config(included, into, {
-              file = target, gitdir = from.gitdir, branch = from.branch, depth = from.depth + 1 })
+              file = target, gitdir = from.gitdir, branch = from.branch, depth = from.depth + 1,
+              included = from.included })
             if not ok then return nil, trouble end
           end
         end
@@ -537,6 +604,29 @@ local KNOWN_EXTENSIONS: {string:boolean} = {
 -- ignore rules
 ------------------------------------------------------------------
 
+--- Whether the directory `dir` is the worktree of a repository of its
+--- own, as git's is_nonbare_repository_dir tells: `dir/.git` is a
+--- directory, or a file naming one (`gitdir: path`), that holds HEAD,
+--- objects and refs.
+local function holds_repository(dir: string): boolean
+  local dotgit = dir .. "/.git"
+  local st, _ = sys.lstat(dotgit)
+  if st == nil then return false end
+  if st.kind == "file" then
+    local text, _ = Fs.read(dotgit)
+    local named = if text ~= nil then text:match("^gitdir: *([^\n]-)%s*$") else nil end
+    if named == nil or named == "" then return false end
+    dotgit = if named:sub(1, 1) == "/" then named else dir .. "/" .. named end
+  elseif st.kind ~= "dir" then
+    return false
+  end
+  local head, _ = sys.stat(dotgit .. "/HEAD")
+  local objects, _ = sys.stat(dotgit .. "/objects")
+  local refs, _ = sys.stat(dotgit .. "/refs")
+  return head ~= nil and head.kind == "file" and objects ~= nil and objects.kind == "dir" and refs ~= nil and
+    refs.kind == "dir"
+end
+
 --- One line of an ignore file.
 local record IgnoreRule
   pattern: string
@@ -554,6 +644,7 @@ end
 
 --- The rules of an ignore file's text, for paths under `base`.
 local function parse_ignore(text: string, base: string, into: mut {IgnoreRule})
+  if text:sub(1, 3) == "\xEF\xBB\xBF" then text = text:sub(4) end
   for raw in (text .. "\n"):gmatch("([^\n]*)\n") do
     local line = raw:gsub("\r$", "")
     -- Trailing spaces go, unless a backslash quotes the last one.
@@ -1714,7 +1805,13 @@ local class Repository is Git.Repo
     local function walk(dir: string, inherited: {IgnoreRule}): (true) | (nil, Failure)
       local full = if dir == "" then self.worktree else self.worktree .. "/" .. dir:sub(1, -2) end
       local rules = inherited
-      local own, _ = Fs.read(full .. "/.gitignore")
+      -- git reads no .gitignore that is a symbolic link (O_NOFOLLOW): its text would come from outside the tree.
+      local ignore_st, _ = sys.lstat(full .. "/.gitignore")
+      local own: string? = nil
+      if ignore_st ~= nil and ignore_st.kind == "file" then
+        local text, _ = Fs.read(full .. "/.gitignore")
+        own = text
+      end
       if own ~= nil then
         local more: mut {IgnoreRule} = {}
         for _, r in ipairs(inherited) do more[#more + 1] = r end
@@ -1722,7 +1819,11 @@ local class Repository is Git.Repo
         rules = more
       end
       local names, trouble = Fs.list(full)
-      if names == nil then return nil, trouble end
+      -- git warns of a directory it cannot open below the top, and goes on.
+      if names == nil then
+        if dir == "" then return nil, trouble end
+        return true
+      end
       for _, name in ipairs(names) do
         local path = dir .. name
         if name ~= ".git" then
@@ -1731,8 +1832,7 @@ local class Repository is Git.Repo
             if errno ~= sys.ENOENT then return nil, Failure.system(errno, full .. "/" .. name) end
           elseif st.kind == "dir" then
             if gitlinks[path] == nil and not is_ignored(rules, path, true, fold) then
-              local nested, _ = sys.lstat(full .. "/" .. name .. "/.git")
-              if tracked_dirs[path] == nil and nested ~= nil then
+              if tracked_dirs[path] == nil and holds_repository(full .. "/" .. name) then
                 found[#found + 1] = path .. "/"
               else
                 local ok, wtrouble = walk(path .. "/", rules)
@@ -2105,8 +2205,9 @@ function Git.open(path?: string): (Git.Repo) | (nil, Failure)
   local real_gitdir, _ = Fs.absolute(gitdir)
   local head_text, _ = Fs.read(gitdir .. "/HEAD")
   local branch: string? = if head_text ~= nil then head_text:match("^ref: refs/heads/(%S+)") else nil end
+  local included: IncludeCount = { files = 0 }
   local function source(file: string): ConfigSource
-    return { file = file, gitdir = real_gitdir or gitdir, branch = branch, depth = 0 }
+    return { file = file, gitdir = real_gitdir or gitdir, branch = branch, depth = 0, included = included }
   end
   local home = Env.get("HOME")
   local xdg = Env.get("XDG_CONFIG_HOME") or (home and home .. "/.config")
