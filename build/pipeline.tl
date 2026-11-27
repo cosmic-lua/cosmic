@@ -920,7 +920,10 @@ function Pipeline.implied(made: Pipeline.Alone, file: string, text: string, agai
     Pipeline.Alone
   local implicit = made.implicit
   -- The check again binds each name: it is never asked for a second time.
-  if implicit == nil or made.code ~= nil or implying.now then return made end
+  -- A text that begins with `#!` is a file's alone: nothing may stand before it.
+  if implicit == nil or made.code ~= nil or implying.now or text:sub(1, 1) == "#" then
+    return made
+  end
   local head = "^" .. file:gsub("%p", "%%%0") .. ":1:(%d+):"
   local names: mut {{string}} = {}
   for _, pair in ipairs(implicit) do names[#names + 1] = pair end

@@ -995,18 +995,19 @@ function Driver.new(options: Driver.Options): Driver.Build
         local fix = e.fix
         local module: string? = nil
         local named: string? = nil
-        -- Not where a near name is declared ("if you meant `csv`"): that one is more likely what was meant.
-        if e.code == "unknown_variable" and e.msg:sub(-#" is not declared") == " is not declared" and
-            fix:sub(1, #"if you meant ") ~= "if you meant " then
-          module = undeclared_module(result, e.offset)
-          if module ~= nil then
-            local at = RemovedFix.token_at(result.chunk.tokens, e.offset)
-            named = result.chunk.tokens.text[assert(at)] or ""
-            fix = "require its module above this use: `local " .. named .. " = require(\"" .. module .. "\")`"
-          end
-          -- Where the docs name no module, a capitalized name is still the guess a caller may try.
+        if e.code == "unknown_variable" and e.msg:sub(-#" is not declared") == " is not declared" then
           local at = RemovedFix.token_at(result.chunk.tokens, e.offset)
           local text = if at ~= nil then result.chunk.tokens.text[at] else nil end
+          -- Not where a near name is declared ("if you meant `csv`"): that one is more likely what was meant, for the fix.
+          if fix:sub(1, #"if you meant ") ~= "if you meant " then
+            module = undeclared_module(result, e.offset)
+            if module ~= nil then
+              named = text or ""
+              fix = "require its module above this use: `local " .. named .. " = require(\"" .. module .. "\")`"
+            end
+          end
+          -- Where the docs name no module, a capitalized name is still the guess a caller may try: the check again
+          -- drops it where the module is none.
           if module == nil and text ~= nil and text:match("^%u%w*$") ~= nil then
             module = "cosmic." .. text:lower()
             named = text

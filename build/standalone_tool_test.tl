@@ -254,4 +254,9 @@ local function test_a_name_of_a_cosmic_module_needs_no_require(tmp: string)
   assert(wrong.code ~= 0, tostring(wrong.stderr))
   local told = tostring(wrong.stderr)
   assert(told:find("-e:1:20:", 1, true) ~= nil and told:find("-e:1:43:", 1, true) ~= nil and told:find("`Nosuch` is not declared", 1, true) ~= nil, told)
+  -- A file with a `#!` line keeps it first: the refusal stays the one it had.
+  local shebang = tmp .. "/shebang.tl"
+  assert(Fs.write(shebang, '#!/usr/bin/env cosmic\nprint(Nosuch.x, Json.quote("x"))\n'))
+  local refused = run({ "--standalone", shebang })
+  assert(refused.code ~= 0 and tostring(refused.stderr):find("`Nosuch` is not declared", 1, true) ~= nil, tostring(refused.stderr))
 end
