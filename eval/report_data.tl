@@ -22,6 +22,8 @@ local record Data
     output: number
     --- The cost of every run, in dollars.
     total: number
+    --- Runs that ended with an error before their first request (left out of the passes above), when there are any.
+    broken: integer?
   end
 
   --- One tool on one task: means of a run.
@@ -58,6 +60,56 @@ local record Data
     refused_for: string?
     --- Each Host helper and the mean of snippets that name it, most first, when any.
     helpers: string?
+    --- The mean of snippets that repeated the one before to the letter, when any did.
+    resends: number?
+    --- The mean of snippets that sorted, when any did.
+    sorts: number?
+    --- The first line of the error of a run that ended before its first request, when one did.
+    broken: string?
+  end
+
+  --- One root cause of refused snippets, from one tool.
+  record Cause
+    --- "lang", "stdlib", "prompt" or "untagged": the layer whose change removes it.
+    tag: string
+    --- What it is.
+    name: string
+    --- The refused snippets it was named in.
+    count: integer
+    --- Each task that had it, with how often, most first.
+    tasks: string
+  end
+
+  --- One tool's refusals by root cause.
+  record Causes
+    --- The tool's name.
+    tool: string
+    --- The snippets the checker refused.
+    refused: integer
+    --- The causes of the refusals by layer ("lang 4, stdlib 2"), most first.
+    layers: string
+    --- Each cause, most first.
+    causes: {Cause}
+  end
+
+  --- One name a tool's agent tried that does not exist.
+  record Guess
+    --- The name and the code the checker gave ("Json.string_of (field_unknown)").
+    name: string
+    --- The runs that tried it.
+    runs: integer
+    --- Each task that had it, with how often, most first.
+    tasks: string
+  end
+
+  --- One tool's guessed names.
+  record Guesses
+    --- The tool's name.
+    tool: string
+    --- The names, most tried first.
+    names: {Guess}
+    --- How many more there are than are listed, when there are.
+    more: integer?
   end
 
   --- One task's rows, a row a tool.
@@ -82,6 +134,12 @@ local record Data
     totals: {Total}
     --- Each task.
     tasks: {Task}
+    --- Says the fixture's AGENTS.md and CLAUDE.md were left out, when they were.
+    agents_md?: string
+    --- Each tool's refusals by root cause, for the tools that had any.
+    causes: {Causes}
+    --- Each tool's guessed names, for the tools that had any.
+    guesses: {Guesses}
   end
 end
 
