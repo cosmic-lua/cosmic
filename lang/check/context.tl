@@ -373,6 +373,9 @@ local record Ctx
   --- The schemas whose handles' SQL the rest of the module no longer reads: a handle of one was sent SQL that may
   --- make a table or attach a database, or was migrated ([`Calls.sql_arguments`]).
   unread_schemas: mut {Decl: boolean}
+  --- The locals made from an empty literal with no type, by id, until the first store in each gives it one ([`lang.check.unfilled`]).
+  unfilled: mut {integer: Ast.Table}
+  mut unfilled_n: integer
   --- The result columns of each call of `rows` or `one` on a handle of a `local schema` with literal SQL
   --- that SQLite prepares against it, by the id of the call.
   call_columns: mut {integer: {Sql.Column}}
