@@ -52,7 +52,7 @@ function Narrowing.condition(ctx: Ctx, node: Ast.Exp): Type
   -- Each operand of `not`, `and` and `or` of a condition is only asked whether it holds: a field read there is a probe.
   local function mark_probes(operand: Ast.Exp)
     local at = peel(operand)
-    if (at.kind == "Field") then
+    if (at.kind == "Field") or (at.kind == "Index") then
       ctx.probes[at.id] = true
     elseif (at.kind == "Unary") and at.op == "not" then
       mark_probes(at.operand)

@@ -18,7 +18,7 @@ Host (cosmic.agent.host) and each cosmic.* module by its name in capitals (Fs, J
 
 The checker refuses, so write:
 - `..` joins strings only: a count, `#t` or a line number goes through tostring (`tostring(#out) .. " lines"`, `path .. ":" .. tostring(line)`), or format the whole line (`string.format("%s:%d", path, line)`); `%d` takes an integer: `math.floor(x)`.
-- A table you fill is declared: `local out: mut {string} = {}`, `local n: mut {string: integer} = {}`; append with `out[#out + 1] = v`.
+- A table you fill needs no type (`local out = {}`, then `out[#out + 1] = v`); written with one, it is `mut`: `local out: mut {string} = {}`.
 - A local that is or may become nil (a page cursor) is optional: `local cursor: string? = nil`, `local page: integer? = 1`; test it with `if cursor ~= nil then`. A local of a plain type is never compared with nil.
 - A local function declares its parameters and results: `local function f(x: integer): string`.
 - A read that may be nil (`t[i]`, `m[k]`, `s:match(...)`, `tonumber(s)`) is tested, given a default (`m[k] or 0`, in sums and comparisons too: `counts[k] = (counts[k] or 0) + 1`, `(counts[a] or 0) > (counts[b] or 0)`) or taken with `!` (`t[i]!`), which raises where it is nil. Walk a list with ipairs, a map with pairs. In `for i = 1, #t do`, `t[i]` is a value while the body only calls print, tostring, string.* and math.* on strings and numbers, compares with literals, has no `for ... in`, and assigns neither `t` nor `i`.
@@ -30,7 +30,7 @@ The checker refuses, so write:
 - Records, not tuples: a list holds one type, so `{ { path = "a.tl", n = 419 } }`, not `{ { "a.tl", 419 } }`; `T?`, not `T | nil`; no goto.
 
 For example:
-local counts: mut {string: integer} = {}
+local counts = {}
 for _, path in ipairs(Host.find(".")) do
   local ext = path:match("%.(%w+)$")
   if ext ~= nil then counts[ext] = (counts[ext] or 0) + 1 end
