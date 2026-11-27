@@ -12,6 +12,23 @@ Model {{.model}}; runs of each task with each tool: {{.reps}}; fixture {{.fixtur
 {{range .totals -}}
 - {{.tool}}: {{.passed}} of {{.n}} passed{{with .unfit}} ({{.}} unfit on this fixture, left out){{end}}{{with .broken}} ({{.}} broken, left out: the agent ended before its first request){{end}}; ${{.cost | report_data.fixed4}}, {{.cache_read | report_data.fixed0}} cache read, {{.cache_write | report_data.fixed0}} cache write, {{.output | report_data.fixed0}} out a run; ${{.total | report_data.fixed3}} in all
 {{end}}
+{{- with .sets}}
+## tuned and held-out tasks
+
+Held-out tasks are those the run text and the checker were not changed from. A change that helps the tuned tasks and not the held-out ones is fitted to them.
+
+{{range . -}}
+- {{.tool}}, {{.set}}: {{.passed}} of {{.n}} passed; ${{.cost | report_data.fixed4}}, {{.refused | report_data.fixed2}} refused a run
+{{end}}{{end}}
+{{- with .bands}}
+## against the controls
+
+A tool's difference from the controls is a finding only where it is outside their spread.
+
+{{range . -}}
+- {{.tool}}
+{{range .lines}}  - {{.}}
+{{end}}{{end}}{{end}}
 {{- range .tasks}}
 ## {{.name}}
 

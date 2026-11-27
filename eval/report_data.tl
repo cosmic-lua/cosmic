@@ -24,6 +24,30 @@ local record Data
     total: number
     --- Runs that ended with an error before their first request (left out of the passes above), when there are any.
     broken: integer?
+    --- The mean of snippets the checker refused in a run.
+    refused: number
+  end
+
+  --- One tool over the tasks of one set: the tuned tasks, or the tasks held out from tuning.
+  record SetTotal
+    --- The tool's name.
+    tool: string
+    --- "tuned" or "held out".
+    set: string
+    --- The runs that passed, and the runs graded.
+    passed: integer
+    n: integer
+    --- The mean cost of a run, in dollars, and the mean of snippets the checker refused in a run.
+    cost: number
+    refused: number
+  end
+
+  --- One tool against the controls: a line for each of passes, cost and refusals.
+  record Band
+    --- The tool's name.
+    tool: string
+    --- Each line says the tool's value, the controls' range, and whether the tool is inside it.
+    lines: {string}
   end
 
   --- One tool on one task: means of a run.
@@ -138,6 +162,10 @@ local record Data
     effort: string?
     --- Each tool over every task.
     totals: {Total}
+    --- Each tool over each set of tasks, when some are held out and some are tuned.
+    sets: {SetTotal}
+    --- Each tool that is not a control, against the controls' spread, when there are controls.
+    bands: {Band}
     --- Each task.
     tasks: {Task}
     --- Says the fixture's AGENTS.md and CLAUDE.md were left out, when they were.
@@ -157,6 +185,11 @@ end
 --- `n` with one decimal.
 function Data.fixed1(n: number): string
   return string.format("%.1f", n)
+end
+
+--- `n` with two decimals.
+function Data.fixed2(n: number): string
+  return string.format("%.2f", n)
 end
 
 --- `n` with three decimals.

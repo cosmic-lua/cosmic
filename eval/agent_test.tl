@@ -157,7 +157,7 @@ local function test_runs_are_graded_against_the_truth_of_an_untouched_copy()
       "eval/causes.tl holds the rules.",
     "",
     "- good: 2 refused snippets in 2 runs; by layer: prompt 2",
-    "  - prompt: a Lua habit the parser refuses: 2 (rename 1, todos 1)",
+    "  - prompt: a Lua habit the parser refuses: 2 (2 tasks: rename 1, todos 1)",
     "",
     "## names the model guessed that do not exist",
     "",
@@ -190,6 +190,47 @@ local function test_a_report_of_no_task_is_its_totals()
   assert(report == "# cosmic agent evals\n\nModel m; runs of each task with each tool: 1; fixture /f. Each number is " ..
       "the mean of a run.\n\n## all tasks\n\n- a: 1 of 1 passed; $0.2500, 3 cache read, 4 cache write, 2 out a run; " ..
       "$0.250 in all\n", report)
+end
+
+--- `--control` names a tool given before it; the report puts each other tool against the controls' spread, and
+--- shows the tuned tasks apart from the held-out ones.
+local function test_a_report_puts_a_tool_against_its_controls_and_the_held_out_tasks_apart()
+  assert(Agent.parse({ "--control", "a", "--tool", "a=/c", "--fixture", "/f", "--out", "/o" }) == nil)
+  local controlled = assert(options({ "--tool", "a=/c", "--tool", "b=/c", "--control", "a", "--fixture", "/f", "--out", "/o" }).controls)
+  assert(controlled[1] == "a")
+  local tune: Agent.Task = { name = "tune", prompt = "p", truth = "t", check = "c" }
+  local held: Agent.Task = { name = "held", prompt = "p", truth = "t", check = "c", held = true }
+  local o: Agent.Options = { tools = { { name = "c1", path = "/a" }, { name = "c2", path = "/a" }, { name = "v", path = "/b" } },
+    fixture = "/f", out = "/o", tasks = { tune, held }, reps = 1, model = "m", timeout = 1, controls = { "c1", "c2" } }
+  local function spent(cost: number, refused: integer): Agent.Spent
+    return { requests = 1, input = 1, output = 2, cache_read = 3, cache_write = 4, cost = cost, seconds = 1, tools = 0,
+      runs = 0, refused = refused, codes = {}, causes = {}, layers = {}, guesses = {}, resends = 0, sorts = 0,
+      first_read = 0, helpers = {} }
+  end
+  local results: mut {Agent.Result} = {}
+  local rows = { { tool = "c1", cost = 0.10, refused = 1 }, { tool = "c2", cost = 0.11, refused = 2 },
+    { tool = "v", cost = 0.20, refused = 4 } }
+  for _, row in ipairs(rows) do
+    for _, task in ipairs({ "tune", "held" }) do
+      local grade = if row.tool == "v" and task == "held" then "fail" else "pass" end
+      results[#results + 1] = { tool = row.tool, task = task, rep = 1, grade = grade,
+        spent = spent(row.cost, row.refused), wall = 1 }
+    end
+  end
+  local report = Agent.report(o, results)
+  assert(report:find("- v, held out: 0 of 1 passed; $0.2000, 4.00 refused a run\n", 1, true) ~= nil, report)
+  assert(report:find("- c1, tuned: 1 of 1 passed;", 1, true) ~= nil, report)
+  assert(report:find("  - cost $0.2000 a run; controls $0.1000 to $0.1100: above the controls\n", 1, true) ~= nil, report)
+  assert(report:find("  - passed 50.0%; controls 100.0% to 100.0%: below the controls\n", 1, true) ~= nil, report)
+  -- One control has no spread to be inside of.
+  local one: Agent.Options = { tools = o.tools, fixture = "/f", out = "/o", tasks = { tune, held }, reps = 1, model = "m",
+    timeout = 1, controls = { "c1" } }
+  assert(Agent.report(one, results):find("one control, no spread", 1, true) ~= nil)
+  -- With no held-out task there is no set section, and with no control no band.
+  local plain_options: Agent.Options = { tools = o.tools, fixture = "/f", out = "/o", tasks = { tune }, reps = 1,
+    model = "m", timeout = 1 }
+  local plain = Agent.report(plain_options, results)
+  assert(plain:find("held out", 1, true) == nil and plain:find("against the controls", 1, true) == nil, plain)
 end
 
 local function test_what_a_run_spent_is_read_from_its_session()
@@ -757,10 +798,10 @@ local function test_a_report_sets_its_causes_beside_an_earlier_rounds()
   local report = Agent.report(o, { { tool = "a", task = "todos", rep = 1, grade = "pass", spent = spent, wall = 1 } }, before)
   assert(report:find("- a: 2 refused snippets in 1 runs; by layer: lang 1, stdlib 1; before: 4 refused snippets in 2 runs; by layer: lang 3, " ..
       "prompt 1\n", 1, true) ~= nil, report)
-  assert(report:find("  - lang: x: 1 (was 3) (todos 1)\n", 1, true) ~= nil, report)
-  assert(report:find("  - stdlib: new: 1 (was 0) (todos 1)\n", 1, true) ~= nil, report)
+  assert(report:find("  - lang: x: 1 (was 3) (one task only, so fitting it is likely: todos 1)\n", 1, true) ~= nil, report)
+  assert(report:find("  - stdlib: new: 1 (was 0) (one task only, so fitting it is likely: todos 1)\n", 1, true) ~= nil, report)
   assert(report:find("  - prompt: gone: 0 (was 1)\n", 1, true) ~= nil, report)
   -- Without an earlier round the lines are as before.
   assert(Agent.report(o, { { tool = "a", task = "todos", rep = 1, grade = "pass", spent = spent, wall = 1 } }):find(
-    "  - lang: x: 1 (todos 1)\n", 1, true) ~= nil)
+    "  - lang: x: 1 (one task only, so fitting it is likely: todos 1)\n", 1, true) ~= nil)
 end
