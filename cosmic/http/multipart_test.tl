@@ -296,7 +296,7 @@ local function test_a_source_failure_is_passed_on_as_it_was_given()
       sent = true
       return "--" .. B .. "\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\nab"
     end,
-    close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
+    close = function(_self: Stream.Reader): (true) | (nil, Failure) return true end,
   }
   local reader = assert(Multipart.reader(source, { boundary = B }))
   local got = part_of(reader)

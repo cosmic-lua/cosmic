@@ -778,7 +778,7 @@ local function test_a_write_to_a_slow_reader_times_out_in_all()
   Poll.run(function()
     Poll.spawn(function()
       local start = Clock.monotonic_ns()
-      local ok: boolean
+      local ok: true?
       ok, why = p.client:write(string.rep("x", 64 * 1024 * 1024))
       took = Clock.monotonic_ns() - start
       done = true

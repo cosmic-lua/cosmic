@@ -86,7 +86,7 @@ local record verb
     --- Sends a request to the ACME server: [`Http.request`].
     request: Acme.Request
     --- Pauses between polls, for nanoseconds: [`Clock.sleep`] when nil.
-    pause?: function(ns: integer): (true) | (false, Failure)
+    pause?: function(ns: integer): (true) | (nil, Failure)
   end
 end
 
@@ -304,17 +304,17 @@ local function issue(to: verb.Io, complain: function(line: string), parsed: Flag
     complain((why:gsub("^acme: ", "")))
     return bare.failed
   end
-  local present: function(c: Acme.Challenge): (true) | (false, Failure)
+  local present: function(c: Acme.Challenge): (true) | (nil, Failure)
   local cleanup: function(c: Acme.Challenge)
   local challenge: Acme.ChallengeType = "http-01"
   if webroot ~= nil then
-    present = function(c: Acme.Challenge): (true) | (false, Failure)
+    present = function(c: Acme.Challenge): (true) | (nil, Failure)
       local path = webroot .. c.path
       local dir = path:match("^(.*)/[^/]*$") or webroot
       local ok, trouble = to.mkdirs(dir)
-      if not ok then return false, Failure.new(trouble) end
+      if not ok then return nil, Failure.new(trouble) end
       local written, write_trouble = to.write(path, c.key_authorization, READABLE)
-      if not written then return false, Failure.new(write_trouble) end
+      if not written then return nil, Failure.new(write_trouble) end
       return true
     end
     cleanup = function(c: Acme.Challenge)
@@ -323,9 +323,9 @@ local function issue(to: verb.Io, complain: function(line: string), parsed: Flag
   else
     local program = assert(hook)
     challenge = "dns-01"
-    present = function(c: Acme.Challenge): (true) | (false, Failure)
+    present = function(c: Acme.Challenge): (true) | (nil, Failure)
       local ran, trouble = to.run({ program, "present", c.dns_name, c.dns_value })
-      if not ran then return false, Failure.new(trouble) end
+      if not ran then return nil, Failure.new(trouble) end
       return true
     end
     cleanup = function(c: Acme.Challenge)

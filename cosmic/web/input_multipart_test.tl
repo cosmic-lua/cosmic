@@ -333,7 +333,7 @@ local function test_a_body_not_read_by_length_is_not_pulled_past_the_limit()
       pulled = pulled + (max or 0)
       return ("a"):rep(math.min(max or 100, 100))
     end,
-    close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
+    close = function(_self: Stream.Reader): (true) | (nil, Failure) return true end,
   }
   local app = Web.app{ routes = { Web.post("/x", function(req: Web.Request): Web.Response
     local bad = Input.multipart(req, { max_bytes = 1000 }).invalid
@@ -435,7 +435,7 @@ local function test_a_slow_or_failing_source_is_408_or_400(tmp: string)
         sent = true
         return "--" .. B .. '\r\nContent-Disposition: form-data; name="f"; filename="a"\r\n\r\npartial'
       end,
-      close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
+      close = function(_self: Stream.Reader): (true) | (nil, Failure) return true end,
     }
     local got: Types.Invalid? = nil
     local app = Web.app{ routes = { Web.post("/x", function(req: Web.Request): Web.Response
@@ -564,7 +564,7 @@ local function killed_while_waiting(fn: function(req: Web.Request), first: strin
       local _, _ = Clock.sleep(Clock.seconds(30))
       return nil, Failure.new("gone")
     end,
-    close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
+    close = function(_self: Stream.Reader): (true) | (nil, Failure) return true end,
   }
   local raw: Server.Request = { gone = function(): boolean return false end,
     wait_gone = function(_?: integer): boolean return false end, method = "POST", target = "/x", path = "/x", query = "", version = "HTTP/1.1",

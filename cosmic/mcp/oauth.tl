@@ -96,7 +96,7 @@ local record McpOAuth
     --- Shows the person `url`, where they sign in and consent: print
     --- it, or open it in a browser. It returns once shown, before the
     --- person is done; the redirect comes to the client.
-    open: function(url: string): (true) | (false, Failure)
+    open: function(url: string): (true) | (nil, Failure)
     --- The scopes to ask for where neither the challenge nor the
     --- server's metadata names any.
     scopes?: {string}

@@ -523,7 +523,7 @@ local function repeating(chunk: string, rounds: integer, each?: function(integer
       if each ~= nil then each(n) end
       return chunk
     end,
-    close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
+    close = function(_self: Stream.Reader): (true) | (nil, Failure) return true end,
   }
   return r
 end
@@ -586,12 +586,12 @@ end
 local function recording(): Stream.Writer, {string}
   local pieces: mut {string} = {}
   local w: Stream.Writer = { -- checked: literal_shape
-    write = function(_self: Stream.Writer, data: string): (true) | (false, Failure)
+    write = function(_self: Stream.Writer, data: string): (true) | (nil, Failure)
       pieces[#pieces + 1] = data
       return true
     end,
-    close = function(_self: Stream.Writer): (true) | (false, Failure) return true end,
-    abort = function(_self: Stream.Writer): (true) | (false, Failure) return true end,
+    close = function(_self: Stream.Writer): (true) | (nil, Failure) return true end,
+    abort = function(_self: Stream.Writer): (true) | (nil, Failure) return true end,
   }
   return w, pieces
 end
@@ -678,7 +678,7 @@ local function test_a_failing_body_fails_and_aborts_the_writer()
     read = function(_self: Stream.Reader, _max_bytes?: integer): (string | false) | (nil, Failure)
       return nil, Failure.new("disk on fire")
     end,
-    close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
+    close = function(_self: Stream.Reader): (true) | (nil, Failure) return true end,
   }
   local ok, trouble = w:add_file("f", bad)
   assert(not ok and tostring(trouble) == "zip: add_file: disk on fire", tostring(trouble))
@@ -699,12 +699,12 @@ local function test_a_streamed_body_takes_bounded_memory()
   for _, method in ipairs({ "deflate", "store" } as {Zip.Method}) do -- checked: cast_refused
     local written: integer = 0
     local sink: Stream.Writer = { -- checked: literal_shape
-      write = function(_self: Stream.Writer, data: string): (true) | (false, Failure)
+      write = function(_self: Stream.Writer, data: string): (true) | (nil, Failure)
         written = written + #data
         return true
       end,
-      close = function(_self: Stream.Writer): (true) | (false, Failure) return true end,
-      abort = function(_self: Stream.Writer): (true) | (false, Failure) return true end,
+      close = function(_self: Stream.Writer): (true) | (nil, Failure) return true end,
+      abort = function(_self: Stream.Writer): (true) | (nil, Failure) return true end,
     }
     collectgarbage()
     collectgarbage()
@@ -843,10 +843,10 @@ end
 --- A failing Writer's own words are returned by the writer as they
 --- are; a failing body Reader's are told what the writer was doing.
 local function test_a_failing_underlying_writer_is_answered_as_it_said_it()
-  local function closed(_self: Stream.Writer): (true) | (false, Failure) return true end
+  local function closed(_self: Stream.Writer): (true) | (nil, Failure) return true end
   local full: Stream.Writer = { -- checked: literal_shape
-    write = function(_self: Stream.Writer, _data: string): (true) | (false, Failure)
-      return false, Failure.new("disk full")
+    write = function(_self: Stream.Writer, _data: string): (true) | (nil, Failure)
+      return nil, Failure.new("disk full")
     end,
     close = closed, abort = closed,
   }
@@ -1192,7 +1192,7 @@ local class TimingOut is Stream.Reader
     return nil, Failure.timeout()
   end
 
-  function close(self): (true) | (false, Failure) return true end
+  function close(self): (true) | (nil, Failure) return true end
 end
 
 local function test_a_body_whose_source_times_out_keeps_the_kind_in_the_writer()

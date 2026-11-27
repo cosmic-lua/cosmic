@@ -328,7 +328,7 @@ local record Body is Stream.Reader
   mut guard?: Defer
   mut prologue: string
   read: function(Body, max_bytes?: integer): (string | false) | (nil, Failure)
-  close: function(Body): (true) | (false, Failure)
+  close: function(Body): (true) | (nil, Failure)
 end
 
 --- Ends the stream once: frees its slot (if it took one), closes the
@@ -433,7 +433,7 @@ function Body.read(self: Body, max_bytes?: integer): (string | false) | (nil, Fa
   return chunk
 end
 
-function Body.close(self: Body): (true) | (false, Failure)
+function Body.close(self: Body): (true) | (nil, Failure)
   finish(self, "client")
   return true
 end

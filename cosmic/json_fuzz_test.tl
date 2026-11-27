@@ -774,7 +774,7 @@ local function repeating_holds(input: string): boolean, string
   end
   if expected ~= "" and value ~= nil then return false, where .. ": a refusal with a value" end
   local ok, check_err = Json.check(text, { json5 = as_json5 })
-  if ok ~= (expected == "") or (if check_err == nil then "" else tostring(check_err) end) ~= expected then
+  if (ok == true) ~= (expected == "") or (if check_err == nil then "" else tostring(check_err) end) ~= expected then
     return false, where .. ": check said \"" .. tostring(check_err) .. "\""
   end
   if expected ~= "" then
@@ -837,7 +837,7 @@ local function text_holds(input: string): boolean, string
     local where = if json5 then "JSON5" else "RFC 8259" end
     local value, err = Json.decode(input, { null_value = Json.null, json5 = json5 })
     local ok, check_err = Json.check(input, { json5 = json5 })
-    if ok ~= (err == nil) or (not ok and tostring(check_err) ~= tostring(err)) then
+    if (ok == true) ~= (err == nil) or (not ok and tostring(check_err) ~= tostring(err)) then
       return false, where .. ": check said " .. tostring(check_err) .. ", decode " .. tostring(err)
     end
     local compact, ferr = Json.format(input, { json5 = json5 })

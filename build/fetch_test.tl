@@ -462,8 +462,8 @@ end
 
 local function test_download_status_uses_typed_code_instead_of_diagnostic_text(tmp: string)
   local download = Http.download
-  Http.download = function(_url: string, _path: string, _opts: Http.Options): (true) | (false, Failure) -- checked: field_fixed
-    return false, Failure.coded("wording may change", 503)
+  Http.download = function(_url: string, _path: string, _opts: Http.Options): (true) | (nil, Failure) -- checked: field_fixed
+    return nil, Failure.coded("wording may change", 503)
   end
   local ran = run({ url, "-o", tmp .. "/got" }, {})
   Http.download = download -- checked: field_fixed

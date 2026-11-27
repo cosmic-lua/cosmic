@@ -106,13 +106,13 @@ end
 --- refuses [`Store.attach`] used as a value: that is a gate on checked code,
 --- not a boundary against code that is not checked, which can call this
 --- itself.
-function Store.attach(path: string, opts?: Store.AttachOptions): (true) | (false, Failure)
+function Store.attach(path: string, opts?: Store.AttachOptions): (true) | (nil, Failure)
   if opts == nil or opts.unchecked_bytecode ~= true then
     error("store: attach: the database's bytecode is loaded unchecked; " ..
         "pass unchecked_bytecode = true in the options to say so", 2)
   end
   local ok, trouble = store.attach(path)
-  if not ok then return false, Failure.new(path .. ": " .. trouble) end
+  if not ok then return nil, Failure.new(path .. ": " .. trouble) end
   return true
 end
 
@@ -516,12 +516,12 @@ local function write_database(names: {string}, file: string, main: string?,
         return false, tostring(why)
       end
     end
-    local transacted, transact_why = db:transact(function(): (true) | (false, Failure)
+    local transacted, transact_why = db:transact(function(): (true) | (nil, Failure)
       local zones, roots, web = false, false, false
       for _, name in ipairs(names) do
         local source, locate_trouble = locate(name)
         if source == nil then
-          return false, Failure.new(name .. ": " .. locate_trouble)
+          return nil, Failure.new(name .. ": " .. locate_trouble)
         end
         -- The key is the compile's, which only the tree that compiled the
         -- module can use, and `tests` names the tree's tests, which a
@@ -531,7 +531,7 @@ local function write_database(names: {string}, file: string, main: string?,
           "SELECT path, file, kind, source_hash, X'', bytecode, '', source " ..
             "FROM modules WHERE path = ?1", { text(name) })
         if not copied then
-          return false, Failure.new(why)
+          return nil, Failure.new(why)
         end
         -- Every edge, within the set or not, as the database it came from
         -- holds them: a compile that resolves the module follows each. A
@@ -540,7 +540,7 @@ local function write_database(names: {string}, file: string, main: string?,
         local has_edges, has_trouble = source:rows(
           "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'decl_imports'")
         if has_edges == nil then
-          return false, Failure.new("decl_imports: " .. tostring(has_trouble))
+          return nil, Failure.new("decl_imports: " .. tostring(has_trouble))
         end
         if #has_edges > 0 then
           local edges_copied, edges_why = copy_rows(source, db, "decl_imports",
@@ -548,7 +548,7 @@ local function write_database(names: {string}, file: string, main: string?,
             "SELECT path, requires FROM decl_imports WHERE path = ?1 ORDER BY requires",
             { text(name) })
           if not edges_copied then
-            return false, Failure.new(edges_why)
+            return nil, Failure.new(edges_why)
           end
         end
         -- Only edges within the set: one left out (by type alone) would
@@ -557,7 +557,7 @@ local function write_database(names: {string}, file: string, main: string?,
           "SELECT requires FROM imports WHERE path = ?1 ORDER BY requires",
           { text(name) })
         if edges == nil then
-          return false, Failure.new("imports: " .. tostring(edge_trouble))
+          return nil, Failure.new("imports: " .. tostring(edge_trouble))
         end
         for _, edge in ipairs(edges) do
           if present[edge:text(1)] == true then
@@ -565,7 +565,7 @@ local function write_database(names: {string}, file: string, main: string?,
               "INSERT OR IGNORE INTO imports (path, requires) VALUES (?1, ?2)",
               { text(name), text(edge:text(1)) })
             if not inserted then
-              return false, Failure.new("imports: " .. tostring(insert_trouble))
+              return nil, Failure.new("imports: " .. tostring(insert_trouble))
             end
           end
         end
@@ -581,7 +581,7 @@ local function write_database(names: {string}, file: string, main: string?,
           { text(script.name), text(script.name), { blob = Hash.sha256(script.source) },
             { blob = script.bytecode }, { blob = script.source } })
         if not added then
-          return false, Failure.new(script.name .. ": " .. tostring(why))
+          return nil, Failure.new(script.name .. ": " .. tostring(why))
         end
         for _, edge in ipairs(script.requires or {}) do -- checked: condition_type, literal_needs_type
           if present[edge] == true then
@@ -589,7 +589,7 @@ local function write_database(names: {string}, file: string, main: string?,
               "INSERT OR IGNORE INTO imports (path, requires) VALUES (?1, ?2)",
               { text(script.name), text(edge) })
             if not inserted then
-              return false, Failure.new("imports: " .. tostring(insert_trouble))
+              return nil, Failure.new("imports: " .. tostring(insert_trouble))
             end
           end
         end
@@ -601,7 +601,7 @@ local function write_database(names: {string}, file: string, main: string?,
         local copied, why = copy_rows(binary_db, db, "zoneinfo", { "name", "data" },
           "SELECT name, data FROM zoneinfo ORDER BY name")
         if not copied then
-          return false, Failure.new(why)
+          return nil, Failure.new(why)
         end
       end
       if web then
@@ -609,14 +609,14 @@ local function write_database(names: {string}, file: string, main: string?,
         local has_web, has_trouble = binary_db:rows(
           "SELECT 1 FROM sqlite_master WHERE name = 'web_assets'")
         if has_web == nil then
-          return false, has_trouble
+          return nil, has_trouble
         end
         if #has_web > 0 then
           local copied, why = copy_rows(binary_db, db, "web_assets",
             { "name", "data", "sha256", "sha384", "version" },
             "SELECT name, data, sha256, sha384, version FROM web_assets ORDER BY name")
           if not copied then
-            return false, Failure.new(why)
+            return nil, Failure.new(why)
           end
         end
       end
@@ -625,12 +625,12 @@ local function write_database(names: {string}, file: string, main: string?,
           { "sha256", "label", "der", "distrust_after" },
           "SELECT sha256, label, der, distrust_after FROM ca_roots ORDER BY sha256")
         if not copied then
-          return false, Failure.new(why)
+          return nil, Failure.new(why)
         end
         copied, why = copy_rows(binary_db, db, "ca_revoked", { "kind", "name", "value" },
           "SELECT kind, name, value FROM ca_revoked ORDER BY rowid")
         if not copied then
-          return false, Failure.new(why)
+          return nil, Failure.new(why)
         end
       end
       -- What the program was made to run on and as.
@@ -638,7 +638,7 @@ local function write_database(names: {string}, file: string, main: string?,
         local inserted, trouble = db:run(
           "INSERT INTO meta (key, value) VALUES (?1, ?2)", { text(pair.key), text(pair.value) })
         if not inserted then
-          return false, trouble
+          return nil, trouble
         end
       end
       if main ~= nil then

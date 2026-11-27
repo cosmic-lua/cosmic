@@ -488,13 +488,13 @@ local function test_boot_lock_classifies_the_begin_result_not_its_reason(tmp: st
   local closes = 0
   local outcome: Failure?
   methods.busy_timeout = function(_self: any, ns: integer) assert(ns >= 0) end
-  methods.exec = function(_self: any, sql: string): (true) | (false, Failure)
+  methods.exec = function(_self: any, sql: string): (true) | (nil, Failure)
     assert(sql == "BEGIN IMMEDIATE")
     calls = calls + 1
     if calls == 1 then
       local first = outcome
       assert(first ~= nil, "the loop sets the outcome before it takes the lock")
-      return false, first
+      return nil, first
     end
     return true
   end

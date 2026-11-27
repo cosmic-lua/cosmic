@@ -160,12 +160,12 @@ local class SocketListener
   --- Stops listening. A unix listener removes its socket file too,
   --- unless another file has taken the name since. Safe to call more
   --- than once.
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     if not self.open then return true end
     self.open = false
     Poll.closing(self.fd)
     local ok, why = self.socket:close()
-    if not ok then return false, failure_of(named(self.address) .. ": " .. why) end
+    if not ok then return nil, failure_of(named(self.address) .. ": " .. why) end
     return true
   end
 
@@ -250,7 +250,7 @@ local class UdpSocket
   --- it: of kind "timeout" when the wait ends, "cancelled" in a task of
   --- [`Poll.run`] that is cancelled or for a caught signal, else "other". Raises on `data` over 65535 bytes and on an
   --- address of another kind or with a port past 65535.
-  function send(self, data: string, to: raw_socket.Address): (true) | (false, Failure)
+  function send(self, data: string, to: raw_socket.Address): (true) | (nil, Failure)
     if #data > DATAGRAM_MAX then
       error("net: a datagram holds at most " .. tostring(DATAGRAM_MAX) .. " bytes", 2)
     end
@@ -260,19 +260,19 @@ local class UdpSocket
       error("net: a datagram is sent to a udp address, from Net.udp, whose host is a string and " ..
           "port an integer from 0 to 65535", 2)
     end
-    if not self.open then return false, failure_of("net: the socket is closed") end
+    if not self.open then return nil, failure_of("net: the socket is closed") end
     local fd = self.fd
     while true do
       local ok, why, errno = raw.sendto(fd, data, to)
       if ok then return true end
       if errno == raw.EINVAL then
-        return false, failure_of(why .. " (not a numeric IPv4 or IPv6 address: a name is not looked up, " ..
+        return nil, failure_of(why .. " (not a numeric IPv4 or IPv6 address: a name is not looked up, " ..
             "nor an IPv6 scope read)")
       end
-      if errno ~= raw.EAGAIN then return false, failure_of(why) end
+      if errno ~= raw.EAGAIN then return nil, failure_of(why) end
       local ready, waiting = waited(fd, true, self.limit)
-      if not ready then return false, failure_of(waiting) end
-      if not self.open then return false, failure_of("net: the socket is closed") end
+      if not ready then return nil, failure_of(waiting) end
+      if not self.open then return nil, failure_of("net: the socket is closed") end
     end
   end
 
@@ -307,11 +307,11 @@ local class UdpSocket
   --- [`Failure`] where it cannot: a group that is no multicast address, one already
   --- joined there ("Address in use"), or no such interface. Raises on a
   --- `via` of the wrong form for the group's family.
-  function join(self, group: string, via?: string | integer): (true) | (false, Failure)
+  function join(self, group: string, via?: string | integer): (true) | (nil, Failure)
     checked_via(via, group:find(":", 1, true) ~= nil, 2)
-    if not self.open then return false, failure_of("net: the socket is closed") end
+    if not self.open then return nil, failure_of("net: the socket is closed") end
     local ok, why, errno = raw.membership(self.fd, group, via, true)
-    if not ok then return false, failure_of(membership_trouble(group, why, errno)) end
+    if not ok then return nil, failure_of(membership_trouble(group, why, errno)) end
     return true
   end
 
@@ -319,11 +319,11 @@ local class UdpSocket
   --- `join`. False and a [`Failure`] where the socket is no member of it
   --- there.
   --- Raises as `join` does.
-  function leave(self, group: string, via?: string | integer): (true) | (false, Failure)
+  function leave(self, group: string, via?: string | integer): (true) | (nil, Failure)
     checked_via(via, group:find(":", 1, true) ~= nil, 2)
-    if not self.open then return false, failure_of("net: the socket is closed") end
+    if not self.open then return nil, failure_of("net: the socket is closed") end
     local ok, why, errno = raw.membership(self.fd, group, via, false)
-    if not ok then return false, failure_of(membership_trouble(group, why, errno)) end
+    if not ok then return nil, failure_of(membership_trouble(group, why, errno)) end
     return true
   end
 
@@ -333,34 +333,34 @@ local class UdpSocket
   --- as a `via` that is no interface of the machine; the ones before it
   --- stay set. Raises on a `via` of the wrong form for the family of the
   --- socket's address, and on `hops` outside 0 to 255.
-  function set_multicast(self, opts: Multicast): (true) | (false, Failure)
+  function set_multicast(self, opts: Multicast): (true) | (nil, Failure)
     local via, hops, loop = opts.via, opts.hops, opts.loop
     checked_via(via, assert(self.address.host):find(":", 1, true) ~= nil, 2)
     if hops ~= nil and (hops < 0 or hops > 255) then error("net: hops must be from 0 to 255", 2) end
-    if not self.open then return false, failure_of("net: the socket is closed") end
+    if not self.open then return nil, failure_of("net: the socket is closed") end
     if via ~= nil then
       local ok, why = raw.multicast_interface(self.fd, via)
-      if not ok then return false, failure_of("via " .. tostring(via) .. ": " .. why) end
+      if not ok then return nil, failure_of("via " .. tostring(via) .. ": " .. why) end
     end
     if hops ~= nil then
       local ok, why = raw.multicast_hops(self.fd, hops)
-      if not ok then return false, failure_of("hops: " .. why) end
+      if not ok then return nil, failure_of("hops: " .. why) end
     end
     if loop ~= nil then
       local ok, why = raw.multicast_loop(self.fd, loop)
-      if not ok then return false, failure_of("loop: " .. why) end
+      if not ok then return nil, failure_of("loop: " .. why) end
     end
     return true
   end
 
   --- Closes the socket, ending a task's wait on it. Safe to call more
   --- than once.
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     if not self.open then return true end
     self.open = false
     Poll.closing(self.fd)
     local ok, why = self.socket:close()
-    if not ok then return false, failure_of(named(self.address) .. ": " .. why) end
+    if not ok then return nil, failure_of(named(self.address) .. ": " .. why) end
     return true
   end
 
@@ -1506,7 +1506,7 @@ end
 --- in a task of another. It returns true once [`Server.stop`] has been
 --- called, or a signal has stopped it, and every task of the run has
 --- ended -- each connection's, and any [`Net.ServeSpec.on_ready`] or
---- [`Net.ServeSpec.on_stop`] spawned -- and false and a Failure, having called
+--- [`Net.ServeSpec.on_stop`] spawned -- and nil and a Failure, having called
 --- nothing, where a listener cannot listen or its signal guard cannot
 --- be opened, or where the first load of `spec.tls` fails (`clear`
 --- having served meanwhile), or, having served, where the guard cannot
@@ -1544,7 +1544,7 @@ end
 --- the signal runs to its end. A wait that holds the thread rather than
 --- waiting through the run (`h:wait` on a child a protocol started)
 --- reads the server's guard, and ends at a signal.
-function Net.serve(spec: Net.ServeSpec): (true) | (false, Failure)
+function Net.serve(spec: Net.ServeSpec): (true) | (nil, Failure)
   checked_spec(spec)
   if Poll.in_task() then
     error("net: serve runs a Poll.run of its own, and cannot be called in a task of another: to connect to it " ..
@@ -1553,7 +1553,7 @@ function Net.serve(spec: Net.ServeSpec): (true) | (false, Failure)
   end
   local served = { ok = true, why = "" }
   Poll.run(function() served.ok, served.why = serving(spec) end)
-  if not served.ok then return false, Failure.new(served.why) end
+  if not served.ok then return nil, Failure.new(served.why) end
   return true
 end
 

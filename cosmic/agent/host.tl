@@ -440,9 +440,9 @@ end
 --- Keeps `value` under `key` for a later snippet of this session, in sessions.db, in place of what was kept there;
 --- no value, or [`Json.null`], lets the key go. A session gone on with reads it again. Small values alone:
 --- a key holds 256KB of JSON and a session 1MB; what is larger goes to a file.
-local function store_of(key: string, value?: Json.Value): (true) | (false, Failure)
+local function store_of(key: string, value?: Json.Value): (true) | (nil, Failure)
   local _, why = Host.call("store.put", { key = key, value = if value == nil then Json.null else value end })
-  if why ~= nil then return false, why end
+  if why ~= nil then return nil, why end
   return true
 end
 

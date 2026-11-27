@@ -548,10 +548,10 @@ local function apply(db: Sqlite.Handle, dataset: refresh.Dataset, source: refres
     end
     url = if source.url ~= "" then source.url else "file:" .. Fs.basename(source.path) end
   end
-  local made, made_trouble = db:transact(function(): (true) | (false, Failure)
+  local made, made_trouble = db:transact(function(): (true) | (nil, Failure)
     local written, write_trouble = release.write(db)
     if not written then
-      return false, Failure.new(write_trouble)
+      return nil, Failure.new(write_trouble)
     end
     -- sha3_256 is left as it was: no dataset's upstream publishes one,
     -- and a binary older than that column has none to set.

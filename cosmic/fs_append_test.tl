@@ -60,7 +60,7 @@ local function test_append_completes_short_writes(tmp: string)
   end
   local ok, why = Fs.append(path, "abcdefg")
   sys.write = real_write -- checked: field_fixed
-  assert(ok and writes == 4, tostring(why))
+  assert(ok == true and writes == 4, tostring(why))
   assert(assert(Fs.read(path)) == "beforeabcdefg")
 end
 

@@ -1530,7 +1530,7 @@ local class PipeReader is Stream.Reader
     return chunk
   end
 
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     if self.closed then return true end
     self.closed = true
     local pipe = self.pipe
@@ -1561,30 +1561,30 @@ local class FeedWriter is Stream.Writer
   mut closed: boolean
   mut into?: Stream.Writer
 
-  function write(self, data: string): (true) | (false, Failure)
-    if self.closed then return false, failure_of(closed_writer) end
+  function write(self, data: string): (true) | (nil, Failure)
+    if self.closed then return nil, failure_of(closed_writer) end
     -- Only a settled child's stdin is closed from under its writer.
-    if self.child._feed_fd ~= self.fd then return false, failure_of(EXITED) end
+    if self.child._feed_fd ~= self.fd then return nil, failure_of(EXITED) end
     local ok, why = assert(self.into):write(data)
     if ok then return true end
     -- The words of a signal the child's guard caught come up through
     -- the stream's wait, which knows only its own: kind them here.
-    if why.kind == "other" then return false, failure_of(why.message) end
-    return false, why
+    if why.kind == "other" then return nil, failure_of(why.message) end
+    return nil, why
   end
 
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     self.closed = true
     local child, fd = self.child, self.fd
     if child._feed_fd == nil then return true end
     child._feed_fd = nil
     Poll.closing(fd)
     local ok, trouble = sys.close(fd)
-    if not ok then return false, failure_of(trouble) end
+    if not ok then return nil, failure_of(trouble) end
     return true
   end
 
-  function abort(self): (true) | (false, Failure)
+  function abort(self): (true) | (nil, Failure)
     return self:close()
   end
 end
@@ -1934,10 +1934,10 @@ local class Handle
   --- group when `process_group` is true. It does not wait. False and a
   --- [`Failure`] when the child has been reaped already or the signal
   --- cannot be sent.
-  function stop(self, signal?: integer): (true) | (false, Failure)
-    if self._closed then return false, Failure.new("child: process already reaped") end
+  function stop(self, signal?: integer): (true) | (nil, Failure)
+    if self._closed then return nil, Failure.new("child: process already reaped") end
     local ok, trouble = sys.kill(target(self), signal or sys.SIGTERM)
-    if not ok then return false, Failure.new(trouble) end
+    if not ok then return nil, Failure.new(trouble) end
     return true
   end
 
@@ -1947,11 +1947,11 @@ local class Handle
   --- handle only ends the streamed outputs. False and a [`Failure`] when
   --- the child cannot be ended; what its settle could not clear is on
   --- the Result's `remains`.
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     closing_outputs(self)
     if not self._closed then
       local r, trouble = end_child(self)
-      if not r then return false, failure_of(trouble) end
+      if not r then return nil, failure_of(trouble) end
     end
     end_streamed(self)
     return true

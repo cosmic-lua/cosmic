@@ -430,10 +430,10 @@ function Orchestration.replay(out: string, err: string, to_out?: integer,
   local replay_ok = Env.get("COSMIC_CI_SELFTEST_REPLAY_FAILURE") ~= "true"
   if replay_ok then
     local out_ok, _ = Fs.put(to_out or Fs.stdout, read(out))
-    replay_ok = out_ok
+    replay_ok = out_ok == true
     if replay_ok then
       local err_ok, _ = Fs.put(to_err or Fs.stderr, read(err))
-      replay_ok = err_ok
+      replay_ok = err_ok == true
     end
   end
   if not replay_ok then

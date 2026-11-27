@@ -10,7 +10,7 @@
 ---     local chain = assert(client:issue({ "example.com", "www.example.com" }, {
 ---       key = Key.generate("p256"),
 ---       challenge = "http-01",
----       present = function(c: Acme.Challenge): (true) | (false, Failure)
+---       present = function(c: Acme.Challenge): (true) | (nil, Failure)
 ---         served[c.path] = c.key_authorization
 ---         return true
 ---       end,
@@ -173,10 +173,10 @@ local record Acme
     --- The challenge type to complete, "http-01" when nil.
     challenge?: ChallengeType
     --- Publishes a challenge's response before the server checks it:
-    --- true, or false and why, which stops the issue. The server checks
+    --- true, or nil and why, which stops the issue. The server checks
     --- as soon as this returns, so it returns only once the response is
     --- reachable: a dns-01 record has spread to the zone's servers.
-    present: function(challenge: Challenge): (true) | (false, Failure)
+    present: function(challenge: Challenge): (true) | (nil, Failure)
     --- Withdraws what `present` published, once the authorization is
     --- settled either way. Whether it worked is not checked.
     cleanup?: function(challenge: Challenge)
@@ -208,7 +208,7 @@ local record Acme
     request?: Request
     --- Pauses between polls, for nanoseconds: [`Clock.sleep`] when
     --- nil. A test hands one that returns at once.
-    pause?: function(ns: integer): (true) | (false, Failure)
+    pause?: function(ns: integer): (true) | (nil, Failure)
     --- [`Acme.Client.wait`]'s options for every wait [`Acme.Client.issue`]
     --- makes.
     wait?: WaitOptions
@@ -223,9 +223,9 @@ local record Acme
   record DnsHooks
     --- Puts the TXT record `challenge.dns_name` with the value
     --- `challenge.dns_value` in the zone. Returns true only once the
-    --- zone's servers respond with it, or false and why, which stops the
+    --- zone's servers respond with it, or nil and why, which stops the
     --- issue.
-    present: function(challenge: Challenge): (true) | (false, Failure)
+    present: function(challenge: Challenge): (true) | (nil, Failure)
     --- Removes it, once the authorization is settled either way.
     cleanup?: function(challenge: Challenge)
   end
@@ -257,7 +257,7 @@ local record Acme
     --- As [`Acme.ClientOptions.request`].
     request?: Request
     --- As [`Acme.ClientOptions.pause`].
-    pause?: function(ns: integer): (true) | (false, Failure)
+    pause?: function(ns: integer): (true) | (nil, Failure)
     --- As [`Acme.ClientOptions.wait`].
     wait?: WaitOptions
     --- As [`Acme.ClientOptions.rate_limit_wait_ns`].
@@ -306,8 +306,8 @@ local record Acme
     get_order: function(self: Client, url: string): (Order) | (nil, Failure)
     --- The authorization at `url`.
     authorization: function(self: Client, url: string): (Authorization) | (nil, Failure)
-    --- Tells the server to check the challenge: true, or false and why.
-    respond: function(self: Client, challenge: Challenge): (true) | (false, Failure)
+    --- Tells the server to check the challenge: true, or nil and why.
+    respond: function(self: Client, challenge: Challenge): (true) | (nil, Failure)
     --- Polls the order or authorization at `url` until its status is
     --- not "pending" or "processing", and returns that status. Nil and
     --- why when the time runs out.
@@ -643,12 +643,12 @@ local function leaf_of(chain: string): (Leaf) | (nil, Failure)
 end
 
 --- Whether the leaf of the PEM `chain` certifies `key` for exactly the
---- DNS names `names`: true, or false and why.
-local function leaf_matches(chain: string, key: Key.Secret, names: {string}): (true) | (false, Failure)
+--- DNS names `names`: true, or nil and why.
+local function leaf_matches(chain: string, key: Key.Secret, names: {string}): (true) | (nil, Failure)
   local leaf, why = leaf_of(chain)
-  if leaf == nil then return false, why end
+  if leaf == nil then return nil, why end
   if leaf.spki ~= key.public:spki() then
-    return false, Failure.new("acme: the issued certificate is not for the certificate's key")
+    return nil, Failure.new("acme: the issued certificate is not for the certificate's key")
   end
   local function set_of(list: {string}): {string}
     local seen: mut {string: boolean} = {}
@@ -665,7 +665,7 @@ local function leaf_matches(chain: string, key: Key.Secret, names: {string}): (t
   end
   local got, asked = table.concat(set_of(leaf.names), " "), table.concat(set_of(names), " ")
   if got ~= asked then
-    return false, Failure.new(("acme: the issued certificate names %s, not the names asked for, %s"):format(quoted(got),
+    return nil, Failure.new(("acme: the issued certificate names %s, not the names asked for, %s"):format(quoted(got),
       quoted(asked)))
   end
   return true
@@ -697,9 +697,9 @@ function Acme.client(opts: Acme.ClientOptions): Acme.Client
   end
   local request: Acme.Request = opts.request or default_request
   -- In a task of Poll.run the other tasks go on meanwhile.
-  local pause_for = opts.pause or function(ns: integer): (true) | (false, Failure)
+  local pause_for = opts.pause or function(ns: integer): (true) | (nil, Failure)
     local paused, why = Clock.sleep(ns)
-    if not paused then return false, why end
+    if not paused then return nil, why end
     return true
   end
   local thumbprint = key.public:thumbprint()
@@ -906,9 +906,9 @@ function Acme.client(opts: Acme.ClientOptions): Acme.Client
       return read_authorization(thumbprint, url, object)
     end,
 
-    respond = function(_self: Acme.Client, challenge: Acme.Challenge): (true) | (false, Failure)
+    respond = function(_self: Acme.Client, challenge: Acme.Challenge): (true) | (nil, Failure)
       local object, _, why = post_object(challenge.url, {}, "challenge")
-      if object == nil then return false, why end
+      if object == nil then return nil, why end
       return true
     end,
 
@@ -1181,7 +1181,7 @@ function Acme.auto(opts: Acme.AutoOptions): Acme.Auto
     local chain, why = session:issue(names, {
       key = key,
       challenge = if dns ~= nil then "dns-01" else "http-01" end,
-      present = function(c: Acme.Challenge): (true) | (false, Failure)
+      present = function(c: Acme.Challenge): (true) | (nil, Failure)
         if dns ~= nil then return dns.present(c) end
         pending[c.path] = c.key_authorization
         return true

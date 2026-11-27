@@ -1442,6 +1442,17 @@ local function test_assert_of_an_optional_that_may_hold_a_boolean_is_refused()
   assert(codes_of("local function f(x: boolean?)\n  assert(x ~= nil)\n  assert(x == true)\nend\n") == "")
 end
 
+--- A `true?` (an effect's `(true) | (nil, Failure)`) holds no false, so it is a condition like any optional. Of `and` and
+--- `or`, the right operand is the one whose value is asked: an optional that may hold false there is still refused.
+local function test_a_true_optional_is_a_condition_and_the_right_operand_is_held_to_the_rule()
+  local head = "local function f(ok: true?, flag: boolean?, n: integer?)\n"
+  assert(codes_of(head .. "  if ok then\n  end\n  assert(ok)\nend\n") == "")
+  assert(codes_of(head .. "  if ok and n == nil then\n  end\n  assert(ok and n == nil)\nend\n") == "")
+  assert(codes_of(head .. "  if ok and flag then\n  end\nend\n") == "condition_type")
+  assert(codes_of(head .. "  if ok or flag then\n  end\nend\n") == "condition_type")
+  assert(codes_of(head .. "  assert(ok and flag)\nend\n") == "condition_type")
+end
+
 --- The fix of a value that may be nil sends none that may hold a boolean to `assert(x)`, which is refused in turn: it is
 --- taken with `!`, which raises at nil alone, so a `false` passes. A map read of booleans is given no `or <default>`,
 --- which would replace a false, and an array read keeps [`Array.at`].

@@ -439,7 +439,7 @@ local function test_closing_answers_the_waits_on_a_descriptor(tmp: string)
   Poll.run(function()
     local waiter = Poll.spawn(function()
       local ready, _ = Poll.readable(reader, Clock.seconds(5))
-      answered = ready
+      answered = ready == true
     end)
     assert(Clock.sleep(0))
     Poll.closing(reader)
@@ -461,7 +461,7 @@ local function test_answer_wakes_the_waits_on_a_descriptor_with_its_events(tmp: 
   Poll.run(function()
     local one = Poll.spawn(function()
       local ready, _ = Poll.readable(reader, Clock.seconds(5))
-      readable = ready
+      readable = ready == true
     end)
     local both = Poll.spawn(function()
       answers = assert(Poll.ready({ writer, reader }, { sys.POLLIN, sys.POLLIN }, Clock.seconds(5)))
@@ -1000,7 +1000,7 @@ local function test_a_shielded_wait_outlasts_a_cancel()
     ticker:cancel()
   end)
   assert(table.concat(seen, ", ") ==
-      "delay true, nested true, after nested true, after false " .. Poll.CANCELLED,
+      "delay true, nested true, after nested true, after nil " .. Poll.CANCELLED,
     table.concat(seen, ", "))
 end
 
@@ -1246,7 +1246,7 @@ local function test_notify_all_wakes_every_waiter_in_order_and_not_later_ones()
     assert(notifier:waiting() == 0)
     local late = Poll.spawn(function()
       local woke, _ = notifier:wait(Clock.ms(5))
-      assert(woke == false)
+      assert(woke == nil)
     end)
     for _, task in ipairs(tasks) do assert(task:join()) end
     assert(late:join())
@@ -1422,7 +1422,7 @@ local function test_a_waiter_cancelled_after_its_notice_still_answers_true()
     local notifier = Poll.notifier()
     local task = Poll.spawn(function()
       local woke, _ = notifier:wait(Clock.seconds(30))
-      ok = woke
+      ok = woke == true
     end)
     assert(Clock.sleep(0))
     notifier:notify_one()
@@ -1470,7 +1470,7 @@ local function test_a_timeout_beats_a_notice_sent_in_the_same_tick()
     assert(notifier:waiting() == 0)
   end)
   assert(spare)
-  assert(#answers == 1 and answers[1] == "false:" .. Poll.TIMEOUT)
+  assert(#answers == 1 and answers[1] == "nil:" .. Poll.TIMEOUT)
 end
 
 local function test_a_notifier_wait_without_a_timeout_is_woken_by_a_later_task()
@@ -1479,7 +1479,7 @@ local function test_a_notifier_wait_without_a_timeout_is_woken_by_a_later_task()
     local notifier = Poll.notifier()
     local waiter = Poll.spawn(function()
       local woke, _ = notifier:wait()
-      woken = woke
+      woken = woke == true
     end)
     local sender = Poll.spawn(function()
       assert(Clock.sleep(Clock.ms(20)))
@@ -1658,7 +1658,7 @@ local function test_clock_sleep_sleeps_the_thread_where_a_task_cannot_park()
     local order: mut {integer} = { 2, 1 }
     table.sort(order, function(x: integer, y: integer): boolean
       local slept, _ = Clock.sleep(0)
-      under_c = slept
+      under_c = slept == true
       return x < y
     end)
   end)

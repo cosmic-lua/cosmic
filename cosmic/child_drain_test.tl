@@ -160,10 +160,10 @@ local function test_sink_failure_is_not_replayed_and_borrowed_sink_stays_open()
   local sink = Stream.collect()
   local original = sink.write -- checked: interface_method_value
   local writes: integer = 0
-  sink.write = function(self: Stream.Collector, bytes: string): (true) | (false, Failure) -- checked: field_fixed
+  sink.write = function(self: Stream.Collector, bytes: string): (true) | (nil, Failure) -- checked: field_fixed
     writes = writes + 1
     assert(original(self, bytes:sub(1, 1)))
-    return false, Failure.new("sink: full")
+    return nil, Failure.new("sink: full")
   end
   local got = h:drain(options(sink))
   assert(got ~= nil and got.kind == "failed" and got.reason == "sink: full" and got.bytes == 6) -- checked: compare_disjoint
@@ -277,7 +277,7 @@ local function test_a_raising_sink_closes_inputs_and_releases_ownership()
   local h <close> = start('assert(require("cosmic.fs").put(1, "abcdef"))')
   local sink = Stream.collect()
   local write = sink.write -- checked: interface_method_value
-  sink.write = function(_self: Stream.Collector, _data: string): (true) | (false, Failure) -- checked: field_fixed
+  sink.write = function(_self: Stream.Collector, _data: string): (true) | (nil, Failure) -- checked: field_fixed
     error("writer raised")
   end
   Test.raises(function() h:drain(options(sink)) end, "writer raised")
@@ -290,10 +290,10 @@ local function test_killing_a_task_in_a_yielding_sink_releases_ownership()
   local h <close> = start('assert(require("cosmic.fs").put(1, "abcdef"))')
   local sink = Stream.collect()
   local writing: boolean = false
-  sink.write = function(_self: Stream.Collector, _data: string): (true) | (false, Failure) -- checked: field_fixed
+  sink.write = function(_self: Stream.Collector, _data: string): (true) | (nil, Failure) -- checked: field_fixed
     writing = true
     local paused, why = Clock.sleep(Clock.seconds(10))
-    if not paused then return false, why end
+    if not paused then return nil, why end
     return true
   end
   Poll.run(function()
@@ -408,7 +408,7 @@ local function test_a_single_write_never_exceeds_the_chunk_bound()
   local sink = Stream.collect()
   local original = sink.write -- checked: interface_method_value
   local biggest: integer = 0
-  sink.write = function(self: Stream.Collector, bytes: string): (true) | (false, Failure) -- checked: field_fixed
+  sink.write = function(self: Stream.Collector, bytes: string): (true) | (nil, Failure) -- checked: field_fixed
     biggest = math.max(biggest, #bytes)
     return original(self, bytes)
   end
@@ -485,7 +485,7 @@ local function test_sink_cannot_change_the_calls_validated_bounds()
   local sink = Stream.collect()
   local opts = options(sink, 3)
   local write = sink.write -- checked: interface_method_value
-  sink.write = function(self: Stream.Collector, bytes: string): (true) | (false, Failure) -- checked: field_fixed
+  sink.write = function(self: Stream.Collector, bytes: string): (true) | (nil, Failure) -- checked: field_fixed
     opts.max_bytes, opts.timeout_ns = 0, 0 -- checked: field_fixed*2
     return write(self, bytes)
   end
