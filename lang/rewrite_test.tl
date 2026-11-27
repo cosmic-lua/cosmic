@@ -101,7 +101,7 @@ local function test_a_ternary_whose_middle_is_never_false_is_written_as_an_if_ex
   local called = rewritten("local a = true\nprint(a and \"x\" or \"y\")\nprint(a and\n  \"x\" or \"y\")\n")
   assert(called == "local a = true\nprint(if a then \"x\" else \"y\" end)\nprint(if a then \"x\" else \"y\" end)\n", called)
   -- a middle that may be false or nil keeps the refusal: the `if` expression answers it differently
-  local edits, errors = edits_of("local a = true\nlocal b: boolean = false\nlocal s = a and b or \"z\"\nprint(s)\n")
+  local edits, errors = edits_of("local function pick(a: boolean, b: boolean | string): string | boolean\n  return a and b or \"z\"\nend\nprint(pick(true, false))\n")
   assert(errors >= 1 and #edits == 0, tostring(errors) .. " errors, " .. tostring(#edits) .. " rewrites")
   local maybe, maybe_errors = edits_of("local a = true\nlocal n: string? = nil\nlocal s = a and n or \"z\"\nprint(s)\n")
   assert(maybe_errors >= 1 and #maybe == 0, tostring(maybe_errors) .. " errors, " .. tostring(#maybe) .. " rewrites")

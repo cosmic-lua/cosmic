@@ -974,7 +974,7 @@ function Pipeline.implied(made: Pipeline.Alone, file: string, text: string, agai
   for _, e in ipairs(second.edits or {}) do
     if e.offset > width then
       edits[#edits + 1] = { code = e.code, y = e.y, x = if e.y == 1 then e.x - width else e.x end, offset = e.offset - width,
-        length = e.length, before = e.before, after = e.after }
+        length = e.length, before = e.before, after = e.after, text = e.text }
     end
   end
   return { code = nil, lines = unshifted(second.lines, file, width), stages = second.stages, edits = edits }

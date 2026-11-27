@@ -163,6 +163,9 @@ local function test_the_run_tool_shows_what_a_snippet_printed_returned_and_was_r
   local rewritten = tools_run("run", { code = "local n = 2\nprint(\"n=\" .. n)\n" }, context)
   assert(not rewritten.is_error and rewritten.text == "[The snippet ran once, with these rewrites, which keep " ..
       "what it meant; what it did is done, so do not run it again:\nrun.tl:2:15: concat_type: `n` -> `tostring(n)`]\nn=2\n", rewritten.text)
+  local ternary = tools_run("run", { code = "local a = true\nlocal s = a and \"x\" or \"y\"\nprint(s)\n" }, context)
+  assert(not ternary.is_error and ternary.text:find("and_ternary", 1, true) ~= nil and
+      ternary.text:find("if a then \"x\" else \"y\" end", 1, true) ~= nil and ternary.text:sub(-2) == "x\n", ternary.text)
   local answered = tools_run("run", { code = "print(1)\nHost.answer(\"one line\")\n" }, context)
   assert(not answered.is_error and answered.answer == "one line" and answered.text == "1\n", answered.text)
   local blank = tools_run("run", { code = "Host.answer(\"  \")\n" }, { cwd = dir, worker = w })
