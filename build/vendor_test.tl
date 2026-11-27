@@ -347,9 +347,9 @@ end
 local function test_fetch_holds_the_download_to_every_digest_the_pin_gives(dir: string)
   local seen: Seen = {}
   local real = Http.download
-  Http.download = function(_url: string, _path: string, options?: Http.DownloadOptions): (true) | (false, Failure) -- checked: field_fixed
+  Http.download = function(_url: string, _path: string, options?: Http.DownloadOptions): (true) | (nil, Failure) -- checked: field_fixed
     seen.options = options
-    return false, Failure.new("stop here")
+    return nil, Failure.new("stop here")
   end
   local fetched, trouble = Vendor.fetch("https://example.invalid/a.tar", dir .. "/a.tar",
     { { algorithm = "sha256", hex = "aa" }, { algorithm = "sha3-256", hex = "bb" } })

@@ -41,7 +41,10 @@ local record ZigFetch
   --- [`Http.download`], [`sys.nanosleep`] and [`Clock.monotonic_ns`]
   --- unless a test says otherwise.
   record Fetcher
-    download: function(url: string, path: string, opts: Http.DownloadOptions): (true) | (false, Failure)
+    --- nil once the file came, else why not: one result, so the pinned
+    --- release's [`Http.download`] (which fails with `false`) and this
+    --- tree's (which fails with nil) both fit it.
+    download: function(url: string, path: string, opts: Http.DownloadOptions): Failure?
     sleep: function(ns: integer)
     now: function(): integer
   end
@@ -170,6 +173,13 @@ function ZigFetch.limits(connect_ns: integer, low_speed_bytes: integer, low_spee
     digests = if sha256 ~= nil then { ["sha256"] = sha256 } else nil end }
 end
 
+--- [`Http.download`] as a [`ZigFetch.Fetcher`] downloads, read at each call (a test may replace it).
+local function http_download(url: string, path: string, opts: Http.DownloadOptions): Failure?
+  local done, why = Http.download(url, path, opts)
+  if done == true then return nil end
+  return why
+end
+
 --- Downloads the file whose sha256 is `sha256` to `path` from the first
 --- of `urls` that serves it, going over them up to `ROUNDS` times with a
 --- growing pause between rounds. Every url but the last is a mirror,
@@ -188,7 +198,7 @@ end
 --- each source, its last trouble and how long that attempt ran.
 function ZigFetch.fetch(urls: {string}, path: string, sha256: string,
                         via?: ZigFetch.Fetcher): boolean, string
-  local fetcher: ZigFetch.Fetcher = { download = Http.download, sleep = real_sleep, now = Clock.monotonic_ns }
+  local fetcher: ZigFetch.Fetcher = { download = http_download, sleep = real_sleep, now = Clock.monotonic_ns }
   if via ~= nil then fetcher = via end
   local download, sleep, now = fetcher.download, fetcher.sleep, fetcher.now
   local deadline = now() + BUDGET_NS
@@ -202,8 +212,8 @@ function ZigFetch.fetch(urls: {string}, path: string, sha256: string,
     tally.attempts = tally.attempts + 1
     local _, _ = Fs.remove(path)
     local started = now()
-    local done, why = download(url, path, opts)
-    if done then return nil end
+    local why = download(url, path, opts)
+    if why == nil then return nil end
     last[url] = tostring(why) .. " (after " .. tostring((now() - started) // SECOND) .. " s)"
     return why
   end

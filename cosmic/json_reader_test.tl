@@ -220,7 +220,7 @@ local class TimingOut is Stream.Reader
     return "[1, 2"
   end
 
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     return true
   end
 end
@@ -827,7 +827,7 @@ local function test_an_n_waits_for_its_next_byte()
       if chunk == nil then return false end
       return chunk
     end,
-    close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
+    close = function(_self: Stream.Reader): (true) | (nil, Failure) return true end,
   }
   local r = Json.reader(source, JSON5)
   assert(assert(next_text(r)).kind == "array")

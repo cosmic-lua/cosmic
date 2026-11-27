@@ -297,7 +297,7 @@ local function release_cosmic(tag: string, work: string): string?, string
   local placed, place_trouble = false, if made then "" else tostring(mode_trouble) end
   if made then
     local rename_ok, rename_why = Fs.rename(part, path)
-    placed, place_trouble = rename_ok, if rename_ok then "" else tostring(rename_why) end
+    placed, place_trouble = rename_ok == true, if rename_ok then "" else tostring(rename_why) end
   end
   if not placed then
     local _, _ = Fs.remove(part)

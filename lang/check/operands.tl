@@ -278,9 +278,11 @@ function Operands.condition_kind(ctx: Ctx, node: Ast.Node, t: Type, default?: As
   local s = subject(ctx, node)
   if nilable(t) then
     local inner = ctx.store:non_nil(t)
+    -- Only a member that may be false makes nil and false two answers: a `true?` (an effect's `(true) | (nil, Failure)`)
+    -- is an optional like any other.
     local boolean = false
     for _, m in ipairs(members_of(ctx.store, inner)) do
-      boolean = boolean or is_bool(m)
+      boolean = boolean or (is_bool(m) and m.tag ~= "true")
     end
     if not boolean then
       return "opt"

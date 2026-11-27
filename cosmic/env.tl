@@ -81,6 +81,8 @@ local record Env
     "COSMIC_TEST_STORE_SALT"
     --- The seconds a test may run.
     "COSMIC_TEST_TIMEOUT"
+    --- Where a share of the whole suite writes the C functions its tests did not enter.
+    "COSMIC_TEST_UNENTERED"
     --- The shared verdict cache.
     "COSMIC_VERDICT_CACHE"
     --- `<property>:<case>`, the one input to check.

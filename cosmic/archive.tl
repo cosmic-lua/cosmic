@@ -164,7 +164,7 @@ local class DrainingReader is Stream.ArchiveReader
     return false
   end
 
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     return self.tr:close()
   end
 end
@@ -539,28 +539,28 @@ local function extract_from(from: string | Archive.Reader, dest: string,
   --- Makes sure the first `n` components of `parts` name real
   --- directories under `dest`, creating missing ones, and refusing
   --- a symlink (made or to be made) anywhere along the way.
-  local function ensure_dirs(parts: {string}, n: integer, entry_path: string): (true) | (false, Failure)
+  local function ensure_dirs(parts: {string}, n: integer, entry_path: string): (true) | (nil, Failure)
     for i = 1, n do
       local rel = join(parts, i)
       if pending[rel] ~= nil then
-        return false, Failure.new("archive: refusing to write through a symlink: " .. entry_path)
+        return nil, Failure.new("archive: refusing to write through a symlink: " .. entry_path)
       end
       if real_dirs[rel] ~= true then
         local full = dest .. "/" .. rel
         local found, _, errno = sys.lstat(full)
         if found == nil then
-          if errno ~= sys.ENOENT then return false, Failure.system(errno, full) end
+          if errno ~= sys.ENOENT then return nil, Failure.system(errno, full) end
           local made, _, merr = sys.mkdir(full, 0x1ed)
-          if not made and merr ~= sys.EEXIST then return false, Failure.system(merr, full) end
+          if not made and merr ~= sys.EEXIST then return nil, Failure.system(merr, full) end
           found, _, errno = sys.lstat(full)
         end
-        if found == nil then return false, Failure.system(errno, full) end
+        if found == nil then return nil, Failure.system(errno, full) end
         local st: sys.Stat = found
         if st.kind ~= "dir" then
           if st.kind == "link" then
-            return false, Failure.new("archive: refusing to write through a symlink: " .. entry_path)
+            return nil, Failure.new("archive: refusing to write through a symlink: " .. entry_path)
           end
-          return false, Failure.new("archive: " .. full .. " is not a directory")
+          return nil, Failure.new("archive: " .. full .. " is not a directory")
         end
         real_dirs[rel] = true
       end
@@ -568,26 +568,26 @@ local function extract_from(from: string | Archive.Reader, dest: string,
     return true
   end
 
-  local function extract_file(dest_path: string, entry: Archive.Entry): (true) | (false, Failure)
+  local function extract_file(dest_path: string, entry: Archive.Entry): (true) | (nil, Failure)
     -- A recorded size past a limit is refused before a byte is read, but
     -- a header's claim is the archive's to make: the bytes counted as
     -- they are read are what hold when a body outgrows it.
-    local function over_entry(): (true) | (false, Failure)
-      return false, Failure.new("archive: " .. entry.path .. " is larger than max_entry_bytes (" ..
+    local function over_entry(): (true) | (nil, Failure)
+      return nil, Failure.new("archive: " .. entry.path .. " is larger than max_entry_bytes (" ..
           String.counted(entry_limit, "byte") .. ")")
     end
-    local function over_total(): (true) | (false, Failure)
-      return false, Failure.new("archive: extracting " .. entry.path .. " would write more than max_bytes (" ..
+    local function over_total(): (true) | (nil, Failure)
+      return nil, Failure.new("archive: extracting " .. entry.path .. " would write more than max_bytes (" ..
           String.counted(total_limit, "byte") .. ")")
     end
     if entry.size > entry_limit then return over_entry() end
     if entry.size > total_limit - tally then return over_total() end
     local body, otrouble = entry:open()
-    if body == nil then return false, otrouble end
+    if body == nil then return nil, otrouble end
     local mode = safe_mode(entry.mode)
     if mode == 0 then mode = 0x1a4 end
     local w, ctrouble = Stream.create(dest_path, mode)
-    if w == nil then return false, ctrouble end
+    if w == nil then return nil, ctrouble end
     local size = 0
     while true do
       -- One byte past the room is read, to tell a body that ends at a
@@ -600,7 +600,7 @@ local function extract_from(from: string | Archive.Reader, dest: string,
       if chunk == false then break end
       if chunk == nil then
         local _, _ = w:abort()
-        return false, rtrouble
+        return nil, rtrouble
       end
       size = size + #chunk
       if size > entry_limit or tally + size > total_limit then
@@ -611,11 +611,11 @@ local function extract_from(from: string | Archive.Reader, dest: string,
       local ok, wtrouble = w:write(chunk)
       if not ok then
         local _, _ = w:abort()
-        return false, wtrouble
+        return nil, wtrouble
       end
     end
     local ok, wtrouble = w:close()
-    if not ok then return false, wtrouble end
+    if not ok then return nil, wtrouble end
     tally = tally + size
     local _, _ = Fs.set_mtime(dest_path, entry.mtime)
     return true
@@ -655,14 +655,14 @@ local function extract_from(from: string | Archive.Reader, dest: string,
     return false
   end
 
-  local function make_link(link: PendingLink): (true) | (false, Failure)
+  local function make_link(link: PendingLink): (true) | (nil, Failure)
     local parts = link.parts
     -- Its own parents, like any other entry's, must be real
     -- directories -- `pending` still holds every link, made or not.
     local ok, why = ensure_dirs(parts, #parts - 1, link.rel)
-    if not ok then return false, why end
+    if not ok then return nil, why end
     if target_crosses_link(parts, #parts - 1, link.target) then
-      return false, Failure.new("archive: refusing a symlink whose target runs through another symlink " ..
+      return nil, Failure.new("archive: refusing a symlink whose target runs through another symlink " ..
           "or a missing directory: " ..
           link.rel)
     end
@@ -670,12 +670,12 @@ local function extract_from(from: string | Archive.Reader, dest: string,
     local st, _ = sys.lstat(full)
     if st ~= nil then
       if st.kind == "dir" then
-        return false, Failure.new("archive: " .. full .. " is a directory")
+        return nil, Failure.new("archive: " .. full .. " is a directory")
       end
       local _, _ = sys.unlink(full)
     end
     local linked, link_why = Fs.symlink(link.target, full)
-    if not linked then return false, link_why end
+    if not linked then return nil, link_why end
     local _, _ = Fs.set_mtime(full, link.mtime)
     return true
   end

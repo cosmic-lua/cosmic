@@ -56,13 +56,13 @@ local function write(fields: {string}): string?
     local ok: boolean
     if kind == "file" then
       local made, _ = tw:add_file(path, body)
-      ok = made
+      ok = made == true
     elseif kind == "dir" then
       local made, _ = tw:add_dir(path)
-      ok = made
+      ok = made == true
     else
       local made, _ = tw:add_symlink(path, body)
-      ok = made
+      ok = made == true
     end
     if not ok then return nil end
   end

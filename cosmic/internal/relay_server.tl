@@ -463,7 +463,7 @@ end
 local function send(conn: Net.Conn, text: string, ns: integer): boolean
   conn:set_timeout(ns)
   local ok, _ = conn:write(text)
-  return ok
+  return ok == true
 end
 
 --- Ends a refused connection after its reply: the program's side is

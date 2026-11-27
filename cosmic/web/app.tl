@@ -192,10 +192,10 @@ end
 
 --- Runs `app` over [`Server.serve`]: its lifespan first, then the server
 --- until it stops, then the lifespan's cleanup: true when the server
---- stopped cleanly, or false and a [`Failure`]. See [`Web.serve`].
+--- stopped cleanly, or nil and a [`Failure`]. See [`Web.serve`].
 --- @param app Types.App The app
 --- @param opts Types.ServeOptions Where and how
-function App.serve(app: Types.App, opts: Types.ServeOptions): (true) | (false, Failure)
+function App.serve(app: Types.App, opts: Types.ServeOptions): (true) | (nil, Failure)
   local sink = assert(app.spec.sink)
   local listeners: mut {Net.Address} = {}
   for _, address in ipairs(opts.listeners or {}) do listeners[#listeners + 1] = address end
@@ -220,10 +220,10 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): (true) | (false, F
   local socket: string? = nil
   local forwarded: {string}? = nil
   -- Refuses to serve, removing what Serve's socket left first.
-  local function declined(why: Failure): (false, Failure)
+  local function declined(why: Failure): (nil, Failure)
     local undo = unplace
     if undo ~= nil then undo() end
-    return false, why
+    return nil, why
   end
   if tailnet ~= nil and tailnet ~= false then
     if tls ~= nil then error("web: serve takes tls or tailnet, not both", 2) end
@@ -231,7 +231,7 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): (true) | (false, F
     -- tailscaled.
     local Tailnet = require("cosmic.web.tailnet")
     local reached, why = Tailnet.serving(if tailnet is boolean then {} else tailnet end)
-    if reached == nil then return false, why end
+    if reached == nil then return nil, why end
     for _, address in ipairs(reached.listeners) do listeners[#listeners + 1] = address end
     tls = reached.certs
     put_up, unplace, socket, forwarded = reached.put_up, reached.cleanup, reached.socket, reached.caps
@@ -347,10 +347,10 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): (true) | (false, F
   end
   if not ran then error(raised, 0) end
   local failure = served.failure
-  if failure ~= nil then return false, failure end
+  if failure ~= nil then return nil, failure end
   -- A configuration the daemon refused stops the server, which then
   -- returns as a stopped one does.
-  if refusal ~= "" then return false, Failure.new(refusal) end
+  if refusal ~= "" then return nil, Failure.new(refusal) end
   return true
 end
 

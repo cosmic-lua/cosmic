@@ -180,3 +180,14 @@ local function test_a_promised_absence_or_a_refused_probe_retains_the_obligation
   local tally = c_functions.tally({ fn("core/socket.c", 1, "reach_from") }, {}, nil, nil, held)
   assert(#tally.unavailable == 0 and #tally.unentered == 1)
 end
+
+--- A share's list names the functions its tests did not enter, after
+--- the `shard I/N` line the join reads first.
+local function test_a_shares_list_names_what_it_did_not_enter()
+  local tally = c_functions.tally({ fn("core/text.c", 1, "cosmic_open_text"), fn("core/socket.c", 1, "reach_from") },
+    { ["core/socket.c"] = { [1] = true } }, nil, nil, {})
+  assert(c_functions.share_list(2, 3, tally) == "shard 2/3\ncore/text.c:cosmic_open_text\n",
+    c_functions.share_list(2, 3, tally))
+  local all = c_functions.tally({ fn("core/socket.c", 1, "reach_from") }, { ["core/socket.c"] = { [1] = true } }, nil, nil, {})
+  assert(c_functions.share_list(1, 1, all) == "shard 1/1\n")
+end

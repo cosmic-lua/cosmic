@@ -628,7 +628,7 @@ local function notes_pipe(): Notes?, string
     end
   end
   local removed, remove_why = Fs.remove_tree(dir)
-  if removed and reader ~= nil and writer ~= nil then
+  if removed == true and reader ~= nil and writer ~= nil then
     return { reader = reader, writer = writer }, ""
   end
   -- A pipe left on disk is no start's to go on with.

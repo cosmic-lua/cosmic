@@ -210,7 +210,7 @@ local function test_stopping_a_reaped_child_names_the_module()
   local h = assert(Child.start(argv, { timeout_ns = Child.FOREVER, env = relaunch.env, fds = relaunch.fds }))
   assert(h:wait())
   local stopped, why = h:stop()
-  assert(stopped == false and why.message == "child: process already reaped", tostring(why))
+  assert(stopped == nil and why.message == "child: process already reaped", tostring(why))
 end
 
 --- Where the platform has no sandbox for a child (anything but Linux), a

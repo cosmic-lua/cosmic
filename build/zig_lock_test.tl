@@ -160,7 +160,7 @@ end
 local function test_an_exception_during_acquisition_releases_the_lock(tmp: string)
   local root = tree(tmp)
   local write = Fs.write
-  Fs.write = function(): (true) | (false, Failure) -- checked: field_fixed
+  Fs.write = function(): (true) | (nil, Failure) -- checked: field_fixed
     error("holder write failed", 0)
   end
   local ok, trouble: boolean, any = pcall(Zig.with_lock, build_paths.required(root), {}, function(): integer -- checked: overload_none

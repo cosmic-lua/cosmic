@@ -107,7 +107,7 @@ local function test_from_string_refuses_a_skip_so_large_it_would_wrap()
   assert(chunk_of(r, 2) == "ab")
   assert(r.skip ~= nil)
   local skipped, why = r:skip(math.maxinteger)
-  assert(skipped == false and tostring(why) ~= "", why)
+  assert(skipped == nil and tostring(why) ~= "", why)
   local chunk, _ = r:read()
   assert(chunk == false)
 end
@@ -126,7 +126,7 @@ local function test_from_string_refuses_a_negative_skip()
   assert(chunk_of(r, 4) == "abcd")
   assert(r.skip ~= nil)
   local skipped, why = r:skip(-2)
-  assert(skipped == false and tostring(why) ~= "", why)
+  assert(skipped == nil and tostring(why) ~= "", why)
   assert(chunk_of(r, 1) == "e")
 end
 
@@ -333,13 +333,13 @@ local function test_transform_writer_drains_a_decoder_in_bounded_writes()
   local total: integer = 0
   local largest: integer = 0
   local sink: Stream.Writer = { -- checked: literal_shape
-    write = function(_s: Stream.Writer, d: string): (true) | (false, Failure)
+    write = function(_s: Stream.Writer, d: string): (true) | (nil, Failure)
       total = total + #d
       if #d > largest then largest = #d end
       return true
     end,
-    close = function(_s: Stream.Writer): (true) | (false, Failure) return true end,
-    abort = function(_s: Stream.Writer): (true) | (false, Failure) return true end,
+    close = function(_s: Stream.Writer): (true) | (nil, Failure) return true end,
+    abort = function(_s: Stream.Writer): (true) | (nil, Failure) return true end,
   }
   local w = Stream.transform_writer(sink, (assert(Compress.decoder("zlib"))))
   assert(w:write(packed))
@@ -642,19 +642,19 @@ local class Recorded is Stream.Writer
   --- The byte count at which a write is refused, nil for none.
   limit?: integer
 
-  function write(self, data: string): (true) | (false, Failure)
+  function write(self, data: string): (true) | (nil, Failure)
     local limit = self.limit
-    if limit ~= nil and #self.got + #data >= limit then return false, failure_of("sink full") end
+    if limit ~= nil and #self.got + #data >= limit then return nil, failure_of("sink full") end
     self.got = self.got .. data
     return true
   end
 
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     self.ended = "closed"
     return true
   end
 
-  function abort(self): (true) | (false, Failure)
+  function abort(self): (true) | (nil, Failure)
     self.ended = "aborted"
     return true
   end
@@ -815,7 +815,7 @@ local function test_transform_writer_hold_closes_once()
   assert(w:write("ab"))
   local _, first = w:close()
   local again, second = w:close()
-  assert(again == false and second == first and tostring(first) == "cut short", second)
+  assert(again == nil and second == first and tostring(first) == "cut short", second)
 end
 
 local function test_transform_writer_hold_reports_a_drain_that_fails_mid_write()
@@ -944,7 +944,7 @@ local function trickle(s: string, size?: integer): Stream.Reader
     read = function(_self: Stream.Reader, _max_bytes?: integer): (string | false) | (nil, Failure)
       return inner:read(size or 1)
     end,
-    close = function(_self: Stream.Reader): (true) | (false, Failure)
+    close = function(_self: Stream.Reader): (true) | (nil, Failure)
       return inner:close()
     end,
   }
@@ -1036,7 +1036,7 @@ local function test_lines_stop_at_a_reader_failure()
       if chunk == false then return nil, Failure.new("boom") end
       return chunk
     end,
-    close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
+    close = function(_self: Stream.Reader): (true) | (nil, Failure) return true end,
   }
   local lines = Stream.lines(r)
   local seen: mut {string} = {}
@@ -1060,7 +1060,7 @@ local class Paused is Stream.Reader
     return chunk
   end
 
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     self.at = #self.chunks
     return true
   end
@@ -1165,7 +1165,7 @@ local function test_rest_after_the_last_line_reads_nothing_more()
       if chunk == false then ended = true end
       return chunk
     end,
-    close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
+    close = function(_self: Stream.Reader): (true) | (nil, Failure) return true end,
   }
   local lines = Stream.lines(r)
   local seen: mut {string} = {}
@@ -1202,7 +1202,7 @@ local function test_rest_after_a_raise_keeps_the_start_of_a_line()
       if answer == nil then return false end
       return answer as string -- checked: cast_refused
     end,
-    close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
+    close = function(_self: Stream.Reader): (true) | (nil, Failure) return true end,
   }
   local lines = Stream.lines(r)
   assert(line_of(lines) == "a")
@@ -1221,7 +1221,7 @@ local function test_rest_ends_the_lines_and_closes_the_reader()
     read = function(_self: Stream.Reader, max_bytes?: integer): (string | false) | (nil, Failure)
       return inner:read(max_bytes)
     end,
-    close = function(_self: Stream.Reader): (true) | (false, Failure)
+    close = function(_self: Stream.Reader): (true) | (nil, Failure)
       closes = closes + 1
       return true
     end,
@@ -1254,18 +1254,18 @@ local class Failing is Stream.Writer
   mut writes: integer
   fails_at: integer
 
-  function write(self, _data: string): (true) | (false, Failure)
+  function write(self, _data: string): (true) | (nil, Failure)
     self.writes = self.writes + 1
-    if self.writes >= self.fails_at then return false, failure_of("disk full") end
+    if self.writes >= self.fails_at then return nil, failure_of("disk full") end
     return true
   end
 
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     self.closes = self.closes + 1
     return true
   end
 
-  function abort(self): (true) | (false, Failure)
+  function abort(self): (true) | (nil, Failure)
     self.aborts = self.aborts + 1
     return true
   end
@@ -1290,7 +1290,7 @@ local function chunked(chunks: {string}, failure: string | Failure): Stream.Read
       if failure is string then return nil, Failure.new(failure) end
       return nil, failure
     end,
-    close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
+    close = function(_self: Stream.Reader): (true) | (nil, Failure) return true end,
   }
   return r
 end
@@ -1360,7 +1360,7 @@ local class Stalling is Stream.Reader
     return false
   end
 
-  function close(self): (true) | (false, Failure) return true end
+  function close(self): (true) | (nil, Failure) return true end
 end
 
 --- A transform gives its source's Failure as it is: a timeout leaves it

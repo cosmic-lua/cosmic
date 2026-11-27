@@ -46,7 +46,9 @@ these argues with the principle, not with the reviewer.
    reachable only from within that directory. there is no list to
    maintain, and none to go stale.
 3. **honest returns.** `(T) | (nil, Failure)` for a value, `(true) |
-   (false, Failure)` for an effect, two slots and nothing in a third.
+   (nil, Failure)` for an effect, two slots and nothing in a third. a
+   nil first value is the failure, so `e!` takes either, and `false`
+   is a value.
    a [`cosmic.failure`] keeps the words, the path where there is one,
    the errno where a system call failed, and a `kind` (`other`,
    `system`, `parse`, `library`, `timeout`, `cancelled`, `mismatch`), so a caller

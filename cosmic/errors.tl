@@ -1,7 +1,7 @@
 --- Saying where a failure happened: stack traces, and guidance beneath an uncaught error.
 ---
 --- A failure travels as a value. Most calls return `(T) | (nil, Failure)`
---- for a value and `(true) | (false, Failure)` for an effect
+--- for a value and `(true) | (nil, Failure)` for an effect
 --- ([`cosmic.failure`]); some still return `T?, string`. This
 --- is for the place that reports one to a person, where the message
 --- alone is not enough.

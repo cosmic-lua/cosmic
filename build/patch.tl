@@ -294,7 +294,7 @@ local function write_synced(path: string, data: string,
     return false, tostring(trouble)
   end
   local put, put_why = Fs.put(fd, data)
-  local ok, failure = put, if put then "" else tostring(put_why) end
+  local ok, failure = put == true, if put then "" else tostring(put_why) end
   if ok then
     -- Its failure names the path already; the rest are prefixed below.
     local moded, mode_trouble = Fs.chmod(path, mode)
@@ -303,7 +303,7 @@ local function write_synced(path: string, data: string,
       return false, tostring(mode_trouble)
     end
     local fsync_ok, fsync_why = Fs.fsync(fd)
-    ok, failure = fsync_ok, if fsync_ok then "" else tostring(fsync_why) end
+    ok, failure = fsync_ok == true, if fsync_ok then "" else tostring(fsync_why) end
   end
   local closed, close_trouble = Fs.close(fd)
   if ok and not closed then

@@ -40,7 +40,7 @@ local function pieces_of(pieces: {string}): Stream.Reader
       if piece == nil then return false end
       return piece
     end,
-    close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
+    close = function(_self: Stream.Reader): (true) | (nil, Failure) return true end,
   }
 end
 
@@ -165,7 +165,7 @@ local function test_stopping_ends_a_stream_and_runs_the_stop_functions_in_order(
           events[#events + 1] = "stream saw stopping"
           return false
         end,
-        close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
+        close = function(_self: Stream.Reader): (true) | (nil, Failure) return true end,
       }, "text/event-stream")
     end) },
     lifespan = function(_app: Web.App): Web.Shutdown?, string
@@ -234,7 +234,7 @@ end
 local function test_serve_gives_the_server_a_grace_of_ten_seconds_unless_told_otherwise()
   local graces: mut {integer} = {}
   local real = Server.serve
-  Server.serve = function(spec: Server.ServeSpec): (true) | (false, Failure) -- checked: field_fixed
+  Server.serve = function(spec: Server.ServeSpec): (true) | (nil, Failure) -- checked: field_fixed
     local spec_grace_ns = assert(spec.grace_ns, "expected spec.grace_ns")
     graces[#graces + 1] = spec_grace_ns
     return true
@@ -257,7 +257,7 @@ local function test_a_handler_that_ignores_stopping_is_cut_off_at_the_grace()
         assert(Clock.sleep(Clock.ms(5)))
         return "x"
       end,
-      close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
+      close = function(_self: Stream.Reader): (true) | (nil, Failure) return true end,
     }, "text/plain")
   end) } }
   local started = Clock.monotonic_ns()

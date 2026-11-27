@@ -106,7 +106,7 @@ local function serve(auto: Acme.Auto, clear: Clear): Served, boolean, string
       server:stop()
     end,
   }
-  return served, ok, if ok then "" else tostring(why) end
+  return served, ok == true, if ok then "" else tostring(why) end
 end
 
 local function test_a_first_start_issues_while_the_clear_listener_answers_the_check(tmp: string)

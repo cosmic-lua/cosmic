@@ -2251,12 +2251,12 @@ function worker.run(argv: {string}): integer
     -- `scratch`), `tmp` a link to `real`.
     local scratch = Fs.dirname(tmp)
     local made_real, real_trouble = Fs.mkdirs(scratch .. "/real")
-    local made_scratch, scratch_trouble = made_real, if made_real then "" else tostring(real_trouble) end
+    local made_scratch, scratch_trouble = made_real == true, if made_real then "" else tostring(real_trouble) end
     -- 0700, as the runner's own is.
     if made_scratch then made_scratch, scratch_trouble = sys.chmod(scratch, 0x1c0) end
     if made_scratch then
       local symlink_ok, symlink_why = Fs.symlink("real", tmp)
-      made_scratch, scratch_trouble = symlink_ok, if symlink_ok then "" else tostring(symlink_why) end
+      made_scratch, scratch_trouble = symlink_ok == true, if symlink_ok then "" else tostring(symlink_why) end
     end
     if not made_scratch then
       complain("test --worker: its directory " .. scratch .. ": " .. scratch_trouble)

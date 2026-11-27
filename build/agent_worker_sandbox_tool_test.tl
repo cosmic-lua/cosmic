@@ -35,7 +35,7 @@ local function test_a_snippet_is_held_to_the_sandbox_of_the_tools()
   assert(w.started == 1, tostring(w.started))
   local narrower = assert(Policy.of(dir, { mode = "read", network = false, grants = {} }))
   local refused = assert(Worker.run(w, "local Fs = require(\"cosmic.fs\")\nlocal wrote, _ = Fs.write(\"again.txt\", \"no\")\n" ..
-      "return wrote == false\n", { cwd = dir, policy = narrower, seconds = 60 }))
+      "return wrote == nil\n", { cwd = dir, policy = narrower, seconds = 60 }))
   assert(refused["value"] == true and w.started == 2, shown(refused))
   assert(Worker.run(w, "return 1\n", { cwd = dir, policy = narrower, seconds = 60 }))
   assert(w.started == 2, tostring(w.started))

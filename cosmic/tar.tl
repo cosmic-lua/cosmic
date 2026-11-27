@@ -53,7 +53,7 @@ local record Tar
     --- Failure. A failure is sticky: every later call returns it again.
     next: function(Reader): (Entry | false) | (nil, Failure) -- declared: interface_disagrees
     --- Closes the Stream.Reader this one reads from.
-    close: function(Reader): (true) | (false, Failure)
+    close: function(Reader): (true) | (nil, Failure)
   end
 
   record WriterOptions
@@ -74,18 +74,18 @@ local record Tar
     --- when that is given. A `size` that is no integer, or is negative,
     --- raises. The reader is not closed. Returns `true`, or `false`
     --- and a Failure.
-    add_file: function(self: Writer, path: string, data: string | Stream.Reader, opts?: Stream.EntryOptions): (true) | (false, Failure)
+    add_file: function(self: Writer, path: string, data: string | Stream.Reader, opts?: Stream.EntryOptions): (true) | (nil, Failure)
     --- Adds a directory entry at `path`, to which a trailing `/` is
     --- added if missing. Returns `true`, or `false` and a Failure.
-    add_dir: function(self: Writer, path: string, opts?: Stream.EntryOptions): (true) | (false, Failure)
+    add_dir: function(self: Writer, path: string, opts?: Stream.EntryOptions): (true) | (nil, Failure)
     --- Adds a symbolic link at `path` pointing at `target`. Returns
     --- `true`, or `false` and a Failure.
-    add_symlink: function(self: Writer, path: string, target: string, opts?: Stream.EntryOptions): (true) | (false, Failure)
+    add_symlink: function(self: Writer, path: string, target: string, opts?: Stream.EntryOptions): (true) | (nil, Failure)
     --- Writes the archive's end blocks and closes the underlying
     --- Stream.Writer, committing it. Returns `true`, or `false` and a Failure.
-    close: function(self: Writer): (true) | (false, Failure)
+    close: function(self: Writer): (true) | (nil, Failure)
     --- Abandons the archive: aborts the underlying Stream.Writer.
-    abort: function(self: Writer): (true) | (false, Failure)
+    abort: function(self: Writer): (true) | (nil, Failure)
   end
 end
 
@@ -284,15 +284,15 @@ local record Fields
   mut sparse: boolean
 end
 
-local function apply_pax(fields: {string:string}, f: Fields): (true) | (false, Failure)
+local function apply_pax(fields: {string:string}, f: Fields): (true) | (nil, Failure)
   for key, value in pairs(fields) do
     if key == "path" or key == "linkpath" then
       local refusal = nul_refusal(value, "inside a pax " .. key)
-      if refusal ~= "" then return false, Failure.new(refusal) end
+      if refusal ~= "" then return nil, Failure.new(refusal) end
       if key == "path" then f.name = value else f.linkname = value end
     elseif key == "size" then
       local n = math.tointeger(tonumber(value))
-      if n == nil or n < 0 then return false, Failure.new("tar: bad pax size '" .. value .. "'") end
+      if n == nil or n < 0 then return nil, Failure.new("tar: bad pax size '" .. value .. "'") end
       f.size = n
     elseif key == "mtime" then
       f.mtime = math.tointeger(math.floor(tonumber(value) or f.mtime)) or f.mtime
@@ -395,7 +395,7 @@ local class BufferedReader is Stream.Reader
     return buf:sub(at, at + n - 1)
   end
 
-  function skip(self, n: integer): (true) | (false, Failure) -- declared: interface_disagrees
+  function skip(self, n: integer): (true) | (nil, Failure) -- declared: interface_disagrees
     local avail = #self.buf - self.at + 1
     if n <= avail then
       self.at = self.at + n
@@ -405,7 +405,7 @@ local class BufferedReader is Stream.Reader
     return Stream.skip(self.raw, n - avail)
   end
 
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     self.buf, self.at = "", 1
     return self.raw:close()
   end
@@ -452,7 +452,7 @@ local class BodyReader is Stream.Reader
     return chunk
   end
 
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     self.closed = true
     return true
   end
@@ -582,7 +582,7 @@ local class EntryReader is Tar.Reader
     end
   end
 
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     if self.closed then return true end
     self.closed = true
     self.generation = self.generation + 1
@@ -681,27 +681,27 @@ end
 local class BodyWriter is Stream.Writer
   sink: Stream.Sticky
 
-  function write(self, data: string): (true) | (false, Failure)
+  function write(self, data: string): (true) | (nil, Failure)
     return self.sink:put(data)
   end
 
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     return true
   end
 
-  function abort(self): (true) | (false, Failure)
+  function abort(self): (true) | (nil, Failure)
     return true
   end
 end
 
 local function put_entry(self: EntryWriter, path: string, typeflag: string, size: integer,
-                         mode: integer, mtime: integer, linkname: string): (true) | (false, Failure)
+                         mode: integer, mtime: integer, linkname: string): (true) | (nil, Failure)
   local sink = self.sink
   local ok, trouble = sink:usable()
-  if not ok then return false, trouble end
+  if not ok then return nil, trouble end
   local refusal = nul_refusal(path, "in a path")
   if refusal == "" then refusal = nul_refusal(linkname, "in a link target") end
-  if refusal ~= "" then return false, Failure.new(refusal) end
+  if refusal ~= "" then return nil, Failure.new(refusal) end
   if self.deterministic then mtime = 0 end
   local prefix, name, fits = split_ustar(path)
   local link_fits = #linkname <= 100
@@ -714,7 +714,7 @@ local function put_entry(self: EntryWriter, path: string, typeflag: string, size
     if not size_fits then records[#records + 1] = pax_record("size", tostring(size)) end
     if not mtime_fits then records[#records + 1] = pax_record("mtime", tostring(mtime)) end
     local put, put_trouble = sink:put(pax_header(path, table.concat(records)))
-    if not put then return false, put_trouble end
+    if not put then return nil, put_trouble end
     if not fits then prefix, name = "", path:sub(-100) end
   end
   local header_size = if size_fits then size else 0 end
@@ -730,7 +730,7 @@ local class EntryWriter is Tar.Writer
   deterministic: boolean
 
   function add_file(self, path: string, data: string | Stream.Reader,
-                    fopts?: Stream.EntryOptions): (true) | (false, Failure)
+                    fopts?: Stream.EntryOptions): (true) | (nil, Failure)
     fopts = fopts or {}
     local given = fopts.size
     if given ~= nil and given < 0 then
@@ -742,33 +742,33 @@ local class EntryWriter is Tar.Writer
     elseif data is string then
       size = #data
     else
-      return false, Failure.new("tar: add_file needs opts.size for a Reader body")
+      return nil, Failure.new("tar: add_file needs opts.size for a Reader body")
     end
     local mode = fopts.mode or 0x1a4
     local mtime = fopts.mtime or 0
     local ok, trouble = put_entry(self, path, "0", size, mode, mtime, "")
-    if not ok then return false, trouble end
+    if not ok then return nil, trouble end
     local sink = self.sink
     if data is string then
       if #data ~= size then
         return sink:fail("tar: add_file: body is " .. String.counted(#data, "byte") .. ", not " .. String.counted(size, "byte"))
       end
       local put, put_trouble = sink:put(data)
-      if not put then return false, put_trouble end
+      if not put then return nil, put_trouble end
     else
       local body_sink: BodyWriter = { sink = sink }
       local copied, copy_trouble = Stream.copy_n(data, body_sink, size)
       if not copied then
         -- A failed write is the sink's already, said as the Writer said it.
         local usable, failure = sink:usable()
-        if not usable then return false, failure end
+        if not usable then return nil, failure end
         return sink:fail(Failure.within(copy_trouble, "tar: add_file"))
       end
     end
     return sink:put(pad_bytes(size))
   end
 
-  function add_dir(self, path: string, fopts?: Stream.EntryOptions): (true) | (false, Failure)
+  function add_dir(self, path: string, fopts?: Stream.EntryOptions): (true) | (nil, Failure)
     fopts = fopts or {}
     local mode = fopts.mode or 0x1ed
     local mtime = fopts.mtime or 0
@@ -776,18 +776,18 @@ local class EntryWriter is Tar.Writer
     return put_entry(self, dirpath, "5", 0, mode, mtime, "")
   end
 
-  function add_symlink(self, path: string, target: string, fopts?: Stream.EntryOptions): (true) | (false, Failure)
+  function add_symlink(self, path: string, target: string, fopts?: Stream.EntryOptions): (true) | (nil, Failure)
     fopts = fopts or {}
     local mode = fopts.mode or 0x1ff
     local mtime = fopts.mtime or 0
     return put_entry(self, path, "2", 0, mode, mtime, target)
   end
 
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     return self.sink:close(string.rep("\0", 2 * BLOCK))
   end
 
-  function abort(self): (true) | (false, Failure)
+  function abort(self): (true) | (nil, Failure)
     return self.sink:abort()
   end
 end
