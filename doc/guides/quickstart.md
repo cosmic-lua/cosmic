@@ -277,6 +277,9 @@ its options.
   archive extract` unpacks one safely.
 - `cosmic qr https://example.com/` prints a QR code in the terminal.
   [`Qr.text`] draws one in a program.
+- `cosmic profile prof` prints where the time of a run with
+  `COSMIC_PROFILE=prof` went: its spans, and the functions and lines that
+  took the most time.
 - `cosmic acme issue` gets a certificate from Let's Encrypt. A program
   uses [`Acme.client`].
 - `cosmic tailscale status` lists this machine's Tailscale node and its
