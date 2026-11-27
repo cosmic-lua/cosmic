@@ -148,7 +148,7 @@ local record Agent
     guesses: {string: integer}
     --- How many run snippets repeated the one before them to the letter.
     resends: integer
-    --- How many run snippets sorted ([`Host.sort`], `table.sort` or `version_sort`).
+    --- How many run snippets sorted (`table.sort` or `version_sort`).
     sorts: integer
     --- How many snippets of run named each Host helper, by its name (`bash` for Host.bash, a command no other
     --- helper served): the use a helper is kept or pruned by.
@@ -1268,7 +1268,7 @@ function Agent.spent_in(db: Sqlite.Handle, marker: string): Agent.Spent?
     { { integer = id } })
   local snippets, _ = db:rows("SELECT input FROM outputs WHERE session = ?1 AND tool = 'run' ORDER BY rowid",
     { { integer = id } })
-  -- A helper's name starts with a small letter (Host.Count is a record type), after no other word (MyHost.x).
+  -- A helper's name starts with a small letter, after no other word (MyHost.x).
   local helpers: mut {string: integer} = {}
   local resends, sorts = 0, 0
   local before: string? = nil
