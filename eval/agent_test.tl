@@ -67,6 +67,9 @@ local function test_runs_are_graded_against_the_truth_of_an_untouched_copy()
   local made = 0
   local left: mut {string: boolean} = {}
   local system: Agent.System = {
+    retarget = function(_: string, _: string, _: string)
+      error("no task here is on cosmic's own tree")
+    end,
     fresh = function(prefix: string): string
       made = made + 1
       local dir = "/tmp/" .. prefix .. tostring(made)
@@ -291,6 +294,9 @@ local function test_a_task_of_a_server_gives_each_run_the_server(tmp: string)
   local put: mut {string: string} = {}
   local truths, configs, opened = 0, 0, 0
   local system: Agent.System = {
+    retarget = function(_: string, _: string, _: string)
+      error("no task here is on cosmic's own tree")
+    end,
     fresh = function(prefix: string): string
       made = made + 1
       local dir = "/tmp/" .. prefix .. tostring(made)
@@ -362,6 +368,9 @@ local function test_a_task_of_many_servers_gives_each_run_them_all()
   local made = 0
   local left: mut {string: boolean} = {}
   local system: Agent.System = {
+    retarget = function(_: string, _: string, _: string)
+      error("no task here is on cosmic's own tree")
+    end,
     fresh = function(prefix: string): string
       made = made + 1
       local dir = "/tmp/" .. prefix .. tostring(made)
@@ -429,6 +438,9 @@ local function test_a_task_of_a_site_gives_each_run_the_site()
   local put: mut {string: string} = {}
   local truths, asked, started, stopped = 0, 0, 0, 0
   local system: Agent.System = {
+    retarget = function(_: string, _: string, _: string)
+      error("no task here is on cosmic's own tree")
+    end,
     fresh = function(prefix: string): string
       made = made + 1
       local dir = "/tmp/" .. prefix .. tostring(made)
@@ -480,6 +492,9 @@ local function test_a_task_with_a_follow_up_asks_twice_in_one_run()
   local asks: mut {{string}} = {}
   local written: mut {string: string} = {}
   local system: Agent.System = {
+    retarget = function(_: string, _: string, _: string)
+      error("no task here is on cosmic's own tree")
+    end,
     fresh = function(prefix: string): string
       made = made + 1
       local dir = "/tmp/" .. prefix .. tostring(made)
@@ -530,6 +545,9 @@ local function test_a_site_that_does_not_start_fails_its_run()
   local left: mut {string: boolean} = {}
   local written: mut {string: string} = {}
   local system: Agent.System = {
+    retarget = function(_: string, _: string, _: string)
+      error("no task here is on cosmic's own tree")
+    end,
     fresh = function(prefix: string): string
       made = made + 1
       local dir = "/tmp/" .. prefix .. tostring(made)
@@ -575,6 +593,9 @@ local function test_a_step_that_raises_leaves_no_directory()
   local made = 0
   local left: mut {string: boolean} = {}
   local system: Agent.System = {
+    retarget = function(_: string, _: string, _: string)
+      error("no task here is on cosmic's own tree")
+    end,
     fresh = function(prefix: string): string
       made = made + 1
       local dir = "/tmp/" .. prefix .. tostring(made)
@@ -650,6 +671,9 @@ local function test_a_run_that_ends_before_its_first_request_is_broken_and_ends_
   local asked, kept = 0, 0
   local made = 0
   local system: Agent.System = {
+    retarget = function(_: string, _: string, _: string)
+      error("no task here is on cosmic's own tree")
+    end,
     fresh = function(prefix: string): string
       made = made + 1
       return "/tmp/" .. prefix .. tostring(made)
@@ -689,6 +713,9 @@ local function test_a_run_that_ends_before_its_first_request_is_broken_and_ends_
   asked = 0
   local replied = false
   local again: Agent.System = {
+    retarget = function(_: string, _: string, _: string)
+      error("no task here is on cosmic's own tree")
+    end,
     fresh = system.fresh,
     discard = system.discard,
     run = function(argv: {string}, _: string, _: {string: string}?, _: integer): Agent.Output
@@ -728,6 +755,9 @@ local function test_no_agents_md_leaves_the_instructions_out_of_each_copy()
   assert(Agent.parse({ "--tool", "t=/c", "--fixture", "/f", "--out", "/o", "--no-agents-md", "--testdata", "/td" }) ~= nil)
   local removed: mut {string} = {}
   local system: Agent.System = {
+    retarget = function(_: string, _: string, _: string)
+      error("no task here is on cosmic's own tree")
+    end,
     fresh = function(prefix: string): string return "/tmp/" .. prefix .. "1" end,
     discard = function(_: string) end,
     run = function(argv: {string}, _: string, _: {string: string}?, _: integer): Agent.Output
@@ -755,6 +785,9 @@ local function test_a_timeout_before_the_first_request_is_a_failure_and_goes_on(
   local o = options({ "--tool", "t=/c", "--fixture", "/f", "--out", "/o", "--tasks", "todos", "--reps", "2" })
   local asked = 0
   local system: Agent.System = {
+    retarget = function(_: string, _: string, _: string)
+      error("no task here is on cosmic's own tree")
+    end,
     fresh = function(prefix: string): string return "/tmp/" .. prefix .. "1" end,
     discard = function(_: string) end,
     run = function(argv: {string}, _: string, _: {string: string}?, _: integer): Agent.Output
@@ -833,6 +866,9 @@ local function test_a_task_of_a_testdata_project_copies_it_and_runs_its_setup()
   local asked: mut {{string}} = {}
   local paths: mut {string} = {}
   local system: Agent.System = {
+    retarget = function(_: string, _: string, _: string)
+      error("no task here is on cosmic's own tree")
+    end,
     fresh = function(prefix: string): string return "/tmp/" .. prefix .. "1" end,
     discard = function(_: string) end,
     run = function(argv: {string}, dir: string, env: {string: string}?, _: integer): Agent.Output
@@ -880,4 +916,97 @@ local function test_a_task_of_a_testdata_project_needs_testdata()
   local parsed, why = Agent.parse({ "--tool", "t=/c", "--fixture", "/f", "--out", "/o", "--tasks", "shop-dead" })
   assert(parsed == nil and why:find("give --testdata", 1, true) ~= nil, why)
   assert(Agent.parse({ "--tool", "t=/c", "--fixture", "/f", "--out", "/o", "--tasks", "todos" }) ~= nil)
+end
+
+--- What the runs of rename-shared did with `args` added: each retarget, each tool `agent ask` ran as with its
+--- argv and environment, each standalone call's environment, and each directory discarded.
+local record OwnRuns
+  placed: {string}
+  asked: {{string}}
+  envs: {{string: string}}
+  found: {{string: string}}
+  discarded: {string: boolean}
+end
+
+local function own_runs(args: {string}): OwnRuns
+  local argv: mut {string} = { "--tool", "t=/c", "--fixture", "/f", "--out", "/o", "--tasks", "rename-shared",
+    "--reps", "2" }
+  for _, a in ipairs(args) do argv[#argv + 1] = a end
+  local o = options(argv)
+  local made = 0
+  local placed: mut {string} = {}
+  local asked: mut {{string}} = {}
+  local envs: mut {{string: string}} = {}
+  local found: mut {{string: string}} = {}
+  local discarded: mut {string: boolean} = {}
+  local system: Agent.System = {
+    retarget = function(from: string, to: string, root: string)
+      placed[#placed + 1] = from .. " " .. to .. " " .. root
+    end,
+    fresh = function(prefix: string): string
+      made = made + 1
+      return "/tmp/" .. prefix .. tostring(made)
+    end,
+    discard = function(dir: string)
+      discarded[dir] = true
+    end,
+    run = function(a: {string}, cwd: string, env: {string: string}?, _: integer): Agent.Output
+      if a[1] == "/c" and a[2] == "--standalone" then
+        assert(a[3] == cwd .. "/build/paths.tl" and a[4] == cwd, table.concat(a, " "))
+        local e = assert(env)
+        found[#found + 1] = e
+        return { code = 0, stdout = "/tmp/scratch/build/abc\n", stderr = "" }
+      end
+      if a[2] == "agent" then
+        local e = assert(env)
+        asked[#asked + 1] = a
+        envs[#envs + 1] = e
+      end
+      return { code = 0, stdout = "x\n", stderr = "" }
+    end,
+    spent = function(_: string, _: string): Agent.Spent? return nil end,
+    put = function(_: string, _: string) end,
+    serve = function(_: {string}, _: string, _: string, _: integer): (string, function()) | (nil, string)
+      error("no task here has a site")
+    end,
+  }
+  Agent.execute(o, system, "k", { PATH = "/bin" }, function(_: string, _: string) end)
+  return { placed = placed, asked = asked, envs = envs, found = found, discarded = discarded }
+end
+
+local function has(argv: {string}, word: string): boolean
+  for _, w in ipairs(argv) do
+    if w == word then return true end
+  end
+  return false
+end
+
+--- Each run has its own build home and temporary directory in a scratch directory of its own, discarded after; a task
+--- on cosmic's own tree runs the tool placed in its copy's build directory, retargeted to the copy, and finds it first
+--- on PATH with `--commands`, and not without.
+local function test_a_run_on_cosmics_own_tree_runs_the_tool_retargeted_to_its_copy()
+  local with = own_runs({ "--commands", "t" })
+  assert(#with.asked == 2 and #with.placed == 2 and #with.found == 2, tostring(#with.asked))
+  local scratches: mut {string} = {}
+  for i = 1, 2 do
+    local argv = with.asked[i]!
+    assert(argv[1] == "/tmp/scratch/build/abc/bin/cosmic" and has(argv, "--commands"), table.concat(argv, " "))
+    assert(with.placed[i]!:find("^/c /tmp/scratch/build/abc/bin/cosmic /tmp/bench%-t%-rename%-shared%-%d+$") ~= nil,
+      with.placed[i])
+    local e = with.envs[i]!
+    local scratch = assert(e["COSMIC_BUILD_HOME"]):match("^(/tmp/scratch%-bench%-t%-rename%-shared%-%d+)/build$")
+    assert(scratch ~= nil and e["TMPDIR"] == scratch .. "/tmp", tostring(e["COSMIC_BUILD_HOME"]))
+    local f = with.found[i]!
+    assert(f["COSMIC_BUILD_HOME"] == e["COSMIC_BUILD_HOME"] and f["TMPDIR"] == e["TMPDIR"], tostring(f["TMPDIR"]))
+    assert(assert(e["PATH"]):find("^/tmp/scratch/build/abc/bin:/o/t/path:") ~= nil, e["PATH"])
+    assert(with.discarded[scratch] == true, scratch)
+    scratches[i] = scratch
+  end
+  assert(scratches[1] ~= scratches[2], scratches[1])
+  local without = own_runs({})
+  assert(#without.asked == 2 and #without.placed == 2, tostring(#without.asked))
+  for i = 1, 2 do
+    assert(not has(without.asked[i]!, "--commands"), table.concat(without.asked[i]!, " "))
+    assert(without.envs[i]!["PATH"] == "/bin", without.envs[i]!["PATH"])
+  end
 end

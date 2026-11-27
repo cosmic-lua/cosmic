@@ -1,7 +1,8 @@
 --- `cosmic fix --rename Old=new`: renames a module's member, or a field of a record a module declares, at its declaration
 --- and at each place `cosmic uses` finds ([`cosmic.doc`]'s [`Doc.uses`]): a read or a call through the module, an alias of
 --- it, or a value the checker typed, and each link to it in a comment or a Markdown file. The rest of the run is the fix it
---- is part of, which lays out and builds the tree, so a place left fails that build at its line.
+--- is part of. Where it names no paths, that covers the files written and each Teal file that binds the module by
+--- `require`, which it lays out and builds, so a place left there fails that build at its line.
 ---
 --- An edit is made only where it names one place. On a line of code that is a `.old` or `:old` after a name: the only one
 --- of the line, or each one after a name that the file binds to the module by `require`, or after the member's own
@@ -29,6 +30,8 @@ local record Rename
 
   --- What a rename did: each file written, each line left as it was and why (`a.tl:3: ...`), and how many places changed.
   record Done
+    --- The module the member is part of, as `require` names it.
+    module: string
     written: {string}
     left: {string}
     places: integer
@@ -69,6 +72,11 @@ local function aliases(source: string, module: string): mut {string: boolean}
     if required == module then out[name] = true end
   end
   return out
+end
+
+--- Whether `source` binds any name to `module` by `require` ([`aliases`]): a file where a missed use may hide.
+function Rename.binds(source: string, module: string): boolean
+  return next(aliases(source, module)) ~= nil
 end
 
 --- The splices of the code on line `y` of `tokens`: each `.old` or `:old` there, by the rule of the module's header.
@@ -399,7 +407,7 @@ function Rename.run(root: string, own: boolean, old: string, new: string, checki
       String.counted(count, "place") .. " in " .. String.counted(#written, "file") ..
       (if #left > 0 then ", " .. String.counted(#left, "line") .. " left" else "" end) ..
       "; the build below names any place left, " .. clock.took(started))
-  return { written = written, left = left, places = count }
+  return { module = entry.module, written = written, left = left, places = count }
 end
 
 return Rename
