@@ -433,7 +433,9 @@ local function run_refusal_case(fixture_dir: string,
     Fixture.write(pin, Fixture.read(pin) .. "\n# refusal fixture\n")
   elseif name == "tl-checker" then
     local checker = tree .. "/lang/check/init.tl"
-    Fixture.write(checker, Fixture.read(checker) .. "\n-- refusal fixture\n")
+    -- A line of code: a seed file's comment moves no fingerprint.
+    local moved = Fixture.read(checker):gsub("\nreturn Check%s*$", "\nlocal refusal_fixture <const> = 1\nreturn Check\n")
+    Fixture.write(checker, moved)
   elseif name == "launcher" then
     local launcher = tree .. "/build/launcher.tl"
     Fixture.write(launcher, Fixture.read(launcher) ..
