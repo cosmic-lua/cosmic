@@ -391,6 +391,38 @@ local record Learned
   mut compiler: string?
 end
 
+--- Runs the tool written at `candidate` on a snippet that prints `cosmic ok`
+--- before it takes the place of the running one: `--version` returns before
+--- the start a verb takes, a snippet does not. A tool whose code compiled
+--- but raises there would otherwise stop every later [`bin/cosmic`] call,
+--- `help` included, before it could see that it is stale and rebuild. Nil
+--- when it started; else why, with what it said.
+function reboot.start_check(candidate: string): string?
+  -- Without the portable startup test's handshake, which this process may hold: a child would wait on it for a signal
+  -- no one sends it.
+  local environment = Env.all()
+  environment["COSMIC_PORTABLE_STARTUP_TEST_READY"] = nil
+  environment["COSMIC_PORTABLE_STARTUP_TEST_GO"] = nil
+  -- Nor the marks of this reboot, which name this tool, not the candidate.
+  environment[marker] = nil
+  environment[marker_tool] = nil
+  local result, failure = Child.run({ candidate, "-e", "print(\"cosmic ok\")" },
+    { env = environment, timeout_ns = Clock.seconds(60), stdout = "capture", stderr = "capture" })
+  if result == nil then
+    return "the rebuilt tool did not start for its check: " .. tostring(failure)
+  end
+  if result.ok and (result.stdout or ""):sub(1, 9) == "cosmic ok" then
+    return nil
+  end
+  local how = if result.timed_out then "ran past 60 s"
+    elseif result.code ~= nil then "exited " .. tostring(result.code)
+    else "was ended by signal " .. tostring(result.signal) end
+  local said = (result.stderr or "") .. (if result.ok then result.stdout or "" else "" end)
+  return "the rebuilt tool failed its start check (`cosmic -e` " .. how ..
+    "), so the tool in place stays; fix the tree and run it again" ..
+    (if said ~= "" then ":\n" .. said else "" end)
+end
+
 --- Rebuilds the tool from the tree and replaces this process with it,
 --- running `argv` again. Returns only when it cannot, saying why, and
 --- whether the failure was a compile that failed while the tree's
@@ -402,36 +434,6 @@ end
 --- out of a failure. `settle` rebuilds a fresh but `unsettled` tool,
 --- which a rebuild may enter; anything else refuses once a reboot has
 --- entered this process.
---- Runs the tool written at `candidate` as `cosmic --version` before it
---- takes the place of the running one: that start loads the entry module,
---- reads the tool's own database and the checkout's working database, the
---- path every verb's start takes. A tool whose code compiled but raises
---- there would otherwise stop every later [`bin/cosmic`] call, `help`
---- included, before it could see that it is stale and rebuild. Nil when it
---- started; else why, with what it said.
-function reboot.start_check(candidate: string): string?
-  -- Without the portable startup test's handshake, which this process may hold: a child would wait on it for a signal
-  -- no one sends it.
-  local environment = Env.all()
-  environment["COSMIC_PORTABLE_STARTUP_TEST_READY"] = nil
-  environment["COSMIC_PORTABLE_STARTUP_TEST_GO"] = nil
-  local result, failure = Child.run({ candidate, "--version" },
-    { env = environment, timeout_ns = Clock.seconds(60), stdout = "capture", stderr = "capture" })
-  if result == nil then
-    return "the rebuilt tool did not start for its check: " .. tostring(failure)
-  end
-  if result.ok and (result.stdout or ""):sub(1, 7) == "cosmic " then
-    return nil
-  end
-  local how = if result.timed_out then "ran past 60 s"
-    elseif result.code ~= nil then "exited " .. tostring(result.code)
-    else "was ended by signal " .. tostring(result.signal) end
-  local said = (result.stderr or "") .. (if result.ok then result.stdout or "" else "" end)
-  return "the rebuilt tool failed its start check (`cosmic --version` " .. how ..
-    "), so the tool in place stays; fix the tree and run it again" ..
-    (if said ~= "" then ":\n" .. said else "" end)
-end
-
 local function into(handle: work.Handle, argv: {string}, settle: boolean): string, boolean
   local started = Clock.monotonic_ns()
   local _phase <close> = Clock.phase("tool rebuild")

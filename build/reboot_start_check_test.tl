@@ -10,12 +10,12 @@ local function script_at(path: string, body: string)
   assert(Fs.write(path, "#!/bin/sh\n" .. body .. "\n", 0x1ed))
 end
 
---- The start check lets a tool through that prints `cosmic <digest>`, and
+--- The start check lets a tool through that prints `cosmic ok`, and
 --- refuses one that raises, one that prints something else and one that
 --- cannot be run, each with what it said, so the tool in place stays.
 local function test_the_start_check_refuses_a_tool_that_does_not_start(tmp: string)
   local good = tmp .. "/good"
-  script_at(good, "echo 'cosmic 00'")
+  script_at(good, "echo 'cosmic ok'")
   assert(reboot.start_check(good) == nil)
 
   local raises = tmp .. "/raises"
@@ -28,7 +28,7 @@ local function test_the_start_check_refuses_a_tool_that_does_not_start(tmp: stri
 
   local silent = tmp .. "/silent"
   script_at(silent, "exit 0")
-  assert(reboot.start_check(silent) ~= nil, "a tool that printed no digest started")
+  assert(reboot.start_check(silent) ~= nil, "a tool that printed no `cosmic ok` started")
 
   local absent = reboot.start_check(tmp .. "/absent")
   assert(absent ~= nil and absent:find("did not start", 1, true) ~= nil, tostring(absent))
