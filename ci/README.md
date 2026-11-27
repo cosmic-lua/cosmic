@@ -509,7 +509,7 @@ branch's push runs nothing.
   or a test of the built binary's verbs. It saves nothing.
   A batch's pull request (a branch of this repository named
   `claude/batch-*`, stacked by `build/batch.tl` from members whose newest
-  `ci` passed) runs no leg and no driver check, and its gate passes: the
+  `ci` jobs passed, macOS's suite among them) runs no leg and no driver check, and its gate passes: the
   merge queue tests the batch on every leg. The skip goes by the
   branch's name alone. The run it skips takes 22 min (p50) of each
   batch's way to main.

@@ -2479,7 +2479,7 @@ local function test_a_pull_request_runs_the_suites_and_the_light_check()
 end
 
 --- A batch's pull request runs no leg and no driver check, and its gate
---- passes: build/batch.tl stacks it from members whose newest `ci` passed,
+--- passes: build/batch.tl stacks it from members whose newest `ci` jobs passed,
 --- and the merge queue tests the batch on every leg. Only a branch of this
 --- repository takes it, so a fork's pull request named like one still runs.
 local function test_a_batchs_pull_request_skips_its_legs_and_passes()

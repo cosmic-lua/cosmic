@@ -8,8 +8,10 @@
 --- pull request N onto it in the order given, as one commit titled
 --- `<title> (#N)` whose body is the member's own commit messages. A
 --- member is left out, and the reason said, when it is not
---- open, has no green newest `ci` check at its head, or does not apply on what
---- is stacked before it. It writes the batch pull request's body to
+--- open, its checks at its head have not all finished and passed, macOS's
+--- suite among them (build/batch_checks.tl), or it does not apply on what
+--- is stacked before it. Where main is red (an open `main-red` issue,
+--- ci/cosmic_ci/main_red.tl), it says so first. It writes the batch pull request's body to
 --- standard output; the caller pushes BRANCH and opens the pull request.
 --- The repository's squash setting (COMMIT_MESSAGES) keeps each
 --- member's message in main's commit.
@@ -21,6 +23,7 @@
 --- not the REST API, which cuts a long message short.
 ---
 --- It runs the host's `git` and `gh` (its REST API alone), found on PATH.
+local BatchChecks = require("build.batch_checks")
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
@@ -55,15 +58,8 @@ local record Pull
 end
 local PULL <const> = Shape.record_of("Pull"):lenient()
 
-local record CheckRun
-  name: string
-  status: string
-  conclusion: string?
-  started_at: string
-end
-
 local record CheckRuns
-  check_runs: {CheckRun}
+  check_runs: {BatchChecks.CheckRun}
 end
 local CHECK_RUNS <const> = Shape.record_of("CheckRuns"):lenient()
 
@@ -131,20 +127,7 @@ local function refusal(pr: Pull): string?
   if text == nil then return "its checks could not be read: " .. why end
   local checks, wrong = CHECK_RUNS:decode_into(text)
   if checks == nil then return "its checks could not be read: " .. tostring(wrong) end
-  -- The newest ci check decides: an older run, which a re-run or a
-  -- ready-for-review run of the same head replaced, says nothing.
-  local newest: CheckRun? = nil
-  for _, check in ipairs(checks.check_runs) do
-    if check.name == "ci" and (newest == nil or check.started_at > newest.started_at) then
-      newest = check
-    end
-  end
-  if newest == nil then return "no ci check at its head" end
-  if newest.status ~= "completed" then return "its newest ci check is still running" end
-  if newest.conclusion ~= "success" then
-    return "its newest ci check is " .. tostring(newest.conclusion)
-  end
-  return nil
+  return BatchChecks.refusal(checks.check_runs)
 end
 
 --- The member's own commit messages since `base`, without session and
@@ -197,6 +180,40 @@ local function stack_one(main: string, n: string): string?, string
   return "- #" .. n .. " " .. pr.title .. " (head " .. head:sub(1, 9) .. ")", ""
 end
 
+local record Issue
+  number: integer
+  title: string
+  --- Set where the item is a pull request, which the issues API lists too.
+  pull_request?: any
+end
+local ISSUES <const> = Shape.list(Shape.record_of("Issue").spec)
+
+--- Says so where main is red: the issue main-red.yml opens on a failed
+--- push run of main (ci/cosmic_ci/main_red.tl) is open. A batch stacked
+--- on a red main fails the queue on what main broke, not what it carries.
+local function warn_of_red_main()
+  local text, why = api("repos/" .. REPO .. "/issues?state=open&labels=main-red&per_page=20")
+  if text == nil then
+    say("cannot tell whether main is red: " .. why)
+    return
+  end
+  local issues, wrong = Shape.decode_into(text, ISSUES)
+  if issues == nil then
+    say("cannot tell whether main is red: " .. tostring(wrong))
+    return
+  end
+  local issue: Issue? = nil
+  for _, item in ipairs(issues) do
+    if item.pull_request == nil then
+      issue = item
+      break
+    end
+  end
+  if issue == nil then return end
+  say("main is red: #" .. tostring(issue.number) .. " " .. issue.title ..
+      "; fix main first, or the queue fails this batch on it")
+end
+
 local function stack(branch: string, numbers: {string}): integer
   if not git({ "fetch", "-q", "origin", "main" }).ok then
     say("cannot fetch main")
@@ -211,6 +228,7 @@ local function stack(branch: string, numbers: {string}): integer
     say("cannot read origin/main")
     return 1
   end
+  warn_of_red_main()
   if not git({ "checkout", "-q", "-B", branch, main }).ok then
     say("cannot check out " .. branch)
     return 1

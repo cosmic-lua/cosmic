@@ -132,11 +132,11 @@
     # (45561589392 waited 35 min).
     # A batch's pull request (a branch of this repository named
     # claude/batch-*, which build/batch.tl stacks from members whose own
-    # newest `ci` passed) runs no leg and no driver check, and its gate
-    # passes: the merge queue tests the batch, on every leg, before it
-    # lands. The skip goes by the branch's name: what vouches for the
-    # members is build/batch.tl's check. The run it skips takes 22 min
-    # (p50) of each batch's way to main.
+    # newest `ci` jobs passed, macOS's suite among them) runs no leg and
+    # no driver check, and its gate passes: the merge queue tests the
+    # batch, on every leg, before it lands. The skip goes by the branch's
+    # name: what vouches for the members is build/batch.tl's check. The
+    # run it skips takes 22 min (p50) of each batch's way to main.
     platform: {
       needs: ["queue-ref"],
       if: "!cancelled() && (github.event_name != 'merge_group' || needs.queue-ref.result == 'success') && !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'claude/batch-'))",
