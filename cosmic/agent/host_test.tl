@@ -50,39 +50,18 @@ local function test_the_helpers_do_as_their_commands_do(tmp: string)
   assert(#Host.find(tmp .. "/d") == 3 and Host.read(tmp .. "/d/c.md") == "")
   local lines = Host.lines(tmp .. "/d/sub/b.tl")
   assert(#lines == 2 and lines[2] == "last")
-  assert(Host.wc(tmp .. "/d/a.tl") == 2 and Host.wc(tmp .. "/d/sub/b.tl") == 1 and Host.wc(tmp .. "/d/c.md") == 0)
   local hits = Host.grep("TODO", files, true)
   assert(#hits == 2 and hits[2].path == files[2] and hits[2].line == 1 and hits[2].text == "-- TODO two")
   assert(#Host.grep("^local %a+", files) == 1)
-  -- sed replaces every match, a capture or plain text, and leaves a file of none alone.
-  assert(Host.sed(tmp .. "/d/a.tl", "(%a+) = 1", "%1 = 2") == 1 and Host.read(tmp .. "/d/a.tl") == "local x = 2\n-- TODO one\n")
-  assert(Host.sed(tmp .. "/d/a.tl", "x = 2.", "%y", true) == 0)
-  assert(Host.sed(tmp .. "/d/a.tl", "x = 2", "50% x", true) == 1 and Host.lines(tmp .. "/d/a.tl")[1] == "local 50% x")
-  Test.raises(function() Host.sed(tmp .. "/d/a.tl", "[a", "x") end, "host: sed: ")
-  local ranked = Host.top(Host.uniq({ "b", "a", "b", "c", "a" }), 2)
-  assert(#ranked == 2 and ranked[1].key == "a" and ranked[1].count == 2 and ranked[2].key == "b")
-  assert(table.concat(Host.sort({ "b", "a" }), ",") == "a,b")
-  local by_path = Host.sort({ "f0 b.md", "0a a.md", "0a c.md" }, function(l: string): string
-    return l:match("%S+$") or l
-  end)
-  assert(table.concat(by_path, ",") == "0a a.md,f0 b.md,0a c.md", table.concat(by_path, ","))
-  -- Records sort by a key, those of one key in their order, and the list given is left as it was.
-  local items = { { id = "b", n = 1 }, { id = "a", n = 2 }, { id = "b", n = 3 } }
-  local sorted = Host.sort_by(items, function(i: { id: string, n: integer }): string return i.id end)
-  assert(sorted[1]!.n == 2 and sorted[2]!.n == 1 and sorted[3]!.n == 3 and items[1]!.n == 1 and #sorted == 3)
-  sorted[#sorted + 1] = { id = "c", n = 4 }
-  assert(#Host.top({ a = 1 }, -1) == 0 and #Host.find(tmp .. "/d/", "") == 3 and Host.find(tmp .. "/d/")[1] == files[1])
+  assert(#Host.find(tmp .. "/d/", "") == 3 and Host.find(tmp .. "/d/")[1] == files[1])
   Host.write(tmp .. "/d/crlf.txt", "a\r\nb\r\n")
   assert(Host.lines(tmp .. "/d/crlf.txt")[1] == "a" and assert(Host.grep("a$", { tmp .. "/d/crlf.txt" })[1]).text == "a")
   Test.raises(function() Host.grep("[a", files) end, "host: grep: [a: ")
   Test.raises(function() Host.grep("x", { tmp .. "/nope" }) end, "host: grep: ")
   Test.raises(function() Host.read(tmp .. "/nope") end, "host: read: ")
   Test.raises(function() Host.find(tmp .. "/nope") end, "host: find: ")
-  -- grep finds no line past the last newline; sed anchors at each line, and keeps CRLF and the last newline.
+  -- grep finds no line past the last newline.
   assert(#Host.grep("^$", { tmp .. "/d/crlf.txt" }) == 0)
-  Host.write(tmp .. "/d/two.txt", "a\r\na\nb")
-  assert(Host.sed(tmp .. "/d/two.txt", "^a$", "c") == 2 and Host.read(tmp .. "/d/two.txt") == "c\r\nc\nb")
-  assert(Host.exists(tmp .. "/d/two.txt") and not Host.exists(tmp .. "/d/nope") and not Host.exists(tmp .. "/nope/x"))
   -- edit replaces text that is in the file once, keeps CRLF, and changes nothing where any edit misses.
   Host.write(tmp .. "/d/e.txt", "one teh\r\ntwo\r\n")
   assert(Host.edit(tmp .. "/d/e.txt", { { old = "teh", new = "the" }, { old = "two", new = "2" } }) == 2)
@@ -106,21 +85,4 @@ local function test_the_helpers_do_as_their_commands_do(tmp: string)
   assert(Host.edit(tmp .. "/d/link.txt", edits) == 1 and Host.read(tmp .. "/d/e.txt") == "one the\r\ntwo\r\n")
   local target, _ = Fs.readlink(tmp .. "/d/link.txt")
   assert(target == "e.txt", target)
-end
-
---- sqlite runs a statement or, with no values, a script, and raises "host: sqlite: " where it fails; sha256
---- prints a file's hex digest.
-local function test_sqlite_and_sha256_do_as_their_commands_do(tmp: string)
-  local db = tmp .. "/n.db"
-  assert(#Host.sqlite(db, "create table t (k text, v); insert into t values ('a', 1.5)") == 0)
-  assert(#Host.sqlite(db, "insert into t values (?1, ?2)", { "b", false }) == 0)
-  local rows = Host.sqlite(db, "select k, v from t order by k")
-  assert(#rows == 2 and rows[1]["k"] == "a" and rows[1]["v"] == 1.5 and rows[2]["v"] == 0)
-  local bad = Test.raises(function() Host.sqlite(db, "select ?1", { { 1 } }) end, "value 1 is a table")
-  assert(bad:find("host: sqlite: ", 1, true) ~= nil, bad)
-  Test.raises(function() Host.sqlite(db, "create table u (x); nonsense") end, "host: sqlite: ")
-  Test.raises(function() Host.sqlite(tmp .. "/nope/x.db", "select 1") end, "host: sqlite: ")
-  Host.write(tmp .. "/x.txt", "abc")
-  assert(Host.sha256(tmp .. "/x.txt") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
-  Test.raises(function() Host.sha256(tmp .. "/nope") end, "host: sha256: ")
 end

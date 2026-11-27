@@ -3,20 +3,17 @@ Run a program in cosmic, a typed language much like Lua with a library of its ow
 
 Host (cosmic.agent.host), Fs (cosmic.fs) and Json (cosmic.json) need no require. Host's calls do as the commands they are named for and raise where they fail (no assert):
 - Host.find(dir, suffix?) -> {string}: every file under dir, sorted (`Host.find("src", ".tl")`).
-- Host.read(path) -> string (`local text = Host.read("README.md")`); Host.lines(path) -> {string}, without their newlines (`for n, line in ipairs(Host.lines("a.txt")) do ... end`); Host.wc(path) -> integer, its newlines as `wc -l`; Host.exists(path) -> boolean.
+- Host.read(path) -> string (`local text = Host.read("README.md")`); Host.lines(path) -> {string}, without their newlines (`for n, line in ipairs(Host.lines("a.txt")) do ... end`).
 - Host.check(path) -> {string}: the checker's lines on a .tl file you wrote, none where it passes; it runs no code. After writing a .tl file, check it and fix what it tells (`print(table.concat(Host.check("top.tl"), "\n"))`).
 - Json.read_object(path, steps?)! -> {string: Json.Value}, Json.read_array(path, steps?)! -> {Json.Value}: a JSON file, or its part at steps (`{"legs", "x"}`), read, decoded and reached in one call (`for name, leg in pairs(Json.read_object("a.json", {"legs"})!) do ... end`). A Json.Value is a string, number, boolean, array, object or Json.null: Json.string_of(v), number_of, integer_of, boolean_of, object_of and array_of each answer it as one, or nil where it is not one (`local n = Json.integer_of(leg["n"]) or 0`).
 - Host.edit(path, {{"{{"}}old = "...", new = "..."}, ...}) -> integer: changes part of a file rather than writing it whole. Each old is exact text, once in the file as it was before any edit, none overlapping (`Host.edit("a.md", {{"{{"}}old = "teh", new = "the"}, {old = "## Usage\n", new = "## Usage\n\nRun it.\n"}})`); Host.Replacement types a list of them.
 - Host.write(path, text or {lines}): a new file, or a whole new text; a list is a line each (`Host.write("out.txt", {"a", "b"})`).
 - Host.grep(pattern, paths, plain?) -> {{"{{"}}path, line, text}}: the lines that hold a Lua pattern (`%d`, `%.`, `[^/]+`; no regex), in the order of paths, then of lines, so no sort is needed: `for _, h in ipairs(Host.grep("TODO", Host.find("src", ".tl"), true)) do print(h.path .. ":" .. tostring(h.line) .. ": " .. h.text) end`.
-- Host.sed(path, pattern, replacement, plain?) -> integer: replaces every match, line by line (`Host.sed("a.tl", "old_name", "new_name", true)`; `%1` a capture).
-- Host.sort(list, by?) -> mut {string}, a new list, by the key `by(item)` where given, in byte order; Host.version_sort(list, by?) the same with a run of digits by its number, for `path:line` texts (`a.tl:9` before `a.tl:10`); Host.sort_by(items, by) -> mut {T}, the same for records (`Host.sort_by(items, function(i: Item): string return i.id end)`); Host.uniq(keys) -> {string: integer}, each key's count; Host.top(counts, n?) -> {{"{{"}}key, count}}, most first, ties by key. For largest first or two keys, table.sort with a comparator: `table.sort(rows, function(a: Row, b: Row): boolean if a.n ~= b.n then return a.n > b.n end return a.name < b.name end)`.
 - Host.bash(command) -> {output, ok, code}; Host.store(key, value) / Host.load(key).value.
 - Host.answer(text): your whole reply, given once the snippet ends, and the turn ends with no reply after it. Where the snippet makes the answer, give it so (`Host.answer("12 files, 3 over 1 MB")`); print instead where you must see the output first. Answer in a sentence or two, with only what was asked.
 - Host.output(id) -> string: a cut output, whole, by the id its note names. Host.history(query) -> {row}: one read-only SQLite statement on sessions.db, which keeps every session and each tool's whole output. {{.tables}}
 - Host.fetch(url, {method?, headers?, body?, any_status?}?) -> {status, headers, body}: no redirects; a status of 400 or more raises with the start of its body, unless any_status = true; public addresses with --network, and the targets of --connect.
 - Read JSON into records, not with Json.get: unless you know each field's type, print the start of one body first (`print(body:sub(1, 600))`); then declare records to match it at the snippet's top level and decode (`local Shape = require("cosmic.shape")`, `local record Item name: string count: integer end`, `local record Page items: {Item} next?: integer end`, `local page = Shape.decode_into(body, Shape.record_of("Page").spec)!`); keys the record does not name are dropped.
-- Host.sqlite(path, statement, {values}?) -> {row}: one SQL statement on a SQLite file, made where missing (`?1` binds the first value; with no values, a script of several); a column, `row["name"]`, is a Json.Value: narrow it (`Json.string_of(row["dir"]) or ""`, `Json.integer_of(row["n"]) or 0`) or print it with tostring. Host.sha256(path) -> hex.
 - Require a cosmic.* module (print(Host.modules()) lists them; not io or os) before writing what it does (cosmic.csv reads CSV); print(Host.docs("cosmic.fs")) shows one. A call that may fail returns a value, or nil and why: take it with `!`, which raises with the reason (`local text = Fs.read(path)!`), as a statement too (`Fs.write(path, text)!`).
 
 The checker refuses, so write:
@@ -28,15 +25,18 @@ The checker refuses, so write:
 - A field its record does not mark `?` is never nil: `for _, item in ipairs(page.items) do`, not `page.items or {}`.
 - A condition is a boolean or an optional of no boolean: `if s ~= "" then`; for a {string: boolean} set, `if seen[k] == nil then`.
 - `if c then a else b end`, with its `end` even inside a call, in place of `c and a or b`.
-- `{key: string, count: integer}` is a record type, `{string: integer}` a map, and `mut {{"{{"}}key: string}}` a list one may add to. Host.top answers `{Host.Count}`.
+- `{key: string, count: integer}` is a record type, `{string: integer}` a map, and `mut {{"{{"}}key: string}}` a list one may add to.
 - The first n of a list: `for i, v in ipairs(list) do if i > n then break end ... end`.
 - Records, not tuples: a list holds one type, so `{ { path = "a.tl", n = 419 } }`, not `{ { "a.tl", 419 } }`; `T?`, not `T | nil`; no goto.
 
 For example:
-local exts: mut {string} = {}
+local counts: mut {string: integer} = {}
 for _, path in ipairs(Host.find(".")) do
   local ext = path:match("%.(%w+)$")
-  if ext ~= nil then exts[#exts + 1] = ext end
+  if ext ~= nil then counts[ext] = (counts[ext] or 0) + 1 end
 end
-for _, c in ipairs(Host.top(Host.uniq(exts))) do print(c.key .. " " .. tostring(c.count)) end
+local exts: mut {string} = {}
+for ext in pairs(counts) do exts[#exts + 1] = ext end
+table.sort(exts)
+for _, ext in ipairs(exts) do print(ext .. " " .. tostring(counts[ext]!)) end
 {{- "" -}}
