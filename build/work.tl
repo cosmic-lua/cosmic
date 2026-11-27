@@ -1399,7 +1399,10 @@ function work.stage(handle: work.Handle, standing: tree.Standing): work.Staged?,
       local write_scanned = scan and moved(known.scanned, file, st, mtime_ns) -- checked: map_field
       local write_linked = link_kind ~= nil and moved(known.linked, file, st, mtime_ns) -- checked: map_field
       if write_files or write_tool or write_scanned or write_linked then
-        local data, read_trouble = Fs.read(root .. "/" .. file)
+        -- At most the size the stat saw: a file that grows while it is
+        -- read (a strace log in the tree, written as this run reads)
+        -- is staged as it stood at the stat, not read without end.
+        local data, read_trouble = Fs.read(root .. "/" .. file, st.size)
         if data == nil then
           finish(put)
           return nil, tostring(read_trouble)
