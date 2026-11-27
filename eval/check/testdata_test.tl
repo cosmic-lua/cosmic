@@ -6,14 +6,14 @@ local Fs = require("cosmic.fs")
 local String = require("cosmic.string")
 local Test = require("cosmic.test")
 
-Test.policy{ grants = { { path = "eval/check/testdata/", letters = "r" } } }
+Test.policy{ grants = { { path = "check/testdata/", letters = "r" } } }
 
 --- The text of every hidden API test, by file name, comment lines left out.
 local function sources(): {string:string}
   local found: mut {string:string} = {}
-  for _, entry in ipairs((assert(Fs.list("eval/check/testdata")))) do
+  for _, entry in ipairs((assert(Fs.list("check/testdata")))) do
     if entry:match("_api_test%.tl$") then
-      local text = assert(Fs.read("eval/check/testdata/" .. entry))
+      local text = assert(Fs.read("check/testdata/" .. entry))
       local lines: mut {string} = {}
       for line in (text .. "\n"):gmatch("([^\n]*)\n") do
         if not String.trim(line):match("^%-%-") then lines[#lines + 1] = line end

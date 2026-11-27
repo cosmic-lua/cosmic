@@ -84,8 +84,9 @@ sha256_file() {
 # (ci/README.md) type-checks exactly those on the pinned release. The one other
 # way a file reaches the release, `<file>` alone, builds the tree around it,
 # which is how CI runs its own driver (`cosmic-driver cosmic_ci/driver.tl`)
-# from ci/, a project `check-islands` checks as a whole: it is allowed for a file
-# under the checkout's ci/ and refused for any other of the checkout. The
+# from ci/, and eval/agent its evals from eval/: projects `check-islands` checks
+# as a whole. It is allowed for a file under the checkout's ci/ or eval/ and
+# refused for any other of the checkout. The
 # target and the checkout are compared as `pwd -P` resolves them, a link in the
 # file's own name followed (`cd -P`, so a `..` after a linked directory is the
 # physical one), so a link from outside into the checkout does not
@@ -119,9 +120,9 @@ check_target() {
       relative=${full#"$physical"/}
       if [ "$2" = project ]; then
         case $relative in
-          ci/*) return 0 ;;
+          ci/* | eval/*) return 0 ;;
         esac
-        die "$relative is a file of the checkout outside ci/, which runs on the pinned release only as \`--standalone <file>\`, listed in ci/bootstrap-files.txt"
+        die "$relative is a file of the checkout outside ci/ and eval/, which runs on the pinned release only as \`--standalone <file>\`, listed in ci/bootstrap-files.txt"
       fi
       [ -f "$root/ci/bootstrap-files.txt" ] ||
         die "no $root/ci/bootstrap-files.txt, which lists the files of the checkout that may run --standalone"

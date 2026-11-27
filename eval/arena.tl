@@ -5,7 +5,7 @@
 ---     cosmic --standalone eval/arena.tl <task> <cosmic-binary> <dir>
 ---
 --- `<task>` names eval/task/<task>.md; eval/journal.md is appended to
---- it. [`eval/arena`] runs this on the bootstrap cosmic, as bin/vendor
+--- it. [`arena`] runs this on the bootstrap cosmic, as bin/vendor
 --- runs build/vendor.tl: it requires `cosmic.*` modules only, and finds
 --- eval/ from this script's own path.
 local Fs = require("cosmic.fs")
@@ -29,7 +29,7 @@ end
 --- either cannot be read. It sits in the solver's project, whose
 --- `cosmic fix --check` the grader runs, so it is written for `fix` to
 --- link no span naming the task's own module, whatever that module
---- declares ([`build/eval_task_links_test.tl`]).
+--- declares (`build/eval_task_links_test.tl` of cosmic's own tree).
 function Arena.task_text(eval: string, task: string): string?, string
   if task:find("/", 1, true) then
     return nil, "no task eval/task/" .. task .. ".md"

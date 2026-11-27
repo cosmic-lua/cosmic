@@ -1,15 +1,16 @@
 #!/bin/sh
 # Runs the evals of cosmic agent itself -- fixed tasks, each tool's runs,
 # their grades and what they spent: see eval/agent.tl, which this runs
-# on the checkout's own bin/cosmic, so that it may require modules of the
-# tree, such as its report's template (eval/report.tmpl). It runs from the
-# checkout's root, which is the tree a file is built in; eval/agent.tl
-# takes its paths absolute, as the runs read them from other directories.
+# on the release ci/cosmic-driver.pin names, through bin/cosmic-bootstrap.
+# eval/ is a project of its own, so agent.tl may require its other modules,
+# such as its report's template (eval/report.tmpl). It runs from eval/,
+# which is the tree a file is built in; eval/agent.tl takes its paths
+# absolute, as the runs read them from other directories.
 #
 #   eval/agent --tool NAME=PATH [--tool NAME=PATH ...] --fixture DIR --out DIR
 #              [--tasks T,...|all] [--reps N] [--model M] [--timeout S]
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-cd "$root"
-exec bin/cosmic eval/agent.tl "$@"
+cd "$root/eval"
+exec "$root/bin/cosmic-bootstrap" agent.tl "$@"

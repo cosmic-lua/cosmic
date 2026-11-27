@@ -1,13 +1,13 @@
---- [`eval/round.tl`] with a fake System: the plan's layout and commands,
+--- [`round.tl`] with a fake System: the plan's layout and commands,
 --- the `--jobs` limit, and that no grade starts before the last solver
 --- has ended. No claude is started.
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Test = require("cosmic.test")
-local Round = require("eval.round")
+local Round = require("round")
 local Fakes = require("cosmic.fake")
 
-Test.policy{ grants = { { path = "eval/task/", letters = "r" } } }
+Test.policy{ grants = { { path = "task/", letters = "r" } } }
 
 local function options(list: {string}): Round.Options
   local parsed, why = Round.parse(list)
@@ -31,7 +31,7 @@ end
 --- `all` is each task eval/task holds, no more and no fewer.
 local function test_all_is_every_task_there_is()
   local names: mut {string} = {}
-  local listing = assert(Fs.list("eval/task"))
+  local listing = assert(Fs.list("task"))
   for _, entry in ipairs(listing) do
     local task = entry:match("^(.*)%.md$")
     if task ~= nil then names[#names + 1] = task end

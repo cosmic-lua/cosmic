@@ -17,12 +17,12 @@
 --- say: a path a shell builds at run time, or names inside a command
 --- substitution in quotes, is not seen, and a word that only looks like
 --- a path is skipped or reported by a small lexer's rules, not a shell's.
---- The sandbox ([`eval/solve`]) is the enforcement.
+--- The sandbox ([`solve`]) is the enforcement.
 --- Another agent's transcript needs its own reader.
 ---
 ---     cosmic --standalone eval/summarize.tl <arena>/transcript.jsonl
 ---
---- [`eval/summarize`] runs this on the bootstrap cosmic, as bin/vendor
+--- [`summarize`] runs this on the bootstrap cosmic, as bin/vendor
 --- runs build/vendor.tl: it requires `cosmic.*` modules only. The arena
 --- is the transcript's own directory, and the repository is found from
 --- this script's path, both with every link resolved.
