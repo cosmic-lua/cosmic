@@ -239,6 +239,19 @@ local function closing(handle: work.Handle, trouble: string): string
   return trouble
 end
 
+--- What a failed build says, `trouble` and then why no tool is written:
+--- that files moved under the run, which checked them as staged
+--- ([`work.moved_since_stage`]), or else that the tree did not build.
+--- It closes `handle`.
+local function not_built(handle: work.Handle, trouble: string, plain?: string): string
+  local moved_paths, _ = work.moved_since_stage(handle)
+  if moved_paths ~= nil and #moved_paths > 0 then
+    return closing(handle, trouble .. "\n" .. work.moved_line(moved_paths))
+  end
+  if plain == nil then return closing(handle, trouble) end
+  return closing(handle, trouble .. "\n" .. plain)
+end
+
 --- A copy of this process's environment, for a boot and the tool it enters
 --- to run in.
 local function running_in(): mut {string:string}
@@ -391,6 +404,38 @@ local record Learned
   mut compiler: string?
 end
 
+--- Runs the tool written at `candidate` on a snippet that prints `cosmic ok`
+--- before it takes the place of the running one: `--version` returns before
+--- the start a verb takes, a snippet does not. A tool whose code compiled
+--- but raises there would otherwise stop every later [`bin/cosmic`] call,
+--- `help` included, before it could see that it is stale and rebuild. Nil
+--- when it started; else why, with what it said.
+function reboot.start_check(candidate: string): string?
+  -- Without the portable startup test's handshake, which this process may hold: a child would wait on it for a signal
+  -- no one sends it.
+  local environment = Env.all()
+  environment["COSMIC_PORTABLE_STARTUP_TEST_READY"] = nil
+  environment["COSMIC_PORTABLE_STARTUP_TEST_GO"] = nil
+  -- Nor the marks of this reboot, which name this tool, not the candidate.
+  environment[marker] = nil
+  environment[marker_tool] = nil
+  local result, failure = Child.run({ candidate, "-e", "print(\"cosmic ok\")" },
+    { env = environment, timeout_ns = Clock.seconds(60), stdout = "capture", stderr = "capture" })
+  if result == nil then
+    return "the rebuilt tool did not start for its check: " .. tostring(failure)
+  end
+  if result.ok and (result.stdout or ""):sub(1, 9) == "cosmic ok" then
+    return nil
+  end
+  local how = if result.timed_out then "ran past 60 s"
+    elseif result.code ~= nil then "exited " .. tostring(result.code)
+    else "was ended by signal " .. tostring(result.signal) end
+  local said = (result.stderr or "") .. (if result.ok then result.stdout or "" else "" end)
+  return "the rebuilt tool failed its start check (`cosmic -e` " .. how ..
+    "), so the tool in place stays; fix the tree and run it again" ..
+    (if said ~= "" then ":\n" .. said else "" end)
+end
+
 --- Rebuilds the tool from the tree and replaces this process with it,
 --- running `argv` again. Returns only when it cannot, saying why, and
 --- whether the failure was a compile that failed while the tree's
@@ -477,9 +522,10 @@ local function into(handle: work.Handle, argv: {string}, settle: boolean): strin
       return GrammarMode.tool(tool), ""
     end, true, shared_compiles.for_build(), importer.telling())
   if result == nil then
-    -- The compiler of a tool settling is the tree's: it cannot have moved.
+    -- The compiler of a tool settling is the tree's: it cannot have moved,
+    -- though files may have moved under the run.
     if settle then
-      return closing(handle, compile_trouble), false
+      return not_built(handle, compile_trouble), false
     end
     -- The compile may have stopped before it recorded the tree's
     -- identities: take the compiler's from what is staged and parsed.
@@ -489,7 +535,7 @@ local function into(handle: work.Handle, argv: {string}, settle: boolean): strin
       local found, _ = identity.compiler_identity(handle.db)
       learned.compiler = found
     end
-    return closing(handle, compile_trouble),
+    return not_built(handle, compile_trouble),
       reboot.compiler_moved(Store.meta("compiler"), learned.compiler)
   end
   -- The new checker goes on past a module it refuses, to tell every refusal; a tool is not written from a tree it refused,
@@ -498,8 +544,8 @@ local function into(handle: work.Handle, argv: {string}, settle: boolean): strin
   if refusals.tests_only(breaches, result.refusal_roots) then
     log:complain(refusals.text(breaches, result.refusal_roots or {}) .. "\n" .. refusals.written_without_tests())
   elseif #breaches > 0 then
-    return closing(handle, refusals.text(breaches, result.refusal_roots or {}) ..
-        "\nthe tree did not build, so no tool is written from it"), false
+    return not_built(handle, refusals.text(breaches, result.refusal_roots or {}),
+      "the tree did not build, so no tool is written from it"), false
   end
   local layout = build_paths.resolve(handle.root)
   local database_path = layout.projection
@@ -531,9 +577,22 @@ local function into(handle: work.Handle, argv: {string}, settle: boolean): strin
   if program == nil then
     return program_trouble, false
   end
-  local published, publish_trouble = Fs.write(out, program, 0x1ed)
+  -- Written beside the tool and checked there first: the tool in place
+  -- is replaced only by one that starts ([`reboot.start_check`]).
+  local candidate = out .. ".start-check"
+  local published, publish_trouble = Fs.write(candidate, program, 0x1ed)
   if not published then
     return tostring(publish_trouble), false
+  end
+  local failed = reboot.start_check(candidate)
+  if failed ~= nil then
+    local _, _ = Fs.remove(candidate)
+    return failed, false
+  end
+  local moved, move_trouble = Fs.rename(candidate, out)
+  if not moved then
+    local _, _ = Fs.remove(candidate)
+    return tostring(move_trouble), false
   end
 
   -- The wait a verb's own summary never counts: it times the run the new

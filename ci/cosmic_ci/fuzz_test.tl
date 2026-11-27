@@ -483,17 +483,26 @@ local function test_fuzz_forwards_repeated_signals_and_keeps_each_trap(tmp: stri
   assert(read(temp .. "/fuzz.out") == read(log), "successful drains duplicated or omitted bytes")
 end
 
+--- Path of `setsid`. Linux ships it, so a missing one there is a broken
+--- host and fails. macOS has none: there the test is skipped.
+local function find_setsid(): string?
+  local found, _ = Proc.find("setsid")
+  if found ~= nil then return found end
+  local proc, _ = Fs.stat("/proc/self")
+  local on_linux = proc ~= nil
+  assert(not on_linux, "this Linux host has no setsid")
+  Test.skip("this host has no setsid")
+  return nil
+end
+
 local function test_fuzz_waits_after_output_eof_and_drains_a_finite_post_exit_tail(tmp: string)
   local eof = tmp .. "/eof"
   assert(Fs.mkdirs(eof))
   local first <close>, temp = start_fuzz(eof, { "#!/bin/sh", "exec 1>&- 2>&-", "sleep 0.2", "exit 7" }, {})
   assert(assert(first:wait(Clock.seconds(30))).code == 7)
   assert(read(temp .. "/fuzz.status") == "7\n")
-  local setsid, _ = Proc.find("setsid")
-  if setsid == nil then
-    Test.skip("this host has no setsid")
-    return
-  end
+  local setsid = find_setsid()
+  if setsid == nil then return end
   local tail = tmp .. "/tail"
   assert(Fs.mkdirs(tail))
   local second <close>, tail_temp, log = start_fuzz(tail,
@@ -581,9 +590,8 @@ local function test_a_failed_drain_preserves_the_status_it_observed(tmp: string)
 end
 
 local function test_an_escaped_writer_bounds_final_drain_without_replacing_child_status(tmp: string)
-  local found, _ = Proc.find("setsid")
-  if found == nil then Test.skip("this host has no setsid") end
-  local setsid = assert(found)
+  local setsid = find_setsid()
+  if setsid == nil then return end
   local pid_file = tmp .. "/escaped-pid"
   local handle <close>, temp = start_fuzz(tmp, {
     "#!/bin/sh",

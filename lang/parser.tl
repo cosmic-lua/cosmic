@@ -110,6 +110,8 @@ local record Parser
     "require_value"
     -- `local schema Name = <exp>` whose expression is no constant text
     "schema_not_constant"
+    -- a template literal of [`Template.text`] the template compiler refuses (build/template_lower.tl)
+    "template_refused"
   end
 
   --- A syntax error, or the lexer's error carried over. `y`, `x`, `offset`
@@ -3111,6 +3113,7 @@ Parser.codes = {
   "method_path", "close_repeated", "trailing_comma", "arm_on_same_line", "unreachable_arm", "duplicate_binding", "reserved_method",
   "suffix_needs_parens", "nested_in_interface",
   "old_type_declaration", "narrowing_return", "too_deep", "computed_require", "require_value", "schema_not_constant",
+  "template_refused",
 }
 
 return Parser
