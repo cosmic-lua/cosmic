@@ -92,6 +92,8 @@ local record Lexer
     "bad_escape"
     -- a byte, or a run of non-ASCII bytes, that begins no token
     "stray_byte"
+    -- source bytes that are not UTF-8 text, where the first is
+    "invalid_utf8"
   end
 
   --- A comment, `--` to the end of its line. It is kept on the token that
@@ -621,6 +623,24 @@ local function mark_end(tokens: Tokens, n: integer, y: integer, x: integer, leng
   end
 end
 
+--- The error for the first byte of `source` that is not UTF-8 text, at
+--- `bad` (as `utf8.len` says it), with its line and column.
+local function utf8_refusal(source: string, name: string, bad: integer): Lexer.Error?
+  local line, line_start, i = 1, 1, 1
+  while true do
+    local at = find(source, "[\r\n]", i)
+    if at == nil or at >= bad then break end
+    i = at + break_at(source, at)
+    line, line_start = line + 1, i
+  end
+  local made: mut {Lexer.Error} = {}
+  add_error(made, name, "invalid_utf8", "the source is not UTF-8 text: byte " .. tostring(bad) ..
+      " is `" .. shown(sub(source, bad, bad)) .. "`",
+    "save the file as UTF-8, or write the byte as an escape (`\\xNN`) inside a string",
+    bad, 1, line, bad - line_start + 1)
+  return made[1]
+end
+
 function Lexer.lex(source: string, name: string): Lexer.Lexed
   local tokens: Tokens = {
     kind = {}, text = {}, offset = {}, y = {}, line = {}, yend = {}, xend = {}, value = {}, number = {}, comments = {},
@@ -925,6 +945,24 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
   if pending ~= nil then
     tokens.comments[n] = pending
   end
+  -- Source that is not UTF-8 text is refused, once, at its first bad byte. Pure ASCII, nearly every file, holds none.
+  if find(source, "[\128-\255]") ~= nil then
+    local good, bad = utf8.len(source)
+    local refused: Lexer.Error? = nil
+    if good == nil and bad ~= nil then refused = utf8_refusal(source, name, bad) end
+    if refused ~= nil then
+      local placed: mut {Lexer.Error} = {}
+      for _, e in ipairs(errors) do
+        if refused ~= nil and e.offset > refused.offset then
+          placed[#placed + 1] = refused
+          refused = nil
+        end
+        placed[#placed + 1] = e
+      end
+      if refused ~= nil then placed[#placed + 1] = refused end
+      errors = placed
+    end
+  end
   return { tokens = tokens, errors = errors }
 end
 
@@ -1046,7 +1084,7 @@ Lexer.reserved = reserved_set
 Lexer.codes = {
   "label_or_goto", "long_comment", "unterminated_long_comment",
   "digit_separator", "hex_float", "malformed_number", "unterminated_string",
-  "unterminated_long_string", "bad_escape", "stray_byte",
+  "unterminated_long_string", "bad_escape", "stray_byte", "invalid_utf8",
 }
 Lexer.added = added_words
 Lexer.lua_words = lua_words

@@ -106,9 +106,9 @@ end
 local function status_of(daemon?: Tailscale.Daemon): (Tailscale.Status) | (nil, Failure)
   local Live = require("cosmic.tailscale")
   local ts, why = Live.connect(daemon)
-  if ts == nil then return nil, Failure.new(tostring(why)) end
+  if ts == nil then return nil, why end
   local status, trouble = ts:status()
-  if status == nil then return nil, Failure.new(tostring(trouble)) end
+  if status == nil then return nil, trouble end
   if status.backend_state ~= "Running" then
     return nil, Failure.new("tailscale: the node is " .. status.backend_state .. ", so it knows no peers")
   end
@@ -130,8 +130,8 @@ function tailnet.policy(merged: rules.Policy, daemon?: Tailscale.Daemon): (rules
     local read, _ = Grant.tailnet(target)
     if read ~= nil and read ~= false then
       if status == nil then
-        return nil, Failure.new("sandbox: connect \"" .. target .. "\" names nodes of the tailnet, which tailscaled was asked " ..
-            "for: " .. (tostring(why):gsub("^tailscale: ", "")))
+        return nil, Failure.within(why, "sandbox: connect \"" .. target ..
+            "\" names nodes of the tailnet, which tailscaled was asked for")
       end
       if #tailnet.resolved({ target }, status) == 0 then
         return nil, Failure.new("sandbox: connect \"" .. target .. "\" names no peer of the tailnet that tailscaled lists")
