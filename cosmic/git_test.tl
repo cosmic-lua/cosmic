@@ -295,9 +295,10 @@ local function test_untracked_edge_cases_agree_with_git(tmp: string)
     table.concat(status.untracked, ",") .. " against " .. table.concat(want, ","))
 end
 
---- A config value as git reads it (CRLF, whitespace in and around
---- quotes, a continuation), a line git refuses, and an `includeIf`
---- gitdir pattern that names the gitdir itself rather than below it.
+--- A config value as git 2.46 and later reads it (CRLF, whitespace in
+--- and around quotes, a continuation), a line git refuses, and an
+--- `includeIf` gitdir pattern that names the gitdir itself rather than
+--- below it. Where the git on PATH is 2.46 or later, it must agree.
 local function test_config_values_agree_with_git(tmp: string)
   local root = scratch(tmp)
   local base = assert(Fs.read(root .. "/.git/config"))
@@ -310,16 +311,22 @@ local function test_config_values_agree_with_git(tmp: string)
     assert(repo:commit({ message = "values" }))
     return git(root, { "log", "-1", "--format=%an" })
   end
+  local major, minor = git(root, { "--version" }):match("(%d+)%.(%d+)")
+  local recent = (tonumber(major) or 0) * 1000 + (tonumber(minor) or 0) >= 2046
   for _, case in ipairs({
-      "[user]\r\n\tname = a \\\r\n\tb\r\n",
-      "[user]\n\tname = a \\\n\tb\n",
-      "[user]\n\tname = \"x  \"  y \t# a comment\n",
-      "[user]\n\tname = \"\"  lead\n",
+      { "[user]\r\n\tname = a \\\r\n\tb\r\n", "a \tb" },
+      { "[user]\n\tname = a \\\n\tb\n", "a \tb" },
+      { "[user]\n\tname = \"x  \"  y \t# a comment\n", "x    y" },
+      { "[user]\n\tname = \"\"  lead\n", "lead" },
   }) do
-    assert(Fs.write(root .. "/.git/config", base .. case))
-    local want = git(root, { "config", "user.name" })
-    local got = author(case)
-    assert(got == want, case .. ": " .. tostring(got) .. " against " .. want)
+    local config, want = case[1]!, case[2]! .. "\n"
+    if recent then
+      assert(Fs.write(root .. "/.git/config", base .. config))
+      local said = git(root, { "config", "user.name" })
+      assert(said == want, (config:gsub("\n", "\\n")) .. ": git said " .. said)
+    end
+    local got = author(config)
+    assert(got == want, (config:gsub("\n", "\\n")) .. ": " .. tostring(got) .. " against " .. want)
   end
   for _, case in ipairs({ "[user]\n\tna\\\nme = a\n", "[user\\\n]\n\tname = a\n", "[user]\n\t9name = a\n" }) do
     local got = author(case)

@@ -385,18 +385,16 @@ end
 local type Config = mut {string: mut {string}}
 
 --- A value's text: quotes dropped, escapes read, a comment cut off.
---- As git's parse_value: each whitespace byte outside quotes reads as
---- one space, and those at the end are dropped.
+--- As git's parse_value since 2.46: whitespace outside quotes stays as
+--- it is between words, and goes at the start and the end. (Before
+--- 2.46, git read each such byte as one space.)
 local function config_value(raw: string): string
   local out: mut {string} = {}
   local quoted = false
-  local spaces, length = 0, 0
+  local spaces, length = "", 0
   local function put(s: string)
-    if spaces > 0 and length > 0 then
-      local gap = string.rep(" ", spaces)
-      out[#out + 1] = gap
-    end
-    spaces = 0
+    if spaces ~= "" and length > 0 then out[#out + 1] = spaces end
+    spaces = ""
     out[#out + 1] = s
     length = length + #s
   end
@@ -413,7 +411,7 @@ local function config_value(raw: string): string
     elseif (c == "#" or c == ";") and not quoted then
       break
     elseif c:find("^%s") ~= nil and not quoted then
-      spaces = spaces + 1
+      spaces = spaces .. c
     else
       put(c)
     end
