@@ -47,3 +47,15 @@ local function test_a_file_that_is_not_a_profile_is_exit_5(tmp: string)
   assert(ran.code == 5 and ran.out == "", ran.out)
   assert(ran.err:find("cosmic: profile: x.prof: not a profile", 1, true) ~= nil, ran.err)
 end
+
+--- `cosmic --profile <dir>` runs the command with COSMIC_PROFILE set, so its process writes a profile there, and
+--- exits as the command does; it refuses a line with no command.
+local function test_the_profile_flag_profiles_the_command(tmp: string)
+  local ran = tool_fixture.cosmic(tmp, { "--profile", "made/flagged", "-e", "print(6 * 7) return 3" })
+  assert(ran.code == 3 and ran.out == "42\n", ran.out .. ran.err)
+  local names = assert(Fs.list(tmp .. "/made/flagged"))
+  assert(#names == 1 and assert(names[1]):match("^%d+%.prof$") ~= nil, table.concat(names, " "))
+  local refused = tool_fixture.cosmic(tmp, { "--profile", "flagged" })
+  assert(refused.code == 2 and refused.err:find("--profile takes a directory and the command", 1, true) ~= nil,
+    refused.err)
+end
