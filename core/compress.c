@@ -270,14 +270,27 @@ static void *spare_inf = NULL;
 /* The spare `slot` holds, or `size` new bytes; NULL on failure. The
  * caller sets it up whole (tdefl_init, a memset). */
 static void *take_spare (void **slot, size_t size) {
+#ifdef COSMIC_CHECKED
+  /* The checked core keeps no spare: its heap counts each stream's block
+   * live and freed with the stream, and refuses it under
+   * testing.fail_allocations (core/allocation_test.tl). */
+  (void)slot;
+  return cosmic_malloc(size);
+#else
   void *p = __atomic_exchange_n(slot, NULL, __ATOMIC_ACQ_REL);
   return p != NULL ? p : cosmic_malloc(size);
+#endif
 }
 
 /* Keeps `p` as `slot`'s spare, freeing the one it replaces. */
 static void give_spare (void **slot, void *p) {
   if (p == NULL) return;
+#ifdef COSMIC_CHECKED
+  (void)slot;
+  cosmic_free(p);
+#else
   cosmic_free(__atomic_exchange_n(slot, p, __ATOMIC_ACQ_REL));
+#endif
 }
 
 static tdefl_compressor *take_tdefl (void) {
