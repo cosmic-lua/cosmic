@@ -61,13 +61,16 @@ end
 --- besides what `extra` sets, returning what it printed and its exit status.
 --- @param root the suite's tree, which the run starts in
 --- @param extra variables to set on top of the environment
-function test_sandbox_fixture.unsandboxed(root: string, extra: {string:string}): test_sandbox_fixture.Unsandboxed
+--- @param args the arguments after `test`, none by default
+function test_sandbox_fixture.unsandboxed(root: string, extra: {string:string}, args?: {string}): test_sandbox_fixture.Unsandboxed
   local env = Test.environment()
   env["COSMIC_TEST_SANDBOX"] = "0"
   env["COSMIC_SANDBOX"] = nil
   env["COSMIC_CI_REQUIRE_SANDBOX"] = nil
   for name, value in pairs(extra) do env[name] = value end
-  local started = Test.cosmic({ "test" }, {
+  local argv: mut {string} = { "test" }
+  for _, a in ipairs(args or {}) do argv[#argv + 1] = a end
+  local started = Test.cosmic(argv, {
     cwd = root, env = env, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60),
   })
   local result = assert(Child.run(started.argv, started.options))

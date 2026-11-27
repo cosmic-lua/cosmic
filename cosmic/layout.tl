@@ -25,7 +25,10 @@ local record Layout
   --- an unchanged prior verdict instead. An edit to the test file, a
   --- comment included, runs its tests again; a comment in a module it
   --- imports runs them again only where the test is given that module's
-  --- text: doc/testing.md ("the pure store") names every case
+  --- text: doc/testing.md ("the pure store") names every case. Its
+  --- top-level `local function bench_*(b: Bench.B)` functions are benches
+  --- ([`cosmic.bench`]): `cosmic test` calls each once as a test, and
+  --- `cosmic test --bench` times them
   tests: string
   --- a project's own module is named by its path from the project's
   --- root, the working directory: `notes.tl` is `require("notes")`,
