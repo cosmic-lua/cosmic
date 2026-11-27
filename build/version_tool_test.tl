@@ -58,6 +58,24 @@ local function test_version_hashes_again_for_another_files_key(tmp: string)
   assert(Fs.read(entry)! == key_of(path) .. "\t" .. real .. "\n")
 end
 
+local function test_version_hashes_again_for_a_malformed_entry(tmp: string)
+  local path = assert(Proc.executable())
+  local env = { XDG_CACHE_HOME = tmp .. "/cache" }
+  local real = Hash.hex_sha256((assert(Fs.read(path))))
+  assert(Fs.mkdirs(tmp .. "/cache/cosmic/version", 0x1c0))
+  local entry = tmp .. "/cache/cosmic/version/digest"
+  for _, kept in ipairs({
+      key_of(path) .. "\t" .. ("a"):rep(63) .. "\n",
+      key_of(path) .. " " .. ("ab"):rep(32) .. "\n",
+      key_of(path) .. "\t" .. ("ab"):rep(32),
+  }) do
+    assert(Fs.write(entry, kept))
+    local result = invoke.run({ "--version" }, { cwd = tmp, env = env })
+    assert(result.stdout == "cosmic " .. real .. "\n", result.stdout)
+    assert(Fs.read(entry)! == key_of(path) .. "\t" .. real .. "\n")
+  end
+end
+
 local function test_version_hashes_where_no_cache_can_be_made(tmp: string)
   local path = assert(Proc.executable())
   local real = Hash.hex_sha256((assert(Fs.read(path))))

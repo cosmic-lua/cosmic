@@ -762,7 +762,10 @@ local function file_digest(path: string): (string) | (nil, Failure)
   end
   local digest, trouble = Hash.hex_file("sha256", path)
   if digest == nil then return nil, trouble end
-  if entry ~= "" then
+  -- A file changed within the last two seconds may change again with
+  -- the same size inside one coarse timestamp tick, and keep this key:
+  -- such a file is hashed each time until it settles.
+  if entry ~= "" and st ~= nil and require("cosmic.clock").now_ns() // 1000000000 - math.max(st.mtime, st.ctime) >= 2 then
     local _, _ = Fs.write(entry, key .. "\t" .. digest .. "\n", 0x180)
   end
   return digest
