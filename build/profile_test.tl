@@ -185,6 +185,11 @@ local function test_spans_against_an_older_run()
   assert(back.out:find("    [inner]  4.0 ms -> 0.0 ms  -100.0%;", 1, true) ~= nil, back.out)
   local refused = run({ "--by", "function", "--against", "b.prof", "a.prof" }, files)
   assert(refused.code == 2 and refused.err:find("--against compares the spans", 1, true) ~= nil, refused.err)
+  local split = run({ "--per-process", "--against", "b.prof", "a.prof" }, files)
+  assert(split.code == 2 and split.err:find("not --per-process", 1, true) ~= nil, split.err)
+  -- `--process` keeps a process of this run; the older run is read whole.
+  local one = run({ "--by", "span", "--process", "10", "--against", "b.prof", "a.prof" }, files)
+  assert(one.code == 0 and one.out:find("[outer]  1.0 ms -> 8.0 ms", 1, true) ~= nil, one.out .. one.err)
   local missing = run({ "--against", "old.prof", "a.prof" }, files)
   assert(missing.code == 5 and missing.err:find("old.prof: no such file", 1, true) ~= nil, missing.err)
 end

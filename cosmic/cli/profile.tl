@@ -25,7 +25,8 @@
 --- - `--per-process` adds a row under each span for each process that closed one (its count, wall and CPU time, its
 ---   file and its command), most CPU first: which of a fanned run's workers spent a phase's time.
 --- - `--against OLD` compares the spans with those of an older run's profiles (a directory, a file or `-`): each
----   span's wall and CPU time then and now, and the change. It takes `--by span` or no `--by`.
+---   span's wall and CPU time then and now, and the change. It takes `--by span` or no `--by`, not `--per-process`;
+---   `--process` keeps a process of the newer run alone.
 --- - `--folded` prints each stack and its microseconds on a line (`a;b;c 1234`), the spans first, for a flame graph
 ---   tool.
 ---

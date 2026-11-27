@@ -655,6 +655,10 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     complain("--against compares the spans, so it takes --by span or no --by; " .. usage)
     return bare.refused
   end
+  if against_word ~= nil and parsed.set["--per-process"] == true then
+    complain("--against compares the spans of whole runs, not --per-process; " .. usage)
+    return bare.refused
+  end
   local only = parsed.integers["--process"]
   local gathered, why = gather(to, parsed.words, only)
   if gathered == nil then
@@ -663,7 +667,8 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   end
   local against: {verb.Process}? = nil
   if against_word ~= nil then
-    local older, older_why = gather(to, { against_word }, only)
+    -- The whole older run: a pid of this run names no process of that one.
+    local older, older_why = gather(to, { against_word })
     if older == nil then
       complain(older_why)
       return bare.undone
