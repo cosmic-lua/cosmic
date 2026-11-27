@@ -33,21 +33,30 @@ local function fixture(name: string): string
   return (assert(Fs.read("testdata/tls/" .. name)))
 end
 
---- A port of 127.0.0.1 nothing listens at: listened at, then closed.
-local function free_port(): integer
-  local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
-  local port = assert(listener.address.port)
-  assert(listener:close())
-  return port
+--- Where the clear listener of a server under test listens: 127.0.0.1 at
+--- `port`, which is 0 until it listens. The server listens at port 0 and
+--- sets it in `on_listen`, before its first load, so no other process
+--- can take the port between a choice of it and the listen.
+local record Clear
+  mut port: integer
+end
+
+--- The `on_listen` that sets `clear.port` to the port of the server's
+--- `clear` listener, the address after its one TLS listener.
+local function listens(clear: Clear): function(addresses: {Net.Address}, server: Net.Server)
+  return function(addresses: {Net.Address}, _server: Net.Server)
+    clear.port = assert(assert(addresses[2]).port)
+  end
 end
 
 --- A fake CA that issues `d.pem` once its check of each http-01
---- challenge fetches the right response from 127.0.0.1 at `port`.
-local function fake_ca(port: integer): FakeCa
+--- challenge fetches the right response from 127.0.0.1 at `clear.port`.
+local function fake_ca(clear: Clear): FakeCa
   local ca = acme_fixture.new_server()
   ca.chain = fixture("d.pem")
   ca.check = function(_domain: string, token: string): string
-    local got, _ = Http.get("http://127.0.0.1:" .. tostring(port) .. "/.well-known/acme-challenge/" .. token,
+    assert(clear.port ~= 0, "the CA checked before the clear listener listened")
+    local got, _ = Http.get("http://127.0.0.1:" .. tostring(clear.port) .. "/.well-known/acme-challenge/" .. token,
       { timeout_ns = WAIT })
     if got == nil or got.status ~= 200 then return "invalid" end
     if got.body:sub(1, #token + 1) ~= token .. "." then return "invalid" end
@@ -73,14 +82,15 @@ local record Served
   mut ready: boolean
 end
 
---- Serves `auto` at a TLS port and the clear port `clear_port` until
---- one HTTPS request and one plain one have been made; returns what
+--- Serves `auto` at a TLS port and a clear one, which it sets in `clear`,
+--- until one HTTPS request and one plain one have been made; returns what
 --- they saw, and what [`Server.serve`] returned.
-local function serve(auto: Acme.Auto, clear_port: integer): Served, boolean, string
+local function serve(auto: Acme.Auto, clear: Clear): Served, boolean, string
   local served: Served = { https = "", redirect = "", ready = false }
   local ok, why = Server.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
-    clear = { Net.tcp("127.0.0.1", clear_port) },
+    clear = { Net.tcp("127.0.0.1", 0) },
+    on_listen = listens(clear),
     tls = auto.certs,
     handle = auto:handler(function(_req: Server.Request): Server.Reply
       return { status = 200, body = "over tls" }
@@ -90,7 +100,7 @@ local function serve(auto: Acme.Auto, clear_port: integer): Served, boolean, str
       local port = assert(addresses[1]).port
       local got = assert(Http.get("https://localhost:" .. tostring(port) .. "/", { ca = fixture("d.pem"), timeout_ns = WAIT }))
       served.https = got.body
-      local plain = assert(Http.get("http://127.0.0.1:" .. tostring(clear_port) .. "/a?b=1",
+      local plain = assert(Http.get("http://127.0.0.1:" .. tostring(clear.port) .. "/a?b=1",
         { follow = false, timeout_ns = WAIT }))
       served.redirect = tostring(plain.status) .. " " .. tostring(plain.headers["location"])
       server:stop()
@@ -101,8 +111,8 @@ end
 
 local function test_a_first_start_issues_while_the_clear_listener_answers_the_check(tmp: string)
   local dir = tmp .. "/acme"
-  local port = free_port()
-  local served, ok, why = serve(auto_of(dir, fake_ca(port)), port)
+  local clear: Clear = { port = 0 }
+  local served, ok, why = serve(auto_of(dir, fake_ca(clear)), clear)
   assert(ok, why)
   assert(served.https == "over tls", served.https)
   assert(served.redirect == "308 https://127.0.0.1/a?b=1", served.redirect)
@@ -115,29 +125,28 @@ end
 
 local function test_a_restart_serves_the_kept_certificate_and_asks_the_ca_nothing(tmp: string)
   local dir = tmp .. "/acme"
-  local port = free_port()
-  local _, ok, why = serve(auto_of(dir, fake_ca(port)), port)
+  local clear: Clear = { port = 0 }
+  local _, ok, why = serve(auto_of(dir, fake_ca(clear)), clear)
   assert(ok, why)
   local silent = acme_fixture.new_server()
   silent.request = function(_m: string, url: string, _o: Http.RequestOptions): Http.Body?, string
     error("the CA was asked for " .. url)
   end
-  local again = free_port()
-  local served, restarted, trouble = serve(auto_of(dir, silent), again)
+  local served, restarted, trouble = serve(auto_of(dir, silent), { port = 0 })
   assert(restarted, trouble)
   assert(served.https == "over tls", served.https)
 end
 
 local function test_a_kept_certificate_that_misses_a_name_is_issued_again(tmp: string)
   local dir = tmp .. "/acme"
-  local port = free_port()
-  local _, ok, why = serve(auto_of(dir, fake_ca(port)), port)
+  local clear: Clear = { port = 0 }
+  local _, ok, why = serve(auto_of(dir, fake_ca(clear)), clear)
   assert(ok, why)
   local kept = assert(Fs.read(dir .. "/certificate.pem"))
   -- `d.pem` names localhost alone, not other.test.
   local asked = false
   -- Loaded with no server, so nothing responds to a check: the CA passes it.
-  local ca = fake_ca(port)
+  local ca = fake_ca(clear)
   ca.check = function(_domain: string, _token: string): string return "valid" end
   local request = ca.request
   ca.request = function(m: string, url: string, o: Http.RequestOptions): Http.Body?, string
@@ -155,10 +164,10 @@ end
 
 local function test_a_check_that_fails_fails_the_serve_before_it_is_ready(tmp: string)
   local dir = tmp .. "/acme"
-  local port = free_port()
-  local ca = fake_ca(port)
+  local clear: Clear = { port = 0 }
+  local ca = fake_ca(clear)
   ca.check = function(_domain: string, _token: string): string return "invalid" end
-  local served, ok, why = serve(auto_of(dir, ca), port)
+  local served, ok, why = serve(auto_of(dir, ca), clear)
   assert(not ok)
   assert(why:find("invalid", 1, true) ~= nil, why)
   assert(not served.ready, "on_ready ran though no certificate was loaded")
@@ -220,8 +229,8 @@ end
 
 local function test_web_serve_takes_an_auto_as_its_acme(tmp: string)
   local Web = require("cosmic.web")
-  local port = free_port()
-  local auto = auto_of(tmp .. "/acme", fake_ca(port))
+  local clear: Clear = { port = 0 }
+  local auto = auto_of(tmp .. "/acme", fake_ca(clear))
   local app = Web.app{
     routes = { Web.get("/", function(_req: Web.Request): Web.Response
       return Web.text("from the app")
@@ -231,11 +240,12 @@ local function test_web_serve_takes_an_auto_as_its_acme(tmp: string)
   assert(Web.serve(app, {
     acme = auto,
     listeners = { Net.tcp("127.0.0.1", 0) },
-    clear = { Net.tcp("127.0.0.1", port) },
+    clear = { Net.tcp("127.0.0.1", 0) },
+    on_listen = listens(clear),
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       local tls_port = assert(addresses[1]).port
       local got = assert(Http.get("https://localhost:" .. tostring(tls_port) .. "/", { ca = fixture("d.pem"), timeout_ns = WAIT }))
-      local plain = assert(Http.get("http://127.0.0.1:" .. tostring(port) .. "/", { follow = false, timeout_ns = WAIT }))
+      local plain = assert(Http.get("http://127.0.0.1:" .. tostring(clear.port) .. "/", { follow = false, timeout_ns = WAIT }))
       seen = got.body .. " " .. tostring(plain.status)
       server:stop()
     end,
@@ -252,7 +262,7 @@ local function test_a_kept_certificate_with_another_key_is_issued_again(tmp: str
   assert(Fs.mkdirs(dir, 0x1c0))
   assert(Fs.write(dir .. "/certificate.pem", fixture("a.pem") .. fixture("b.key"), 0x180))
   local asked = false
-  local ca = fake_ca(free_port())
+  local ca = fake_ca({ port = 0 })
   ca.check = function(_domain: string, _token: string): string return "valid" end
   local request = ca.request
   ca.request = function(m: string, url: string, o: Http.RequestOptions): Http.Body?, string
@@ -296,7 +306,7 @@ local function test_an_ed25519_account_key_there_is_refused(tmp: string)
   local dir = tmp .. "/acme"
   assert(Fs.mkdirs(dir, 0x1c0))
   assert(Fs.write(dir .. "/account.pem", Key.generate("ed25519"):pem(), 0x180))
-  local loaded, why = auto_of(dir, fake_ca(free_port())).certs:load()
+  local loaded, why = auto_of(dir, fake_ca({ port = 0 })).certs:load()
   assert(not loaded and tostring(why):find("an account key is P-256 or RSA, not ed25519", 1, true) ~= nil, why)
 end
 
@@ -307,7 +317,7 @@ local function test_an_account_key_there_is_the_account_and_kept(tmp: string)
   assert(Fs.mkdirs(dir, 0x1c0))
   local account = Key.generate("p256")
   assert(Fs.write(dir .. "/account.pem", account:pem(), 0x180))
-  local ca = fake_ca(free_port())
+  local ca = fake_ca({ port = 0 })
   ca.check = function(_domain: string, _token: string): string return "valid" end
   local loaded, why = auto_of(dir, ca).certs:load()
   assert(loaded, why)
