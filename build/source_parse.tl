@@ -84,9 +84,12 @@ local record SourceParse
   --- A source, read: its text lexed and parsed.
   record Read
     source: Source
+    --- The text the tree is of: the lowered text where a lowering replaced places of it ([`SourceParse.lowering`]).
     text: string
     chunk: Ast.Chunk
     errors: {Parser.Error}
+    --- The places a lowering replaced, in order: none where it replaced nothing.
+    splices: {Splice}
   end
 
   --- A source as a build reads it, and no more: its text lexed and parsed.
@@ -115,8 +118,56 @@ local record SourceParse
   --- well.
   declarations: function(module: string, filename: string, text: string, aliases: mut {string}): Source
 
-  --- `source` lexed and parsed, from `written` in place of its text when given.
+  --- `source` lexed and parsed, from `written` in place of its text when given, and lowered where a lowering is set
+  --- ([`SourceParse.lowering`]): the text and the tree are then the lowered ones, the places replaced are its
+  --- `splices`, and a template the lowering refused is a syntax error at its literal.
   read: function(source: Source, written?: string): Read
+
+  --- What lowers a module before it is checked, which [`build.pipeline`] sets to [`build.template_lower`]'s: a build
+  --- from the seed has none, and its code calls no [`Template.text`].
+  lowering: function(lower: Lowering)
+
+  --- `text`, whose tree is `chunk`, lowered: nil where there is nothing to lower.
+  type Lowering = function(text: string, name: string, chunk: Ast.Chunk): Lowered?
+
+  --- The place of `length` bytes at `offset` of a text lowered by `splices`, in `written`, the text it was lowered
+  --- from: a byte after a splice moves back by what the splices before it grew by, and a place that begins or ends in
+  --- what a lowering wrote is the place it replaced, `inside` set. Its line and column are read from `written`.
+  placed: function(splices: {Splice}, written: string, offset: integer, length: integer): Placed
+
+  --- A place of a text written, as [`SourceParse.placed`] gives it back.
+  record Placed
+    y: integer
+    x: integer
+    offset: integer
+    length: integer
+    --- Whether the place was in what a lowering wrote, which no rewrite of the text written can edit.
+    inside: boolean
+  end
+
+  --- What a lowering made of a module.
+  record Lowered
+    text: string
+    --- The places the lowering replaced, which [`SourceParse.placed`] maps a place back through.
+    splices: {Splice}
+    refused: {Refused}
+  end
+
+  --- A place of the text replaced: its first byte, how many bytes it spanned, and what stands there now.
+  record Splice
+    offset: integer
+    length: integer
+    text: string
+  end
+
+  --- A template the lowering refused, where its reason is about.
+  record Refused
+    message: string
+    y: integer
+    x: integer
+    offset: integer
+    length: integer
+  end
 
   --- [`SourceParse.read`] of a declaration file that declares the globals, kept by the file's name. A process that builds
   --- many trees (a compile of each step of an edit) lowers the same prelude and standard library into each build's own
@@ -182,10 +233,68 @@ function SourceParse.declarations(module: string, filename: string, text: string
   return make(module, filename, text, "decl", false, aliases, false, "")
 end
 
+local record Hooks
+  mut lower?: SourceParse.Lowering
+end
+
+local hooks: Hooks = {}
+
+function SourceParse.lowering(lower: SourceParse.Lowering)
+  hooks.lower = lower
+end
+
 function SourceParse.read(source: SourceParse.Source, written?: string): SourceParse.Read
   local text = written or source.text
   local parsed = Parser.parse(Lexer.lex(text, source.filename), source.filename, source.dialect)
-  return { source = source, text = text, chunk = parsed.chunk, errors = parsed.errors }
+  local lower = hooks.lower
+  if lower == nil or source.dialect ~= "tl" or #parsed.errors > 0 then
+    return { source = source, text = text, chunk = parsed.chunk, errors = parsed.errors, splices = {} }
+  end
+  local lowered = lower(text, source.filename, parsed.chunk)
+  if lowered == nil then
+    return { source = source, text = text, chunk = parsed.chunk, errors = parsed.errors, splices = {} }
+  end
+  local again = Parser.parse(Lexer.lex(lowered.text, source.filename), source.filename, source.dialect)
+  local errors: mut {Parser.Error} = {}
+  for _, e in ipairs(again.errors) do
+    local at = SourceParse.placed(lowered.splices, text, e.offset, e.length)
+    errors[#errors + 1] = { filename = e.filename, code = e.code, msg = e.msg, fix = e.fix, y = at.y, x = at.x,
+      offset = at.offset, length = at.length }
+  end
+  for _, r in ipairs(lowered.refused) do
+    errors[#errors + 1] = { filename = source.filename, code = "template_refused", msg = r.message,
+      fix = "write the template as the reason says", y = r.y, x = r.x, offset = r.offset, length = r.length }
+  end
+  return { source = source, text = lowered.text, chunk = again.chunk, errors = errors, splices = lowered.splices }
+end
+
+--- Where byte `offset` of a lowered text is in the text written, and whether it is in what a splice wrote.
+local function original(splices: {SourceParse.Splice}, offset: integer): (integer, boolean)
+  local shift = 0
+  for _, s in ipairs(splices) do
+    local start = s.offset + shift
+    if offset < start then break end
+    if offset < start + #s.text then return s.offset, offset > start end
+    shift = shift + #s.text - s.length
+  end
+  return offset - shift, false
+end
+
+function SourceParse.placed(splices: {SourceParse.Splice}, written: string, offset: integer, length: integer):
+    SourceParse.Placed
+  local at, begins_inside = original(splices, offset)
+  local stop, ends_inside = original(splices, offset + length)
+  local inside = begins_inside or ends_inside or (stop - at ~= length and length > 0)
+  if begins_inside or ends_inside then
+    -- The whole of what the splice replaced.
+    for _, s in ipairs(splices) do
+      if s.offset == at then stop = math.max(stop, s.offset + s.length) end
+    end
+  end
+  local before = written:sub(1, at - 1)
+  local _, lines = before:gsub("\n", "")
+  local line_start = before:match(".*()\n") or 0
+  return { y = lines + 1, x = at - line_start, offset = at, length = math.max(stop - at, 0), inside = inside }
 end
 
 --- The last read of each declaration file that declares the globals, by the file's name.
@@ -199,7 +308,7 @@ function SourceParse.remembered(source: SourceParse.Source): SourceParse.Read
   local held = remembered.reads[source.filename]
   if held ~= nil and held.text == source.text and held.source.dialect == source.dialect and
       held.source.module == source.module then
-    return { source = source, text = held.text, chunk = held.chunk, errors = held.errors }
+    return { source = source, text = held.text, chunk = held.chunk, errors = held.errors, splices = held.splices }
   end
   local read = SourceParse.read(source)
   remembered.reads[source.filename] = read
