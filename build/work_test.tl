@@ -462,6 +462,30 @@ local function test_an_unsettled_row_is_read_again_at_the_epoch(tmp: string)
   assert(work.close(handle))
 end
 
+--- Files edited or removed after the stage are named, sorted; an
+--- unchanged file is not, even one staged unsettled (no time kept).
+local function test_moved_since_stage_names_files_edited_after_it(tmp: string)
+  assert(Fs.write(tmp .. "/a.tl", "return 1\n"))
+  assert(Fs.write(tmp .. "/b.tl", "return 2\n"))
+  assert(Fs.write(tmp .. "/c.tl", "return 3\n"))
+  local handle = assert(work.open(tmp))
+  assert(work.stage(handle, { own = false }))
+  assert(#work.moved_since_stage(handle)! == 0, "nothing moved yet")
+  assert(Fs.write(tmp .. "/c.tl", "return 33\n"))
+  assert(Fs.remove(tmp .. "/a.tl"))
+  local moved = work.moved_since_stage(handle)!
+  assert(#moved == 2 and moved[1] == "a.tl" and moved[2] == "c.tl", table.concat(moved, " "))
+  assert(work.close(handle))
+end
+
+local function test_moved_line_names_five_then_counts_the_rest()
+  assert(work.moved_line({}) == "")
+  assert(work.moved_line({ "a.tl" }) ==
+      "a.tl changed during the run, which checked the tree as staged; run it again")
+  local line = work.moved_line({ "a", "b", "c", "d", "e", "f", "g" })
+  assert(line == "a, b, c, d, e and 2 more changed during the run, which checked the tree as staged; run it again", line)
+end
+
 --- A file whose time is the epoch has settled, and its row is trusted:
 --- staging it again reads nothing.
 local function test_a_settled_epoch_time_is_trusted(tmp: string)
