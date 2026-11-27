@@ -14,11 +14,6 @@ local record Env
     "COSMIC_BUILD_CACHE"
     --- Moves the build directory.
     "COSMIC_BUILD_HOME"
-    --- Set to anything, writes a line of memory use at each mark of a run.
-    "COSMIC_MEMPROBE"
-    --- Set and neither empty nor "0", writes a line to stderr for each module a process loads from a database,
-    --- indented by how deep it was required, with the time it took, the time it took itself and the time reading it.
-    "COSMIC_TRACE_REQUIRE"
     --- Names the zig to run, over the pinned one.
     "COSMIC_ZIG"
     --- Where zig keeps its project cache.
