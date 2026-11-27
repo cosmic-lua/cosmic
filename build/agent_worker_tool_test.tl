@@ -461,7 +461,7 @@ print(tostring(long))
   assert(Fs.write(dir .. "/one.tl", "x\n"))
   assert(Fs.write(dir .. "/notes.txt", "x\n"))
   local shown_example = tools_run("run", { code = example }, context)
-  assert(not shown_example.is_error and shown_example.text:find("^tl 1\ntxt 2\n") ~= nil, shown_example.text)
+  assert(not shown_example.is_error and shown_example.answer == "tl 1, txt 2", shown_example.text)
   -- Host, Fs and Json need no require; a snippet's own local of the name is its own, and the lines stay its own.
   local bare = tools_run("run", { code = "print(#Host.find(\".\"), Json.quote(\"x\"), Fs.basename(\"/a/b\"))" }, context)
   assert(not bare.is_error and bare.text:find("^3\t\"x\"\tb\n") ~= nil, bare.text)
