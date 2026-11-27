@@ -33,7 +33,6 @@ local CompileGrammar = require("build.compile_grammar")
 local Ast = require("lang.ast")
 local Rules = require("build.contract_rules")
 local Driver = require("build.driver")
-local Memprobe = require("build.memprobe")
 local ParseDerive = require("build.parse_derive")
 local ErrorRender = require("build.error_render")
 local Fs = require("cosmic.fs")
@@ -734,7 +733,7 @@ local function generated_of(m: Module, built: Pipeline.Built, facts?: boolean, j
     fact_wraps = emitted.fact_wraps or 0, parameter_checks = emitted.parameter_checks or 0 }, ""
 end
 
---- How many modules [`Pipeline.generate`] has written, for the probe's marks ([`Memprobe.mark`]).
+--- How many modules [`Pipeline.generate`] has written: the first switches the collector.
 local record Written
   mut modules: integer
 end
@@ -765,9 +764,6 @@ function Pipeline.generate(m: Module, built: Pipeline.Built, facts?: boolean, ju
   end
   built.build:retire(m.path)
   written.modules = written.modules + 1
-  if written.modules % 100 == 0 then
-    Memprobe.mark(("pipeline: wrote %d"):format(written.modules))
-  end
   if made == nil then
     return nil, why
   end

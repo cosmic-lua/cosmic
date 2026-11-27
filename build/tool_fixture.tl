@@ -5,6 +5,7 @@
 
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
+local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 
 local record tool_fixture
@@ -29,6 +30,20 @@ function tool_fixture.cosmic(dir: string, words: {string}, input?: string): tool
   })
   local result = assert(Child.run(started.argv, started.options))
   return { code = result.code or -1, out = result.stdout or "", err = result.stderr or "" }
+end
+
+--- The modules that the processes which wrote their profiles into `dir` (`COSMIC_PROFILE`) loaded from the store,
+--- as a set: each `[require:<module>]` span of their profiles (core/profile.h), read here by its pattern alone, so a
+--- test that asks what a process loads loads no reader of its own. A run that wrote none gives an empty set.
+--- @param dir the profile directory the processes were given
+function tool_fixture.loaded(dir: string): {string: boolean}
+  local out: mut {string: boolean} = {}
+  local names, _ = Fs.list(dir)
+  for _, name in ipairs(names or {}) do
+    local text, _ = Fs.read(dir .. "/" .. name)
+    for module in (text or ""):gmatch("%[require:([^%]]+)%] %d") do out[module] = true end
+  end
+  return out
 end
 
 return tool_fixture

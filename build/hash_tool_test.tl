@@ -77,14 +77,14 @@ local function test_a_hash_loads_no_tree_root_and_no_json(tmp: string)
   local Clock = require("cosmic.clock")
   assert(Fs.write(tmp .. "/a", "abc"))
   local env = Test.environment()
-  env["COSMIC_TRACE_REQUIRE"] = "1"
+  env["COSMIC_PROFILE"] = tmp .. "/prof"
   local started = Test.cosmic({ "hash", "a" }, { env = env, cwd = tmp, stdout = "capture",
     stderr = "capture", timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
-  local traced = r.stderr or ""
-  assert(r.ok and r.stdout == ABC .. "  a\n", tostring(r.stdout) .. traced)
-  assert(traced:find(" build.hash ", 1, true), "the run printed no require trace: " .. traced:sub(1, 400))
+  assert(r.ok and r.stdout == ABC .. "  a\n", tostring(r.stdout) .. tostring(r.stderr))
+  local loaded = tool_fixture.loaded(tmp .. "/prof")
+  assert(loaded["build.hash"] == true, "the run's profile names no load of build.hash")
   for _, name in ipairs({ "build.tree_root", "cosmic.json" }) do
-    assert(not traced:find(" " .. name .. " ", 1, true), "hash loaded " .. name)
+    assert(loaded[name] ~= true, "hash loaded " .. name)
   end
 end

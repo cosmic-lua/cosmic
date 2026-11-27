@@ -42,7 +42,6 @@ local fanout = require("build.compile_fanout")
 local Fs = require("cosmic.fs")
 local help_source = require("build.help_source")
 local logger = require("build.logger")
-local Memprobe = require("build.memprobe")
 local Proc = require("cosmic.proc")
 local progress = require("build.progress")
 local Sqlite = require("cosmic.sqlite")
@@ -442,32 +441,27 @@ function tree_checks.whole(given: tree_checks.Whole): tree_checks.Found
   -- What the scope builder, the lowering and the checker found in a file that has not changed is kept in the build
   -- directory; without the memo the checks run in full.
   local memo, _ = Sqlite.open(build_paths.resolve(root).translate_check, { writable = true })
-  Memprobe.mark("tree checks: before the memoed checks")
   timing.began = Clock.monotonic_ns()
   tree_begin(timing, "scopes", "1 of 5")
   for _, line in ipairs(tree_checked.scoped(root, memo, marking)) do
     findings[#findings + 1] = "scopes: " .. line
   end
   tree_took(timing, "scopes")
-  Memprobe.mark("tree checks: scopes")
   tree_begin(timing, "declarations", "2 of 5")
   for _, line in ipairs(tree_checked.declared(root, memo, marking)) do
     findings[#findings + 1] = "declarations: " .. line
   end
   tree_took(timing, "declarations")
-  Memprobe.mark("tree checks: declarations")
   tree_begin(timing, "checker", "3 of 5")
   for _, line in ipairs(tree_checked.checked(root, memo, nil, marking)) do
     findings[#findings + 1] = "checker: " .. line
   end
   tree_took(timing, "checker")
-  Memprobe.mark("tree checks: checker")
   tree_begin(timing, "pipeline", "4 of 5")
   for _, line in ipairs(pipeline_findings(root, memo)) do
     findings[#findings + 1] = "pipeline: " .. line
   end
   tree_took(timing, "pipeline")
-  Memprobe.mark("tree checks: pipeline")
   -- The new checker's own count of the calls no rule judged.
   tree_begin(timing, "untyped", "5 of 5")
   for _, line in ipairs(tree_checked.untyped(root, memo, marking)) do
