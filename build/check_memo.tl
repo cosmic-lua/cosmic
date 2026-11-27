@@ -49,16 +49,17 @@ local sys = require("cosmic.sys")
 
 local record check_memo
   --- Creates the table in `db` if it is not there, marks the rows of `kind`
-  --- unused and begins the run's transaction. Returns whether it could.
-  prepare: function(db: Sqlite.Handle, kind: string): boolean, string
+  --- unused and begins the run's transaction, unless it runs `within` one another kind of the run began. Returns
+  --- whether it could.
+  prepare: function(db: Sqlite.Handle, kind: string, within?: boolean): boolean, string
   --- The text kept under `key` for `kind`, marked used; nil on a miss.
   get: function(db: Sqlite.Handle, kind: string, key: string): string?
   --- Keeps `value` under `key` for `kind`, marked used.
   put: function(db: Sqlite.Handle, kind: string, key: string, value: string)
-  --- Drops the rows of `kind` that this run did not use and commits. A run that judged only some files (`partial`)
-  --- drops none: the rows of the rest are the next whole run's.
+  --- Drops the rows of `kind` that this run did not use and commits, unless it runs `within` a transaction another
+  --- kind commits. A run that judged only some files (`partial`) drops none: the rows of the rest are the next whole run's.
   --- `now_ns` is the time the shared rows are stamped with and aged by, the clock's by default.
-  finish: function(db: Sqlite.Handle, kind: string, now_ns?: integer, partial?: boolean)
+  finish: function(db: Sqlite.Handle, kind: string, now_ns?: integer, partial?: boolean, within?: boolean)
   --- Where the rows every checkout shares are kept, read from `environment` (the process's by default): `checks.db` in
   --- the cache directory's `build`; nil where `COSMIC_BUILD_CACHE` is `0` or there is no cache directory.
   shared_path: function(environment?: {string:string}): string?
@@ -123,6 +124,7 @@ local shared_wait_ns <const> = Clock.seconds(2)
 --- The kinds no checkout shares, each with why.
 local unshared: {string: string} = {
   c = "its key holds the checkout's root and the directory the compiler runs in (build.c)",
+  read = "its rows hold all of a file's comment text, too much to share (build.fix.read_memo)",
 }
 
 local shared: Shared? = nil
@@ -247,7 +249,7 @@ local function settle(open: Shared, kind: string, now_ns: integer): boolean
   return bounded
 end
 
-function check_memo.prepare(db: Sqlite.Handle, kind: string): boolean, string
+function check_memo.prepare(db: Sqlite.Handle, kind: string, within?: boolean): boolean, string
   local made, made_trouble = db:run(
     "CREATE TABLE IF NOT EXISTS check_memo (kind TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, " ..
       "used INTEGER NOT NULL, PRIMARY KEY (kind, key)) WITHOUT ROWID")
@@ -258,6 +260,7 @@ function check_memo.prepare(db: Sqlite.Handle, kind: string): boolean, string
   if not reset then
     return false, tostring(reset_trouble)
   end
+  if within == true then return true, "" end
   -- One transaction for a run's lookups and writes: a commit for each of a
   -- thousand files is most of the cost of a memo.
   local answered, answer_why = db:run("BEGIN")
@@ -295,11 +298,13 @@ function check_memo.put(db: Sqlite.Handle, kind: string, key: string, value: str
   owe(kind, key, value)
 end
 
-function check_memo.finish(db: Sqlite.Handle, kind: string, now_ns?: integer, partial?: boolean)
+function check_memo.finish(db: Sqlite.Handle, kind: string, now_ns?: integer, partial?: boolean, within?: boolean)
   if partial ~= true then
     local _, _ = db:run("DELETE FROM check_memo WHERE kind = ?1 AND used = 0", { { text = kind } })
   end
-  local _, _ = db:run("COMMIT")
+  if within ~= true then
+    local _, _ = db:run("COMMIT")
+  end
   local open = shared
   if open == nil then return end
   -- One short transaction of the shared file, which another checkout's run may be reading: what does not go in is
