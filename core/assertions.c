@@ -55,7 +55,7 @@ int cosmic_must (lua_State *L) {
   return lua_error(L);
 }
 
-/* `must`, counting the call first, as `counting_assert` counts. */
+/* `must`, counting the call first, as the counting `assert` does. */
 static int counting_must (lua_State *L) {
   set_calls(L, calls(L) + 1);
   return cosmic_must(L);

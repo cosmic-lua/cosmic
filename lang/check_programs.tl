@@ -603,6 +603,12 @@ local function own_fact(v: any, kinds: string, name: string, strings?: {string},
 end
 
 --- The Lua of a checked program: the code generator's text, with the classes its literals make and the enums it tests.
+-- `e!` calls the global `must`, which the environment of a program here does not hold: its overloads are no value to
+-- store. Each chunk defines it first, on its first line, so that no line moves: the value where it is not nil, `false`
+-- too, else a raise of the reason, as the core's `must` raises.
+local MUST <const> = "local must = function(v, ...) if v == nil then local why = ... " ..
+  "error(why == nil and 'the value before `!` is nil' or why, 2) end return v, ... end "
+
 local function generated(run: Programs.Run, wraps: {integer: string}, kind_only: boolean?): string
   local classes: mut {integer: string} = {}
   for id, decl in pairs(run.result.literals) do
@@ -631,7 +637,7 @@ function Programs.execute(source: string, facts: boolean, modules?: {string: str
   done.lua = generated(run, wraps, kind_only) -- checked: field_fixed
   local loader: function(name: string): any
   local env: {string: any} = {
-    assert = assert, must = must, ipairs = ipairs, pairs = pairs, math = math, tostring = tostring, tonumber = tonumber, type = type, error = error, pcall = pcall, xpcall = xpcall, -- checked: any_use*6, overload_value*5
+    assert = assert, ipairs = ipairs, pairs = pairs, math = math, tostring = tostring, tonumber = tonumber, type = type, error = error, pcall = pcall, xpcall = xpcall, -- checked: any_use*6, overload_value*4
     string = string, table = table, select = select, setmetatable = setmetatable, getmetatable = getmetatable, -- checked: any_use*4, overload_value
     coroutine = typed_coroutines(), -- checked: any_use
     require = function(name: string): any -- checked: any_use, not_assigned
@@ -657,7 +663,7 @@ function Programs.execute(source: string, facts: boolean, modules?: {string: str
     if module == nil or not taken(module) then
       error("module '" .. name .. "' not found, or not taken by the checker", 2)
     end
-    local module_chunk, module_why = Compiled.load(generated(module, {}, kind_only), "=" .. name, env)
+    local module_chunk, module_why = Compiled.load(MUST .. generated(module, {}, kind_only), "=" .. name, env)
     if module_chunk == nil then
       error("the Lua of " .. name .. " does not load: " .. tostring(module_why), 2)
     end
@@ -665,7 +671,7 @@ function Programs.execute(source: string, facts: boolean, modules?: {string: str
     loaded[name] = value -- checked: view_written
     return value
   end
-  local chunk, why = Compiled.load(done.lua, "=t", env)
+  local chunk, why = Compiled.load(MUST .. done.lua, "=t", env)
   if chunk == nil then
     done.fault = "the Lua does not load: " .. tostring(why) -- checked: field_fixed
     return done

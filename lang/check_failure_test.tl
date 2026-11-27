@@ -62,7 +62,7 @@ end
 --- `boolean?` and a map read of booleans are taken with `!`, and `v!` narrows `v` as `v ~= nil` does.
 local function test_a_must_passes_false()
   stands("print(flag(true)!)\n", "false")
-  stands("local ok, why = pcall(function(): boolean return flag(false)! end)\nprint(ok, why)\n", "false\tt:14: off")
+  stands("local ok, why = pcall(function(): boolean\n  local v = flag(false)!\n  return v\nend)\nprint(ok, why)\n", "false\tt:15: off")
   assert(type_of("local seen = flag(true)!\n", "seen") == "boolean")
   stands("local t: {string: boolean} = { a = false }\nprint(t[\"a\"]!)\n", "false")
   stands("local function f(v: boolean?): boolean\n  v!\n  return v\nend\nprint(f(false))\n", "false")
