@@ -55,6 +55,17 @@ local function test_a_missing_cwd_is_named(tmp: string)
     under_a_file)
 end
 
+--- A program the start cannot run says which file it tried, so a copy the start runs in the program's place (a
+--- root caller's sandboxed child runs a copy of the core) shows at once, rather than a bare errno.
+local function test_a_program_that_cannot_run_is_named(tmp: string)
+  local program = tmp .. "/not-executable"
+  assert(Fs.write(program, "#!/bin/sh\n"))
+  assert(sys.chmod(program, 0x180))
+  local started, trouble = Child.start({ program }, { timeout_ns = Child.FOREVER, cwd = tmp })
+  assert(started == nil and trouble.message:sub(1, 13) == "child: start:", trouble)
+  assert(trouble.message:find("running \"" .. program .. "\"", 1, true) ~= nil, trouble)
+end
+
 --- A start refused for want of descriptors above the highest it hands
 --- the child -- a soft RLIMIT_NOFILE just past it -- says so, naming
 --- the limit, rather than a bare EINVAL.
