@@ -76,6 +76,7 @@ local record Doc
   type Summary = Types.Summary
   type Taking = Types.Taking
   type Use = Types.Use
+  type Unused = Types.Unused
 end
 
 --- Whether `db` holds documentation at all: what a caller asks of a database before it lists it among a view's,
@@ -540,6 +541,16 @@ function Doc.uses(view: Doc.View, query: string): ({Doc.Use}) | (nil, Failure)
   local value, why = uses_text(view, query)
   if value == nil then return nil, Failure.new(why) end
   return value
+end
+
+--- The exported functions of the tree's own modules that no code outside their own file uses, tests left out: what
+--- could be local, or dropped. A link to one is no use.
+function Doc.unused(view: Doc.View): ({Doc.Unused}) | (nil, Failure)
+  local found, trouble = across(view, Usage.unused_of, function(u: Doc.Unused): string
+    return u.module
+  end)
+  if found == nil then return nil, Failure.new(trouble) end
+  return found
 end
 
 --- The exported functions that take a parameter named `word`, as their signatures write it: what a module named for a

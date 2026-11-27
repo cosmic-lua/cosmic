@@ -13,4 +13,4 @@ set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$root/eval"
-exec "$root/bin/cosmic-bootstrap" agent.tl "$@"
+exec "$root/bin/cosmic-bootstrap" agent.tl --testdata "$root/eval/testdata" "$@"

@@ -399,6 +399,45 @@ local function stored(context: Tools.Context, name: string, given: {string: Json
   return true
 end
 
+--- The verbs of cosmic a snippet may run ([`Host.uses`], [`Host.test`]), with commands or without.
+local VERBS <const>: {string: boolean} = { uses = true, test = true, build = true, fix = true }
+
+--- What `cosmic <verb> <args>` did, run for a snippet of `context` ([`Worker.program`]): in the session's directory,
+--- under its policy, with no program runnable but this one, for the time the snippet has left; as Host.Ran.
+local function ran_cosmic(context: Tools.Context, given: {string: Json.Value}, budget: Worker.Budget):
+    (Json.Value) | (nil, Failure)
+  local verb = given["verb"]
+  if not (verb is string) or VERBS[verb] ~= true then
+    return nil, Failure.new("the call names no verb a snippet may run: uses, test, fix or build")
+  end
+  local words: mut {string} = { verb }
+  local listed, _ = Json.to_array(given["args"])
+  for _, word in ipairs(listed or {}) do
+    if not (word is string) then return nil, Failure.new("an argument is no string") end
+    if verb == "build" then return nil, Failure.new("cosmic build takes no arguments here") end
+    -- A word is a name or a path in the tree, not a flag nor a path out of it.
+    local flag = #words == 1 and ((verb == "uses" and word == "--unused") or (verb == "fix" and word == "--rename"))
+    if (not flag and word:sub(1, 1) == "-") or word:sub(1, 1) == "/" or word == ".." or word:find("^%.%./") ~= nil or
+        word:find("/%.%./") ~= nil or word:find("/%.%.$") ~= nil then
+      return nil, Failure.new("cosmic " .. verb .. ": " .. word .. " is no name or path in the tree")
+    end
+    words[#words + 1] = word
+  end
+  if verb == "fix" and not (#words == 3 and words[2] == "--rename") then
+    return nil, Failure.new("cosmic fix runs here only as fix --rename Old=new (Host.rename)")
+  end
+  local set = context.worker
+  if set == nil then return nil, Failure.new("no worker runs snippets here") end
+  local res, why = Worker.program(set, words, context.cwd, context.policy, budget.left())
+  if res == nil then return nil, Failure.new("cosmic " .. verb .. ": " .. tostring(why)) end
+  local out: mut {string: Json.Value} = { output = String.as_utf8(res.stdout or ""), cut = res.truncated, ok = res.ok,
+    timed_out = res.timed_out }
+  local code, signal = res.code, res.signal
+  if code ~= nil then out["code"] = code end
+  if signal ~= nil then out["signal"] = signal end
+  return out
+end
+
 --- What serves the calls a snippet of `context` makes of the agent, as they come, with no guard: history (a
 --- read-only query of sessions.db), store, and the MCP servers.
 local function served_unguarded(context: Tools.Context): Worker.Serve
@@ -416,9 +455,10 @@ local function served_unguarded(context: Tools.Context): Worker.Serve
       return rows
     end
     if name == "store.put" or name == "store.get" then return stored(context, name, given) end
+    if name == "cosmic" then return ran_cosmic(context, given, budget) end
     if name ~= "mcp.servers" and name ~= "mcp.tools" and name ~= "mcp.call" then
       return nil, Failure.new("the agent serves no call " .. Json.quote(String.as_utf8(name)) ..
-          ": it serves history, store.put, store.get, mcp.servers, mcp.tools, mcp.call and use")
+          ": it serves history, store.put, store.get, cosmic, mcp.servers, mcp.tools, mcp.call and use")
     end
     local set = context.mcp
     if name == "mcp.servers" then
@@ -460,7 +500,7 @@ end
 
 --- The calls a snippet may make of the agent, each by the name its guard and amend know it by.
 local SERVED <const>: {string: boolean} = {
-  ["history"] = true, ["store.get"] = true, ["store.put"] = true,
+  ["history"] = true, ["store.get"] = true, ["store.put"] = true, ["cosmic"] = true,
   ["mcp.servers"] = true, ["mcp.tools"] = true, ["mcp.call"] = true,
 }
 
@@ -571,7 +611,7 @@ local function served(context: Tools.Context): Worker.Serve
     end
     if SERVED[name] ~= true then
       return nil, Failure.new("the agent serves no call " .. Json.quote(String.as_utf8(name)) ..
-          ": it serves history, store.put, store.get, mcp.servers, mcp.tools, mcp.call, use and answer")
+          ": it serves history, store.put, store.get, cosmic, mcp.servers, mcp.tools, mcp.call, use and answer")
     end
     local fields, _ = Json.to_object(args)
     local given: {string: Json.Value} = fields or {}

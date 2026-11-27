@@ -168,6 +168,18 @@ local record Types
     symbol: string
   end
 
+  --- An exported function no file but its own uses, tests left out ([`cosmic.doc.unused`]).
+  record Unused
+    --- The module that declares it.
+    module: string
+    --- Its name as its module declares it (`Money.format`).
+    symbol: string
+    --- The file that declares it, from the root.
+    file: string
+    --- The line of `file` that declares it.
+    line: integer
+  end
+
   --- One row of `uses`, or of `links` (`link`): a link names the
   --- symbol `module` and `symbol` name, or the file at `path` and, when
   --- it is not "", the heading `anchor` of it.

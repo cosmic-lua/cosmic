@@ -167,3 +167,34 @@ local function test_a_lookup_waits_for_no_run_holding_the_database(tmp: string)
   assert(held:close())
   assert(docs_in(project, "thing"):find("Second words.", 1, true))
 end
+
+--- `cosmic uses --unused` lists each exported function that no other
+--- file uses. A use in the function's own file or in a test does not
+--- count, and a path narrows the list.
+local function test_unused_lists_the_exports_no_other_file_uses(tmp: string)
+  local project = tmp .. "/project"
+  assert(Fs.mkdirs(project))
+  assert(Fs.write(project .. "/calc.tl",
+    "--- Sums.\nlocal record calc\nend\n\n" ..
+      "--- Adds.\nfunction calc.add(a: integer, b: integer): integer return a + b end\n\n" ..
+      "--- Doubles.\nfunction calc.double(a: integer): integer return calc.add(a, a) end\n\n" ..
+      "return calc\n"))
+  assert(Fs.write(project .. "/app.tl",
+    "local calc = require(\"calc\")\n\n--- Runs.\nlocal record app\nend\n\n" ..
+      "--- Prints.\nfunction app.run(): integer return calc.double(2) end\n\nreturn app\n"))
+  assert(Fs.write(project .. "/calc_test.tl",
+    "local calc = require(\"calc\")\n\nlocal function test_add() assert(calc.add(1, 2) == 3) end\n"))
+  assert(Fs.mkdirs(project .. "/cmd/app"))
+  assert(Fs.write(project .. "/cmd/app/main.tl", "print(\"hi\")\n"))
+  -- No build has been made: uses makes the first, though a portable program of this tool's one core would fail.
+  local result = cosmic(project, { "uses", "--unused" })
+  assert(result.code == 0, result.stdout .. result.stderr)
+  assert(result.stdout:find("calc.tl:6: calc.add\n", 1, true), result.stdout)
+  assert(result.stdout:find("app.tl:8: app.run\n", 1, true), result.stdout)
+  assert(not result.stdout:find("calc.double", 1, true), result.stdout)
+  assert(not result.stdout:find("test_add", 1, true), result.stdout)
+  local narrowed = cosmic(project, { "uses", "--unused", "app.tl" })
+  assert(narrowed.code == 0, narrowed.stdout .. narrowed.stderr)
+  assert(narrowed.stdout:find("app.run", 1, true), narrowed.stdout)
+  assert(not narrowed.stdout:find("calc.add", 1, true), narrowed.stdout)
+end
