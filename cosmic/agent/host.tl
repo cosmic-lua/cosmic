@@ -784,7 +784,7 @@ end
 --- Ends the turn with `text` as the reply to the user, once the snippet has run to its end: no request asks the model
 --- for one, so a snippet that has what the user asked for saves a turn. A snippet that raises gives no answer, and the
 --- last answer given is the one. Raises where it fails.
-function Host.answer(text: string)
+function Host.reply(text: string)
   local _, why = Host.call("answer", { text = text })
   if why ~= nil then error(tostring(why), 2) end
 end
