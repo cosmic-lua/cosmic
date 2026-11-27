@@ -17,9 +17,25 @@ local link_files = require("build.link_files")
 local link_resolve = require("build.link_resolve")
 
 local record SyntaxLinks
+  --- What [`facts`] reads of a Teal source, as data: its comment blocks, what each line of a block sees declared
+  --- (`lines`, a line to its [`LinkText.Declared`], which lines may share), what it declares at its top level and
+  --- nowhere else, and what every comment sees (`everywhere`, which each line's names inherit).
+  record Settled
+    blocks: {LinkText.Block}
+    lines: {integer: LinkText.Declared}
+    module_level: {string: boolean}
+    everywhere: {string: boolean}
+  end
+
   --- The facts of the Teal source `chunk` is the tree of, whose names `scoped` resolved ([`Node.scope`]), for `check`
   --- and `rewrite`.
   facts: function(chunk: Ast.Chunk, scoped: Scopes.Scoped, source: string): Links.Facts
+
+  --- What [`facts`] reads of `chunk`, as data, which a memo can keep ([`build.fix.read_memo`]).
+  settled: function(chunk: Ast.Chunk, scoped: Scopes.Scoped): Settled
+
+  --- The facts of `source` from what [`settled`] read of it.
+  facts_of: function(settled: Settled, source: string): Links.Facts
 
   --- What is wrong with the links of `source`: [`Links.check`], reading Teal off the new tree.
   check: function(resolver: link_resolve.Resolver, file: string, absolute: string, kind: string, source: string,
@@ -54,37 +70,46 @@ local reader: Links.Reader = {
   end,
 }
 
-function SyntaxLinks.facts(chunk: Ast.Chunk, scoped: Scopes.Scoped, source: string): Links.Facts
+function SyntaxLinks.settled(chunk: Ast.Chunk, scoped: Scopes.Scoped): SyntaxLinks.Settled
   local found = SyntaxLinkText.declarations(chunk, scoped)
   local blocks = LinkText.blocks_of(SyntaxLinkText.comments_of(chunk.tokens))
   -- What each line of a comment sees is settled now, for every line a link or a code span of a block can stand on. `found.at`
   -- would keep the tree and its scopes until the first comment asked, and `cosmic fix` keeps the facts of every file of
   -- the tree: build/links_memory_test.tl holds a file's facts to a budget the tree is far over.
-  local settled: mut {integer: LinkText.Declared} = {}
+  local lines: mut {integer: LinkText.Declared} = {}
   for _, block in ipairs(blocks) do
     local _, breaks = block.text:gsub("\n", "")
     for line = block.line, block.line + breaks do
-      if settled[line] == nil then
-        settled[line] = found.at(line)
+      if lines[line] == nil then
+        lines[line] = found.at(line)
       end
     end
   end
+  return { blocks = blocks, lines = lines, module_level = found.module_level, everywhere = found.everywhere or {} }
+end
+
+function SyntaxLinks.facts_of(settled: SyntaxLinks.Settled, source: string): Links.Facts
+  local lines = settled.lines
   return {
     source = source,
-    blocks = blocks,
+    blocks = settled.blocks,
     known = {
       at = function(line: integer): LinkText.Declared
-        local seen = settled[line]
+        local seen = lines[line]
         if seen == nil then
           error("line " .. tostring(line) .. " is outside every comment block, whose lines alone have their scope settled " ..
               "(build/links.tl asks only for a line a link or a code span stands on)")
         end
         return seen
       end,
-      module_level = found.module_level,
+      module_level = settled.module_level,
       parsed = true,
     },
   }
+end
+
+function SyntaxLinks.facts(chunk: Ast.Chunk, scoped: Scopes.Scoped, source: string): Links.Facts
+  return SyntaxLinks.facts_of(SyntaxLinks.settled(chunk, scoped), source)
 end
 
 function SyntaxLinks.check(resolver: link_resolve.Resolver, file: string, absolute: string, kind: string,
