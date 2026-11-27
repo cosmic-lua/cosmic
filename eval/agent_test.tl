@@ -9,8 +9,19 @@ local Test = require("cosmic.test")
 
 Test.policy{}
 
+--- `list` parsed, with `--testdata` given where it is not, as eval/agent gives it.
 local function options(list: {string}): Agent.Options
-  local parsed, why = Agent.parse(list)
+  local given: mut {string} = {}
+  local has = false
+  for _, word in ipairs(list) do
+    given[#given + 1] = word
+    if word == "--testdata" then has = true end
+  end
+  if not has then
+    given[#given + 1] = "--testdata"
+    given[#given + 1] = "/td"
+  end
+  local parsed, why = Agent.parse(given)
   return (assert(parsed, why))
 end
 
@@ -291,7 +302,7 @@ local function test_a_task_of_a_server_gives_each_run_the_server(tmp: string)
       left[dir] = nil
     end,
     run = function(argv: {string}, _: string, _: {string: string}?, _: integer): Agent.Output
-      if argv[1] == "bash" and (argv[3] or ""):find("^data='/tmp/data%-mcp%-low%-%d+/data%.tsv'; awk") ~= nil then
+      if argv[1] == "bash" and (argv[3] or ""):find("^data='/tmp/data%-mcp%-low%-%d+/data%.tsv'; tool='/c'; files='/td/files/mcp%-low'; awk") ~= nil then
         truths = truths + 1
         return { code = 0, stdout = "i0001 0\n", stderr = "" }
       end
@@ -429,7 +440,7 @@ local function test_a_task_of_a_site_gives_each_run_the_site()
       left[dir] = nil
     end,
     run = function(argv: {string}, _: string, _: {string: string}?, _: integer): Agent.Output
-      if argv[1] == "bash" and (argv[3] or ""):find("^data='/tmp/data%-web%-low%-%d+/data%.tsv'; awk") ~= nil then
+      if argv[1] == "bash" and (argv[3] or ""):find("^data='/tmp/data%-web%-low%-%d+/data%.tsv'; tool='/c'; files='/td/files/web%-low'; awk") ~= nil then
         truths = truths + 1
         return { code = 0, stdout = "i0001 0\n", stderr = "" }
       end
@@ -714,7 +725,7 @@ local function test_no_agents_md_leaves_the_instructions_out_of_each_copy()
   local o = options({ "--tool", "t=/c", "--no-agents-md", "--fixture", "/f", "--out", "/o", "--tasks", "todos",
     "--reps", "1" })
   assert(o.without_agents_md == true)
-  assert(Agent.parse({ "--tool", "t=/c", "--fixture", "/f", "--out", "/o", "--no-agents-md" }) ~= nil)
+  assert(Agent.parse({ "--tool", "t=/c", "--fixture", "/f", "--out", "/o", "--no-agents-md", "--testdata", "/td" }) ~= nil)
   local removed: mut {string} = {}
   local system: Agent.System = {
     fresh = function(prefix: string): string return "/tmp/" .. prefix .. "1" end,
@@ -804,4 +815,69 @@ local function test_a_report_sets_its_causes_beside_an_earlier_rounds()
   -- Without an earlier round the lines are as before.
   assert(Agent.report(o, { { tool = "a", task = "todos", rep = 1, grade = "pass", spent = spent, wall = 1 } }):find(
     "  - lang: x: 1 (one task only, so fitting it is likely: todos 1)\n", 1, true) ~= nil)
+end
+
+--- A task of a project of eval/testdata copies that project, not `--fixture`, and runs its setup in each copy
+--- with `$files`; `--commands` gives a tool's runs the flag, with the tool first on PATH in a directory of its own.
+local function test_a_task_of_a_testdata_project_copies_it_and_runs_its_setup()
+  local base = { "--tool", "t=/c", "--fixture", "/f", "--out", "/o", "--tasks", "shop-make-build", "--reps", "1" }
+  assert(Agent.parse(base) == nil)
+  assert(Agent.parse({ "--commands", "t", "--tool", "t=/c", "--fixture", "/f", "--out", "/o" }) == nil)
+  assert(Agent.parse({ "--tool", "t=/c", "--testdata", "td", "--fixture", "/f", "--out", "/o" }) == nil)
+  local o = options({ "--tool", "t=/c", "--tool", "u=/d", "--commands", "t", "--testdata", "/td", "--fixture", "/f",
+    "--out", "/o", "--tasks", "shop-make-build", "--reps", "1" })
+  assert(assert(o.tools[1]).commands == true and assert(o.tools[2]).commands == nil and o.testdata == "/td")
+  local copies: mut {string} = {}
+  local setups: mut {string} = {}
+  local placed: mut {string} = {}
+  local asked: mut {{string}} = {}
+  local paths: mut {string} = {}
+  local system: Agent.System = {
+    fresh = function(prefix: string): string return "/tmp/" .. prefix .. "1" end,
+    discard = function(_: string) end,
+    run = function(argv: {string}, dir: string, env: {string: string}?, _: integer): Agent.Output
+      local line = table.concat(argv, " ")
+      if argv[1] == "cp" then copies[#copies + 1] = line end
+      local script = argv[3] or ""
+      if argv[1] == "bash" and script:find("cp \"$files/money.tl\"", 1, true) ~= nil then
+        local seen = dir .. ": " .. script
+        setups[#setups + 1] = seen
+      end
+      if argv[1] == "bash" and script:find("command -v", 1, true) ~= nil then
+        local seen = (argv[4] or "") .. " " .. (argv[5] or "")
+        placed[#placed + 1] = seen
+      end
+      if argv[1] == "/c" or argv[1] == "/d" then
+        asked[#asked + 1] = argv
+        local seen = env and env["PATH"] or ""
+        paths[#paths + 1] = seen
+      end
+      return { code = 0, stdout = "", stderr = "" }
+    end,
+    spent = function(_: string, _: string): Agent.Spent? return nil end,
+    put = function(_: string, _: string) end,
+    serve = function(_: {string}, _: string, _: string, _: integer): (string, function()) | (nil, string)
+      error("no task here has a site")
+    end,
+  }
+  local _ = Agent.execute(o, system, "k", { PATH = "/bin" }, function(_: string, _: string) end)
+  assert(#copies == 3 and copies[1] == "cp -a /td/shop/. /tmp/truth-shop-make-build-1", table.concat(copies, "; "))
+  assert(#setups == 3 and setups[1]:find("^/tmp/truth%-shop%-make%-build%-1: tool='/c'; " ..
+      "files='/td/files/shop%-make%-build'; cp ") ~= nil, setups[1])
+  assert(#placed == 1 and placed[1] == "/c /o/t/path", table.concat(placed, "; "))
+  local function has(argv: {string}, word: string): boolean
+    for _, w in ipairs(argv) do
+      if w == word then return true end
+    end
+    return false
+  end
+  assert(#asked == 2 and has(assert(asked[1]), "--commands") and not has(assert(asked[2]), "--commands"))
+  assert(paths[1] == "/o/t/path:/bin" and paths[2] == "/bin", table.concat(paths, "; "))
+end
+
+--- The shop tasks need eval/testdata: without it they are refused, not run on `--fixture`.
+local function test_a_task_of_a_testdata_project_needs_testdata()
+  local parsed, why = Agent.parse({ "--tool", "t=/c", "--fixture", "/f", "--out", "/o", "--tasks", "shop-dead" })
+  assert(parsed == nil and why:find("give --testdata", 1, true) ~= nil, why)
+  assert(Agent.parse({ "--tool", "t=/c", "--fixture", "/f", "--out", "/o", "--tasks", "todos" }) ~= nil)
 end

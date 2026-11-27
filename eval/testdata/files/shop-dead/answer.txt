@@ -1,0 +1,5 @@
+Catalog.format
+Invoice.discount
+Invoice.line_total
+Report.by_customer
+Text.center

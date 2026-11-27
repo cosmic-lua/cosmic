@@ -2806,14 +2806,29 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
   -- what the root makes of its own beside them: its /proc to read and the
   -- /tmp of `tmp`, as the first ruleset does (core/sandbox_root.c's
   -- `own_rules`). Under `nest` no ruleset holds the child.
-  -- A policy that runs this program again from the child grants its file by name: that grant is the child's.
+  -- A policy that runs this program again from the child grants its file by name: that grant is the child's. The
+  -- child starts this program as a relaunch of its own core, so such a grant keeps the core's `rx` in the layer too.
+  local reruns = false
+  if core_grant ~= nil then
+    local executable, _ = Proc.executable()
+    local own: string? = nil
+    if executable ~= nil then
+      local real, _ = sys.realpath(executable)
+      own = real
+    end
+    local runs_in: mut {Rules.Path} = {}
+    for _, grant in ipairs(Rules.paths(merged)) do
+      if grant ~= core_grant and lettered(grant.letters, "x") then runs_in[#runs_in + 1] = grant end
+    end
+    reruns = own ~= nil and reaching(own, runs_in, base) ~= ""
+  end
   local layer: mut {raw_process.Grant} = {}
   local unix = false
   for _, grant in ipairs(Rules.paths(merged)) do
     local at = grant.from or grant.path
     if base ~= nil and at:sub(1, 1) ~= "/" then at = base .. "/" .. at end -- checked: compare_disjoint
     grants[#grants + 1] = { path = at, access = grant.letters }
-    if grant ~= core_grant then
+    if grant ~= core_grant or reruns then
       if file then
         local name = named(grant.path, base)
         local placed: string = name
