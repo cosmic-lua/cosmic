@@ -51,6 +51,7 @@ local check_memo = require("build.check_memo")
 local Verb = require("cosmic.cli.fix")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
 local identity = require("build.identity")
 local c_check = require("build.c")
 local Store = require("cosmic.store")
@@ -117,6 +118,14 @@ local record fix
   --- What `links` found: each link that does not resolve, notes on
   --- what it could not check, each plain span that would be linked
   --- ([`build.links`]'s `rewrite`), and each file it linked spans in.
+  --- Where [`fix.links`] keeps each file's verdict, so that a check of a file whose text has not changed, and whose
+  --- links are given the same answers, resolves none of them ([`link_resolve.answer`]): the memo
+  --- ([`build.check_memo`], kind `links`) and the salt of its keys.
+  record LinkMemo
+    db: Sqlite.Handle
+    salt: string
+  end
+
   record Linked
     broken: {string}
     notes: {string}
@@ -887,6 +896,66 @@ local function named_files(root: string, left_alone: function(string): boolean):
   end
 end
 
+--- Where a run of [`fix.links`] reads off each list at the start of a file's links, and the resolver's count and
+--- trouble then, so that what the file adds is its verdict.
+local record Said
+  out: integer
+  would: integer
+  redefined: integer
+  unchecked: integer
+  trouble?: string
+end
+
+--- Takes the verdict kept under `key` where each answer it was given is the same now, adding its lines to the lists
+--- and its count to the resolver's; returns whether it did.
+local function recall_links(memo: fix.LinkMemo, key: string, resolver: link_resolve.Resolver, out: mut {string},
+                            would: mut {string}, redefined: mut {string}): boolean
+  local text = check_memo.get(memo.db, "links", key)
+  if text == nil then return false end
+  local rows = check_memo.decode(text)
+  for _, row in ipairs(rows) do
+    if row[1] == "a" and link_resolve.answer(resolver, row[2] or "", row[3] or "") ~= (row[4] or "") then
+      return false
+    end
+  end
+  for _, row in ipairs(rows) do
+    local field = row[2] or ""
+    if row[1] == "b" then
+      out[#out + 1] = field
+    elseif row[1] == "w" then
+      would[#would + 1] = field
+    elseif row[1] == "d" then
+      redefined[#redefined + 1] = field
+    elseif row[1] == "c" then
+      resolver.unchecked = resolver.unchecked + (math.tointeger(tonumber(field)) or 0)
+    end
+  end
+  return true
+end
+
+--- Keeps what the file's links added to the lists since `said`, with each question its resolution asked and the answer
+--- it was given, under `key`; a file whose resolution met trouble reading the symbols is not kept.
+local function keep_links(memo: fix.LinkMemo, key: string, resolver: link_resolve.Resolver, said: Said, out: {string},
+                          would: {string}, redefined: {string})
+  local heard = resolver.heard
+  if heard == nil or resolver.trouble ~= said.trouble then return end
+  local asked: mut {string} = {}
+  for question in pairs(heard) do asked[#asked + 1] = question end
+  table.sort(asked)
+  local rows: mut {{string}} = { { "links 1" } }
+  for _, question in ipairs(asked) do
+    local kind, ask = question:match("^(.-)%z(.*)$")
+    if kind ~= nil and ask ~= nil then
+      rows[#rows + 1] = { "a", kind, ask, link_resolve.answer(resolver, kind, ask) }
+    end
+  end
+  for i = said.out + 1, #out do rows[#rows + 1] = { "b", assert(out[i]) } end
+  for i = said.would + 1, #would do rows[#rows + 1] = { "w", assert(would[i]) } end
+  for i = said.redefined + 1, #redefined do rows[#rows + 1] = { "d", assert(redefined[i]) } end
+  rows[#rows + 1] = { "c", tostring(resolver.unchecked - said.unchecked) }
+  check_memo.put(memo.db, "links", key, check_memo.encode(rows))
+end
+
 --- What is wrong with the links of `files` ([`build.links`]), each line
 --- `file:line: link: ...`, the file as named; a file that cannot be
 --- read is one line of its own. What each link names is looked up in
@@ -901,7 +970,7 @@ end
 --- lists each such span in `would` and writes nothing. With no mode,
 --- no span is looked at.
 function fix.links(context: link_resolve.Context, files: {string}, mode?: string,
-                   facts?: {string: links.Facts}): fix.Linked
+                   facts?: {string: links.Facts}, kept?: fix.LinkMemo): fix.Linked
   local known: {string: links.Facts} = facts or {}
   -- A path the tree ignores is no link's target. Only this layer asks: `context` is the build's, and a copy is enough.
   local left_alone = ignored.of(context.root, ignored_notice)
@@ -928,15 +997,31 @@ function fix.links(context: link_resolve.Context, files: {string}, mode?: string
   local would: mut {string} = {}
   local redefined: mut {string} = {}
   local rewritten: mut {string} = {}
+  -- Only a check keeps its verdicts: a run that writes a file reads it as written.
+  local memo = if mode == "check" then kept else nil end
   for _, file in ipairs(files) do
     local kind = link_files.kind_of(file)
     local source, read_trouble = Fs.read(file)
     local absolute, absolute_trouble = Fs.absolute(file)
-    if source == nil then
-      out[#out + 1] = file .. ": " .. tostring(read_trouble)
+    local key = ""
+    local recalled = false
+    if memo ~= nil and source ~= nil and absolute ~= nil and kind ~= nil then
+      key = check_memo.key(memo.salt, "links", file .. "\0" .. absolute .. "\0" .. kind .. "\0" .. source)
+      recalled = recall_links(memo, key, resolver, out, would, redefined)
+    end
+    if recalled then
+      -- Its verdict stands: each answer its links were given is the same.
+    elseif source == nil then
+      local said = file .. ": " .. tostring(read_trouble)
+      out[#out + 1] = said
     elseif absolute == nil then
-      out[#out + 1] = file .. ": " .. tostring(absolute_trouble)
+      local said = file .. ": " .. tostring(absolute_trouble)
+      out[#out + 1] = said
     elseif kind ~= nil then
+      -- What this file adds to each list, kept as its verdict.
+      local said: Said = { out = #out, would = #would, redefined = #redefined, unchecked = resolver.unchecked,
+        trouble = resolver.trouble }
+      if memo ~= nil then resolver.heard = {} end
       if mode ~= nil then
         local linked = SyntaxLinks.rewrite(resolver, file, absolute, kind, source, known[file])
         if linked.source ~= source and mode == "check" then
@@ -954,13 +1039,18 @@ function fix.links(context: link_resolve.Context, files: {string}, mode?: string
               source = text
               rewritten[#rewritten + 1] = file
             else
-              out[#out + 1] = file .. ": " .. tostring(write_trouble)
+              local said_write = file .. ": " .. tostring(write_trouble)
+              out[#out + 1] = said_write
             end
           end
         end
       end
       for _, line in ipairs(SyntaxLinks.check(resolver, file, absolute, kind, source, known[file])) do
         out[#out + 1] = line
+      end
+      if memo ~= nil then
+        keep_links(memo, key, resolver, said, out, would, redefined)
+        resolver.heard = nil
       end
     end
   end
@@ -1852,6 +1942,39 @@ local function run_tree_checks(ctx: Fix)
   end
 end
 
+--- The memo [`fix.links`] keeps each file's verdict in, in the build directory of the tree at `root`, begun, and the
+--- salt of its keys: the import closure of the code that resolves links ([`check_memo.closure_salt`]) in the tree's
+--- projection, this module's own text, the declarations of the program's globals (lang/prelude.d.tl and
+--- lang/stdlib.d.tl) and the running core ([`tree_checks.core_digest`]), whose globals a link to a standard value
+--- resolves against ([`build.link_resolve`]'s `standard`). Nil where any cannot be had; every file's links are then
+--- resolved.
+local function link_memo(root: string): Sqlite.Handle?, fix.LinkMemo?
+  local paths = build_paths.resolve(root)
+  local projection, _ = Sqlite.open(paths.projection)
+  if projection == nil then return nil, nil end
+  local code, _ = check_memo.closure_salt(projection, { "build.syntax_links", "build.links", "build.link_resolve",
+    "build.link_files", "cosmic.internal.link_text" }, "links 1")
+  local _, _ = projection:close()
+  local own, _ = Fs.read(root .. "/build/fix/init.tl")
+  local prelude, _ = Fs.read(root .. "/lang/prelude.d.tl")
+  local stdlib, _ = Fs.read(root .. "/lang/stdlib.d.tl")
+  -- The globals a link to a standard value resolves against are the running core's.
+  local core, _ = tree_checks.core_digest()
+  if code == nil or own == nil or prelude == nil or stdlib == nil or core == nil then
+    return nil, nil
+  end
+  local memo, _ = Sqlite.open(paths.translate_check, { writable = true })
+  if memo == nil then return nil, nil end
+  local prepared, _ = check_memo.prepare(memo, "links")
+  if not prepared then
+    local _, _ = memo:close()
+    return nil, nil
+  end
+  local salt = Hash.hex_sha256(code .. "\0" .. Hash.hex_sha256(own) .. "\0" .. Hash.hex_sha256(prelude) .. "\0" ..
+      Hash.hex_sha256(stdlib) .. "\0" .. core)
+  return memo, { db = memo, salt = salt }
+end
+
 --- Every link, once the files are as the run leaves them. What a link
 --- names is read from the project's databases, rebuilt first so a
 --- narrowed run sees the tree as it stands; over the whole tree, the
@@ -1892,7 +2015,20 @@ local function check_links(ctx: Fix)
     local source = fix.link_context(root, picked.whole, own,
       function(verb: string): boolean, string return rebuild.here(verb, true) end,
       function(): docs.Sources return docs.databases() end, rebuild.refused)
-    linked_out = fix.links(source.context, linked, if ctx.checking == true then "check" else "write" end, ctx.facts)
+    local memo: Sqlite.Handle? = nil
+    local kept: fix.LinkMemo? = nil
+    -- Only cosmic's own tree holds the code that resolves, which the salt is made of, and only a whole run's tree checks
+    -- have just written the projection it is read from.
+    local whole = picked.whole == true and picked.every == nil
+    if ctx.checking == true and own and whole then
+      memo, kept = link_memo(root)
+    end
+    linked_out = fix.links(source.context, linked, if ctx.checking == true then "check" else "write" end, ctx.facts,
+      kept)
+    if memo ~= nil then
+      check_memo.finish(memo, "links")
+      local _, _ = memo:close()
+    end
     source.close()
     local unbuilt = source.unbuilt
     -- A refusal the build above met already fails the run.

@@ -5,6 +5,8 @@
 -- The fixtures require cosmic.fs too. In the closure, it is read past the
 -- worker's hold by the checker's [`Store.source`].
 local Fs = require("cosmic.fs")
+local Sqlite = require("cosmic.sqlite")
+local check_memo = require("build.check_memo")
 local Test = require("cosmic.test")
 local example_checks = require("build.example_checks")
 local fixture = require("build.docs_fixture")
@@ -324,4 +326,34 @@ local function test_a_marker_of_another_stage_holds_nothing(dir: string)
   assert(told:find("1 error of float_key on line 4 of the text shown, marked 0", 1, true) ~= nil, told)
   assert(told:find("line 4 of the text shown: its marker holds 1 finding of float_key that the line no longer has", 1, true) ~=
       nil, told)
+end
+
+--- An example or a guide whose key the memo holds is not compiled again: its findings are the memo's, so a finding planted
+--- under its key is what the run says; under another salt it is compiled, and says what it finds.
+local function test_an_example_whose_key_stands_is_taken_from_the_memo(dir: string)
+  local memo = assert(Sqlite.memory())
+  local refusing = (good:gsub('local Fs = require%("cosmic.fs"%)\n', ""))
+  assert(Fs.mkdirs(dir .. "/cosmic"))
+  assert(Fs.mkdirs(dir .. "/doc/guides"))
+  assert(Fs.write(dir .. "/cosmic/thing_example.tl", refusing))
+  assert(Fs.write(dir .. "/doc/guides/fixture.md", source("# Fixture", "", "```teal", "print(Fs)", "```")))
+  local db = fixture.database(dir, {
+    ["cosmic/thing.tl"] = source("local record thing", "end", "return thing"),
+    ["cosmic/thing_example.tl"] = refusing,
+  })
+  local function run(salt: string): {string}
+    assert(check_memo.prepare(memo, "example"))
+    local lines = example_checks.run(db, dir, { "fixture" }, { memo = memo, salt = salt })
+    check_memo.finish(memo, "example")
+    return lines
+  end
+  local first = run("one")
+  assert(#first >= 2, table.concat(first, "\n"))
+  -- Each kept text replaced by one planted line: a run that compiled would not say it.
+  assert(memo:run("UPDATE check_memo SET value = 'L\tplanted' WHERE kind = 'example'"))
+  local again = run("one")
+  assert(#again == 2 and again[1] == "planted" and again[2] == "planted", table.concat(again, "\n"))
+  local other = run("two")
+  assert(table.concat(other, "\n") == table.concat(first, "\n"), table.concat(other, "\n"))
+  assert(memo:close())
 end

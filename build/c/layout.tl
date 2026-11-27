@@ -281,6 +281,8 @@ end
 --- change more than whitespace or is not a fixed point.
 function layout.rendered(source: string): string?, string
   local out = laid_out(source)
+  -- A file already laid out is a fixed point by what it is, and the same as itself: a whole tree's C is mostly that.
+  if out == source then return out, "" end
   local same, difference = layout.same(source, out)
   if not same then
     return nil, "laying it out changed more than whitespace: " .. difference

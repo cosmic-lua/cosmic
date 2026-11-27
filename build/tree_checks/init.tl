@@ -40,6 +40,7 @@ local Env = require("cosmic.env")
 local example_checks = require("build.example_checks")
 local fanout = require("build.compile_fanout")
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
 local help_source = require("build.help_source")
 local logger = require("build.logger")
 local Proc = require("cosmic.proc")
@@ -269,6 +270,12 @@ function tree_checks.share_checks(): boolean, string
   return tree_checked.share_checks()
 end
 
+--- The digest of the running tool's core ([`build.tree_checks.checked`]'s [`core_digest`]), which a memo whose result
+--- turns on what the core does holds in its salt; nil and why where the tool cannot be read.
+function tree_checks.core_digest(): string?, string
+  return tree_checked.core_digest()
+end
+
 --- Says what the tree checks are doing, as a line of the run's log.
 local function tree_say(line: string)
   log:say("fix: tree checks: " .. line)
@@ -352,6 +359,33 @@ local function pipeline_findings(root: string, memo: Sqlite.Handle?): {string}
   return lines
 end
 
+--- The examples as shown ([`build.example_checks`]) of the projection `db` of the tree at `root`, each one whose key the
+--- build directory's memo holds taken from there; without the memo, or its salt, each is compiled. The salt holds the
+--- running core ([`tree_checks.core_digest`]) too, whose carried declarations an example is compiled against.
+local function shown_examples(root: string, db: Build): {string}
+  local paths = build_paths.resolve(root)
+  local memo, _ = Sqlite.open(paths.translate_check, { writable = true })
+  local work, _ = Sqlite.open(paths.working, { schema = work_schema.Database })
+  local kept: example_checks.Kept? = nil
+  if memo ~= nil and work ~= nil then
+    local salt, _ = example_checks.salt(db, work)
+    local core, _ = tree_checked.core_digest()
+    local prepared, _ = check_memo.prepare(memo, "example")
+    if salt ~= nil and core ~= nil and prepared then
+      kept = { memo = memo, salt = Hash.hex_sha256(salt .. "\0" .. core) }
+    end
+  end
+  if work ~= nil then
+    local _, _ = work:close()
+  end
+  local lines = example_checks.run(db, root, nil, kept)
+  if kept ~= nil then check_memo.finish(kept.memo, "example") end
+  if memo ~= nil then
+    local _, _ = memo:close()
+  end
+  return lines
+end
+
 --- Each check of the tree, over cosmic's own tree at `given.root` and its projection built afresh: what only the whole
 --- tree can answer. A finding is the tree's, not a file's. Says on stderr which part runs, and in the run's log the parts
 --- that took long.
@@ -405,7 +439,7 @@ function tree_checks.whole(given: tree_checks.Whole): tree_checks.Found
   for _, line in ipairs(found) do
     findings[#findings + 1] = line
   end
-  for _, line in ipairs(example_checks.run(db, root)) do
+  for _, line in ipairs(shown_examples(root, db)) do
     findings[#findings + 1] = "examples as shown: " .. line
   end
   for _, line in ipairs(tree_ci.ci_testdata(root)) do

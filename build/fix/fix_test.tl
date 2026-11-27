@@ -3,6 +3,7 @@
 
 local Fs = require("cosmic.fs")
 local fix = require("build.fix")
+local check_memo = require("build.check_memo")
 local tree = require("build.tree")
 local link_resolve = require("build.link_resolve")
 local type docs = require("build.docs")
@@ -631,6 +632,48 @@ local function test_a_plain_span_would_link_and_a_fix_links_it(tmp: string)
   assert(written == "Use [`Known.thing`] here.\n\n[`Known.thing`]: known.tl\n", written)
   local again = fix.links(context, { root .. "/a.md" }, "check")
   assert(#again.would == 0 and #again.broken == 0, table.concat(again.would, "\n"))
+end
+
+--- A check keeps each file's link verdict with what its links were told, and takes it again while each answer is the
+--- same: a verdict planted under its key is what the next check says. Once an answer changes (the file a link names is
+--- gone, a symbol it names is not known), the file's links are resolved again.
+local function test_a_link_verdict_stands_while_each_answer_its_links_were_given_does(tmp: string)
+  local root = assert(Fs.absolute(tmp))
+  assert(Fs.write(root .. "/known.tl", ""))
+  assert(Fs.write(root .. "/b.md", "# B\n"))
+  assert(Fs.write(root .. "/a.md", "See [b](b.md#b), [`Known.thing`] and `Known.thing`.\n"))
+  local symbols: {string: {link_resolve.Symbol}} = { ["Known.thing"] = { { module = "known", symbol = "Known.thing",
+    file = "known.tl" } } }
+  local memo = assert(Sqlite.memory())
+  local kept: fix.LinkMemo = { db = memo, salt = "salt" }
+  local function check(known: {string: {link_resolve.Symbol}}): fix.Linked
+    assert(check_memo.prepare(memo, "links"))
+    local linked = fix.links(on_disk(root, known), { root .. "/a.md" }, "check", nil, kept)
+    check_memo.finish(memo, "links")
+    return linked
+  end
+  local first = check(symbols)
+  assert(#first.broken == 0 and #first.would == 1, table.concat(first.broken, "\n") .. table.concat(first.would, "\n"))
+  -- The kept rows hold the answers, and in place of what the file's links found, one line no resolution says.
+  local rows = assert(memo:rows("SELECT key, value FROM check_memo WHERE kind = 'links'"))
+  assert(#rows == 1, tostring(#rows))
+  local value = support.nth(rows, 1):text(2)
+  assert(value:find("\na\tk\t" .. root .. "/b.md\tfile", 1, true) ~= nil, value)
+  local planted = value:gsub("\nw\t[^\n]*", "\nb\tplanted")
+  assert(memo:run("UPDATE check_memo SET value = ?1 WHERE kind = 'links'", { { text = planted } }))
+  local again = check(symbols)
+  assert(#again.broken == 1 and again.broken[1] == "planted" and #again.would == 0, table.concat(again.broken, "\n"))
+  -- A symbol no longer known: the file is resolved again.
+  local unknown = check({})
+  assert(#unknown.would == 0 and #unknown.broken == 1 and unknown.broken[1]:find("Known.thing does not resolve", 1, true) ~=
+      nil, table.concat(unknown.broken, "\n"))
+  -- Known again, then the file it links gone.
+  assert(#check(symbols).broken == 0)
+  assert(Fs.remove(root .. "/b.md"))
+  local gone = check(symbols)
+  assert(#gone.broken == 1 and gone.broken[1]:find("b.md#b does not resolve", 1, true) ~= nil,
+    table.concat(gone.broken, "\n"))
+  assert(memo:close())
 end
 
 --- A project's `static/` is carried verbatim: no Teal, template, Markdown
