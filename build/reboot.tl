@@ -406,7 +406,7 @@ end
 --- takes the place of the running one: that start loads the entry module,
 --- reads the tool's own database and the checkout's working database, the
 --- path every verb's start takes. A tool whose code compiled but raises
---- there would otherwise stop every later `bin/cosmic` call, `help`
+--- there would otherwise stop every later [`bin/cosmic`] call, `help`
 --- included, before it could see that it is stale and rebuild. Nil when it
 --- started; else why, with what it said.
 function reboot.start_check(candidate: string): string?

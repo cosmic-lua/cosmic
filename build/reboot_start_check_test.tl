@@ -2,7 +2,7 @@ local Fs = require("cosmic.fs")
 local reboot = require("build.reboot")
 local Test = require("cosmic.test")
 
-Test.policy { profiles = { "system" } }
+Test.policy{ profiles = { "system" } }
 
 --- A program that stands in for the rebuilt tool, which a shell script
 --- can be: `body` is its code.
