@@ -151,11 +151,20 @@ local function test_a_stale_token_closes_nothing()
 end
 
 --- Each module a profiled process loads from the store is a span of its own, from the read to the end of its run,
---- and a module it requires stands in it: cosmic.mcp requires cosmic.json, which nothing loaded before it.
+--- and a module it requires stands in it: cosmic.mcp requires cosmic.json. A start that loaded cosmic.json already
+--- (the rebuilt tool's start, where the tool is not the built binary) has its span elsewhere, so then it must stand
+--- somewhere other than under cosmic.mcp, never be missing.
 local function test_each_module_loaded_is_a_span()
   local text = only(run("run", "local _ = require('cosmic.mcp')"))
   assert(text:match("\nspan [^\n]*%[require:cosmic%.mcp%] 1 %d+ %d+ %d+\n") ~= nil, text)
-  assert(text:match("\nspan [^\n]*%[require:cosmic%.mcp%];%[require:cosmic%.json%] 1 %d+ %d+ %d+\n") ~= nil, text)
+  local under = text:match("\nspan [^\n]*%[require:cosmic%.mcp%];%[require:cosmic%.json%] 1 %d+ %d+ %d+\n") ~= nil
+  local before = false
+  for line in text:gmatch("\nspan ([^\n]*)") do
+    if line:find("[require:cosmic.json]", 1, true) ~= nil and line:find("[require:cosmic.mcp]", 1, true) == nil then
+      before = true
+    end
+  end
+  assert(under or before, text)
 end
 
 --- A lookup that reads a module and runs none of it opens no span of it, and nor does a load that finds nothing:
