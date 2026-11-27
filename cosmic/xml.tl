@@ -116,18 +116,18 @@ local record Xml
   --- may wait for the next batch.
   interface DocumentWriter
     --- Writes `events`, the next of the document's in order, and hands
-    --- what they complete to the target. false and a Failure, naming the event,
+    --- what they complete to the target. nil and a Failure, naming the event,
     --- when they cannot belong to a document, or the target refuses; the
     --- writer is finished then, and returns the same afterward.
-    write: function(DocumentWriter, events: {Event}): (true) | (false, Failure)
+    write: function(DocumentWriter, events: {Event}): (true) | (nil, Failure)
     --- The document is done: writes what is held and closes the target.
-    --- false and a Failure when it is not a whole document (an element left
+    --- nil and a Failure when it is not a whole document (an element left
     --- open, or no root), or a write failed: the target is aborted then.
     --- Safe to call more than once: once the document is closed, `close`
     --- returns true and `abort` leaves it as it is.
-    close: function(DocumentWriter): (true) | (false, Failure)
+    close: function(DocumentWriter): (true) | (nil, Failure)
     --- Abandons the document and aborts the target.
-    abort: function(DocumentWriter): (true) | (false, Failure)
+    abort: function(DocumentWriter): (true) | (nil, Failure)
   end
 
   --- The elements at one path of a document, each read whole as its
@@ -412,9 +412,9 @@ local class EventWriter is Xml.DocumentWriter
   --- The document was written whole and the target closed.
   mut closed: boolean
 
-  function write(self, events: {Xml.Event}): (true) | (false, Failure)
+  function write(self, events: {Xml.Event}): (true) | (nil, Failure)
     local failed = self.failed
-    if failed ~= nil then return false, failed end
+    if failed ~= nil then return nil, failed end
     local why = self:take(events)
     if why == "" then
       local text = table.concat(self.out)
@@ -426,7 +426,7 @@ local class EventWriter is Xml.DocumentWriter
     end
     local failure = Failure.new(why)
     self.failed = failure
-    return false, failure
+    return nil, failure
   end
 
   --- Writes `events` into `out`: "" when they all belong, else why.
@@ -571,7 +571,7 @@ local class EventWriter is Xml.DocumentWriter
     return false
   end
 
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     if self.closed then return true end
     local failed = self.failed
     if failed == nil then
@@ -589,10 +589,10 @@ local class EventWriter is Xml.DocumentWriter
     end
     -- The document is refused already: an abort that fails adds nothing to say.
     local _, _ = self.target:abort()
-    return false, failed
+    return nil, failed
   end
 
-  function abort(self): (true) | (false, Failure)
+  function abort(self): (true) | (nil, Failure)
     -- What was closed is written: there is nothing left to abandon.
     if self.closed then return true end
     if self.failed == nil then self.failed = Failure.new("xml: the writer is abandoned") end

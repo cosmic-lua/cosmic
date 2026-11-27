@@ -150,7 +150,7 @@ end
 --- `tamper` changing the redirect first where given; `opened` counts the sign-ins shown.
 local function client(resource: string, opened: mut {integer}, tamper?: function(string): string): Client.Session
   return Client.http(resource, { timeout_ns = WAIT, oauth = { client_id = "test-client", timeout_ns = WAIT, wait_ns = WAIT,
-    open = function(url: string): (true) | (false, Failure)
+    open = function(url: string): (true) | (nil, Failure)
       opened[1] = (opened[1] or 0) + 1
       Poll.spawn(function()
         local got = assert(Http.request("GET", url, { timeout_ns = WAIT, follow = false }))

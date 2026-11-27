@@ -145,7 +145,7 @@ local function spool(source: Stream.Reader): string?, string
   local closed, close_why = false, ""
   if copied ~= nil then
     local ok, trouble = sink:close()
-    closed = ok
+    closed = ok == true
     if not ok then close_why = tostring(trouble) end
   else
     local _, _ = sink:abort()
@@ -455,7 +455,7 @@ local function apply_steps(tree: string, dest: string, aside: string, steps: {St
         local restored, _ = Fs.rename(step.backup, target)
         back = back and restored
       end
-      whole = whole and back
+      whole = whole and back == true
     end
   end
   return { why = trouble, whole = whole }
@@ -579,7 +579,7 @@ local function extract_streamed(file: string, source: Stream.Reader, dest: strin
     end,
     -- Whatever ends the extraction, the input is read to its end below
     -- and closed once there.
-    close = function(_self: Archive.Reader): (true) | (false, Failure) return true end,
+    close = function(_self: Archive.Reader): (true) | (nil, Failure) return true end,
   }
 
   local written, extract_why = Archive.extract(watched, tree, {

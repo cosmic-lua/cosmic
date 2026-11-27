@@ -1003,7 +1003,7 @@ local function project(handle: work.Handle,
     end
     local noted, note_trouble = db:run(
       "DELETE FROM main.meta WHERE key = '" .. vendored_key .. "'", {})
-    if noted and digest ~= nil then
+    if noted == true and digest ~= nil then
       noted, note_trouble = db:run(
         "INSERT INTO main.meta (key, value) VALUES ('" .. vendored_key .. "', ?1 || char(10) || ?2)",
         { text(signature), text(digest) })
@@ -1213,7 +1213,7 @@ function writer.write_result(handle: work.Handle, out: string,
   local there = there_status ~= nil and there_status.exists
   if there == true then
     local joined, _ = db:run("ATTACH DATABASE ?1 AS prev", { text(out) })
-    based = joined
+    based = joined == true
   end
   local projected, project_trouble = project(handle, result, pending, signature, by, based)
   if not projected then
@@ -1480,17 +1480,17 @@ function writer.carried(whole: string, out: string,
     if not attached then
       return false, tostring(attach_trouble)
     end
-    local made, refused = db:transact(function(): (true) | (false, Failure)
+    local made, refused = db:transact(function(): (true) | (nil, Failure)
       for _, statement in ipairs(carry) do
         local ok, failure = db:exec(statement)
         if not ok then
-          return false, Failure.new(tostring(failure))
+          return nil, Failure.new(tostring(failure))
         end
       end
       for _, statement in ipairs(schema.rebuild("main.")) do
         local ok, failure = db:exec(statement)
         if not ok then
-          return false, Failure.new(tostring(failure))
+          return nil, Failure.new(tostring(failure))
         end
       end
       return true

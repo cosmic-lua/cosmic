@@ -460,33 +460,33 @@ function dataset.load(handle: Sqlite.Handle, name: string, rows: dataset.Rows): 
   declared[#declared + 1] = json_column
   marks[#marks + 1] = "?" .. tostring((width + 1))
   local insert = "INSERT INTO " .. quoted(name) .. " VALUES (" .. table.concat(marks, ", ") .. ")"
-  local ok, trouble = handle:transact(function(): (true) | (false, Failure)
+  local ok, trouble = handle:transact(function(): (true) | (nil, Failure)
     local created, why = handle:exec("CREATE TABLE " .. quoted(name) ..
         " (" .. table.concat(declared, ", ") .. ")")
     if not created then
-      return false, Failure.new(tostring(why))
+      return nil, Failure.new(tostring(why))
     end
     for number, row in ipairs(rows) do
       local values: mut {Sqlite.Value} = {}
       for index, column in ipairs(names) do
         local key = key_of[column]
         if key == nil then
-          return false, Failure.new("column " .. column .. " has no key")
+          return nil, Failure.new("column " .. column .. " has no key")
         end
         local value, bad = bound(row[key])
         if value == nil then
-          return false, Failure.new("row " .. tostring(number) .. ", " .. column .. ": " .. bad)
+          return nil, Failure.new("row " .. tostring(number) .. ", " .. column .. ": " .. bad)
         end
         values[index] = value
       end
       local text, bad = Json.encode_any(row)
       if text == nil then
-        return false, Failure.new("row " .. tostring(number) .. ": " .. tostring(bad))
+        return nil, Failure.new("row " .. tostring(number) .. ": " .. tostring(bad))
       end
       values[#values + 1] = { text = text }
       local inserted, insert_bad = handle:run(insert, values)
       if not inserted then
-        return false, Failure.new("row " .. tostring(number) .. ": " .. tostring(insert_bad))
+        return nil, Failure.new("row " .. tostring(number) .. ": " .. tostring(insert_bad))
       end
     end
     return true

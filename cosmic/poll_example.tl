@@ -52,7 +52,7 @@ function Example.spawn()
   assert(Fs.remove_tree(dir))
 end
 
---- A wait bounded by its timeout returns false and a Failure of kind
+--- A wait bounded by its timeout returns nil and a Failure of kind
 --- "timeout" when nothing comes in time.
 function Example.readable()
   local dir = assert(Fs.mkdtemp("cosmic-poll-example-"))
@@ -114,7 +114,7 @@ end
 
 --- A task that waits on whatever its waits return outlasts `cancel`,
 --- and is ended by `kill` where it waits: its `<close>` variables are
---- closed, and a join returns false and a Failure of kind "cancelled".
+--- closed, and a join returns nil and a Failure of kind "cancelled".
 function Example.kill()
   local released = false
   Poll.run(function()

@@ -3,7 +3,7 @@ local Secret = require("cosmic.web.secret")
 --- Whether `key` passes [`Secret.check`].
 local function passes(key: string): boolean
   local ok, _ = Secret.check(key)
-  return ok
+  return ok == true
 end
 
 local GOOD <const> = "k3Jf9Lq0Zx7Rw2Ub8Tn5Vc1Hd6Ym4Ga0Pe7Sx2Wq9Ac"

@@ -158,13 +158,13 @@ end
 --- Waits `ns` nanoseconds. In a task of [`Poll.run`] only that task waits, and the others run; anywhere else the
 --- process sleeps, resuming the sleep when a signal interrupts it, so the whole time passes. A task the run is
 --- killing, or one under a C call it cannot yield across (a `table.sort` comparator), sleeps the process too.
---- Returns true once the time has passed, or false and a Failure: of kind "cancelled" where the task was cancelled
+--- Returns true once the time has passed, or nil and a Failure: of kind "cancelled" where the task was cancelled
 --- first, or the system's reason where it refused the sleep. Raises when `ns` is negative or not an integer.
 ---
 ---     assert(Clock.sleep(Clock.ms(250)))
 --- @param ns integer The nanoseconds to wait
 --- @return true Once they have passed
-function Clock.sleep(ns: integer): (true) | (false, Failure)
+function Clock.sleep(ns: integer): (true) | (nil, Failure)
   if math.type(ns) ~= "integer" or ns < 0 then
     error("clock: Clock.sleep takes a whole number of nanoseconds, 0 or more", 2)
   end
@@ -174,7 +174,7 @@ function Clock.sleep(ns: integer): (true) | (false, Failure)
   end
   local ok, trouble = sys.nanosleep(ns)
   if not ok then
-    return false, Failure.new("clock: " .. trouble)
+    return nil, Failure.new("clock: " .. trouble)
   end
   return true
 end

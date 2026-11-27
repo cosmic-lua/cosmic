@@ -296,7 +296,7 @@ function HostId.leg_host_id(words: {string}, env: {string:string}, facts: HostId
     if not ok then
       local _, _ = Fs.put(Fs.stderr, "leg-host-id: " .. tostring(trouble) .. "\n")
     end
-    return ok
+    return ok == true
   end
   if not write(env["GITHUB_ENV"], env_lines) then return 1 end
   if not write(env["GITHUB_OUTPUT"], { "prefix=" .. prefix,

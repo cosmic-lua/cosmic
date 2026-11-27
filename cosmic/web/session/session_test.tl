@@ -383,7 +383,7 @@ local function test_a_failing_store_is_a_500_and_a_cookie_over_the_limit_is_rais
                     _c: string): (string) | (nil, Failure)
       return nil, Failure.new("no space")
     end,
-    destroy = function(_: Session.Store, _t: string): (true) | (false, Failure) return true end,
+    destroy = function(_: Session.Store, _t: string): (true) | (nil, Failure) return true end,
   }
   local lines: mut {string} = {}
   local spec: Web.AppSpec = { sink = { line = function(_self: Web.Sink, text: string)

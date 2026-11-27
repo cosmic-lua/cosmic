@@ -394,7 +394,7 @@ local function counted(source: Stream.Reader, limit: integer): Stream.Reader, fu
       if passed > limit then return nil, Failure.new(OVER_LIMIT) end
       return chunk
     end,
-    close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
+    close = function(_self: Stream.Reader): (true) | (nil, Failure) return true end,
   }
   return reader, function(): integer return passed end
 end
@@ -625,7 +625,7 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
       read = function(_self: Stream.Reader, _max?: integer): (string | false) | (nil, Failure)
         return false
       end,
-      close = function(_self: Stream.Reader): (true) | (false, Failure)
+      close = function(_self: Stream.Reader): (true) | (nil, Failure)
         m:discard()
         return true
       end,

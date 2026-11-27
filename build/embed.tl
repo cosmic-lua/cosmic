@@ -478,7 +478,7 @@ function embed.database(project: string, main: string, roots?: string): string?,
     return nil, building .. ": " .. tostring(hold_trouble)
   end
 
-  local made, trouble = out:transact(function(): (true) | (false, Failure)
+  local made, trouble = out:transact(function(): (true) | (nil, Failure)
     -- The standard library first, so a project's row never stands in
     -- for a `cosmic.*` module; then the project's own modules.
     local copied, copy_trouble = copy_rows(binary, out, "modules",
@@ -486,14 +486,14 @@ function embed.database(project: string, main: string, roots?: string): string?,
       "SELECT " .. module_column_list .. " FROM modules WHERE kind = " ..
         "'module' AND path LIKE 'cosmic.%' ORDER BY path")
     if not copied then
-      return false, Failure.new(copy_trouble)
+      return nil, Failure.new(copy_trouble)
     end
     copied, copy_trouble = copy_rows(binary, out, "imports",
       { "path", "requires" },
       "SELECT path, requires FROM imports WHERE path LIKE 'cosmic.%' " ..
         "ORDER BY path, requires")
     if not copied then
-      return false, Failure.new(copy_trouble)
+      return nil, Failure.new(copy_trouble)
     end
     -- A binary written before `decl_imports` existed has no such table,
     -- and one written by a tool that lacked the rows has an empty one:
@@ -502,7 +502,7 @@ function embed.database(project: string, main: string, roots?: string): string?,
     local has_edges, edges_trouble = binary:rows(
       "SELECT 1 FROM sqlite_master WHERE name = 'decl_imports'")
     if has_edges == nil then
-      return false, edges_trouble
+      return nil, edges_trouble
     end
     if #has_edges > 0 then
       copied, copy_trouble = copy_rows(binary, out, "decl_imports",
@@ -510,20 +510,20 @@ function embed.database(project: string, main: string, roots?: string): string?,
         "SELECT path, requires FROM decl_imports WHERE path LIKE 'cosmic.%' " ..
           "ORDER BY path, requires")
       if not copied then
-        return false, Failure.new(copy_trouble)
+        return nil, Failure.new(copy_trouble)
       end
     end
     copied, copy_trouble = copy_rows(binary, out, "decls",
       { "path", "source" }, "SELECT path, source FROM decls ORDER BY path")
     if not copied then
-      return false, Failure.new(copy_trouble)
+      return nil, Failure.new(copy_trouble)
     end
     -- The time zones [`cosmic.time`] falls back on where the host has
     -- none of its own.
     copied, copy_trouble = copy_rows(binary, out, "zoneinfo",
       { "name", "data" }, "SELECT name, data FROM zoneinfo ORDER BY name")
     if not copied then
-      return false, Failure.new(copy_trouble)
+      return nil, Failure.new(copy_trouble)
     end
     -- The browser-side files [`cosmic.web`] serves under /_web/.
     -- TODO: carry them only for a program whose closure requires
@@ -535,14 +535,14 @@ function embed.database(project: string, main: string, roots?: string): string?,
     local has_web, web_trouble = binary:rows(
       "SELECT 1 FROM sqlite_master WHERE name = 'web_assets'")
     if has_web == nil then
-      return false, web_trouble
+      return nil, web_trouble
     end
     if #has_web > 0 then
       copied, copy_trouble = copy_rows(binary, out, "web_assets",
         { "name", "data", "sha256", "sha384", "version" },
         "SELECT name, data, sha256, sha384, version FROM web_assets ORDER BY name")
       if not copied then
-        return false, Failure.new(copy_trouble)
+        return nil, Failure.new(copy_trouble)
       end
     end
     -- The guidance a program's own errors can match: the standard
@@ -554,7 +554,7 @@ function embed.database(project: string, main: string, roots?: string): string?,
       "SELECT kind, module, symbol, message, text, file, " ..
         "line FROM catalog WHERE module LIKE 'cosmic.%' ORDER BY id")
     if not copied then
-      return false, Failure.new(copy_trouble)
+      return nil, Failure.new(copy_trouble)
     end
     -- The bill of materials ([`build.bom`]): the program runs on the same
     -- cores, so it carries the same components and the notices their
@@ -570,14 +570,14 @@ function embed.database(project: string, main: string, roots?: string): string?,
       "SELECT name, kind, version, license, url, sha256, sha3_256, patches " ..
         "FROM components ORDER BY name")
     if not copied then
-      return false, Failure.new(copy_trouble)
+      return nil, Failure.new(copy_trouble)
     end
     copied, copy_trouble = copy_rows(binary, out, "notices",
       { "component", "ordinal", "file", "text" },
       "SELECT component, ordinal, file, text FROM notices " ..
         "ORDER BY component, ordinal")
     if not copied then
-      return false, Failure.new(copy_trouble)
+      return nil, Failure.new(copy_trouble)
     end
     -- The CA roots ([`build.roots`]): core/http.c reads them out of the
     -- program's own database, so without them it trusts no server.
@@ -585,19 +585,19 @@ function embed.database(project: string, main: string, roots?: string): string?,
       { "sha256", "label", "der", "distrust_after" },
       "SELECT sha256, label, der, distrust_after FROM ca_roots ORDER BY sha256")
     if not copied then
-      return false, Failure.new(copy_trouble)
+      return nil, Failure.new(copy_trouble)
     end
     -- And the certificates OneCRL revokes ([`build.onecrl`]), which it
     -- refuses in a chain.
     copied, copy_trouble = copy_rows(binary, out, "ca_revoked", { "kind", "name", "value" },
       "SELECT kind, name, value FROM ca_revoked ORDER BY rowid")
     if not copied then
-      return false, Failure.new(copy_trouble)
+      return nil, Failure.new(copy_trouble)
     end
     local attached, attach_trouble = out:run(
       "ATTACH DATABASE ?1 AS project", { text(project) })
     if not attached then
-      return false, attach_trouble
+      return nil, attach_trouble
     end
     -- The project's modules that `main` requires, directly or through
     -- another module, and those under its own `cmd/<name>/`, and no other:
@@ -620,7 +620,7 @@ function embed.database(project: string, main: string, roots?: string): string?,
     -- and without it the commands it documents would have no page.
     local own = own_prefix(main)
     if own == nil then
-      return false, Failure.new(main .. " is not a cmd.<name>.main")
+      return nil, Failure.new(main .. " is not a cmd.<name>.main")
     end
     local carry = "WITH RECURSIVE carried(path) AS (SELECT value FROM carray(?1) UNION SELECT path FROM " ..
       "project.modules WHERE kind = 'module' AND substr(path, 1, length(?2)) = ?2 " ..
@@ -636,14 +636,14 @@ function embed.database(project: string, main: string, roots?: string): string?,
     while #pages_roots > 0 do
       local carried, carried_trouble = out:run(carry, { { texts = pages_roots }, text(own) })
       if not carried then
-        return false, carried_trouble
+        return nil, carried_trouble
       end
       local sources, sources_trouble = out:rows(
         "SELECT m.path, p.file, CAST(inflate(p.source) AS TEXT) FROM main.modules m JOIN project.modules p " ..
           "ON p.path = m.path WHERE length(p.source) > 0 AND m.path NOT IN carray(?1) ORDER BY m.path",
         { { texts = read_list } })
       if sources == nil then
-        return false, sources_trouble
+        return nil, sources_trouble
       end
       local named: mut {string: boolean} = {}
       for _, row in ipairs(sources) do
@@ -659,7 +659,7 @@ function embed.database(project: string, main: string, roots?: string): string?,
               "SELECT file, CAST(inflate(source) AS TEXT) FROM project.modules WHERE path = ?1 AND length(source) > 0",
               { text(field.module) })
             if held == nil then
-              return false, held_trouble
+              return nil, held_trouble
             end
             local row_of = held[1]
             if row_of ~= nil then
@@ -680,7 +680,7 @@ function embed.database(project: string, main: string, roots?: string): string?,
             "instr('/' || file, '/internal/') = 0 AND (path NOT GLOB 'cmd.*' OR substr(path, 1, length(?2)) = ?2)",
           { text(name), text(own) })
         if held == nil then
-          return false, held_trouble
+          return nil, held_trouble
         end
         if #held > 0 then
           if paged_set[name] == nil then
@@ -690,7 +690,7 @@ function embed.database(project: string, main: string, roots?: string): string?,
           local carried_already, already_trouble = out:rows("SELECT 1 FROM main.modules WHERE path = ?1",
             { text(name) })
           if carried_already == nil then
-            return false, already_trouble
+            return nil, already_trouble
           end
           if #carried_already == 0 then pages_roots[#pages_roots + 1] = name end
         end
@@ -699,11 +699,11 @@ function embed.database(project: string, main: string, roots?: string): string?,
     end
     local readable, readable_trouble = documented_modules(out, main, own, paged)
     if readable == nil then
-      return false, Failure.new(readable_trouble)
+      return nil, Failure.new(readable_trouble)
     end
     local documented, documented_trouble = copy_documentation(out, readable)
     if not documented then
-      return false, Failure.new(documented_trouble)
+      return nil, Failure.new(documented_trouble)
     end
     local project_rows: mut {string} = {
       "INSERT OR IGNORE INTO imports SELECT * FROM project.imports " ..
@@ -737,7 +737,7 @@ function embed.database(project: string, main: string, roots?: string): string?,
     for _, statement in ipairs(project_rows) do
       local ok, failure = out:exec(statement)
       if not ok then
-        return false, Failure.new(tostring(failure))
+        return nil, Failure.new(tostring(failure))
       end
     end
     local meta: {MetaRow} = {
@@ -750,14 +750,14 @@ function embed.database(project: string, main: string, roots?: string): string?,
         "INSERT INTO meta (key, value) VALUES (?1, ?2)",
         { text(pair.key), text(pair.value) })
       if not ok then
-        return false, failure
+        return nil, failure
       end
     end
     if roots ~= nil then
       local ok, failure = out:run(
         "INSERT INTO meta (key, value) VALUES ('ca_roots_default', ?1)", { text(roots) })
       if not ok then
-        return false, failure
+        return nil, failure
       end
     end
     return true

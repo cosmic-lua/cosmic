@@ -103,7 +103,7 @@ local class SocketConn is Duplex
   --- Internal: see `read_failure`.
   mut write_failure: string
   --- Never present: [`Stream.skip`] reads and discards a connection's bytes.
-  skip?: function(SocketConn, n: integer): (true) | (false, Failure)
+  skip?: function(SocketConn, n: integer): (true) | (nil, Failure)
   --- Internal: the TLS session every read and write goes through, on a
   --- connection a TLS listener accepted or [`start_tls`] secured; nil
   --- for one in the clear. No caller reads or writes it.
@@ -191,9 +191,9 @@ local class SocketConn is Duplex
   --- [`Failure`] (kind "timeout" for a deadline, "cancelled" for
   --- "interrupted" or a task of [`Poll.run`] cancelled) may leave part of it sent,
   --- so it is every write's after; reading is left be.
-  function write(self, data: string): (true) | (false, Failure)
-    if not self.open then return false, failure_of("net: the connection is closed") end
-    if self.write_failure ~= "" then return false, failure_of(self.write_failure) end
+  function write(self, data: string): (true) | (nil, Failure)
+    if not self.open then return nil, failure_of("net: the connection is closed") end
+    if self.write_failure ~= "" then return nil, failure_of(self.write_failure) end
     local fd = self.fd
     local from = 1
     local session = self.session
@@ -206,14 +206,14 @@ local class SocketConn is Duplex
         elseif stop == tls.FAILED or stop == tls.ENDED then
           local trouble = if stop == tls.ENDED then "tls: the peer ended the session" else why end
           self.write_failure = trouble
-          return false, failure_of(trouble)
+          return nil, failure_of(trouble)
         else
           local ready, waiting = waited(fd, stop == tls.WRITE, left(deadline))
           if not ready then
             self.write_failure = waiting
-            return false, failure_of(waiting)
+            return nil, failure_of(waiting)
           end
-          if not self.open then return false, failure_of("net: the connection is closed") end
+          if not self.open then return nil, failure_of("net: the connection is closed") end
         end
       end
       return true
@@ -227,14 +227,14 @@ local class SocketConn is Duplex
         from = from + sent
       elseif errno ~= raw.EAGAIN then
         self.write_failure = why
-        return false, failure_of(why)
+        return nil, failure_of(why)
       else
         local ready, waiting = waited(fd, true, left(deadline))
         if not ready then
           self.write_failure = waiting
-          return false, failure_of(waiting)
+          return nil, failure_of(waiting)
         end
-        if not self.open then return false, failure_of("net: the connection is closed") end
+        if not self.open then return nil, failure_of("net: the connection is closed") end
       end
     end
     return true
@@ -375,9 +375,9 @@ local class SocketConn is Duplex
 
   --- Waits until the peer has gone, as [`gone`] sees it, at most
   --- `timeout_ns` nanoseconds (no limit when nil): true once it has,
-  --- false and a Failure of kind "timeout" once `timeout_ns` passes first,
-  --- false and a Failure of kind "cancelled" once the task is cancelled,
-  --- or false and a Failure once the connection is closed here, as
+  --- nil and a Failure of kind "timeout" once `timeout_ns` passes first,
+  --- nil and a Failure of kind "cancelled" once the task is cancelled,
+  --- or nil and a Failure once the connection is closed here, as
   --- [`close`] ends the wait. It reads nothing, so bytes the peer sends
   --- meanwhile neither end the wait nor are lost: they wait for the next
   --- read. In a task the other tasks run meanwhile, a [`read`] or
@@ -385,19 +385,19 @@ local class SocketConn is Duplex
   --- kernel's ([`sys.POLLRDHUP`]); where the system has no such event
   --- (macOS) it asks [`gone`] each [`GONE_SLICE_NS`], so the end is seen
   --- within that long.
-  function wait_gone(self, timeout_ns?: integer): (true) | (false, Failure)
+  function wait_gone(self, timeout_ns?: integer): (true) | (nil, Failure)
     Poll.checked_ns(timeout_ns, "net", "timeout_ns", 2)
     local deadline = deadline_of(timeout_ns)
     while true do
-      if not self.open then return false, Failure.new("net: the connection is closed") end
+      if not self.open then return nil, Failure.new("net: the connection is closed") end
       if raw.peer_gone(self.fd) then return true end
       local rest = left(deadline)
-      if rest == 0 then return false, Failure.timeout(Poll.TIMEOUT) end
+      if rest == 0 then return nil, Failure.timeout(Poll.TIMEOUT) end
       if sys.POLLRDHUP ~= 0 then
         -- Only the end, a hang-up or an error wakes it: bytes the peer
         -- pipelines behind a request do not.
         local ok, why = Poll.wait(self.fd, sys.POLLRDHUP, rest)
-        if not ok then return false, why end
+        if not ok then return nil, why end
       else
         local slice = if rest ~= nil then math.min(rest, GONE_SLICE_NS) else GONE_SLICE_NS end
         -- A wait of the run's, which raises in a `<close>` handler of a
@@ -405,7 +405,7 @@ local class SocketConn is Duplex
         -- Clock.sleep would hold the thread.
         if Poll.in_task() and coroutine.isyieldable() then
           local ok, why = Poll.notifier():wait(slice)
-          if not ok and why.kind ~= "timeout" then return false, why end
+          if not ok and why.kind ~= "timeout" then return nil, why end
         else
           local _, _ = Clock.sleep(slice)
         end
@@ -459,7 +459,7 @@ local class SocketConn is Duplex
   end
 
   --- Closes the connection. Safe to call more than once.
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     if not self.open then return true end
     self.open = false
     Poll.closing(self.fd)
@@ -470,12 +470,12 @@ local class SocketConn is Duplex
       session:free()
     end
     local ok, why = self.socket:close()
-    if not ok then return false, failure_of(why) end
+    if not ok then return nil, failure_of(why) end
     return true
   end
 
   --- The same as `close`: nothing sent can be taken back.
-  function abort(self): (true) | (false, Failure)
+  function abort(self): (true) | (nil, Failure)
     return self:close()
   end
 

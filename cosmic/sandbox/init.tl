@@ -727,9 +727,9 @@ local stat <const> = sys.stat
 local seatbelt_resolve <const> = Seatbelt.resolve
 local seatbelt_compile <const> = Seatbelt.compile
 
---- What [`Sandbox.restrict`] returns for a failure: false and `why`.
-local function denied(why: string): (true) | (false, Failure)
-  return false, Failure.new("sandbox: restrict: " .. why)
+--- What [`Sandbox.restrict`] returns for a failure: nil and `why`.
+local function denied(why: string): (true) | (nil, Failure)
+  return nil, Failure.new("sandbox: restrict: " .. why)
 end
 
 --- Why a merged policy cannot hold the running process, or "": what it
@@ -873,7 +873,7 @@ end
 --- own, applied to this process with its limits. `policy` is the caller's,
 --- which [`not_in_process`] passed: the profile resolves "system" to
 --- macOS's paths, not the Linux ones [`Sandbox.union`] gives.
-local function held_by_seatbelt(policy: Sandbox.Policy, kept: {integer}): (true) | (false, Failure)
+local function held_by_seatbelt(policy: Sandbox.Policy, kept: {integer}): (true) | (nil, Failure)
   local setup = policy.setup or {}
   local grants: mut {Sandbox.Grant} = {}
   for _, grant in ipairs(policy.grants or {}) do grants[#grants + 1] = grant end
@@ -997,9 +997,9 @@ end
 --- so does a [`Child.start`] with a policy afterwards, since its child's
 --- profile would be a second one; a child started without one is held by
 --- this process's. Elsewhere it fails, saying so.
-function Sandbox.restrict(policy: Sandbox.Policy, options?: Sandbox.RestrictOptions): (true) | (false, Failure)
+function Sandbox.restrict(policy: Sandbox.Policy, options?: Sandbox.RestrictOptions): (true) | (nil, Failure)
   local merged, why = Sandbox.union(policy)
-  if merged == nil then return false, why end
+  if merged == nil then return nil, why end
   local trouble = not_in_process(merged)
   if trouble ~= "" then return denied(trouble) end
   local kept: mut {integer} = {}
@@ -1013,7 +1013,7 @@ function Sandbox.restrict(policy: Sandbox.Policy, options?: Sandbox.RestrictOpti
   if logged ~= "" then return denied(logged) end
   if rules.on_macos() then
     local done, seatbelt_why = held_by_seatbelt(policy, kept)
-    if not done then return false, seatbelt_why end
+    if not done then return nil, seatbelt_why end
     record_held(merged, runtime_grants())
     return true
   end

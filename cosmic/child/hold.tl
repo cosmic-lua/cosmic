@@ -589,7 +589,7 @@ local function shared_core(core: string): string?, string
     else
       local staged = SHARED_CORES .. "/.staged-" .. tostring(sys.getpid())
       local wrote, write_trouble = Fs.write(staged, data, 0x16d)
-      local ok, trouble = wrote, if wrote then "" else tostring(write_trouble) end
+      local ok, trouble = wrote == true, if wrote then "" else tostring(write_trouble) end
       if ok then ok, trouble = sys.chmod(staged, 0x16d) end
       if ok then ok, trouble = sys.rename(staged, copy) end
       if not ok then

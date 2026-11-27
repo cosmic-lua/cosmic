@@ -137,7 +137,7 @@ local function test_a_reader_body_is_read_whole_or_left_as_a_stream_or_closed_fo
       read = function(_self: Stream.Reader, max?: integer): (string | false) | (nil, Failure)
         return inner:read(max)
       end,
-      close = function(_self: Stream.Reader): (true) | (false, Failure)
+      close = function(_self: Stream.Reader): (true) | (nil, Failure)
         closed = closed + 1
         return true
       end,
@@ -173,7 +173,7 @@ local function test_the_client_fails_a_reply_the_server_would_answer_500_for()
       return { status = 204, body = { read = function(_s: Stream.Reader, _m?: integer): (string | false) | (nil, Failure) -- checked: literal_shape
         return false
       end,
-        close = function(_s: Stream.Reader): (true) | (false, Failure)
+        close = function(_s: Stream.Reader): (true) | (nil, Failure)
           closed = true
           return true
         end } }

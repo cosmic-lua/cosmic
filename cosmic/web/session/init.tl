@@ -125,7 +125,7 @@ local record Session
     save: function(Store, previous: string, data: Data, changes: Changes, now: integer,
         cookie: string): (string) | (nil, Failure)
     --- Revokes `token` where the store can.
-    destroy: function(Store, token: string): (true) | (false, Failure)
+    destroy: function(Store, token: string): (true) | (nil, Failure)
     --- Whether `destroy` revokes: false for a signed cookie, which
     --- lives until it expires wherever it was copied.
     revocable: boolean

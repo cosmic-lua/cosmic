@@ -201,7 +201,7 @@ local function stream(words: {string}, chunk: string, rounds: integer, expect: s
       sent = sent + 1
       return chunk
     end,
-    close = function(_self: Stream.Reader): (true) | (false, Failure)
+    close = function(_self: Stream.Reader): (true) | (nil, Failure)
       return true
     end,
   }
@@ -286,7 +286,7 @@ local function trickle(text: string): Stream.Reader
       at = at + #piece
       return piece
     end,
-    close = function(_self: Stream.Reader): (true) | (false, Failure)
+    close = function(_self: Stream.Reader): (true) | (nil, Failure)
       return true
     end,
   }
@@ -329,7 +329,7 @@ local function test_an_encoder_writes_as_it_reads_but_a_decoder_holds_a_chunk()
       sent = sent + 1
       return ("a"):rep(max_bytes or 1)
     end,
-    close = function(_self: Stream.Reader): (true) | (false, Failure)
+    close = function(_self: Stream.Reader): (true) | (nil, Failure)
       return true
     end,
   }

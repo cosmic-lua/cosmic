@@ -171,7 +171,7 @@ end
 --- raises, it rolls back. Called inside a transaction the caller opened on
 --- the same handle, it is a savepoint of that one, and holds only the
 --- locks the caller's own `BEGIN` took.
-local function immediate(db: Sqlite.Handle, work: function(): (true) | (false, Failure)): (true) | (false, Failure)
+local function immediate(db: Sqlite.Handle, work: function(): (true) | (nil, Failure)): (true) | (nil, Failure)
   return db:transact(work, "immediate")
 end
 
@@ -266,9 +266,9 @@ local function save_session(self: Session.Store, previous: string, data: Session
   -- would fail its write at once with SQLITE_BUSY_SNAPSHOT, which the busy
   -- timeout does not wait out; waiting for the lock first is the busy
   -- timeout's case.
-  local ok, why = immediate(store.db, function(): (true) | (false, Failure)
+  local ok, why = immediate(store.db, function(): (true) | (nil, Failure)
     local found, find_why = find(store, previous, now)
-    if found == nil then return false, find_why end
+    if found == nil then return nil, find_why end
     local row: Sqlite.Row? = nil
     if found ~= false then row = found end
     -- A session revoked while this request ran is not revived with what
@@ -291,12 +291,12 @@ local function save_session(self: Session.Store, previous: string, data: Session
     end
     if label == "" then label = nil end
     local text, encode_why = Json.encode(apply(base, changes), { max_depth = Session.MAX_DEPTH })
-    if text == nil then return false, Failure.within(encode_why, "cannot encode the session") end
+    if text == nil then return nil, Failure.within(encode_why, "cannot encode the session") end
     -- A row without a public id was written by an earlier version running
     -- beside this one after the migration: it gets one at its next save.
     if public_id == nil then
       local fresh, public_why = new_public_id()
-      if fresh == nil then return false, public_why end
+      if fresh == nil then return nil, public_why end
       public_id = fresh
     end
     if row ~= nil and changes.regenerated ~= true then
@@ -305,16 +305,16 @@ local function save_session(self: Session.Store, previous: string, data: Session
           "WHERE id_hash = ?1"):format(store.table),
         { hash_of(previous), { text = text }, text_value(subject), { integer = now }, { integer = data.expires },
           text_value(label), { text = public_id } })
-      if not answered then return false, answer_why end
+      if not answered then return nil, answer_why end
       return true
     end
     local id, id_why = new_id()
-    if id == nil then return false, id_why end
+    if id == nil then return nil, id_why end
     minted[1] = id
     if row ~= nil then
       local gone, gone_why = store.db:run(("DELETE FROM %s WHERE id_hash = ?1"):format(store.table),
         { hash_of(previous) })
-      if not gone then return false, gone_why end
+      if not gone then return nil, gone_why end
     end
     -- A regenerated session keeps its public id, label and last-seen: it
     -- is the same session under a new credential.
@@ -324,7 +324,7 @@ local function save_session(self: Session.Store, previous: string, data: Session
       { hash_of(id), { text = text }, text_value(subject), { integer = created }, { integer = now },
         { integer = data.expires }, text_value(label), integer_value(seen_at), text_value(seen_from),
         { text = public_id } })
-    if not answered then return false, answer_why end
+    if not answered then return nil, answer_why end
     return true
   end)
   if not ok then return nil, Failure.within(why, "sessions") end
@@ -336,12 +336,12 @@ local function save_session(self: Session.Store, previous: string, data: Session
   return minted[1] or previous
 end
 
-local function destroy_session(self: Session.Store, token: string): (true) | (false, Failure)
+local function destroy_session(self: Session.Store, token: string): (true) | (nil, Failure)
   local store = backing(self)
   if not is_id(token) then return true end
   local ok, why = store.db:run(("DELETE FROM %s WHERE id_hash = ?1"):format(store.table),
     { hash_of(token) })
-  if not ok then return false, Failure.within(why, "sessions") end
+  if not ok then return nil, Failure.within(why, "sessions") end
   return true
 end
 
@@ -471,8 +471,8 @@ local ADDED <const>: {{string}} = {
 --- adds the columns it lacks, gives each row without one a public id and
 --- indexes them. Inside one IMMEDIATE transaction, so two processes that
 --- open the file at once do not both alter it.
-local function migrate(db: Sqlite.Handle, name: string): (true) | (false, Failure)
-  return immediate(db, function(): (true) | (false, Failure)
+local function migrate(db: Sqlite.Handle, name: string): (true) | (nil, Failure)
+  return immediate(db, function(): (true) | (nil, Failure)
     local ok, why = db:exec(([[
 CREATE TABLE IF NOT EXISTS %s (
   id_hash BLOB PRIMARY KEY,
@@ -489,29 +489,29 @@ CREATE TABLE IF NOT EXISTS %s (
 CREATE INDEX IF NOT EXISTS %s_expires ON %s (expires);
 CREATE INDEX IF NOT EXISTS %s_subject ON %s (subject) WHERE subject IS NOT NULL;]]):
         format(name, name, name, name, name))
-    if not ok then return false, why end
+    if not ok then return nil, why end
     local columns, columns_why = db:rows(("PRAGMA table_info(%s)"):format(name))
-    if columns == nil then return false, columns_why end
+    if columns == nil then return nil, columns_why end
     local have: mut {string: boolean} = {}
     for _, column in ipairs(columns) do have[column:text(2)] = true end
     for _, added in ipairs(ADDED) do
       local column, kind = assert(added[1]), assert(added[2])
       if have[column] == nil then
         local altered, alter_why = db:exec(("ALTER TABLE %s ADD COLUMN %s %s"):format(name, column, kind))
-        if not altered then return false, alter_why end
+        if not altered then return nil, alter_why end
       end
     end
     local bare, bare_why = db:rows(("SELECT id_hash FROM %s WHERE public_id IS NULL"):format(name))
-    if bare == nil then return false, bare_why end
+    if bare == nil then return nil, bare_why end
     for _, row in ipairs(bare) do
       local public_id, public_why = new_public_id()
-      if public_id == nil then return false, public_why end
+      if public_id == nil then return nil, public_why end
       local set, set_why = db:run(("UPDATE %s SET public_id = ?2 WHERE id_hash = ?1"):format(name),
         { { blob = row:blob(1) }, { text = public_id } })
-      if not set then return false, set_why end
+      if not set then return nil, set_why end
     end
     local done, done_why = db:exec(("CREATE UNIQUE INDEX IF NOT EXISTS %s_public_id ON %s (public_id)"):format(name, name))
-    if not done then return false, done_why end
+    if not done then return nil, done_why end
     return true
   end)
 end

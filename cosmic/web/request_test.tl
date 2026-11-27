@@ -67,7 +67,7 @@ local function test_a_failed_body_read_answers_nil_and_why()
     read = function(_self: Stream.Reader, _max?: integer): (string | false) | (nil, Failure)
       return nil, Failure.new("http: the body is over the limit")
     end,
-    close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
+    close = function(_self: Stream.Reader): (true) | (nil, Failure) return true end,
   }
   local raw: Server.Request = { gone = function(): boolean return false end,
     wait_gone = function(_?: integer): boolean return false end, method = "POST", target = "/", path = "/", query = "", version = "HTTP/1.1",
@@ -245,7 +245,7 @@ local function test_a_failed_body_read_is_remembered()
       reads = reads + 1
       return nil, Failure.new("the client went away")
     end,
-    close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
+    close = function(_self: Stream.Reader): (true) | (nil, Failure) return true end,
   }
   local raw: Server.Request = { gone = function(): boolean return false end,
     wait_gone = function(_?: integer): boolean return false end, method = "POST", target = "/", path = "/", query = "", version = "HTTP/1.1",
