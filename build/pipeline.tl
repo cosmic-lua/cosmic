@@ -168,7 +168,18 @@ local record Pipeline
     nearby?: {string: string}
     --- Where it is refused: the rewrites of its errors that put each right with the meaning kept ([`lang.rewrite`]).
     edits?: {Rewrite.Edit}
+    --- Where it is refused for names not declared that are each a module of cosmic's ([`Pipeline.implied`]): `{ name,
+    --- module }` of each, in the order they first stand.
+    implicit?: {{string}}
   end
+
+  --- `made`, the refusal of `text` as the file `file`, made again where it is refused only for names that are the
+  --- capitalized names of modules of cosmic's (`Csv` for [`cosmic.csv`], `Json`, `Fs`): the text is checked again with
+  --- `local Csv = require("cosmic.csv")` before its first line, on that line, as if the program had written it, and
+  --- what that makes is told as the text's own (the places on line 1 are moved back by what was added). `again` checks a
+  --- text. A program that binds a name itself declares it, so it is never refused for it. Where the second check is
+  --- refused too, its refusal is the answer, so one try tells all the faults and the names are not told twice.
+  implied: function(made: Alone, file: string, text: string, again: function(text: string): Alone): Alone
 
   --- The rewrites of the errors of `result` that put each right with the meaning kept ([`lang.rewrite`]), less those
   --- a marker of its text holds (`-- checked: concat_type`): the one path by which cosmic agent's run rewrites a refused
@@ -194,7 +205,8 @@ local record Pipeline
   --- in a build of its own.
   record Kept
     --- [`Pipeline.checked_alone`] of `text` in the kept build.
-    check: function(Kept, text: string): Alone
+    --- With `plain`, a name not declared stays refused: no module of cosmic's is bound for it ([`Pipeline.implied`]).
+    check: function(Kept, text: string, plain?: boolean): Alone
     --- How many modules its build lowered so far, the texts' own among them: a text that requires only what an earlier
     --- one lowered adds one, its own.
     lowerings: function(Kept): integer
@@ -882,6 +894,89 @@ function Pipeline.edits(result: Driver.Outcome): {Rewrite.Edit}
   return out
 end
 
+--- `lines` with a place on line 1 of `file` moved back by `width` bytes, which a text had before its own first line.
+local function unshifted(lines: {string}, file: string, width: integer): {string}
+  local out: mut {string} = {}
+  local head = "^" .. file:gsub("%p", "%%%0") .. ":1:(%d+):(.*)$"
+  for _, line in ipairs(lines) do
+    local column, rest = line:match(head)
+    local at = math.tointeger(tonumber(column))
+    local told = if at ~= nil and rest ~= nil and at > width then file .. ":1:" .. tostring(at - width) .. ":" .. rest else line end
+    -- A place the message names on line 1 is the text's too.
+    out[#out + 1] = told:gsub("declared at 1:(%d+)", function(c: string): string
+      local n = math.tointeger(tonumber(c)) or 0
+      return "declared at 1:" .. tostring(if n > width then n - width else n end)
+    end)
+  end
+  return out
+end
+
+local record Implying
+  mut now: boolean
+end
+local implying: Implying = { now = false }
+
+function Pipeline.implied(made: Pipeline.Alone, file: string, text: string, again: function(text: string): Pipeline.Alone):
+    Pipeline.Alone
+  local implicit = made.implicit
+  -- The check again binds each name: it is never asked for a second time.
+  -- A text that begins with `#!` is a file's alone: nothing may stand before it.
+  if implicit == nil or made.code ~= nil or implying.now or text:sub(1, 1) == "#" then
+    return made
+  end
+  local head = "^" .. file:gsub("%p", "%%%0") .. ":1:(%d+):"
+  local names: mut {{string}} = {}
+  for _, pair in ipairs(implicit) do names[#names + 1] = pair end
+  local second = made
+  local prefix = ""
+  -- A name whose module is none (its require is refused within what was added) is left out, and the rest tried again.
+  while #names > 0 do
+    local bound: mut {string} = {}
+    for _, pair in ipairs(names) do
+      bound[#bound + 1] = "local " .. assert(pair[1]) .. " = require(\"" .. assert(pair[2]) .. "\") "
+    end
+    -- A text that begins with `(`, past a comment even, would be read as a call of the last require: `do end` ends them.
+    bound[#bound + 1] = "do end "
+    prefix = table.concat(bound)
+    implying.now = true
+    second = again(prefix .. text)
+    implying.now = false
+    if second.code ~= nil then return second end
+    local failed: mut {integer: boolean} = {}
+    for _, line in ipairs(second.lines) do
+      local column = math.tointeger(tonumber(line:match(head)))
+      if column ~= nil and column <= #prefix then
+        local before = 0
+        for k, piece in ipairs(bound) do
+          if column <= before + #piece then
+            failed[k] = true
+            break
+          end
+          before = before + #piece
+        end
+      end
+    end
+    if next(failed) == nil then break end
+    local kept: mut {{string}} = {}
+    for k, pair in ipairs(names) do
+      if failed[k] ~= true then kept[#kept + 1] = pair end
+    end
+    if #kept == #names then return made end
+    names = kept
+    if #names == 0 then return made end
+  end
+  if #names == 0 then return made end
+  local width = #prefix
+  local edits: mut {Rewrite.Edit} = {}
+  for _, e in ipairs(second.edits or {}) do
+    if e.offset > width then
+      edits[#edits + 1] = { code = e.code, y = e.y, x = if e.y == 1 then e.x - width else e.x end, offset = e.offset - width,
+        length = e.length, before = e.before, after = e.after }
+    end
+  end
+  return { code = nil, lines = unshifted(second.lines, file, width), stages = second.stages, edits = edits }
+end
+
 --- What a build holding `module`, the file `file`, lowered made of it ([`Pipeline.Alone`]).
 local function alone_of(build: Driver.Build, module: string, file: string, options: Pipeline.Options,
                         declared_return?: boolean): Pipeline.Alone
@@ -957,7 +1052,18 @@ local function alone_of(build: Driver.Build, module: string, file: string, optio
     end
   end
   if #told > 0 then
-    return { code = nil, lines = told, stages = stages, edits = Pipeline.edits(result) }
+    local implicit: mut {{string}} = {}
+    local seen: mut {string: boolean} = {}
+    for _, p in ipairs(result.scope_errors) do
+      local home = p.module
+      local name = p.named
+      if home ~= nil and name ~= nil and seen[name] == nil then
+        seen[name] = true
+        implicit[#implicit + 1] = { name, home }
+      end
+    end
+    return { code = nil, lines = told, stages = stages, edits = Pipeline.edits(result),
+      implicit = if #implicit > 0 then implicit else nil end }
   end
   -- A file alone keeps an import it reads as a type only: nothing serves the module it names.
   local emitted = CompileGrammar.emit(build, result, false, true, false)
@@ -1011,6 +1117,12 @@ function Pipeline.checked_alone_each(items: {{string}}, options: Pipeline.Option
     if made == nil then
       local entry = assert(entries[at])
       made = refused[at] or alone_of(build, assert(entry[3]), assert(entry[1]), options, declared_return)
+      local file, text = assert(entry[1]), assert(entry[2])
+      if options.lax == true then
+        made = Pipeline.implied(made, file, text, function(again: string): Pipeline.Alone
+          return Pipeline.checked_alone(file, again, options, tests, declared_return, entry_point)
+        end)
+      end
       at = at + 1
     end
     out[#out + 1] = made
@@ -1027,31 +1139,36 @@ function Pipeline.kept_alone(file: string, options: Pipeline.Options, tests?: bo
     Pipeline.Kept
   local kind = if tests == true then "test" else "main" end
   local built: Pipeline.Built? = nil
+  local function check(text: string): Pipeline.Alone
+    if RecordSplices.mentions(text) then
+      return Pipeline.checked_alone(file, text, options, tests, declared_return)
+    end
+    local b = built
+    if b == nil then
+      b = Pipeline.over({ { file, text, "lone" } }, { [file] = kind }, options)
+      built = b
+    elseif b.build:replace("lone", text) == nil then
+      return { code = nil, lines = { file .. ": the kept build has no module lone" }, stages = {} }
+    end
+    local build = b.build
+    local spliced, spec_trouble = TreeProgram.splice(build, "lone", file)
+    if spliced == nil then
+      return { code = nil, lines = { spec_trouble }, stages = {} }
+    end
+    build:lower({ "lone" })
+    return alone_of(build, "lone", file, options, declared_return)
+  end
   return {
     lowerings = function(_self: Pipeline.Kept): integer
       local b = built
       return if b == nil then 0 else b.build.timing.lowerings end
     end,
-    check = function(_self: Pipeline.Kept, text: string): Pipeline.Alone
+    check = function(_self: Pipeline.Kept, text: string, plain?: boolean): Pipeline.Alone
       -- TODO: check a text with calls to splice in the kept build, once TreeProgram.splice reads them in a scratch build
       -- that has not met the module: the build's scratch is kept, and holds the text before.
-      if RecordSplices.mentions(text) then
-        return Pipeline.checked_alone(file, text, options, tests, declared_return)
-      end
-      local b = built
-      if b == nil then
-        b = Pipeline.over({ { file, text, "lone" } }, { [file] = kind }, options)
-        built = b
-      elseif b.build:replace("lone", text) == nil then
-        return { code = nil, lines = { file .. ": the kept build has no module lone" }, stages = {} }
-      end
-      local build = b.build
-      local spliced, spec_trouble = TreeProgram.splice(build, "lone", file)
-      if spliced == nil then
-        return { code = nil, lines = { spec_trouble }, stages = {} }
-      end
-      build:lower({ "lone" })
-      return alone_of(build, "lone", file, options, declared_return)
+      if plain == true then return check(text) end
+      if options.lax ~= true then return check(text) end
+      return Pipeline.implied(check(text), file, text, check)
     end,
   }
 end

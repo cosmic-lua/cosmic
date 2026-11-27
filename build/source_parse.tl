@@ -74,6 +74,11 @@ local record SourceParse
     argument?: Codes.Argument
     --- The checker's rewrite of the place that puts the error right ([`Codes.Rewrite`]), where it has one.
     rewrite?: Codes.Rewrite
+    --- The module of cosmic ([`cosmic.csv`]) that a name not declared is the capitalized name of (`Csv`), for a caller that
+    --- binds the name itself ([`Pipeline.implied`]); nil for any other problem.
+    mut module?: string
+    --- The name as written there (`Csv`), with `module`.
+    mut named?: string
   end
 
   --- A source, read: its text lexed and parsed.
