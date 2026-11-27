@@ -187,9 +187,14 @@ local function stage(root: string, working: build_paths.Layout, output: build_pa
     log:complain("boot: " .. refusals.written_without_tests())
   elseif #refused > 0 then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
+    local moved_paths, _ = work.moved_since_stage(handle)
     local _, _ = work.close(handle)
     log:complain(refusals.text(refused, result.refusal_roots or {}))
-    log:complain("boot: the tree did not build, so no tool is written from it")
+    if moved_paths ~= nil and #moved_paths > 0 then
+      log:complain("boot: " .. work.moved_line(moved_paths))
+    else
+      log:complain("boot: the tree did not build, so no tool is written from it")
+    end
     return nil
   end
   local database_path = output.projection
