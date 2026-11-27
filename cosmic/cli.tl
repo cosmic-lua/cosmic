@@ -39,7 +39,7 @@ end
 local GROUPS <const>: {{string}} = {
   { "Running code", "run", "standalone", "eval", "version", "sandbox", "agent" },
   { "Project", "test", "fix", "build", "db", "lsp" },
-  { "Quick tools", "sql", "cache", "json", "hash", "codec", "archive", "fetch", "time", "rand", "qr", "acme", "tailscale", "mcp", "compile" },
+  { "Quick tools", "sql", "cache", "json", "hash", "codec", "archive", "fetch", "time", "rand", "qr", "profile", "acme", "tailscale", "mcp", "compile" },
   { "Lookup", "docs", "uses", "todos", "help" },
   { "This binary", "bom", "refresh", "release" },
 }
@@ -75,6 +75,7 @@ local module: Module = {
     time = require("cosmic.cli.time"),
     rand = require("cosmic.cli.rand"),
     qr = require("cosmic.cli.qr"),
+    profile = require("cosmic.cli.profile"),
     acme = require("cosmic.cli.acme"),
     tailscale = require("cosmic.cli.tailscale"),
     mcp = require("cosmic.cli.mcp"),
