@@ -186,12 +186,3 @@ local function test_plain_find_finds_a_byte_at_every_offset()
   local high = ("a"):rep(70) .. "\255" .. ("a"):rep(3)
   assert(high:find("\255", 1, true) == 71)
 end
-
-local function test_fill_puts_each_value_in_its_slot()
-  assert(String.fill("{n} files in {dir}", { n = 3, dir = "src" }) == "3 files in src")
-  assert(String.fill("{a}{a} {ok} {x}", { a = 1.5, ok = true, x = "" }) == "1.51.5 true ")
-  assert(String.fill("{{n}} {n}} {", { n = 2 }) == "{n} 2} {")
-  assert(String.fill("{ n } {1x} {}", {}) == "{ n } {1x} {}")
-  local ok, why = pcall(String.fill, "{count} of {total}", { count = 1 })
-  assert(not ok and tostring(why):find("no value for {total}", 1, true) ~= nil, tostring(why))
-end

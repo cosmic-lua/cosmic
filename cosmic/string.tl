@@ -1,7 +1,7 @@
 --- Small text operations a program otherwise writes by hand: splitting
 --- on a separator, iterating over lines, trimming, testing a prefix, a
 --- suffix or a part, reading a byte that must be there, cutting UTF-8
---- text to a length in bytes, making any bytes UTF-8, counting a noun, and filling `{name}` slots from values. Every separator, prefix and suffix is plain
+--- text to a length in bytes, making any bytes UTF-8, and counting a noun. Every separator, prefix and suffix is plain
 --- text, never a Lua pattern, so a `.` or `%` in one means itself.
 ---
 ---     for line in String.lines("a\n\nb") do print(line) end -- a, "", b
@@ -159,36 +159,6 @@ end
 --- @return string The count, a space and the noun
 function String.counted(n: integer, singular: string, several?: string): string
   return tostring(n) .. " " .. (if n == 1 then singular else several or singular .. "s" end)
-end
-
---- `template` with each `{name}` slot filled by `tostring(values[name])`: `fill("{n} files in {dir}", { n = 3,
---- dir = "src" })` is `"3 files in src"`. A name is a letter or `_`, then letters, digits and `_`; `{{` and `}}` write
---- `{` and `}`. A slot whose name `values` does not hold raises, naming it, so a typo is not written as text.
---- @param template string The text, with `{name}` slots
---- @param values {string: string | number | boolean} The value of each slot
---- @return string The text, filled
-function String.fill(template: string, values: {string: string | number | boolean}): string
-  local out: mut {string} = {}
-  local at = 1
-  while at <= #template do
-    local two = template:sub(at, at + 1)
-    if two == "{{" or two == "}}" then
-      out[#out + 1] = two:sub(1, 1)
-      at = at + 2
-    else
-      local name, stop = template:match("^{([%a_][%w_]*)}()", at)
-      if name ~= nil and stop is integer then
-        local value = values[name]
-        if value == nil then error("string: fill: no value for {" .. name .. "}", 2) end
-        out[#out + 1] = tostring(value)
-        at = stop
-      else
-        out[#out + 1] = template:sub(at, at)
-        at = at + 1
-      end
-    end
-  end
-  return table.concat(out)
 end
 
 return String
