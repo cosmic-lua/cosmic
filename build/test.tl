@@ -2525,6 +2525,9 @@ local record Run
   mut selected_modules?: {Module}
   mut selected_tests?: {string:{string}}
   mut whole?: boolean
+  -- Where a share of the whole suite writes the C functions its tests
+  -- did not enter (COSMIC_TEST_UNENTERED), for a join of every share.
+  mut unentered_out?: string
   mut share_summary?: string
 
   -- The records the run reads and writes ([`open_records`]).
@@ -3049,6 +3052,12 @@ local function select_tests(ctx: Run): integer?
   -- Whether this run chose every test of the tree: what only the whole
   -- suite covers is checked on such a run alone.
   ctx.whole = #selectors == 0 and shard == nil
+  -- A share of the whole suite writes the C functions its tests did not
+  -- enter where COSMIC_TEST_UNENTERED names a file: a function no share
+  -- entered is one the whole suite does not, which a join of every
+  -- share's file finds (CI's merge queue, cosmic_ci/unentered.tl).
+  local unentered_out = Env.read("COSMIC_TEST_UNENTERED") or ""
+  ctx.unentered_out = if shard ~= nil and #selectors == 0 and unentered_out ~= "" then unentered_out else nil end
   -- Said after the sandbox, last on the summary line, whichever verdict.
   ctx.share_summary = if shard ~= nil then
     string.format("; shard %d of %d", shard.index, shard.count) else "" end
@@ -3219,7 +3228,7 @@ local function require_of_host(ctx: Run): integer?
     return c_check.worker_zig(assert(ctx.root), Env.all(), ctx.sandboxed == true)
   end)
   ctx.c_unavailable = {}
-  if ctx.own_tree == true and ctx.whole == true and host ~= nil then
+  if ctx.own_tree == true and (ctx.whole == true or ctx.unentered_out ~= nil) and host ~= nil then
     -- The probe below runs later, when `host` may have been assigned.
     local probed = host
     local needs: mut {string: boolean} = {}
@@ -3690,6 +3699,26 @@ local function settle(ctx: Run)
       table.insert(function_lines, "test: C exemptions a test entered on this core: " ..
           table.concat(entered.stale, ", "))
     end
+  elseif ctx.own_tree == true and ctx.unentered_out ~= nil and #functions > 0 then
+    -- A share's tests enter only some of them: it writes the ones they
+    -- did not, and a join of every share's file fails for any function
+    -- in all of them.
+    local this_share = assert(ctx.shard)
+    local names, uname_trouble = sys.uname()
+    if names == nil then errors[#errors + 1] = "uname: " .. uname_trouble end
+    local entered = c_functions.tally(functions, hits, c_functions.sources(assert(ctx.root), functions),
+      if names ~= nil then names.sysname else nil end, ctx.c_unavailable)
+    local out = assert(ctx.unentered_out)
+    local listed = c_functions.share_list(this_share.index, this_share.count, entered)
+    local wrote, write_trouble = Fs.write(out, listed)
+    if not wrote then
+      local said = "C functions: " .. out .. ": " .. tostring(write_trouble)
+      errors[#errors + 1] = said
+    end
+    function_lines[1] = string.format("test: C functions %d/%d entered by shard %d of %d; " ..
+        "the %s it did not enter are in %s, for the join of every share",
+      entered.entered, entered.total - entered.exempted - #entered.unavailable, this_share.index, this_share.count,
+      plural.count(#entered.unentered, "function"), out)
   elseif ctx.own_tree == true and #assert(ctx.selectors) == 0 and #functions > 0 then
     -- A share's tests enter only some of them; a whole run, which CI's
     -- merge queue makes on every leg, holds the core to all of them.

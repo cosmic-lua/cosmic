@@ -2495,3 +2495,20 @@ local function test_a_batchs_pull_request_skips_its_legs_and_passes()
     assert(job_of(jobs, name)["if"] == QUEUE_REF .. " && " .. PR_SKIPS, name .. " runs on a batch's pull request")
   end
 end
+
+--- Each share of the checked suite uploads the C functions its tests did
+--- not enter, and the `ci` gate joins every share's list, so a function no
+--- test enters fails the merge queue, not main's push alone, which runs
+--- the suite whole.
+local function test_the_gate_joins_the_checked_shares_c_functions()
+  local jobs = ci_workflow().jobs
+  local upload = step_named(job_of(jobs, "checked").steps, "upload the C functions this share's tests did not enter")
+  assert(upload["if"] == "matrix.shard != ''", tostring(upload["if"]))
+  assert(with_of(upload)["name"] == "checked-unentered-${{ matrix.name }}", tostring(with_of(upload)["name"]))
+  local gate = job_of(jobs, "ci").steps
+  local download = step_with_id(gate, "unentered-download")
+  assert(tostring(download["if"]):find("github.event_name == 'merge_group'", 1, true) ~= nil, tostring(download["if"]))
+  assert(with_of(download)["pattern"] == "checked-unentered-*", tostring(with_of(download)["pattern"]))
+  local join = step_named(gate, "fail for a C function no checked share entered")
+  assert(tostring(join.run):find("driver.tl unentered-join", 1, true) ~= nil, tostring(join.run))
+end

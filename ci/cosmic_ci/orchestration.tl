@@ -340,6 +340,17 @@ end
 --- `words`, a suite's command, run as the share `share` (`I/N`) of its
 --- tests (`cosmic test --shard`); `words` itself where `share` is nil or
 --- empty.
+--- Where share `share` (`I/N`) of the checked suite writes the C
+--- functions its tests did not enter, under `temp` (RUNNER_TEMP):
+--- `checked-unentered/share-I.txt`, which ci.yml's `checked` uploads for
+--- the `ci` gate's join. Nil for a whole run, or with no `temp`.
+function Orchestration.checked_unentered(share?: string, temp?: string): string?
+  if share == nil or temp == nil then return nil end
+  local index = share:match("^(%d+)/%d+$")
+  if index == nil then return nil end
+  return temp .. "/checked-unentered/share-" .. index .. ".txt"
+end
+
 function Orchestration.with_share(words: {string}, share?: string): {string}
   if share == nil or share == "" then return words end
   local out: mut {string} = {}
@@ -1309,12 +1320,22 @@ local function checked_suite(c: Context, target: string, work: string,
   end
   -- The merge queue and a manual run of a branch run the suite in
   -- shares, each a job of its own (COSMIC_CI_CHECKED_SHARD, `I/N`;
-  -- ci.yml's `checked`). A share does not check the C functions, which
-  -- only a whole run checks; main's push and the scheduled run run it
+  -- ci.yml's `checked`). A share cannot check the C functions alone,
+  -- which only a whole run's tests all enter: it writes the ones its
+  -- tests did not enter (COSMIC_TEST_UNENTERED, [`checked_unentered`]),
+  -- and the `ci` gate fails for one no share entered
+  -- (cosmic_ci/unentered.tl). Main's push and the scheduled run run it
   -- whole.
-  s = logged(c, "checked suite", Orchestration.with_share(checked_argv, named("COSMIC_CI_CHECKED_SHARD")),
+  local share = named("COSMIC_CI_CHECKED_SHARD")
+  local checked_env = Orchestration.deadlined(checked_run.env, checked_suite_timeout_ns, checked_margin_ns)
+  local unentered = Orchestration.checked_unentered(share, named("RUNNER_TEMP"))
+  if unentered ~= nil then
+    assert(Fs.mkdirs(unentered:match("^(.*)/[^/]*$") or "."))
+    checked_env = Maps.with(checked_env, { COSMIC_TEST_UNENTERED = unentered })
+  end
+  s = logged(c, "checked suite", Orchestration.with_share(checked_argv, share),
     diagnostics .. "/checked-test.out", diagnostics .. "/checked-test.err",
-    checked_suite_timeout_ns, c.root, Orchestration.deadlined(checked_run.env, checked_suite_timeout_ns, checked_margin_ns))
+    checked_suite_timeout_ns, c.root, checked_env)
   record_suite(c, "checked", s, diagnostics .. "/checked-test.out")
   write(diagnostics .. "/checked-test.status", tostring(s) .. "\n")
   -- The suite's per-test times and verdicts (its `runs` rows), which
