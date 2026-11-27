@@ -2,7 +2,11 @@
 --- `require("cosmic.template")` and the template is one string literal, becomes `T.apply(function(d): string ... end,
 --- data)`, the function being what [`Template.inline`] makes of the template. The checker then types `d` from `data`,
 --- so a field the value has not got is a type error at the call, as in a `.tmpl`, and nothing reads a template when the
---- program runs.
+--- program runs. A call of the literal alone, `T.text("...")`, stays as written where the literal has no `{{`, and is
+--- refused where it has one, since a slot needs data.
+---
+--- [`Lower.takers`] lists the functions that take a template so: [`Template.text`] and [`Host.reply`],
+--- each with the function its call becomes. A module that takes a template the same way is added there.
 ---
 --- Only two places of a call change: the field `text` becomes `apply`, and the literal becomes the function, on as
 --- many lines as the literal took. Every other byte stays where it was, so a line of the module is the line it was,
@@ -15,14 +19,44 @@ local Scopes = require("lang.scopes")
 local type SourceParse = require("build.source_parse")
 
 local record Lower
+  --- A function that takes a template as its first argument, a string literal, and the value it reads as its second.
+  record Taker
+    --- The module that has it, as `require` names it.
+    module: string
+    --- Its field in the module.
+    field: string
+    --- The field a lowered call calls in its place: it takes the template's function and the value.
+    lowered: string
+  end
+  --- The functions that take a template ([`Lower.Taker`]).
+  takers: {Lower.Taker}
 end
 
---- Whether `e` is `require("cosmic.template")`.
-local function requires_template(e: Ast.Exp): boolean
-  if not (e.kind == "Call") then return false end
+Lower.takers = {
+  { module = "cosmic.template", field = "text", lowered = "apply" },
+  { module = "cosmic.agent.host", field = "reply", lowered = "reply_apply" },
+}
+
+--- The module `e` requires, where `e` is `require("...")` of a module that has a taker; nil otherwise.
+local function required_taker(e: Ast.Exp): string?
+  if not (e.kind == "Call") then return nil end
   local callee, named = e.callee, e.args[1]
-  return callee.kind == "Name" and callee.text == "require" and #e.args == 1 and named ~= nil and named.kind == "String" and
-    named.value == "cosmic.template"
+  if not (callee.kind == "Name" and callee.text == "require" and #e.args == 1 and named ~= nil and
+      named.kind == "String") then
+    return nil
+  end
+  for _, t in ipairs(Lower.takers) do
+    if t.module == named.value then return named.value end
+  end
+  return nil
+end
+
+--- The taker of `module` named `field`, where there is one.
+local function taker_of(module: string, field: string): Lower.Taker?
+  for _, t in ipairs(Lower.takers) do
+    if t.module == module and t.field == field then return t end
+  end
+  return nil
 end
 
 --- Calls `visit` with each node under `root`, `root` first.
@@ -62,41 +96,48 @@ end
 function Lower.lower(text: string, name: string, chunk: Ast.Chunk): SourceParse.Lowered?
   local wanted = false
   for _, r in ipairs(chunk.requires) do
-    if r.module == "cosmic.template" then wanted = true end
+    for _, t in ipairs(Lower.takers) do
+      if r.module == t.module then wanted = true end
+    end
   end
   if not wanted then return nil end
   Scopes.build(chunk, name, {})
   -- The bindings that hold the module.
-  local holders: mut {integer: boolean} = {}
+  -- The bindings that hold a module with a taker, and the module each holds.
+  local holders: mut {integer: string} = {}
   walk(chunk, function(node: Ast.Node)
     if node.kind == "Local" then
       for i, b in ipairs(node.bindings) do
         local v = node.values[i]
-        if v ~= nil and requires_template(v) then holders[b.id] = true end
+        local module = if v ~= nil then required_taker(v) else nil end
+        if module ~= nil then holders[b.id] = module end
       end
     end
   end)
-  --- A call to lower: the token of its field `text`, and its literal.
+  --- A call to lower: the token of its field, the field it becomes, its literal, and whether it has no data.
   local record Site
     field: integer
+    lowered: string
     literal: Ast.String
+    alone: boolean
   end
   local calls: mut {Site} = {}
   walk(chunk, function(node: Ast.Node)
     if not (node.kind == "Call") then return end
     local callee = node.callee
-    if not (callee.kind == "Field") or callee.name ~= "text" or #node.args ~= 2 then return end
+    if not (callee.kind == "Field") or (#node.args ~= 1 and #node.args ~= 2) then return end
     local object = callee.object
-    local held = false
+    local module: string? = nil
     if object.kind == "Name" then
       local binding = object.binding
-      held = binding ~= nil and holders[binding] == true
+      module = if binding ~= nil then holders[binding] else nil end
     elseif object.kind == "Paren" then
-      held = requires_template(object.inner)
+      module = required_taker(object.inner)
     end
+    local taker = if module ~= nil then taker_of(module, callee.name) else nil end
     local literal = node.args[1]
-    if held and literal ~= nil and literal.kind == "String" then
-      calls[#calls + 1] = { field = callee.last, literal = literal }
+    if taker ~= nil and literal ~= nil and literal.kind == "String" then
+      calls[#calls + 1] = { field = callee.last, lowered = taker.lowered, literal = literal, alone = #node.args == 1 }
     end
   end)
   if #calls == 0 then return nil end
@@ -109,7 +150,13 @@ function Lower.lower(text: string, name: string, chunk: Ast.Chunk): SourceParse.
     local at = literal.first
     local y = Lexer.y(tokens, at)
     local made, why = Template.inline(literal.value, name .. ":" .. tostring(y))
-    if made == nil then
+    if call.alone and literal.value:find("{{", 1, true) == nil then
+      -- No slot and no data: the text is the reply as it is, and the call stays as written.
+    elseif call.alone then
+      refused[#refused + 1] = { message = "the template has slots and no data: give the value its slots read " ..
+          "as the second argument", y = y, x = Lexer.x(tokens, at), offset = Lexer.offset(tokens, at),
+        length = Lexer.length(tokens, at) }
+    elseif made == nil then
       local ty, tx = source_place(tokens, at, why.line or 1, why.column or 1)
       refused[#refused + 1] = { message = why.message, y = ty, x = tx, offset = Lexer.offset(tokens, at),
         length = Lexer.length(tokens, at) }
@@ -129,7 +176,7 @@ function Lower.lower(text: string, name: string, chunk: Ast.Chunk): SourceParse.
       end
       local field = call.field
       splices[#splices + 1] = { offset = Lexer.offset(tokens, field), length = Lexer.length(tokens, field),
-        text = "apply" }
+        text = call.lowered }
       splices[#splices + 1] = { offset = Lexer.offset(tokens, at), length = Lexer.length(tokens, at), text = body }
     end
   end

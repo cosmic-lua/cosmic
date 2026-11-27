@@ -51,6 +51,16 @@ local function test_a_place_after_a_template_on_its_line_keeps_its_column()
   assert(told:find("t.tl:2:67: ", 1, true) ~= nil, told)
 end
 
+local function test_a_literal_alone_is_its_text_and_a_slot_in_it_is_refused()
+  local plain = checked(HEAD .. 'return Template.text("3 files")\n')
+  local got = run(plain)
+  assert(got == "3 files", tostring(got))
+  local slot = checked(HEAD .. 'return Template.text("{{.n}} files")\n')
+  local told = table.concat(slot.lines, "\n")
+  assert(slot.code == nil and told:find("t.tl:2:22: ", 1, true) ~= nil and told:find("slots and no data", 1, true) ~= nil,
+    told)
+end
+
 local function test_a_template_the_compiler_refuses_is_a_syntax_error_at_its_literal()
   local made = checked(HEAD .. 'return Template.text("{{if .x}}", { x = 1 })\n')
   local told = table.concat(made.lines, "\n")

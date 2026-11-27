@@ -243,12 +243,13 @@ end
 --- The template is a `text` one with no header and no `{{define}}`, written as a string literal where the call stands:
 --- a build lowers the call ([`Template.inline`]) to a function the checker types from `data`, so a field the value does
 --- not have is a type error at the call, as it is in a `.tmpl`. Called where nothing lowered it (a template that is no
---- literal, or a chunk no build read), it raises.
+--- literal, or a chunk no build read), it gives `src` as it is where `src` has no `{{`, and raises otherwise.
 --- @param src string The template, a string literal
---- @param data T The value the template reads, as dot and as `$`
+--- @param data? any The value the template reads, as dot and as `$`; none where the template has no slot
 --- @return string The text
-function Template.text<T>(src: string, data: T): string
+function Template.text(src: string, data?: any): string
   local _ = data
+  if src:find("{{", 1, true) == nil then return src end
   error("cosmic.template: Template.text takes its template as a string literal, which the build turns into code; " ..
       "this one was not: " .. string.format("%q", src:sub(1, 60)), 2)
 end

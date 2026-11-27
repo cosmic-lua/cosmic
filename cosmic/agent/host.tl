@@ -69,6 +69,7 @@ local Json = require("cosmic.json")
 local McpModule = require("cosmic.agent.mcp_module")
 local Sqlite = require("cosmic.sqlite")
 local String = require("cosmic.string")
+local Template = require("cosmic.template")
 
 local record Host
   --- A row of [`Host.history`]: each column's name and its cell. An integer or a real is a number, NULL is
@@ -781,11 +782,20 @@ function Host.store(key: string, value?: Json.Value)
   if why ~= nil then error(tostring(why), 2) end
 end
 
---- The snippet's name for the `answer` call: ends the turn with `text` as the reply to the user, once the snippet has run to its end: no request asks the model
---- for one, so a snippet that has what the user asked for saves a turn. A snippet that raises gives no answer, and the
---- last answer given is the one. Raises where it fails.
-function Host.reply(text: string)
-  local _, why = Host.call("answer", { text = text })
+--- Ends the turn with `text` as the reply to the user, once the snippet has run to its end: no request asks the model
+--- for one, so a snippet that has what the user asked for saves a turn. `text` is a template, as [`Template.text`]
+--- takes one, filled from `data`: `Host.reply("{{.n}} files, {{.big}} over 1 MB", { n = #files, big = big })`. Given
+--- as a string literal, the build checks its slots against `data` before the snippet runs, and refuses a slot where
+--- there is no data. Text that is no literal is replied as it is where it has no `{{`, and raises where it has one. A snippet that raises gives no answer,
+--- and the last answer given is the one. Raises where it fails. (The agent's call for it is named `answer`.)
+function Host.reply(text: string, data?: any)
+  local _, why = Host.call("answer", { text = Template.text(text, data) })
+  if why ~= nil then error(tostring(why), 2) end
+end
+
+--- What a lowered [`Host.reply`] calls: the reply is `render` given `data` ([`Template.apply`]).
+function Host.reply_apply<T>(render: function(d: T): string, data: T)
+  local _, why = Host.call("answer", { text = Template.apply(render, data) })
   if why ~= nil then error(tostring(why), 2) end
 end
 
