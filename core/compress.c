@@ -259,11 +259,38 @@ static struct stream *checked_stream (lua_State *L) {
  * mark again. */
 static void begin (struct stream *s) { s->finished = 1; }
 
+/* A deflate compressor (about 300 KB) and an inflate state, each kept
+ * for the next stream to reuse: making one for each small body (a zip
+ * writer's or reader's file) cost most of its time in the allocation.
+ * One of each is kept; another is freed. Taken and given back
+ * atomically, since threads may compress at once. */
+static void *spare_tdefl = NULL;
+static void *spare_inf = NULL;
+
+/* The spare `slot` holds, or `size` new bytes; NULL on failure. The
+ * caller sets it up whole (tdefl_init, a memset). */
+static void *take_spare (void **slot, size_t size) {
+  void *p = __atomic_exchange_n(slot, NULL, __ATOMIC_ACQ_REL);
+  return p != NULL ? p : cosmic_malloc(size);
+}
+
+/* Keeps `p` as `slot`'s spare, freeing the one it replaces. */
+static void give_spare (void **slot, void *p) {
+  if (p == NULL) return;
+  cosmic_free(__atomic_exchange_n(slot, p, __ATOMIC_ACQ_REL));
+}
+
+static tdefl_compressor *take_tdefl (void) {
+  return take_spare(&spare_tdefl, sizeof(tdefl_compressor));
+}
+
+static void give_tdefl (tdefl_compressor *d) { give_spare(&spare_tdefl, d); }
+
 /* Frees the codec's own state; `rest` stays for the caller to read. */
 static void release (struct stream *s) {
-  cosmic_free(s->tdefl);
+  give_tdefl(s->tdefl);
   s->tdefl = NULL;
-  cosmic_free(s->inf);
+  give_spare(&spare_inf, s->inf);
   s->inf = NULL;
   cosmic_free(s->slice);
   s->slice = NULL;
@@ -958,7 +985,7 @@ static int inflater (lua_State *L) {
       (stream_format)luaL_checkoption(L, 1, NULL, format_names);
   struct stream *s = new_stream(L, OP_INFLATE);
   s->format = fmt;
-  s->inf = cosmic_malloc(sizeof *s->inf);
+  s->inf = take_spare(&spare_inf, sizeof *s->inf);
   if (s->inf == NULL) {
     lua_pushnil(L);
     lua_pushstring(L, "compress: out of memory");
@@ -981,7 +1008,7 @@ static int deflater (lua_State *L) {
   luaL_argcheck(L, level >= 0 && level <= 10, 2, "level must be 0 to 10");
   struct stream *s = new_stream(L, OP_DEFLATE);
   s->format = fmt;
-  s->tdefl = cosmic_malloc(sizeof(tdefl_compressor));
+  s->tdefl = take_tdefl();
   if (s->tdefl == NULL) {
     lua_pushnil(L);
     lua_pushstring(L, "compress: out of memory");
@@ -1476,7 +1503,7 @@ static mz_bool put_bytes (const void *data, int len, void *user) {
 
 unsigned char *cosmic_deflate_raw (const void *data, size_t len,
                                    size_t *out_len) {
-  tdefl_compressor *d = cosmic_malloc(sizeof *d);
+  tdefl_compressor *d = take_tdefl();
   if (d == NULL) return NULL;
   struct bytes out = {NULL, 0, 0};
   mz_uint flags = tdefl_create_comp_flags_from_zip_params(
@@ -1485,7 +1512,7 @@ unsigned char *cosmic_deflate_raw (const void *data, size_t len,
   if (status == TDEFL_STATUS_OKAY) {
     status = tdefl_compress_buffer(d, data, len, TDEFL_FINISH);
   }
-  cosmic_free(d);
+  give_tdefl(d);
   /* Even no input ends in a final block, so a finished stream is never
    * empty and `out.p` is never NULL beside it. */
   if (status != TDEFL_STATUS_DONE || out.p == NULL) {
