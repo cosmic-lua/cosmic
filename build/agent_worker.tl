@@ -50,6 +50,7 @@ local Pipeline = require("build.pipeline")
 local Rewrite = require("lang.rewrite")
 local Poll = require("cosmic.poll")
 local Worker = require("cosmic.agent.worker")
+local Store = require("cosmic.store")
 local String = require("cosmic.string")
 local standalone = require("build.standalone")
 local sys = require("cosmic.sys")
@@ -589,8 +590,16 @@ local function checks_of(loading: Loading): Host.Checks
     local near = Nearby.provider(loading.roots, found)
     local carried = loading.carried
     local trees = #loading.roots > 0
+    -- The trees that are cosmic's own to this tool (it was built from them): there, as `cosmic fix` reads it, a module
+    -- the binary carries is read from the tree, so a file is checked against the stdlib it is beside, not the one built.
+    local own = Nearby.own(loading.roots, Store.meta("built_from"))
     local strict: Pipeline.Options = { globals = given.globals, types = given.types, project = given.project,
       lax = false, nearby = found, standard = function(module: string): Driver.Source?
+        -- Only the stdlib's names: the tree's other modules go through `near`, which records them as found.
+        if #own > 0 and (module == "cosmic" or module:sub(1, 7) == "cosmic.") then
+          local mine = Nearby.file(own, module)
+          if mine ~= nil then return Driver.source(module, mine.file, mine.text, "tl") end
+        end
         return carried(module) or (if trees then near(module) else nil end)
       end }
     local made = Pipeline.checked_alone(path, text, strict, path:sub(-8) == "_test.tl")
