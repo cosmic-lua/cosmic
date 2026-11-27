@@ -564,6 +564,24 @@ local SHOP_MUTANTS <const> = {
   "/text:sub(-1) == \".\"/d",
 }
 
+--- The git tasks: the shop tree as a repository of six commits, made at eval time by the git program. The config
+--- outside the repository is not read, and the dates are fixed, so every copy's commits have the same oids.
+local GIT_ENV <const> = "export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 " ..
+  "GIT_AUTHOR_DATE='2026-01-02T03:04:05Z' GIT_COMMITTER_DATE='2026-01-02T03:04:05Z'; "
+local GIT_SHOP <const> = GIT_ENV .. "git init -q -b main && git config user.name Eval && " ..
+  "git config user.email eval@example.com && git add -A && git commit -qm 'shop: first tree' && " ..
+  "echo '-- Amounts are whole cents.' >> money.tl && git commit -qam 'money: say what an amount is' && " ..
+  "echo '-- Widths are in bytes.' >> text.tl && git commit -qam 'text: say what a width is' && " ..
+  "echo '-- Money.format writes the cents.' >> catalog.tl && git commit -qam 'catalog: name the money format' && " ..
+  "echo '-- Parse refuses three decimals.' >> money.tl && echo '-- Totals use money.' >> report.tl && " ..
+  "git commit -qam 'money and report: note the rules' && " ..
+  "echo '-- Rows are one product each.' >> report.tl && git commit -qam 'report: say what a row is'"
+--- What the shop-git-commit check reports: the last two subjects, what HEAD changed, what is left, who committed,
+--- HEAD's parent, and whether git finds the store sound.
+local GIT_COMMIT_REPORT <const> = GIT_ENV .. "git log -2 --format=%s; git show --name-only --format= HEAD; " ..
+  "git status --porcelain; git log -1 --format='%an <%ae>'; git rev-parse HEAD~1; " ..
+  "if git fsck --strict --no-dangling > /dev/null 2>&1; then echo sound; else echo unsound; fi"
+
 local function shop_mutants(): string
   local out: mut {string} = { "kept=$(mktemp)", "cp money.tl \"$kept\"" }
   for _, m in ipairs(SHOP_MUTANTS) do
@@ -947,6 +965,27 @@ if (cd mini && $tool test > /dev/null 2>&1); then echo pass; else echo fail; fi]
       "such as `Text.center`, one a line, sorted.",
     truth = "cat \"$files/answer.txt\"",
     check = "LC_ALL=C sort -u answer.txt",
+  },
+  {
+    name = "shop-git-commit",
+    fixture = "shop",
+    setup = GIT_SHOP .. " && sed -i 's/the odd space after it/the odd space after it, trimmed first/' text.tl && " ..
+      "echo '-- Columns are padded.' >> report.tl && echo 'call the printer' > notes.txt",
+    prompt = "This tree is a git repository. Commit the change to text.tl alone, with the message " ..
+      "`text: note the trim rule`, on top of the current branch. Leave the change to report.tl and the file " ..
+      "notes.txt as they are, not committed.",
+    truth = "export GIT_CONFIG_GLOBAL=/dev/null; git add text.tl && git commit -qm 'text: note the trim rule' && " ..
+      GIT_COMMIT_REPORT,
+    check = GIT_COMMIT_REPORT,
+  },
+  {
+    name = "shop-git-history",
+    fixture = "shop",
+    setup = GIT_SHOP,
+    prompt = "This tree is a git repository. Write answer.txt: the subject (first line of the message) of each " ..
+      "commit on the current branch that changed money.tl, newest first, one a line.",
+    truth = GIT_ENV .. "git log --format=%s -- money.tl",
+    check = "cat answer.txt",
   },
   {
     name = "fix-rle",
