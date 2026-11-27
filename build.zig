@@ -491,6 +491,7 @@ const core_sources = [_][]const u8{
     "assertions.c",
     "bigint.c",
     "boot.c",
+    "cache_owner.c",
     "cipher.c",
     "coverage.c",
     "compress.c",
@@ -947,6 +948,19 @@ pub fn build(b: *std.Build) void {
     });
     own.add(environment_check.root_module, &.{ "core/environment.c", "core/environment_test.c" }, &own_c);
     boot.dependOn(&b.addRunArtifact(environment_check).step);
+
+    // Whose a 0555 cache entry may be (core/cache_owner.h) is held with no
+    // root, namespace or /proc, on every boot.
+    const cache_owner_check = b.addExecutable(.{
+        .name = "cache-owner-check",
+        .root_module = b.createModule(.{
+            .target = baselineHostTarget(b),
+            .optimize = .safe,
+            .link_libc = true,
+        }),
+    });
+    own.add(cache_owner_check.root_module, &.{ "core/cache_owner.c", "core/cache_owner_test.c" }, &own_c);
+    boot.dependOn(&b.addRunArtifact(cache_owner_check).step);
 
     // Every core but the test fixtures observes its own C: a table from
     // each core's first link, carried by its second ([`observedCore`]).
@@ -1444,6 +1458,7 @@ const closure_checked = [_][]const u8{
     "core/testing.c",                     "core/testing_checked.c",
     "core/coverage_map_empty.c",          "core/strnlen_test.c",
     "core/environment_test.c",            "test/portable/format_test.c",
+    "core/cache_owner_test.c",
     "test/portable/startup_hook.c",       "test/portable/launcher_payload.c",
     "test/portable/launcher_socket_fd.c", "core/unzstd.c",
 };
