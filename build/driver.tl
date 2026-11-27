@@ -543,7 +543,7 @@ function Driver.new(options: Driver.Options): Driver.Build
     local module = "cosmic." .. name:lower()
     for _, found in ipairs(ending(module, result.source.filename)) do
       if found:sub(1, #module + 4) == "`" .. module .. "` (" then
-        return "require its module above this use: `local " .. name .. " = require(\"" .. module .. "\")`"
+        return module
       end
     end
     return nil
@@ -993,13 +993,29 @@ function Driver.new(options: Driver.Options): Driver.Build
       entry.checked = true
       for _, e in ipairs(result.scoped.errors) do
         local fix = e.fix
+        local module: string? = nil
+        local named: string? = nil
         -- Not where a near name is declared ("if you meant `csv`"): that one is more likely what was meant.
         if e.code == "unknown_variable" and e.msg:sub(-#" is not declared") == " is not declared" and
             fix:sub(1, #"if you meant ") ~= "if you meant " then
-          fix = undeclared_module(result, e.offset) or fix
+          module = undeclared_module(result, e.offset)
+          if module ~= nil then
+            local at = RemovedFix.token_at(result.chunk.tokens, e.offset)
+            named = result.chunk.tokens.text[assert(at)] or ""
+            fix = "require its module above this use: `local " .. named .. " = require(\"" .. module .. "\")`"
+          end
+          -- Where the docs name no module, a capitalized name is still the guess a caller may try.
+          local at = RemovedFix.token_at(result.chunk.tokens, e.offset)
+          local text = if at ~= nil then result.chunk.tokens.text[at] else nil end
+          if module == nil and text ~= nil and text:match("^%u%w*$") ~= nil then
+            module = "cosmic." .. text:lower()
+            named = text
+          end
         end
-        table.insert(result.scope_errors, error_of(result, "scoped", tostring(e.code), e.msg, fix, e.y, e.x,
-          e.offset, e.length, nil, e.other))
+        local problem = error_of(result, "scoped", tostring(e.code), e.msg, fix, e.y, e.x, e.offset, e.length, nil, e.other)
+        problem.module = module
+        problem.named = named
+        table.insert(result.scope_errors, problem)
       end
       if lowered ~= nil then
         for _, e in ipairs(build.program:errors(result.module)) do

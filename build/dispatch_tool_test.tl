@@ -160,10 +160,13 @@ local function test_e_refuses_lua_that_teal_does_not_take(tmp: string)
   assert(removed.code == 4 and says(removed, "unknown_variable"), tostring(removed.stderr))
 end
 
---- Nothing is pre-bound for a one-liner: it requires what it uses. It may require the tool's own modules beside the
---- library's, and a module the program holds none of is refused where the chunk is checked.
+--- A one-liner reads a capitalized library name (`Json`) as its module with no require; any other name no declaration
+--- gives is refused. It may require the tool's own modules beside the library's, and a module the program holds none of
+--- is refused where the chunk is checked.
 local function test_e_binds_no_module_and_requires_what_the_program_holds(tmp: string)
-  local unbound = evaluate(tmp, "print(Json)")
+  local implied = evaluate(tmp, 'print(Json.quote("x"))')
+  assert(implied.code == 0 and implied.stdout == '"x"\n', tostring(implied.stdout) .. tostring(implied.stderr))
+  local unbound = evaluate(tmp, "print(Nosuch.x)")
   assert(unbound.code == 4 and says(unbound, "unknown_variable"), tostring(unbound.stderr))
   local own = evaluate(tmp, 'local Status = require("build.exit_status") print(Status.status(7))')
   assert(own.code == 0 and own.stdout == "7\n", tostring(own.stdout) .. tostring(own.stderr))
