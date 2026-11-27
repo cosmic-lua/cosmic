@@ -18,6 +18,7 @@ Host (cosmic.agent.host) and each cosmic.* module by its name in capitals (Fs, J
 
 The checker refuses, so write:
 - `..` joins strings only: a count, `#t` or a line number goes through tostring (`tostring(#out) .. " lines"`, `path .. ":" .. tostring(line)`), or format the whole line (`string.format("%s:%d", path, line)`); `%d` takes an integer: `math.floor(x)`.
+- Sort the values, then make the lines: a line is text, and text sorts by its first bytes (`"a:1082" < "a:56"`, a digest before its path). Sort records by their fields (`table.sort(rows, function(a: Row, b: Row): boolean if a.path ~= b.path then return a.path < b.path end return a.line < b.line end)`); Host.find and Host.grep already give path order.
 - A table you fill needs no type (`local out = {}`, then `out[#out + 1] = v`); written with one, it is `mut`: `local out: mut {string} = {}`.
 - A local that is or may become nil (a page cursor) is optional: `local cursor: string? = nil`, `local page: integer? = 1`; test it with `if cursor ~= nil then`. A local of a plain type is never compared with nil.
 - A local function declares its parameters and results: `local function f(x: integer): string`.
