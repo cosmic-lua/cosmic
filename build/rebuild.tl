@@ -314,6 +314,16 @@ end
 --- directory to check it whatever it holds (`build.fix.spill`), so
 --- that what its links name is the tree as it stands rather than
 --- whatever an earlier `cosmic test` left.
+--- As [`here`] for a lookup of the project's own code, `cosmic uses`, whose answer names nothing until a build has
+--- been made: in a directory that looks like a project no build has been made of ([`looks_unbuilt`]), it makes the
+--- first, as `cosmic fix` would; anywhere else it does as a lookup's does.
+function rebuild.here_built(verb: string): boolean, string
+  local at, trouble = Fs.absolute(".")
+  if at == nil then return false, tostring(trouble) end
+  local found, _ = where(at)
+  return project(at, verb, found ~= nil and not found.project and looks_unbuilt(at))
+end
+
 --- @param carried the `built_from` the tool carries, as [`tree.standing`] takes it
 function rebuild.here(verb: string, start?: boolean, root?: string, carried?: string): boolean, string
   local at = root

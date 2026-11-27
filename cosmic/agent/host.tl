@@ -615,29 +615,15 @@ local function cosmic_ran(verb: string, args: {string}): Host.Ran
     signal = Json.integer_of(got["signal"]), ok = got["ok"] == true, timed_out = got["timed_out"] == true }
 end
 
---- What `cosmic uses <args>` answers. A lookup builds only a tree some build has made: where none has, it makes the
---- first and asks again, raising as `name` where the tree does not build.
-local function looked_up(name: string, args: {string}): Host.Ran
-  local ran = cosmic_ran("uses", args)
-  if ran.output:find("which no build has made yet", 1, true) then
-    local built = cosmic_ran("build", {})
-    if not built.ok then
-      error("host: " .. name .. ": the tree did not build: " .. built.output, 3)
-    end
-    ran = cosmic_ran("uses", args)
-  end
-  return ran
-end
-
 --- Every place under `paths` (all of the tree where none) that refers to `symbol`, as `cosmic uses` finds them: a
 --- name as declared (`Money.format`) or by its last part (`format`), or a file (`doc/a.md`), which only links name.
 --- It reads what the checker resolved, not text, so a word in prose or a field of the same name elsewhere is no
 --- use; a comment's link to it is. Each is a line of [`Host.grep`]'s shape, the file's line as `text`. None where
---- nothing refers to it; raises where the tree does not build. It builds the tree first where no build has.
+--- nothing refers to it; raises where the tree does not build. `uses` builds the tree first where no build has.
 function Host.uses(symbol: string, paths?: {string}): mut {Host.Hit}
   local args: mut {string} = { symbol }
   for _, path in ipairs(paths or {}) do args[#args + 1] = path end
-  local ran = looked_up("uses", args)
+  local ran = cosmic_ran("uses", args)
   if ran.cut then error("host: uses: its answer was cut; name paths to narrow it", 2) end
   local hits: mut {Host.Hit} = {}
   local files: mut {string: {string}} = {}
@@ -655,8 +641,7 @@ function Host.uses(symbol: string, paths?: {string}): mut {Host.Hit}
     end
   end
   -- It exits 1 saying "nothing refers to" where none does; anything else that is not ok is a failure.
-  if not ran.ok and not (ran.code == 1 and ran.output:find("nothing refers to", 1, true) ~= nil and
-      ran.output:find("which no build has made yet", 1, true) == nil) then
+  if not ran.ok and not (ran.code == 1 and ran.output:find("nothing refers to", 1, true) ~= nil) then
     error("host: uses: " .. ran.output, 2)
   end
   return hits
@@ -664,11 +649,11 @@ end
 
 --- Each exported function under `paths` (all of the tree where none) that no code outside its own file uses, tests
 --- left out, as `cosmic uses --unused` finds them: what could be local or dropped, as `Module.name` (`Text.center`),
---- in file and line order. It builds the tree first where no build has; raises where it does not build.
+--- in file and line order; raises where the tree does not build.
 function Host.unused(paths?: {string}): mut {string}
   local args: mut {string} = { "--unused" }
   for _, path in ipairs(paths or {}) do args[#args + 1] = path end
-  local ran = looked_up("unused", args)
+  local ran = cosmic_ran("uses", args)
   if not ran.ok or ran.cut then error("host: unused: " .. ran.output, 2) end
   local names: mut {string} = {}
   for line in ran.output:gmatch("[^\n]+") do

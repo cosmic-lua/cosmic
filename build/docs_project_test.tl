@@ -184,8 +184,9 @@ local function test_unused_lists_the_exports_no_other_file_uses(tmp: string)
       "--- Prints.\nfunction app.run(): integer return calc.double(2) end\n\nreturn app\n"))
   assert(Fs.write(project .. "/calc_test.tl",
     "local calc = require(\"calc\")\n\nlocal function test_add() assert(calc.add(1, 2) == 3) end\n"))
-  local built = cosmic(project, { "build", "--host" })
-  assert(built.code == 0, built.stdout .. built.stderr)
+  assert(Fs.mkdirs(project .. "/cmd/app"))
+  assert(Fs.write(project .. "/cmd/app/main.tl", "print(\"hi\")\n"))
+  -- No build has been made: uses makes the first, though a portable program of this tool's one core would fail.
   local result = cosmic(project, { "uses", "--unused" })
   assert(result.code == 0, result.stdout .. result.stderr)
   assert(result.stdout:find("calc.tl:6: calc.add\n", 1, true), result.stdout)

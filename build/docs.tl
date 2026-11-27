@@ -300,7 +300,7 @@ end
 --- `cosmic uses --unused [path...]`: each exported function of the tree's own modules -- in a file under the paths,
 --- when given -- that no code outside its own file uses, tests left out ([`Doc.unused`]), as `file:line: Module.name`.
 local function run_unused(words: {string}): integer
-  local built, build_trouble = require("build.rebuild").here("uses")
+  local built, build_trouble = require("build.rebuild").here_built("uses")
   local started = Clock.monotonic_ns()
   local sources = docs.databases()
   local stale = stale_note("uses", built, build_trouble, sources)
@@ -354,7 +354,7 @@ local function run_uses(argv: {string}): integer
   if exit ~= nil then
     return exit
   end
-  local built, build_trouble = require("build.rebuild").here("uses")
+  local built, build_trouble = require("build.rebuild").here_built("uses")
   local started = Clock.monotonic_ns()
   local sources = docs.databases()
   local stale = stale_note("uses", built, build_trouble, sources)
