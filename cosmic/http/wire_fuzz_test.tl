@@ -182,7 +182,7 @@ local class Pieces is Stream.Reader
     return piece
   end
 
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     return true
   end
 end

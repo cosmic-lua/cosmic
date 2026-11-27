@@ -286,13 +286,13 @@ end
 --- whether its last turn ended; its id, or nil and why. All or none, in one transaction.
 function Sessions.fork(db: Sqlite.Handle, from: integer, cwd: string, model: string, seconds: integer): integer?, string
   local made: integer? = nil
-  local transacted, transact_why = db:transact(function(): (true) | (false, Failure)
+  local transacted, transact_why = db:transact(function(): (true) | (nil, Failure)
     local ok, why = db:run([[INSERT INTO sessions (cwd, started, model, ended)
       SELECT ?2, ?3, ?4, ended FROM sessions WHERE id = ?1]],
       { { integer = from }, { text = cwd }, { integer = seconds }, { text = model } })
-    if not ok then return false, why end
+    if not ok then return nil, why end
     if db:changes() == 0 then
-      return false, Failure.new("no session " .. tostring(from) .. " to fork")
+      return nil, Failure.new("no session " .. tostring(from) .. " to fork")
     end
     local id = db:last_insert_rowid()
     made = id
@@ -302,7 +302,7 @@ function Sessions.fork(db: Sqlite.Handle, from: integer, cwd: string, model: str
           "SELECT ?2, tool, input, text, is_error, call, shown FROM outputs WHERE session = ?1 ORDER BY id",
         "INSERT INTO kept (session, key, value) SELECT ?2, key, value FROM kept WHERE session = ?1" }) do
       local copied, copy_why = db:run(copy, { { integer = from }, { integer = id } })
-      if not copied then return false, copy_why end
+      if not copied then return nil, copy_why end
     end
     return true
   end)
@@ -315,11 +315,11 @@ end
 function Sessions.add(db: Sqlite.Handle, id: integer, message: Json.Value, model: string): boolean, string
   local text, why = Json.encode(message)
   if text == nil then return false, tostring(why) end
-  local transacted, transact_why = db:transact(function(): (true) | (false, Failure)
+  local transacted, transact_why = db:transact(function(): (true) | (nil, Failure)
     local ok, run_why = db:run([[INSERT INTO messages (session, seq, message)
       SELECT ?1, coalesce(max(seq), 0) + 1, ?2 FROM messages WHERE session = ?1]],
       { { integer = id }, { text = text } })
-    if not ok then return false, run_why end
+    if not ok then return nil, run_why end
     return db:run("UPDATE sessions SET model = ?2 WHERE id = ?1", { { integer = id }, { text = model } })
   end)
   if not transacted then return false, tostring(transact_why) end
@@ -442,13 +442,13 @@ end
 --- request's id, or nil and why.
 function Sessions.request(db: Sqlite.Handle, id: integer, r: Sessions.Request): integer?, string
   local made: integer? = nil
-  local ok, why = db:transact(function(): (true) | (false, Failure)
+  local ok, why = db:transact(function(): (true) | (nil, Failure)
     local kept, kept_why = db:run("INSERT OR IGNORE INTO systems (digest, text) VALUES (digest('sha256', ?1), ?1)",
       { { text = r.system } })
-    if not kept then return false, kept_why end
+    if not kept then return nil, kept_why end
     local shaped, shaped_why = db:run("INSERT OR IGNORE INTO shapes (digest, body) VALUES (digest('sha256', ?1), ?1)",
       { { text = r.shape } })
-    if not shaped then return false, shaped_why end
+    if not shaped then return nil, shaped_why end
     local cost: Sqlite.Value = if r.cost ~= nil then { number = r.cost } else {} end
     local run, run_why = db:run([[INSERT INTO requests (session, seq, started, ms, model, effort, max_tokens,
         betas, system, status, error, served, stop_reason, request_id, headers, input_tokens, output_tokens,
@@ -461,7 +461,7 @@ function Sessions.request(db: Sqlite.Handle, id: integer, r: Sessions.Request): 
         str(r.served), str(r.stop_reason), str(r.request_id), { text = r.headers }, int(r.input_tokens),
         int(r.output_tokens), int(r.cache_read), int(r.cache_write_5m), int(r.cache_write_1h), cost, str(r.reply),
         { text = r.system }, { text = r.shape }, str(r.build), str(r.request_headers), int(r.first_ms) })
-    if not run then return false, run_why end
+    if not run then return nil, run_why end
     made = db:last_insert_rowid()
     return true
   end)

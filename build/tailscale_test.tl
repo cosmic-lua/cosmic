@@ -114,17 +114,17 @@ local class Sink is Stream.Writer
   path: string
   parts: mut {string}
 
-  function write(self, chunk: string): (true) | (false, Failure)
+  function write(self, chunk: string): (true) | (nil, Failure)
     self.parts[#self.parts + 1] = chunk
     return true
   end
 
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     self.ran.files[self.path] = table.concat(self.parts)
     return true
   end
 
-  function abort(self): (true) | (false, Failure)
+  function abort(self): (true) | (nil, Failure)
     return true
   end
 end

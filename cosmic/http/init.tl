@@ -77,7 +77,7 @@ local PUMP_MOST_NS <const> = 1000000000
 --- In a task of [`Poll.run`]: waits through the run, the other tasks
 --- going on, until a shared transfer has something to do or curl's
 --- timers come due, and then does it. False and [`Poll.CANCELLED`]
---- once the task is cancelled, or false and the failure of curl's
+--- once the task is cancelled, or nil and the failure of curl's
 --- multi handle.
 local function pump(): boolean, string
   local fds, events, ms = http.pump_fds()
@@ -129,7 +129,7 @@ local class HandleReader is Stream.Reader
     return chunk
   end
 
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     self.closed = true
     self.handle:close()
     return true
@@ -153,7 +153,7 @@ local class Response is Stream.Reader
   handle: raw_http.Handle
   --- Internal: present only on a response whose body is decoded (see `opts.decompress`).
   --- No caller reads or writes it.
-  mut skip?: function(Response, n: integer): (true) | (false, Failure) -- declared: interface_disagrees
+  mut skip?: function(Response, n: integer): (true) | (nil, Failure) -- declared: interface_disagrees
 
   --- The next chunk of the body, as [`Stream.Reader`] reads it; decoded
   --- when `opts.decompress` asked for it.
@@ -163,7 +163,7 @@ local class Response is Stream.Reader
 
   --- Releases the body, each decoder freeing its codec and closing the
   --- reader beneath it, down to the handle.
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     return self.body:close()
   end
 
@@ -495,7 +495,7 @@ local record Http
   --- body, and headers, bundled into one value since most fallible
   --- functions here return one value, or nil and a [`Failure`].
   --- [`Http.download`] and [`Http.check_certificate`] return true, or
-  --- false and a Failure.
+  --- nil and a Failure.
   record Body
     --- The final response's HTTP status code, after any redirect taken.
     status: integer
@@ -541,14 +541,14 @@ local function zlib_header(head: string): boolean
 end
 
 --- Moves `reader` forward `n` bytes by reading and discarding them:
---- false and a Failure when it fails or ends first.
-local function discard(reader: Stream.Reader, n: integer): (true) | (false, Failure)
+--- nil and a Failure when it fails or ends first.
+local function discard(reader: Stream.Reader, n: integer): (true) | (nil, Failure)
   local left = n
   while left > 0 do
     local chunk, trouble = reader:read(math.min(left, 65536))
-    if chunk == nil then return false, trouble end
+    if chunk == nil then return nil, trouble end
     if chunk == false then
-      return false, Failure.new("http: truncated body while skipping")
+      return nil, Failure.new("http: truncated body while skipping")
     end
     left = left - #chunk
   end
@@ -568,7 +568,7 @@ local class DecodingReader is Stream.Reader
   mut ended: boolean
   --- The failure every read returns after the first, its kind kept.
   mut failed?: Failure
-  skip?: function(DecodingReader, n: integer): (true) | (false, Failure)
+  skip?: function(DecodingReader, n: integer): (true) | (nil, Failure)
 
   --- Fails the reader for good, as every Reader here does after an error.
   function fail(self, why: string): Failure
@@ -648,7 +648,7 @@ local class DecodingReader is Stream.Reader
     end
   end
 
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     local codec = self.codec
     if codec ~= nil then
       -- Frees the decoder now, not at collection.
@@ -659,11 +659,11 @@ local class DecodingReader is Stream.Reader
   end
 end
 
-local function skip_decoding(self: DecodingReader, n: integer): (true) | (false, Failure)
+local function skip_decoding(self: DecodingReader, n: integer): (true) | (nil, Failure)
   return discard(self, n)
 end
 
-local function skip_decoded(self: Response, n: integer): (true) | (false, Failure)
+local function skip_decoded(self: Response, n: integer): (true) | (nil, Failure)
   return discard(self.body, n)
 end
 
@@ -1351,7 +1351,7 @@ local class CancellableReader is Stream.Reader
     return chunk
   end
 
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     return self.response:close()
   end
 end
@@ -1530,19 +1530,19 @@ end
 --- `path` and its message naming the algorithm and both digests. Other failures keep their words, of kind
 --- "cancelled" where a signal or `opts.cancelled` stopped it and
 --- "timeout" where a limit ran out, as [`Http.open`] gives them.
-function Http.download(url: string, path: string, opts: Http.DownloadOptions): (true) | (false, Failure)
+function Http.download(url: string, path: string, opts: Http.DownloadOptions): (true) | (nil, Failure)
   stated(opts)
   local result = downloading(url, path, opts)
   if result.kind == "downloaded" then return true end
   local status = result.status
   if result.kind == "http_status" and status ~= nil then
-    return false, Failure.coded(url .. ": HTTP " .. tostring(status), status)
+    return nil, Failure.coded(url .. ": HTTP " .. tostring(status), status)
   end
   if result.kind == "digest_mismatch" then
-    return false, Failure.mismatch(assert(result.algorithm) .. " mismatch: want " .. assert(result.expected) ..
+    return nil, Failure.mismatch(assert(result.algorithm) .. " mismatch: want " .. assert(result.expected) ..
         ", got " .. assert(result.actual), path)
   end
-  return false, result.failure or failure_of(result.reason)
+  return nil, result.failure or failure_of(result.reason)
 end
 
 --- Whether the TLS stack reads `der` as one X.509 certificate, as it
@@ -1550,9 +1550,9 @@ end
 --- [`Failure`]. A certificate it cannot read is one it would never
 --- trust, so a set of roots is worth checking with this before a binary
 --- carries it. Raises when there was no memory to read it.
-function Http.check_certificate(der: string): (true) | (false, Failure)
+function Http.check_certificate(der: string): (true) | (nil, Failure)
   local ok, why = http.check_certificate(der)
-  if not ok then return false, Failure.new(why) end
+  if not ok then return nil, Failure.new(why) end
   return true
 end
 

@@ -1784,32 +1784,32 @@ local function write_sealed(sealing: Sealing, store: string, whole: string, out:
         { { text = attached[2] } })
       if not ok then return false, tostring(why) end
     end
-    local filled, fill_trouble = db:transact(function(): (true) | (false, Failure)
+    local filled, fill_trouble = db:transact(function(): (true) | (nil, Failure)
       local ok, why = db:exec("CREATE TEMP TABLE extra (path TEXT PRIMARY KEY)")
-      if not ok then return false, Failure.new(tostring(why)) end
+      if not ok then return nil, Failure.new(tostring(why)) end
       for _, name in ipairs(worker.loads) do
         local inserted, insert_trouble = db:run(
           "INSERT OR IGNORE INTO temp.extra (path) VALUES (?1)", { { text = name } })
-        if not inserted then return false, insert_trouble end
+        if not inserted then return nil, insert_trouble end
       end
       -- A program from before `web_assets`, `stubs` or `places` has no such table to
       -- carry.
       local held, held_trouble = db:rows(
         "SELECT name FROM program.sqlite_master WHERE name IN ('web_assets', 'stubs', 'places')")
-      if held == nil then return false, held_trouble end
+      if held == nil then return nil, held_trouble end
       local absent: mut {string:boolean} = { web_assets = true, stubs = true, places = true }
       for _, row in ipairs(held) do absent[row:text(1)] = nil end
       -- A pure closure store leaves out the tables of text-derived rows ([`build.closure_store`]'s `write`).
       local carried, carried_trouble = db:rows(
         "SELECT name FROM closure.sqlite_master WHERE name = 'places'")
-      if carried == nil then return false, carried_trouble end
+      if carried == nil then return nil, carried_trouble end
       local left_out = #carried == 0
       for _, statement in ipairs(sealed_fill) do
         local reads = statement:match("program%.([%w_]+)")
         local from_closure = statement:match("closure%.([%w_]+)")
         if (reads == nil or absent[reads] ~= true) and not (left_out and from_closure == "places") then
           local done, done_trouble = db:exec(statement)
-          if not done then return false, Failure.new(tostring(done_trouble)) end
+          if not done then return nil, Failure.new(tostring(done_trouble)) end
         end
       end
       if left_out then
@@ -1818,18 +1818,18 @@ local function write_sealed(sealing: Sealing, store: string, whole: string, out:
         for _, statement in ipairs({ "DROP TABLE main.places",
             "INSERT INTO main.meta (key, value) VALUES ('pure_store', X'31')" }) do
           local done, done_trouble = db:exec(statement)
-          if not done then return false, Failure.new(tostring(done_trouble)) end
+          if not done then return nil, Failure.new(tostring(done_trouble)) end
         end
       end
       for _, pair in ipairs(meta) do
         local inserted, insert_trouble = db:run(
           "INSERT INTO main.meta (key, value) VALUES (?1, ?2)",
           { { text = pair[1] }, { text = pair[2] } })
-        if not inserted then return false, insert_trouble end
+        if not inserted then return nil, insert_trouble end
       end
       local program, program_trouble = Sqlite.open(sealing.program)
       if program == nil then
-        return false, Failure.new(sealing.program .. ": " .. tostring(program_trouble))
+        return nil, Failure.new(sealing.program .. ": " .. tostring(program_trouble))
       end
       local stamped = program_stamps[sealing.program]
       if stamped == nil then
@@ -1847,13 +1847,13 @@ local function write_sealed(sealing: Sealing, store: string, whole: string, out:
         for _, pair in ipairs(stamps) do
           local kept, stamp_trouble = db:run("INSERT INTO main.meta (key, value) VALUES (?1, ?2)",
             { { text = pair.key }, { text = pair.value } })
-          if not kept then return false, stamp_trouble end
+          if not kept then return nil, stamp_trouble end
         end
         local content, content_trouble = Stamp.content(db)
-        if content == nil then return false, Failure.new(content_trouble) end
+        if content == nil then return nil, Failure.new(content_trouble) end
         local bound, bind_trouble = db:run("INSERT INTO main.meta (key, value) VALUES (?1, ?2)",
           { { text = Stamp.of }, { text = content } })
-        if not bound then return false, bind_trouble end
+        if not bound then return nil, bind_trouble end
       end
       return true
     end)
@@ -1938,14 +1938,14 @@ local function mismatched(rec: Recording, address: string, path: string, digest:
   local saved, trouble: boolean, string = false, ""
   if move then
     local rename_ok, rename_why = Fs.rename(path, aside)
-    saved, trouble = rename_ok, if rename_ok then "" else tostring(rename_why) end
+    saved, trouble = rename_ok == true, if rename_ok then "" else tostring(rename_why) end
   else
     local data, read_trouble = Fs.read(path)
     if data == nil then
       trouble = tostring(read_trouble)
     else
       local wrote, write_trouble = Fs.write(aside, data)
-      saved = wrote
+      saved = wrote == true
       if not wrote then trouble = tostring(write_trouble) end
     end
   end
@@ -2766,7 +2766,7 @@ function test_key.persist_digests(records: Sqlite.Handle, rec: Recording,
         local inserted, insert_trouble = records:run(
           "INSERT OR REPLACE INTO digests (path, signature, sha256) VALUES (?1, ?2, ?3)",
           { text(row[1]), text(row[2]), text(row[3]) })
-        kept, keep_trouble = inserted, if inserted then "" else tostring(insert_trouble) end
+        kept, keep_trouble = inserted == true, if inserted then "" else tostring(insert_trouble) end
       end
     end
     if not kept then return false, keep_trouble end

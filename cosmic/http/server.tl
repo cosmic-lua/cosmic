@@ -402,7 +402,7 @@ local class Timed is Stream.Reader
   end
 
   --- The connection is the server's to close.
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     return true
   end
 end
@@ -491,60 +491,60 @@ local function linger(conn: Net.Conn)
   end
 end
 
---- True, or false and a Failure saying why `reply`, what a handler returned,
+--- True, or nil and a Failure saying why `reply`, what a handler returned,
 --- is no reply the server can send.
-local function reply_trouble(reply: any): (true) | (false, Failure)
+local function reply_trouble(reply: any): (true) | (nil, Failure)
   if not reply is {any: any} then -- declared: key_type
-    return false, Failure.new("the handler answered " .. type(reply) .. ", not a Server.Reply")
+    return nil, Failure.new("the handler answered " .. type(reply) .. ", not a Server.Reply")
   end
   for key in pairs(reply) do -- checked: any_use
     if not (key is string and REPLY_FIELDS[key] == true) then
-      return false, Failure.new("the reply has no field " .. tostring(key))
+      return nil, Failure.new("the reply has no field " .. tostring(key))
     end
   end
   local status = reply.status -- checked: any_use
   if not (status is integer and status >= 200 and status <= 999) then
-    return false, Failure.new("the reply's status must be an integer from 200 to 999")
+    return nil, Failure.new("the reply's status must be an integer from 200 to 999")
   end
   local headers = reply.headers -- checked: any_use
   if headers ~= nil then
     if not headers is {any: any} then -- declared: key_type
-      return false, Failure.new("the reply's headers must be a table")
+      return nil, Failure.new("the reply's headers must be a table")
     end
     for name, value in pairs(headers) do
       if not name is string then
-        return false, Failure.new("the reply's headers must map names to strings")
+        return nil, Failure.new("the reply's headers must map names to strings")
       end
       if value is {any: any} then -- declared: key_type
         -- A list: keys 1..n, all strings.
         local count = 0
         for key, line in pairs(value) do
           if not (key is integer and line is string) then
-            return false, Failure.new("the reply's headers must map names to strings or lists of them")
+            return nil, Failure.new("the reply's headers must map names to strings or lists of them")
           end
           count = count + 1
         end
         for i = 1, count do
           if value[i] == nil then
-            return false, Failure.new("the reply's headers must map names to strings or lists of them")
+            return nil, Failure.new("the reply's headers must map names to strings or lists of them")
           end
         end
       elseif not value is string then
-        return false, Failure.new("the reply's headers must map names to strings or lists of them")
+        return nil, Failure.new("the reply's headers must map names to strings or lists of them")
       end
     end
   end
   local body = reply.body -- checked: any_use
   if body ~= nil and not body is string and
       not (body is {any: any} and type(body.read) == "function" and type(body.close) == "function") then -- declared: key_type
-    return false, Failure.new("the reply's body must be nil, a string or a Stream.Reader")
+    return nil, Failure.new("the reply's body must be nil, a string or a Stream.Reader")
   end
   local length, close = reply.length, reply.close -- checked: any_use*2
   if length ~= nil and not length is integer then
-    return false, Failure.new("the reply's length must be an integer")
+    return nil, Failure.new("the reply's length must be an integer")
   end
   if close ~= nil and not close is boolean then
-    return false, Failure.new("the reply's close must be a boolean")
+    return nil, Failure.new("the reply's close must be a boolean")
   end
   return true
 end
@@ -574,10 +574,10 @@ end
 ---     assert(not ok and tostring(why):find("Content-Length", 1, true))
 --- @param reply Server.Reply The handler's result
 --- @param method string | nil The request's method
---- @return true | false True, or false and a Failure saying why it cannot be sent
-function Server.check(reply: Server.Reply, method?: string): (true) | (false, Failure)
+--- @return true | false True, or nil and a Failure saying why it cannot be sent
+function Server.check(reply: Server.Reply, method?: string): (true) | (nil, Failure)
   local fine, trouble = reply_trouble(reply)
-  if not fine then return false, trouble end
+  if not fine then return nil, trouble end
   -- `check` reads no date: the one sent is made as the reply goes out.
   return wire.check({ status = reply.status, headers = reply.headers, body = reply.body,
     length = reply.length, method = method, date = "" })
@@ -873,7 +873,7 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
     listener = conn.listener, tls = conn:tls(), gone = function(): boolean return conn:gone() end,
     wait_gone = function(timeout_ns?: integer): boolean
       local gone, _ = conn:wait_gone(timeout_ns)
-      return gone
+      return gone == true
     end,
   }
   local ok, reply = xpcall(s.spec.handle, traced, request)
@@ -899,7 +899,7 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
     return false
   end
   -- A handler is a Reply only by its declaration: it may return nothing.
-  local fine: boolean
+  local fine: true?
   local trouble: Failure?
   if reply == nil then -- checked: compare_disjoint
     fine, trouble = reply_trouble(reply)
@@ -1158,7 +1158,7 @@ end
 --- [`Clock.sleep`]. A handler that blocks the thread -- a
 --- [`cosmic.sqlite`] query, a long computation -- stalls every
 --- connection until it returns.
-function Server.serve(spec: Server.ServeSpec): (true) | (false, Failure)
+function Server.serve(spec: Server.ServeSpec): (true) | (nil, Failure)
   checked_spec(spec)
   if Poll.in_task() then
     error("http: serve runs a Poll.run of its own, and cannot be called in a task of another: to send it requests " ..
@@ -1224,7 +1224,7 @@ function Server.serve(spec: Server.ServeSpec): (true) | (false, Failure)
     end,
     on_error = spec.on_error,
   }
-  if not served then return false, why end
+  if not served then return nil, why end
   return true
 end
 

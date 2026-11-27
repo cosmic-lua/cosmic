@@ -661,11 +661,11 @@ local SEND_SLICE <const> = 64 * 1024
 -- (cosmic/http/server.tl's `linger`), or one whose reset meets the first
 -- slice's write, can still be lost on BSD; reading the reply before the
 -- first write, or half-closing instead of resetting, would close that.
-local function send_until_answered(lb: Testing.Loopback, bytes: string): (true) | (false, Failure)
+local function send_until_answered(lb: Testing.Loopback, bytes: string): (true) | (nil, Failure)
   local from = 1
   while from <= #bytes do
     local sent, why = lb.conn:write(bytes:sub(from, from + SEND_SLICE - 1))
-    if not sent then return false, why end
+    if not sent then return nil, why end
     from = from + SEND_SLICE
     if from <= #bytes then
       -- A wait of none still yields the run, so the server's task reads.

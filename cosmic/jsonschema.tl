@@ -44,7 +44,7 @@ local record JsonSchema
   interface Schema
     --- True where `value` is one the schema allows; false and the first place it is not, the JSON Pointer of the
     --- value in the failure's `path`.
-    check: function(Schema, value: Json.Value): (true) | (false, Failure)
+    check: function(Schema, value: Json.Value): (true) | (nil, Failure)
   end
 end
 
@@ -692,14 +692,14 @@ end
 local class Compiled is JsonSchema.Schema
   build: Build
 
-  function check(self, value: Json.Value): (true) | (false, Failure)
+  function check(self, value: Json.Value): (true) | (nil, Failure)
     self.build.steps = 0
     if not shallow(self.build, value, 0) then
-      return false, fail("", "the value is nested past 64 levels")
+      return nil, fail("", "the value is nested past 64 levels")
     end
     self.build.steps = 0
     local why = S.check(self.build, assert(self.build.root), value, "", 0)
-    if why ~= nil then return false, why end
+    if why ~= nil then return nil, why end
     return true
   end
 end

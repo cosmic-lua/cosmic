@@ -248,7 +248,7 @@ local class Watched is Stream.Reader
     return false
   end
 
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     self.closed = true
     return true
   end
@@ -750,7 +750,7 @@ local class Raising is Stream.Reader
     error("the body broke")
   end
 
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     self.closed = true
     return true
   end
@@ -785,7 +785,7 @@ local class Lenient is Stream.Reader
     return piece
   end
 
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     return true
   end
 end
@@ -1586,7 +1586,7 @@ local class Watching is Stream.Reader
     return false
   end
 
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     return true
   end
 end
@@ -1609,7 +1609,7 @@ local class Waiting is Stream.Reader
     return false
   end
 
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     return true
   end
 end
@@ -1664,7 +1664,7 @@ local class Quiet is Stream.Reader
     return false
   end
 
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     if self.closed_ns == nil then self.closed_ns = Clock.monotonic_ns() end
     self.notifier:notify_all()
     return true
@@ -1719,7 +1719,7 @@ local class Slow is Stream.Reader
     return piece
   end
 
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     return true
   end
 end

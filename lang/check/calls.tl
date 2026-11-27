@@ -1111,6 +1111,10 @@ local function asserted_boolean(ctx: Ctx, node: Ast.Node, args: {Ast.Exp}, t: Ty
   end
   local text = text_of(ctx, first)
   local at = peel(first)
+  if (at.kind == "Binary") and (at.op == "and" or at.op == "or") then
+    -- As in a condition: each operand is tested, and the whole is no value of its own.
+    return
+  end
   local fix = "say which is asserted: `assert(" .. text .. " ~= nil)` that it is there, or `assert(" .. text .. " == true)` that it is true"
   -- `assert` passes the value where it is `true`. A call's other values would be cut by `==`, so a call has no rewrite.
   local rewrite: Codes.Rewrite? = if Operands.only_boolean(ctx, t) then Operands.is_true(first) else nil end

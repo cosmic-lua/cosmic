@@ -843,7 +843,7 @@ function fix.lay_out(files: {string}, checking: boolean, changed: mut {string}, 
       local written, write_trouble = true, ""
       if not checking then
         local wrote_ok, wrote_why = Fs.write(file, out)
-        written, write_trouble = wrote_ok, if wrote_ok then "" else tostring(wrote_why) end
+        written, write_trouble = wrote_ok == true, if wrote_ok then "" else tostring(wrote_why) end
       end
       if written then
         changed[#changed + 1] = file

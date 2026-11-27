@@ -10,7 +10,7 @@ local record Waits
   --- killed, and not under a C call it cannot yield across.
   mut parks?: function(): boolean
   --- Parks the calling task for `ns` nanoseconds, of any length.
-  mut delay?: function(ns: integer): (true) | (false, Failure)
+  mut delay?: function(ns: integer): (true) | (nil, Failure)
 end
 
 return Waits

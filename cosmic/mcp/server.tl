@@ -389,7 +389,7 @@ local record McpServer
     --- [`Mcp.MAX_MESSAGE_BYTES`], or a failure to read or write, ends it
     --- with false and why. Write nothing else to stdout meanwhile: it is
     --- the protocol's alone, and a log goes to stderr.
-    serve_stdio: function(Instance, input?: Stream.Reader, output?: Stream.Writer): (true) | (false, Failure)
+    serve_stdio: function(Instance, input?: Stream.Reader, output?: Stream.Writer): (true) | (nil, Failure)
     --- A handler for [`cosmic.http.server`] that speaks Streamable HTTP at `spec.path`: one POST a message, each response
     --- `application/json`. With `spec.oauth`, a request to the protected-resource metadata path
     --- that is not a GET is refused 405 first. Then, in order, a request is refused 403 for an
@@ -933,7 +933,7 @@ local function elicit(inputs: Inputs, declared: {string: Json.Value}, key: strin
     local content = if answer ~= nil then answer.content else nil end
     if answer ~= nil and answer.action == "accept" and compiled ~= nil then
       local held, _ = compiled:check(content or {})
-      fits = held
+      fits = held == true
     end
     -- A reply that does not fit is asked for again, as the protocol has a server do.
     if answer ~= nil and fits then return answer end
@@ -1512,7 +1512,7 @@ local class WaitingReader is Stream.Reader
     return self.inner:read(max_bytes)
   end
 
-  function close(self): (true) | (false, Failure) return self.inner:close() end
+  function close(self): (true) | (nil, Failure) return self.inner:close() end
 end
 
 --- A request a stdio server is running.
@@ -1552,7 +1552,7 @@ local MAX_PENDING <const> = 1024
 --- Serves `lines`, writing to `writer`, in a task: each request in a task of its own, so a notice of progress goes
 --- out as it is made, and `notifications/cancelled` ends the request it names. The lines are read in a task of
 --- their own, so a cancel is read while every request runs, and a failed write ends the server at once.
-local function serve_lines(self: State, lines: Stream.Lines, writer: Stream.Writer): (true) | (false, Failure)
+local function serve_lines(self: State, lines: Stream.Lines, writer: Stream.Writer): (true) | (nil, Failure)
   local running: mut {string: Entry} = {}
   local pending: mut {Entry} = {}
   local count = 0
@@ -1681,7 +1681,7 @@ local function serve_lines(self: State, lines: Stream.Lines, writer: Stream.Writ
       local task = entry.task
       if task ~= nil then task:cancel() end
     end
-    return false, failed
+    return nil, failed
   end
   -- The client is gone, so are its subscriptions: what runs now is one of them.
   for _, entry in pairs(running) do
@@ -1690,13 +1690,13 @@ local function serve_lines(self: State, lines: Stream.Lines, writer: Stream.Writ
     if task ~= nil then task:cancel() end
   end
   if read_trouble ~= "" and read_trouble ~= Poll.CANCELLED then
-    return false, Failure.new("mcp: " .. read_trouble)
+    return nil, Failure.new("mcp: " .. read_trouble)
   end
   return true
 end
 
 --- Serves the protocol over stdio, in a run of its own where it is called outside one.
-local function serve_stdio(self: State, input?: Stream.Reader, output?: Stream.Writer): (true) | (false, Failure)
+local function serve_stdio(self: State, input?: Stream.Reader, output?: Stream.Writer): (true) | (nil, Failure)
   local stdin: WaitingReader = { inner = Stream.from_fd(0), fd = 0, skip = nil }
   local reader: Stream.Reader = input or stdin
   local writer = output or Stream.to_fd(1)
@@ -1706,9 +1706,9 @@ local function serve_stdio(self: State, input?: Stream.Reader, output?: Stream.W
   local ok = false
   Poll.run(function()
     local done, why = serve_lines(self, lines, writer)
-    ok, served = done, why
+    ok, served = done == true, why
   end)
-  if not ok then return false, served or Failure.new("mcp: the server ended") end
+  if not ok then return nil, served or Failure.new("mcp: the server ended") end
   return true
 end
 
@@ -1903,7 +1903,7 @@ local class EventReader is Stream.Reader
     end
   end
 
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     if not self.finished then
       self.finished = true
       self.flight.cancelled = true
@@ -2284,7 +2284,7 @@ local class Running is McpServer.Instance
     return answer(self.state, text, http)
   end
 
-  function serve_stdio(self, input?: Stream.Reader, output?: Stream.Writer): (true) | (false, Failure)
+  function serve_stdio(self, input?: Stream.Reader, output?: Stream.Writer): (true) | (nil, Failure)
     return serve_stdio(self.state, input, output)
   end
 

@@ -652,9 +652,9 @@ local function fail(self: BodyReader, state: wire.BodyState, why: Failure): (nil
 end
 
 --- [`fail`], returned as a step that did not go.
-local function stopped(self: BodyReader, state: wire.BodyState, why: Failure): (false, Failure)
+local function stopped(self: BodyReader, state: wire.BodyState, why: Failure): (nil, Failure)
   self.state, self.failure, self.held = state, tostring(why), why
-  return false, why
+  return nil, why
 end
 
 --- A chunked body's next line, ended by CRLF as a head's is. No line
@@ -698,10 +698,10 @@ function wire.chunk_size(text: string): (wire.ChunkSize) | (nil, Failure)
 end
 
 --- Reads the next chunked size line, `left` and `phase` set from it:
---- true, or false and a Failure where it fails.
-local function next_chunk(self: BodyReader): (true) | (false, Failure)
+--- true, or nil and a Failure where it fails.
+local function next_chunk(self: BodyReader): (true) | (nil, Failure)
   local text, why = meta_line(self)
-  if text == nil then return false, why end
+  if text == nil then return nil, why end
   local chunk, chunk_why = wire.chunk_size(text)
   if chunk == nil then return stopped(self, "bad", Failure.new("http: " .. tostring(chunk_why))) end
   self.head.spent = self.head.spent + chunk.extra
@@ -724,11 +724,11 @@ local function next_chunk(self: BodyReader): (true) | (false, Failure)
 end
 
 --- Reads a chunked body's trailers, checked as header lines and
---- dropped: true at the blank line after them, or false and a Failure.
-local function trailers(self: BodyReader): (true) | (false, Failure)
+--- dropped: true at the blank line after them, or nil and a Failure.
+local function trailers(self: BodyReader): (true) | (nil, Failure)
   while true do
     local text, why = meta_line(self)
-    if text == nil then return false, why end
+    if text == nil then return nil, why end
     if text == "" then
       self.state = "done"
       return true
@@ -817,7 +817,7 @@ local class BodyReader is wire.Body
 
   --- Closing the body leaves the connection be: what of it is unread,
   --- the server discards before the next request.
-  function close(self): (true) | (false, Failure)
+  function close(self): (true) | (nil, Failure)
     self.closed = true
     return true
   end
@@ -852,24 +852,24 @@ end
 --- True, or false and why the server cannot send `headers` as given: a name that is
 --- no token, a value holding CR, LF or NUL, or a header the server
 --- writes itself.
-local function headers_trouble(headers: {string: string | {string}}): (true) | (false, Failure)
+local function headers_trouble(headers: {string: string | {string}}): (true) | (nil, Failure)
   for name, value in pairs(headers) do
     if not name:find(TOKEN) then
-      return false, Failure.new(("header %q: its name is no token"):format(name))
+      return nil, Failure.new(("header %q: its name is no token"):format(name))
     end
     if value is string then
       if value:find("[\r\n%z]") then
-        return false, Failure.new(("header %s: its value holds CR, LF or NUL"):format(name))
+        return nil, Failure.new(("header %s: its value holds CR, LF or NUL"):format(name))
       end
     else
       for _, entry in ipairs(value) do
         if entry:find("[\r\n%z]") then
-          return false, Failure.new(("header %s: its value holds CR, LF or NUL"):format(name))
+          return nil, Failure.new(("header %s: its value holds CR, LF or NUL"):format(name))
         end
       end
     end
     if OWNED[name:lower()] == true then
-      return false, Failure.new(("header %s: the server writes it itself"):format(name))
+      return nil, Failure.new(("header %s: the server writes it itself"):format(name))
     end
   end
   return true
@@ -917,7 +917,7 @@ local function declared(reply: wire.Reply): integer?
   return size
 end
 
---- True, or false and a Failure saying why `reply` cannot be sent: a status outside 100 to 999, a
+--- True, or nil and a Failure saying why `reply` cannot be sent: a status outside 100 to 999, a
 --- header [`headers_trouble`] refuses, a body given to a 1xx, 204 or
 --- 304, or a size it declares, by Content-Length or `length`, that is
 --- below 0, that the two give differently, that a 1xx or 204 is given
@@ -925,40 +925,40 @@ end
 --- 0 where there is no body (nil or ""), but to HEAD, whose size is the
 --- GET's. A 304's is the size of a 200's body, as RFC 9110 8.6 asks,
 --- which no body here shows, and is passed on as given.
-function wire.check(reply: wire.Reply): (true) | (false, Failure)
+function wire.check(reply: wire.Reply): (true) | (nil, Failure)
   local status = reply.status
   if status < 100 or status > 999 then
-    return false, Failure.new("the status is not from 100 to 999")
+    return nil, Failure.new("the status is not from 100 to 999")
   end
   local headers = reply.headers or {}
   local fine, trouble = headers_trouble(headers)
-  if not fine then return false, trouble end
+  if not fine then return nil, trouble end
   local given, why = given_length(headers)
-  if given == nil then return false, why end
+  if given == nil then return nil, why end
   local length = reply.length
-  if length ~= nil and length < 0 then return false, Failure.new("the length is below 0") end
+  if length ~= nil and length < 0 then return nil, Failure.new("the length is below 0") end
   if given ~= false and length ~= nil and given ~= length then
-    return false, Failure.new(("the Content-Length header is %d, but the length is %d"):format(given, length))
+    return nil, Failure.new(("the Content-Length header is %d, but the length is %d"):format(given, length))
   end
   local size = if given == false then length else given end
   local body = reply.body
   if body == "" then body = nil end
   if bodiless(status) then
     if body ~= nil then
-      return false, Failure.new(("no body goes with status %d"):format(status))
+      return nil, Failure.new(("no body goes with status %d"):format(status))
     end
     if size ~= nil and status ~= 304 then
-      return false, Failure.new(("no Content-Length goes with status %d"):format(status))
+      return nil, Failure.new(("no Content-Length goes with status %d"):format(status))
     end
     return true
   end
   if size == nil then return true end
   if body is string then
     if size ~= #body then
-      return false, Failure.new(("the Content-Length is %d, but the body is %s"):format(size, String.counted(#body, "byte")))
+      return nil, Failure.new(("the Content-Length is %d, but the body is %s"):format(size, String.counted(#body, "byte")))
     end
   elseif body == nil and size ~= 0 and reply.method ~= "HEAD" then
-    return false, Failure.new(("the Content-Length is %d, but the reply has no body: only a reply to HEAD gives a size" ..
+    return nil, Failure.new(("the Content-Length is %d, but the reply has no body: only a reply to HEAD gives a size" ..
       " without its bytes"):format(size))
   end
   return true
@@ -1067,7 +1067,7 @@ function wire.send(w: Stream.Writer, reply: wire.Reply): wire.Sent
     local ok, why = w:write(if #text <= first then head .. text else head .. text:sub(1, first) end)
     if not ok then write_why = tostring(why) end
     local from = first + 1
-    while ok and from <= #text do
+    while ok == true and from <= #text do
       local wrote, trouble = w:write(text:sub(from, from + CHUNK - 1))
       ok = wrote
       if not wrote then write_why = tostring(trouble) end

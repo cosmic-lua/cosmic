@@ -1152,38 +1152,38 @@ function closure_store.write(whole: string, out: string, names: {string},
       end
       uses_from = "extracted.uses"
     end
-    local made, refused = db:transact(function(): (true) | (false, Failure)
+    local made, refused = db:transact(function(): (true) | (nil, Failure)
       for _, statement in ipairs(if own ~= nil then closed_pure(image) else closed(uses_from, image) end) do
         local ok, failure = db:exec(statement)
-        if not ok then return false, Failure.new(tostring(failure)) end
+        if not ok then return nil, Failure.new(tostring(failure)) end
       end
       for _, statement in ipairs(schema.rebuild("main.")) do
         local ok, failure = db:exec(statement)
-        if not ok then return false, Failure.new(tostring(failure)) end
+        if not ok then return nil, Failure.new(tostring(failure)) end
       end
       if own ~= nil then
         -- The tables of text-derived rows are left out, not left empty: a query of one fails ("no such table")
         -- rather than finds nothing, so a test that reads text it was not given cannot pass on an empty result.
         for _, statement in ipairs(withheld_tables) do
           local ok, failure = db:exec(statement)
-          if not ok then return false, Failure.new(tostring(failure)) end
+          if not ok then return nil, Failure.new(tostring(failure)) end
         end
         local held, held_trouble = db:rows(
           "SELECT path, chunk(bytecode) FROM main.modules WHERE path <> ?1 AND path IN temp.wanted", { text(own) })
-        if held == nil then return false, held_trouble end
+        if held == nil then return nil, held_trouble end
         for _, row in ipairs(held) do
           local code = row:blob(2)
           local chunk_key = row:text(1) .. "\0" .. Hash.hex_sha256(code)
           local numbered = numbered_chunks[chunk_key]
           if numbered == nil then
             local made, why = lua_tail.numbered(code, row:text(1))
-            if made == nil then return false, Failure.new(why) end
+            if made == nil then return nil, Failure.new(why) end
             numbered_chunks[chunk_key] = made
             numbered = made
           end
           local ok, failure = db:run("UPDATE main.modules SET bytecode = ?1 WHERE path = ?2",
             { { blob = numbered }, text(row:text(1)) })
-          if not ok then return false, failure end
+          if not ok then return nil, failure end
         end
       end
       return true

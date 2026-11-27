@@ -63,6 +63,12 @@ function Narrowing.condition(ctx: Ctx, node: Ast.Exp): Type
   end
   mark_probes(node)
   local t = ctx.walk.expr(ctx, node, nil)
+  local at = peel(node)
+  if (at.kind == "Binary") and (at.op == "and" or at.op == "or") and t.tag ~= "invalid" then
+    -- `ok and why == nil` of an effect's `true?`: each operand is a condition, checked as one, and what the whole is
+    -- (nil or false) is asked of no one.
+    return t
+  end
   local _ = condition_kind(ctx, node, t)
   return t
 end

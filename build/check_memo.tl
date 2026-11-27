@@ -246,7 +246,7 @@ local function settle(open: Shared, kind: string, now_ns: integer): boolean
       "key FROM (SELECT code, kind, key, sum(length(CAST(code AS BLOB)) + length(CAST(kind AS BLOB)) + " ..
       "length(CAST(key AS BLOB)) + length(CAST(value AS BLOB))) OVER (ORDER BY used_ns DESC, code, kind, key) " ..
       "AS held FROM " .. shared_table .. ") WHERE held > ?1)", { { integer = open.kept_bytes } })
-  return bounded
+  return bounded == true
 end
 
 function check_memo.prepare(db: Sqlite.Handle, kind: string, within?: boolean): boolean, string

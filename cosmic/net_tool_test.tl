@@ -62,7 +62,7 @@ end
   if said == "ignored" then
     Test.skip("this runner ignores SIGPIPE, which its children inherit, so a write to a closed peer ends nothing")
   end
-  assert(said:find("^false ") ~= nil and #said > #"false ", said)
+  assert(said:find("^nil ") ~= nil and #said > #"nil ", said)
 end
 
 --- A connection's protocol runs a child while the server holds its

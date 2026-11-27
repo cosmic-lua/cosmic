@@ -784,15 +784,15 @@ end
 --- Whether `result` is a final result: true, or false and why for one that is no object, asks
 --- for more ("input_required", which this client never declared a
 --- capability for) or names a kind no revision defines.
-function wire.complete(result: any): (true) | (false, Failure)
+function wire.complete(result: any): (true) | (nil, Failure)
   local kind, why = KIND:into(result)
-  if kind == nil then return false, bad("a result that is not an object: " .. why) end
+  if kind == nil then return nil, bad("a result that is not an object: " .. why) end
   local said = kind.resultType
   if said == nil or said == "complete" then return true end
   if said == "input_required" then
-    return false, bad("that it needs input from the client, which this client does not give")
+    return nil, bad("that it needs input from the client, which this client does not give")
   end
-  return false, bad("a result of the kind " .. Json.quote(said) .. ", which this client does not know")
+  return nil, bad("a result of the kind " .. Json.quote(said) .. ", which this client does not know")
 end
 
 --- What the result that needs input, `result`, asks, or nil and why it does not fit: at least one of its requests or

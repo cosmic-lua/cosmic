@@ -94,11 +94,11 @@ say("free", reads(%q))
 ]], tmp .. "/held", tmp .. "/absent", probe, tmp .. "/free"))
   for i, case in ipairs(REFUSED) do
     local answer = said.lines["case" .. tostring(i)] or ""
-    assert(answer:find("^false sandbox: ") and answer:find(case.says, 1, true),
+    assert(answer:find("^nil sandbox: ") and answer:find(case.says, 1, true),
       case.policy .. " -> " .. answer)
   end
   local fd = assert(said.lines["fd"])
-  assert(said.lines["unnamed"] == "false sandbox: restrict: descriptor " .. fd ..
+  assert(said.lines["unnamed"] == "nil sandbox: restrict: descriptor " .. fd ..
       " is open and not named in fds: close it, or name it to keep it", said.raw)
   assert(assert(said.lines["absent_fd"]):find("descriptor 40, which fds names, is not open", 1, true), said.raw)
   -- Its checks passed and its limit was planned, so what holds a process was
@@ -108,20 +108,20 @@ say("free", reads(%q))
   local missing = assert(said.lines["missing"])
   local abi, _ = confine.landlock_abi()
   if abi ~= nil then
-    assert(missing:find("^false sandbox: restrict: grant .*absent: No such file"), said.raw)
+    assert(missing:find("^nil sandbox: restrict: grant .*absent: No such file"), said.raw)
   else
     -- ENOSYS where the kernel has none built in; another errno where it is
     -- left out of lsm= or a container's filter refuses it.
-    assert(missing == "false sandbox: restrict: this system cannot hold a process: it needs Landlock and " ..
+    assert(missing == "nil sandbox: restrict: this system cannot hold a process: it needs Landlock and " ..
         "seccomp, which only Linux gives, or Seatbelt, which macOS does" or
-        missing:find("^false sandbox: restrict: Landlock is not available here") ~= nil, said.raw)
+        missing:find("^nil sandbox: restrict: Landlock is not available here") ~= nil, said.raw)
   end
-  assert(assert(said.lines["child"]):find("^false sandbox: restrict: this process has a child, pid %d+, not waited for"),
+  assert(assert(said.lines["child"]):find("^nil sandbox: restrict: this process has a child, pid %d+, not waited for"),
     said.raw)
   assert(said.lines["cpu"] == "true" and said.lines["free"] == "free", said.raw)
   -- A refusal that comes with limits and grants sets no limit and holds nothing.
   assert(said.lines["nofile"] == "true" and said.lines["nofile_after"] == "true", said.raw)
-  assert(assert(said.lines["with_limits"]):find("^false sandbox: restrict: isolate", 1) ~= nil and
+  assert(assert(said.lines["with_limits"]):find("^nil sandbox: restrict: isolate", 1) ~= nil and
       said.lines["cpu_after"] == "true", said.raw)
 end
 
@@ -144,7 +144,7 @@ say("mine", mine)
 do local ok, trouble = Sandbox.restrict({}); say("refused", ok, if trouble == nil then "" else tostring(trouble) end) end
 do local ok, trouble = Sandbox.restrict({}, { fds = { mine } }); say("named", ok, if trouble == nil then "" else tostring(trouble) end) end
 ]], build_paths.resolve(".").projection, tmp))
-  assert(said.lines["refused"] == "false sandbox: restrict: descriptor " .. assert(said.lines["mine"]) ..
+  assert(said.lines["refused"] == "nil sandbox: restrict: descriptor " .. assert(said.lines["mine"]) ..
       " is open and not named in fds: close it, or name it to keep it", said.raw)
 end
 
@@ -152,6 +152,6 @@ local function test_fds_names_a_descriptor_above_2()
   local said = Restrict.in_child([[
 do local ok, trouble = Sandbox.restrict({}, { fds = { 1 } }); say("low", ok, if trouble == nil then "" else tostring(trouble) end) end
 ]])
-  assert(assert(said.lines["low"]):find("^false sandbox: restrict: fds names 1, which is not a descriptor above 2"),
+  assert(assert(said.lines["low"]):find("^nil sandbox: restrict: fds names 1, which is not a descriptor above 2"),
     said.raw)
 end

@@ -254,9 +254,9 @@ end
 --- @return boolean Whether the cookie was added
 --- @return Failure Why not
 function Cookies.set(res: Types.Response, name: string, value: string,
-                     attrs?: Cookies.Attributes): (true) | (false, Failure)
+                     attrs?: Cookies.Attributes): (true) | (nil, Failure)
   local line, why = Cookies.format(name, value, attrs)
-  if line == nil then return false, why end
+  if line == nil then return nil, why end
   Response.add_header(res, "Set-Cookie", line)
   return true
 end

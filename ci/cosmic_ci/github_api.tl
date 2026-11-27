@@ -220,12 +220,21 @@ function GithubApi.live(env: {string:string}, test?: GithubApi.Live): GithubApi.
   end
 
   local function fetch(url: string, path: string): boolean, string
-    local download = Http.download
-    if test ~= nil and test.download ~= nil then download = test.download end
-    local downloaded, failed = download(url, path, { headers = { ["User-Agent"] = user_agent },
+    local opts: Http.DownloadOptions = { headers = { ["User-Agent"] = user_agent },
       redirect_protocols = { "https" }, max_redirects = download_redirects,
-      timeout_ns = download_ns, script = script() })
+      timeout_ns = download_ns, script = script() }
+    -- Each is read as `== true`: the pinned release's Http.download fails with false, the tree's with nil.
+    local downloaded = false
+    local failed: Failure? = nil
+    if test ~= nil and test.download ~= nil then
+      local done, trouble = test.download(url, path, opts)
+      downloaded, failed = done == true, trouble
+    else
+      local done, trouble = Http.download(url, path, opts)
+      downloaded, failed = done == true, trouble
+    end
     if downloaded then return true, "" end
+    if failed == nil then return false, "the download failed and said no why" end
     -- The URL is a signed link, so it stays out of the message.
     local status = failed.code
     if failed.kind == "library" and status ~= nil then return false, "HTTP " .. tostring(status) end
