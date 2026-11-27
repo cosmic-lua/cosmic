@@ -984,6 +984,17 @@ local scanned_limit = 1024 * 1024
 --- a stat is trusted to stand for its bytes.
 local settle_ns = Clock.seconds(2)
 
+--- Whether a file now stated as `st` differs from the row `was` recorded
+--- for it: there is no row, or its size, time, inode or device moved.
+local function differs(was: Known?, st: sys.Stat, mtime_ns: integer): boolean
+  local was_mtime_ns = was and was.mtime_ns
+  local ctime_ns = was and was.ctime_ns
+  return was == nil or was.size ~= st.size or was_mtime_ns == nil or
+    was_mtime_ns ~= mtime_ns or ctime_ns == nil or
+    st.ctime_ns == nil or ctime_ns ~= Clock.seconds(st.ctime) + st.ctime_ns or -- checked: compare_disjoint
+    was.ino ~= st.ino or was.dev ~= st.dev
+end
+
 --- Whether a file's row no longer stands for it, consuming the row
 --- from `known` either way, so what is left in `known` at the end is
 --- what the walk no longer finds.
@@ -991,12 +1002,7 @@ local function moved(known: mut {string:Known}, file: string, st: sys.Stat,
                      mtime_ns: integer): boolean
   local was = known[file]
   known[file] = nil
-  local was_mtime_ns = was and was.mtime_ns
-  local ctime_ns = was and was.ctime_ns
-  return was == nil or was.size ~= st.size or was_mtime_ns == nil or
-    was_mtime_ns ~= mtime_ns or ctime_ns == nil or
-    st.ctime_ns == nil or ctime_ns ~= Clock.seconds(st.ctime) + st.ctime_ns or -- checked: compare_disjoint
-    was.ino ~= st.ino or was.dev ~= st.dev
+  return differs(was, st, mtime_ns)
 end
 
 --- Whether the tool's recorded files or discovery directories moved. The
@@ -1019,6 +1025,51 @@ end
 
 function work.tool_moved(handle: work.Handle): boolean?, string
   return tool_moved_in(handle.db, handle.root)
+end
+
+--- The staged inputs whose files moved since [`work.stage`] read them,
+--- sorted: changed, replaced or gone. A run checks the tree as staged,
+--- so a failure in a tree edited during the run names these files and
+--- says to run it again ([`work.moved_line`]). A file whose stat moved,
+--- or whose row was staged unsettled and keeps no time, is hashed again
+--- and held to the staged digest. A file added after the stage is not among them. Nil and the
+--- trouble where the table cannot be read.
+function work.moved_since_stage(handle: work.Handle): {string}?, string
+  local known, trouble = known_in(handle.db, "files")
+  if known == nil then return nil, trouble end
+  local digests, digest_trouble = handle.db:rows("SELECT path, sha256 FROM files")
+  if digests == nil then return nil, tostring(digest_trouble) end
+  local staged_sha: mut {string:string} = {}
+  for _, row in ipairs(digests) do staged_sha[row:text(1)] = row:text(2) end
+  local paths: mut {string} = {}
+  for path in pairs(known) do paths[#paths + 1] = path end
+  table.sort(paths)
+  local out: mut {string} = {}
+  for _, path in ipairs(paths) do
+    local full = handle.root .. "/" .. path
+    local was = known[path]!
+    local st, _ = Fs.stat(full)
+    -- A stat that moved is held to the staged digest, so a chmod or a
+    -- touch with the bytes unchanged is not named.
+    local changed = st == nil
+    if st ~= nil and (was.mtime_ns == nil or differs(was, st, Clock.seconds(st.mtime) + st.mtime_ns)) then
+      local now, _ = Hash.hex_file("sha256", full)
+      changed = st.size ~= was.size or now ~= staged_sha[path]
+    end
+    if changed then out[#out + 1] = path end
+  end
+  return out, ""
+end
+
+--- The line a failed run adds when files moved under it: at most five
+--- named, then how many more. Empty for none.
+function work.moved_line(paths: {string}): string
+  if #paths == 0 then return "" end
+  local named: mut {string} = {}
+  for i = 1, math.min(#paths, 5) do named[i] = paths[i] end
+  local list = table.concat(named, ", ")
+  if #paths > 5 then list = list .. (" and %d more"):format(#paths - 5) end
+  return list .. " changed during the run, which checked the tree as staged; run it again"
 end
 
 --- Whether the tool's recorded inputs in the working database of `root`

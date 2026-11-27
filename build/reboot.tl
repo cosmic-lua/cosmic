@@ -239,6 +239,19 @@ local function closing(handle: work.Handle, trouble: string): string
   return trouble
 end
 
+--- What a failed build says, `trouble` and then why no tool is written:
+--- that files moved under the run, which checked them as staged
+--- ([`work.moved_since_stage`]), or else that the tree did not build.
+--- It closes `handle`.
+local function not_built(handle: work.Handle, trouble: string, plain?: string): string
+  local moved_paths, _ = work.moved_since_stage(handle)
+  if moved_paths ~= nil and #moved_paths > 0 then
+    return closing(handle, trouble .. "\n" .. work.moved_line(moved_paths))
+  end
+  if plain == nil then return closing(handle, trouble) end
+  return closing(handle, trouble .. "\n" .. plain)
+end
+
 --- A copy of this process's environment, for a boot and the tool it enters
 --- to run in.
 local function running_in(): mut {string:string}
@@ -477,9 +490,10 @@ local function into(handle: work.Handle, argv: {string}, settle: boolean): strin
       return GrammarMode.tool(tool), ""
     end, true, shared_compiles.for_build(), importer.telling())
   if result == nil then
-    -- The compiler of a tool settling is the tree's: it cannot have moved.
+    -- The compiler of a tool settling is the tree's: it cannot have moved,
+    -- though files may have moved under the run.
     if settle then
-      return closing(handle, compile_trouble), false
+      return not_built(handle, compile_trouble), false
     end
     -- The compile may have stopped before it recorded the tree's
     -- identities: take the compiler's from what is staged and parsed.
@@ -489,7 +503,7 @@ local function into(handle: work.Handle, argv: {string}, settle: boolean): strin
       local found, _ = identity.compiler_identity(handle.db)
       learned.compiler = found
     end
-    return closing(handle, compile_trouble),
+    return not_built(handle, compile_trouble),
       reboot.compiler_moved(Store.meta("compiler"), learned.compiler)
   end
   -- The new checker goes on past a module it refuses, to tell every refusal; a tool is not written from a tree it refused,
@@ -498,8 +512,8 @@ local function into(handle: work.Handle, argv: {string}, settle: boolean): strin
   if refusals.tests_only(breaches, result.refusal_roots) then
     log:complain(refusals.text(breaches, result.refusal_roots or {}) .. "\n" .. refusals.written_without_tests())
   elseif #breaches > 0 then
-    return closing(handle, refusals.text(breaches, result.refusal_roots or {}) ..
-        "\nthe tree did not build, so no tool is written from it"), false
+    return not_built(handle, refusals.text(breaches, result.refusal_roots or {}),
+      "the tree did not build, so no tool is written from it"), false
   end
   local layout = build_paths.resolve(handle.root)
   local database_path = layout.projection
