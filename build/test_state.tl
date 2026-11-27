@@ -250,6 +250,10 @@ local record test_state
     checks: boolean
     --- The directory each worker writes its profile into, nil for none ([`worker.Invocation`]'s `profile`).
     profile?: string
+    --- What a bench run asks each worker to time ([`worker.Invocation`]'s `bench`), nil for a run that times nothing.
+    bench?: string
+    --- The timings of a bench run's benches, by test id, as their workers reported them.
+    timings?: mut {string:worker.Timing}
     --- What a checked run's keys hold beside the bytes ([`declared_key.Spec`]'s `checks`), nil for
     --- an ordinary run.
     mut checks_part?: string

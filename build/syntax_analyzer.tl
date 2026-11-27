@@ -15,6 +15,7 @@
 --- - A source cannot jump (`goto`), so a policy is never refused for a jump past its call.
 local AnalysisSchema = require("build.analysis_schema")
 local Ast = require("lang.ast")
+local TestNames = require("build.test_names")
 local Lexer = require("lang.lexer")
 local Lexical = require("build.syntax_scopes")
 local Markers = require("build.markers")
@@ -1552,7 +1553,7 @@ local function facts_of(chunk: Ast.Chunk): Facts
   local out: Facts = { tests = {}, has_return = false, export = "", returned = nil }
   for _, stat in ipairs(chunk.body.stats) do
     if (stat.kind == "LocalFunction") then
-      if stat.name.name:match("^test_") ~= nil then
+      if TestNames.called(stat.name.name) then
         out.tests[#out.tests + 1] = stat.name.name
       end
     elseif (stat.kind == "Return") then
