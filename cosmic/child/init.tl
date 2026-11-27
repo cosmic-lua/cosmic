@@ -2567,6 +2567,19 @@ local function core_of(argv: {string}, opts: Options, merged: Rules.Policy, user
   return found, ""
 end
 
+--- The real path of the core that a policy's start of this program runs ([`Proc.relaunch`]), or nil where this
+--- program is a host program, which runs as its own file. A policy that grants it `x` lets the child run this
+--- program again, as a grant of `x` on this program's file does, but leaves that file unrun: a policy may then
+--- let the child write the file.
+function Child.core(): string?
+  local found, _ = relaunch_of(nil)
+  if found == nil then return nil end
+  local core = found.argv[1]
+  if core == nil then return nil end
+  local real, _ = sys.realpath(core)
+  return real
+end
+
 --- Makes a policy's start: merges it, refuses what is not yet available
 --- and a program its grants do not let start, then builds the
 --- environment, the limits, what isolates it and, for `tmp`, the
@@ -2810,6 +2823,8 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
   -- `own_rules`). Under `nest` no ruleset holds the child.
   -- A policy that runs this program again from the child grants its file by name: that grant is the child's. The
   -- child starts this program as a relaunch of its own core, so such a grant keeps the core's `rx` in the layer too.
+  -- A grant of `x` on the core itself ([`Child.core`]) is such a grant too: it runs this program again with no `x`
+  -- on its file, which may lie where the child writes.
   local reruns = false
   if core_grant ~= nil then
     local executable, _ = Proc.executable()
@@ -2823,6 +2838,8 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
       if grant ~= core_grant and lettered(grant.letters, "x") then runs_in[#runs_in + 1] = grant end
     end
     reruns = own ~= nil and reaching(own, runs_in, base) ~= ""
+    local core = Child.core()
+    if not reruns and core ~= nil then reruns = reaching(core, runs_in, base) ~= "" end
   end
   local layer: mut {raw_process.Grant} = {}
   local unix = false
