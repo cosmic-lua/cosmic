@@ -1777,11 +1777,11 @@ local function test_mains_push_repeats_nothing_the_queue_checked()
       (leg_changed["if"] or ""):find(macos_queue, 1, true) ~= nil,
     "the macOS leg names no paths changed in the queue: " .. tostring(leg_changed["if"]))
   local check, leg_check_at = step_running(steps, "cosmic-driver test cosmic_ci")
-  assert(check["if"] == "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || " ..
-      "(github.event_name == 'merge_group' && matrix.leg == 'macos-aarch64' && steps.changed.outputs.driver != 'skip')" and
+  assert(check["if"] == "!cancelled() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || " ..
+      "(github.event_name == 'merge_group' && matrix.leg == 'macos-aarch64' && steps.changed.outputs.driver != 'skip'))" and
       map_of(check.env)["COSMIC_TEST_SANDBOX"] == "${{ runner.os == 'Linux' && '1' || '0' }}" and
       map_of(check.env)["COSMIC_SANDBOX"] == "${{ runner.os == 'Linux' && 'must' || '' }}",
-    "the legs check the pinned driver on other runs, sandboxed on Linux: " .. tostring(check["if"]))
+    "the legs check the pinned driver on other runs, sandboxed on Linux, after their suites even where those fail: " .. tostring(check["if"]))
   assert(leg_changed_at < leg_check_at, "the macOS leg asks of the paths changed after its check")
   local driver = job_of(jobs, "driver")
   assert(driver["if"] == QUEUE_REF .. " && (github.event_name == 'merge_group' || github.event_name == 'pull_request') && " ..
