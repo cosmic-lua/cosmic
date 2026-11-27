@@ -78,6 +78,10 @@ local record link_resolve
     --- How many links named no symbol while `context.unbuilt` said
     --- the symbols were incomplete, and so were not reported.
     mut unchecked: integer
+    --- Where given, each question asked of the context since, by its kind and what it asked ([`link_resolve.answer`]),
+    --- whether a cache answered it or the context: what a file's links read beyond its text, so a verdict kept of them
+    --- stands only while each answer does.
+    mut heard?: mut {string: boolean}
   end
 
   --- What one target resolved to, by `kind`:
@@ -107,8 +111,27 @@ function link_resolve.resolver(context: link_resolve.Context): link_resolve.Reso
     unchecked = 0 }
 end
 
+--- Notes that `resolver` was asked `ask` of the `kind` [`link_resolve.answer`] names, where it listens.
+local function hear(resolver: link_resolve.Resolver, kind: string, ask: string)
+  local heard = resolver.heard
+  if heard ~= nil then heard[kind .. "\0" .. ask] = true end
+end
+
+--- Whether `ignores`, the context's [`Context.ignored`], ignores `relative`.
+local function ignored_by(resolver: link_resolve.Resolver, ignores: function(string): boolean, relative: string): boolean
+  hear(resolver, "i", relative)
+  return ignores(relative)
+end
+
+--- Why the context's symbols lack the project's own code, or nil ([`Context.unbuilt`]).
+local function unbuilt_why(resolver: link_resolve.Resolver): string?
+  hear(resolver, "u", "")
+  return resolver.context.unbuilt()
+end
+
 --- What `resolver`'s context says is at `path`, asked once.
 local function kind_at(resolver: link_resolve.Resolver, path: string): string?
+  hear(resolver, "k", path)
   local cached = resolver.kinds[path]
   if cached == nil then
     cached = resolver.context.kind(path) or ""
@@ -196,6 +219,7 @@ end
 --- The anchors of the headings of the file at `path`, read once: none for a file the
 --- context cannot read.
 local function headings_of(resolver: link_resolve.Resolver, path: string): {string: boolean}
+  hear(resolver, "h", path)
   local cached = resolver.headings[path]
   if cached ~= nil then
     return cached
@@ -278,15 +302,17 @@ local function located(resolver: link_resolve.Resolver, from: string, target: st
       -- file, so a path through it resolves in one checkout and not
       -- another. Refused before it is looked at, as `o/` is.
       reason = "it is under .git, git's own metadata"
-    elseif ignores ~= nil and ignores(relative) then
+    elseif ignores ~= nil and ignored_by(resolver, ignores, relative) then
       reason = if ("/" .. relative .. "/"):find("/node_modules/", 1, true) ~= nil then
         "it is under node_modules/, absent from a fresh checkout: link the source that names the package, or write " ..
           "it as code text" else
         "it is ignored (.gitignore), so absent from a fresh checkout: link the source or rule that makes it, or " ..
           "write it as code text" end
     elseif kind_at(resolver, path) ~= nil then
+      hear(resolver, "r", root)
       local real_root = resolver.real_root or resolver.context.real(root) or root
       resolver.real_root = real_root
+      hear(resolver, "r", path)
       local real = resolver.context.real(path)
       if real == nil or not within(real, real_root) then
         reason = "a symbolic link leads it out of the project"
@@ -339,6 +365,7 @@ local function elsewhere(resolver: link_resolve.Resolver, from: string, target: 
   local listed = resolver.context.named_files
   local basename = target:match("([^/]+)$")
   if listed == nil or basename == nil or basename == "." or basename == ".." then return "" end
+  hear(resolver, "n", basename)
   local named = listed(basename)
   if #named ~= 1 then return "" end
   return "; " .. named[1] .. " has that name: link it as " .. relative_from(resolver, from, named[1])
@@ -355,6 +382,7 @@ end
 
 --- The symbols the context names `query` by, asked once.
 local function symbols_named(resolver: link_resolve.Resolver, query: string): {link_resolve.Symbol}
+  hear(resolver, "s", query)
   local cached = resolver.symbols[query]
   if cached == nil then
     local found, trouble = resolver.context.symbols(query)
@@ -372,6 +400,7 @@ end
 local function members_named(resolver: link_resolve.Resolver, module: string,
                              member: string): {link_resolve.Symbol}
   local key = module .. "\n" .. member
+  hear(resolver, "m", key)
   local cached = resolver.members[key]
   if cached == nil then
     local found, trouble = resolver.context.member(module, member)
@@ -493,6 +522,7 @@ local function refused_prefix(resolver: link_resolve.Resolver, dotted: string): 
   local root = resolver.context.root
   local module = dotted
   while true do
+    hear(resolver, "f", module)
     if refused(module) then
       return module .. " did not build, so its symbols are unknown; fix it first"
     end
@@ -534,6 +564,7 @@ local function stale_for(resolver: link_resolve.Resolver, module: string?): stri
   -- nothing; say it is not known yet once the context can compare a file with what that build read of it.
   local stale = resolver.context.stale
   if stale == nil or module == nil then return nil end
+  hear(resolver, "t", "")
   local why = stale()
   if why == nil then return nil end
   -- Asked by the module's name, the symbols give its own row or first row, and any symbol of another module that
@@ -672,7 +703,7 @@ function link_resolve.resolve(resolver: link_resolve.Resolver, from: string, tar
       -- (the project's own) may be ones the build would record, as for
       -- a name in full below; a known module's (the standard library's)
       -- are all there, so a member it lacks still fails.
-      if #members == 0 and not path_first and resolver.context.unbuilt() ~= nil and
+      if #members == 0 and not path_first and unbuilt_why(resolver) ~= nil and
           #symbols_named(resolver, module) == 0 then
         resolver.unchecked = resolver.unchecked + 1
         return nil, ""
@@ -727,7 +758,7 @@ function link_resolve.resolve(resolver: link_resolve.Resolver, from: string, tar
     end
   end
   -- A shortcut names a symbol; an inline link, a path first.
-  if #found == 0 and name ~= nil and not bare and not path_first and resolver.context.unbuilt() ~= nil then
+  if #found == 0 and name ~= nil and not bare and not path_first and unbuilt_why(resolver) ~= nil then
     resolver.unchecked = resolver.unchecked + 1
     return nil, ""
   end
@@ -872,6 +903,55 @@ function link_resolve.linkable(resolver: link_resolve.Resolver, from: string, co
     return nil
   end
   return target
+end
+
+--- The symbols `found` as one text, each field of each.
+local function said_of(found: {link_resolve.Symbol}): string
+  local parts: mut {string} = {}
+  for _, symbol in ipairs(found) do
+    parts[#parts + 1] = table.concat({ symbol.module, symbol.symbol, symbol.file or "", symbol.kind or "",
+      symbol.source or "" }, "\1")
+  end
+  return table.concat(parts, "\2")
+end
+
+--- What `resolver` answers now to `ask` of `kind`, as [`Resolver.heard`] notes a question, as one text: "k" what is at
+--- the path `ask`, "h" the anchors of its headings, "s" the symbols the query `ask` names, "m" the members of
+--- `module\nmember`, "i" whether the tree ignores the relative path, "r" the path with its links followed, "n" the
+--- files of that name, "f" whether the build refused the module, "t" why the symbols are an earlier build's, "u" why
+--- they lack the project's code. A verdict kept with each answer its links were given stands while each is the same.
+function link_resolve.answer(resolver: link_resolve.Resolver, kind: string, ask: string): string
+  local context = resolver.context
+  if kind == "k" then
+    return kind_at(resolver, ask) or ""
+  elseif kind == "h" then
+    local names: mut {string} = {}
+    for name in pairs(headings_of(resolver, ask)) do names[#names + 1] = name end
+    table.sort(names)
+    return table.concat(names, "\n")
+  elseif kind == "s" then
+    return said_of(symbols_named(resolver, ask))
+  elseif kind == "m" then
+    local module, member = ask:match("^(.-)\n(.*)$")
+    return said_of(members_named(resolver, module or ask, member or ""))
+  elseif kind == "i" then
+    local ignores = context.ignored
+    return if ignores ~= nil and ignores(ask) then "1" else "0" end
+  elseif kind == "r" then
+    return context.real(ask) or "\0"
+  elseif kind == "n" then
+    local listed = context.named_files
+    return if listed ~= nil then table.concat(listed(ask), "\n") else "\0" end
+  elseif kind == "f" then
+    local refused = context.refused
+    return if refused ~= nil and refused(ask) then "1" else "0" end
+  elseif kind == "t" then
+    local stale = context.stale
+    return if stale ~= nil then stale() or "" else "" end
+  elseif kind == "u" then
+    return context.unbuilt() or ""
+  end
+  return "\0" .. kind
 end
 
 --- A context over the project at `root` as it is on disk, its

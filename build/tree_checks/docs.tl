@@ -235,10 +235,18 @@ function tree_docs.anchors(db: Build, expected?: {string}): {string}
   -- What takes, returns or holds a value: a function, a method, or a field, whose type may be a function or
   -- hold the record (`examples?: {Example}`).
   local callable: mut {string} = {}
+  -- Each whole word of a signature, so that a record whose name is one word is looked up once and not searched for in
+  -- every signature: over the tree's catalog, that search took seconds.
+  local words: mut {string: boolean} = {}
+  local of_module: mut {string: mut {Row}} = {}
   for _, r in ipairs(all) do
     if r.kind == "function" or r.kind == "method" or r.kind == "field" then
       callable[#callable + 1] = r.signature
+      for word in r.signature:gmatch("[%w_]+") do words[word] = true end
     end
+    local rows_of = of_module[r.module] or {}
+    rows_of[#rows_of + 1] = r
+    of_module[r.module] = rows_of
   end
   local by_name: mut {string: mut {Row}} = {}
   local found: mut {string: boolean} = {}
@@ -247,9 +255,8 @@ function tree_docs.anchors(db: Build, expected?: {string}): {string}
       local prefix = owner.symbol .. "."
       local fields: mut {Row} = {}
       local anchor = true
-      for _, r in ipairs(all) do
-        if r.module == owner.module and String.starts_with(r.symbol, prefix) and
-            r.symbol:find(".", #prefix + 1, true) == nil then
+      for _, r in ipairs(of_module[owner.module] or {}) do
+        if String.starts_with(r.symbol, prefix) and r.symbol:find(".", #prefix + 1, true) == nil then
           local name = r.symbol:sub(#prefix + 1)
           fields[#fields + 1] = r
           if r.kind ~= "field" or r.signature ~= name .. ": string" or r.text == "" then
@@ -257,8 +264,12 @@ function tree_docs.anchors(db: Build, expected?: {string}): {string}
           end
         end
       end
-      for _, signature in ipairs(callable) do
-        if mentions(signature, owner.symbol) then anchor = false end
+      if owner.symbol:find("^[%w_]+$") ~= nil then
+        if words[owner.symbol] == true then anchor = false end
+      else
+        for _, signature in ipairs(callable) do
+          if mentions(signature, owner.symbol) then anchor = false end
+        end
       end
       if anchor then
         found[owner.module .. " " .. owner.symbol] = true

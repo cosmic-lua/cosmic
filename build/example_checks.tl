@@ -26,6 +26,9 @@
 --- is a marker whose finding is gone. A guide's block holds no marker (a reader copies the block), so any finding in one
 --- is refused.
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
+local Sqlite = require("cosmic.sqlite")
+local check_memo = require("build.check_memo")
 local Markers = require("build.markers")
 local build_schema = require("build.schema")
 local type Build = build_schema.Build
@@ -37,6 +40,53 @@ local type Pipeline = require("build.pipeline")
 local _ = require("build.reads.all")
 
 local record example_checks
+  --- What a run keeps of each example's findings, so that an example whose key stands is not compiled again: the memo
+  --- ([`build.check_memo`], kind `example`) and the salt of its keys ([`example_checks.salt`]).
+  record Kept
+    memo: Sqlite.Handle
+    salt: string
+  end
+end
+
+--- The memo's kind.
+local KIND <const> = "example"
+
+--- What an example's findings depend on beyond its own text and its file's: the code that compiles it, by the import
+--- closure of this module in the projection `db` ([`check_memo.closure_salt`]), and what the standard library declares,
+--- by the working database `work` of the tree: each standard-library file's shape ([`build.shape_key`], kept in
+--- `shapes`, which a body's edit leaves as it was), each declaration's text, and each header a declaration is made
+--- from. Nil and why where either database cannot say.
+function example_checks.salt(db: Build, work: Sqlite.Handle): string?, string
+  local code, code_trouble = check_memo.closure_salt(db, { "build.example_checks" }, "example 1")
+  if code == nil then return nil, code_trouble end
+  local rows, trouble = work:rows(
+    "SELECT DISTINCT i.file, coalesce(s.digest, i.source_hash) FROM inputs i " ..
+      "LEFT JOIN shapes s ON s.source_hash = i.source_hash " ..
+      "WHERE i.file GLOB 'cosmic/*' OR i.file GLOB 'lang/*.d.tl' OR i.file GLOB 'core/*.h' ORDER BY 1, 2")
+  if rows == nil then return nil, "reading the inputs: " .. tostring(trouble) end
+  local parts: mut {string} = { code }
+  for _, row in ipairs(rows) do parts[#parts + 1] = row:text(1) .. "=" .. row:text(2) end
+  return Hash.hex_sha256(table.concat(parts, "\0")), ""
+end
+
+--- The findings kept under `key`, or nil.
+local function recalled(kept: example_checks.Kept?, key: string): {string}?
+  if kept == nil then return nil end
+  local text = check_memo.get(kept.memo, KIND, key)
+  if text == nil then return nil end
+  local lines: mut {string} = {}
+  for _, row in ipairs(check_memo.decode(text)) do
+    if row[1] == "L" then lines[#lines + 1] = row[2] or "" end
+  end
+  return lines
+end
+
+--- Keeps `lines` under `key`.
+local function keep(kept: example_checks.Kept?, key: string, lines: {string})
+  if kept == nil then return end
+  local rows: mut {{string}} = { { "E" } }
+  for _, line in ipairs(lines) do rows[#rows + 1] = { "L", line } end
+  check_memo.put(kept.memo, KIND, key, check_memo.encode(rows))
 end
 
 --- A finding of the new checker: its lines, one each, whose place is a line of the text as shown, and the stage of each
@@ -269,39 +319,64 @@ end
 --- A name the text lacks that its file declares as a helper is said to
 --- be one too long to carry.
 --- @param root the tree, whose example files are read for that
-local function examples(db: Build, options: Pipeline.Options, root: string): mut {string}
+local function examples(db: Build, options: function(): Pipeline.Options?, string, root: string,
+                        kept?: example_checks.Kept): mut {string}
   local rows, trouble = db:rows(
     "SELECT file, line, name, source FROM examples WHERE " ..
       symbols.public_only("module", true) .. " ORDER BY file, line")
   if rows == nil then
     return { "reading the examples: " .. tostring(trouble) }
   end
-  local out: mut {string} = {}
+  -- Each example's findings, by its place in `rows`: those its key holds, and the rest compiled in one build.
+  local found: mut {integer: {string}} = {}
   local items: mut {{string}} = {}
-  for _, row in ipairs(rows) do
-    items[#items + 1] = { row:text(1) .. ":" .. tostring(row:integer(2)) .. ": example " .. row:text(3), chunk(row:text(3), row:text(4)) }
-  end
-  local said = problems(options, items)
+  local missed: mut {integer} = {}
+  local keys: mut {integer: string} = {}
+  local files: mut {integer: string} = {}
   for i, row in ipairs(rows) do
-    local where, text = assert(assert(items[i])[1]), assert(assert(items[i])[2])
+    local where = row:text(1) .. ":" .. tostring(row:integer(2)) .. ": example " .. row:text(3)
+    local text = chunk(row:text(3), row:text(4))
     local file, _ = Fs.read(root .. "/" .. row:text(1))
-    file = file or ""
-    local told: mut {string: boolean} = {}
-    local said_lines: mut {string} = {}
-    local lines, stages = assert(said[i]).lines, assert(said[i]).stages
-    for _, line in ipairs(lines) do
-      local name = unknown_name(line)
-      local helper = if name ~= nil then helper_trouble(file, name) else nil end
-      if helper == nil then
-        said_lines[#said_lines + 1] = line
-      elseif told[helper] ~= true then
-        told[helper] = true
-        said_lines[#said_lines + 1] = where .. ": " .. helper
+    files[i] = file or ""
+    local key = check_memo.key(if kept ~= nil then kept.salt else "" end, "example",
+      where .. "\0" .. text .. "\0" .. (file or ""))
+    keys[i] = key
+    local lines = recalled(kept, key)
+    if lines ~= nil then
+      found[i] = lines
+    else
+      items[#items + 1] = { where, text }
+      missed[#missed + 1] = i
+    end
+  end
+  if #items > 0 then
+    local made, made_trouble = options()
+    if made == nil then return { made_trouble } end
+    local said = problems(made, items)
+    for at, i in ipairs(missed) do
+      local where, text = assert(assert(items[at])[1]), assert(assert(items[at])[2])
+      local file = assert(files[i])
+      local told: mut {string: boolean} = {}
+      local said_lines: mut {string} = {}
+      local lines, stages = assert(said[at]).lines, assert(said[at]).stages
+      for _, line in ipairs(lines) do
+        local name = unknown_name(line)
+        local helper = if name ~= nil then helper_trouble(file, name) else nil end
+        if helper == nil then
+          said_lines[#said_lines + 1] = line
+        elseif told[helper] ~= true then
+          told[helper] = true
+          said_lines[#said_lines + 1] = where .. ": " .. helper
+        end
       end
+      local out = held(where, text, said_lines, stages, true)
+      found[i] = out
+      keep(kept, assert(keys[i]), out)
     end
-    for _, line in ipairs(held(where, text, said_lines, stages, true)) do
-      out[#out + 1] = line
-    end
+  end
+  local out: mut {string} = {}
+  for i = 1, #rows do
+    for _, line in ipairs(assert(found[i])) do out[#out + 1] = line end
   end
   return out
 end
@@ -311,7 +386,7 @@ end
 --- project's entry, whose code reads them through `tmp`: it compiles
 --- with `tmp` a string in scope, and a name it needs beyond that is
 --- still refused.
-local function guide(text: string, file: string, options: Pipeline.Options): {string}
+local function guided(text: string, file: string, options: Pipeline.Options): {string}
   local entries, trouble = doctest.entries(text)
   if entries == nil then
     return { file .. ": " .. trouble }
@@ -334,6 +409,19 @@ local function guide(text: string, file: string, options: Pipeline.Options): {st
   return out
 end
 
+--- [`guided`], or what `kept` holds of the guide.
+local function guide(text: string, file: string, options: function(): Pipeline.Options?, string,
+                     kept?: example_checks.Kept): {string}
+  local key = check_memo.key(if kept ~= nil then kept.salt else "" end, "guide", file .. "\0" .. text)
+  local recall = recalled(kept, key)
+  if recall ~= nil then return recall end
+  local made, made_trouble = options()
+  if made == nil then return { made_trouble } end
+  local lines = guided(text, file, made)
+  keep(kept, key, lines)
+  return lines
+end
+
 --- Both of the above over the tree at `root`: the projection `db`'s
 --- examples and each of `guides` (default the user guides, each Markdown
 --- file directly under `doc/guides/`, read from `doc/guides/<name>.md`). A
@@ -342,12 +430,22 @@ end
 --- one with the binary alone, does not have. The tree compiles and runs
 --- them as its tests. The findings are those the markers of an example do not hold, and the markers that hold
 --- none.
-function example_checks.run(db: Build, root: string, guides?: {string}): {string}
-  local options, options_trouble = require("build.pipeline").alone()
-  if options == nil then
-    return { options_trouble }
+--- @param kept where given, the memo of each example's and guide's findings: one whose key it holds is not compiled
+function example_checks.run(db: Build, root: string, guides?: {string}, kept?: example_checks.Kept): {string}
+  -- The standard library's declarations are read once, and only for an example no key holds.
+  local made: Pipeline.Options? = nil
+  local made_trouble = ""
+  local tried = false
+  local function options(): Pipeline.Options?, string
+    if not tried then
+      tried = true
+      made, made_trouble = require("build.pipeline").alone()
+    end
+    if made ~= nil then return made, "" end
+    return nil, made_trouble
   end
-  local out = examples(db, options, root)
+  local out = examples(db, options, root, kept)
+  if tried and made == nil then return out end
   local named = guides
   if named == nil then
     -- A tree with no guides has no such directory.
@@ -367,7 +465,7 @@ function example_checks.run(db: Build, root: string, guides?: {string}): {string
       local said = tostring(read_trouble)
       out[#out + 1] = said
     else
-      for _, line in ipairs(guide(text, file, options)) do
+      for _, line in ipairs(guide(text, file, options, kept)) do
         out[#out + 1] = line
       end
     end

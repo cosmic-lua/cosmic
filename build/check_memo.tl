@@ -94,6 +94,11 @@ local record check_memo
   --- `version`, the format of what a check keeps; a file that cannot be read
   --- counts as empty, so a tree without them still has a salt.
   salt: function(root: string, files: {string}, version: string): string
+  --- The SHA-256 of the sources of `modules` and of every module they require, however far, as the projection `db`
+  --- holds them (its `imports` and each module's `source_hash`), and of `version`: the code that makes a result, by
+  --- its import closure rather than by a list of files, which falls short of what the code loads. A module the
+  --- projection does not hold counts by its name alone. Nil and why where the projection cannot be read.
+  closure_salt: function(db: Sqlite.Handle, modules: {string}, version: string): string?, string
   --- `rows` (lists of fields) as one text, and the rows back.
   encode: function(rows: {{string}}): string
   decode: function(text: string): {{string}}
@@ -128,6 +133,11 @@ local unshared: {string: string} = {
 }
 
 local shared: Shared? = nil
+
+--- The keys of each kind this run's [`check_memo.get`] found in a checkout's memo, which [`check_memo.finish`] keeps:
+--- marked used there at once, in one statement, and not by a write of each row as it is read, which was most of what a
+--- run of hits cost.
+local found_keys: mut {string: mut {string}} = {}
 
 function check_memo.shared_path(environment?: {string:string}): string?
   local value: string?
@@ -260,6 +270,7 @@ function check_memo.prepare(db: Sqlite.Handle, kind: string, within?: boolean): 
   if not reset then
     return false, tostring(reset_trouble)
   end
+  found_keys[kind] = {}
   if within == true then return true, "" end
   -- One transaction for a run's lookups and writes: a commit for each of a
   -- thousand files is most of the cost of a memo.
@@ -286,8 +297,9 @@ function check_memo.get(db: Sqlite.Handle, kind: string, key: string): string?
     return taken
   end
   local value = row:text(1)
-  local _, _ = db:run("UPDATE check_memo SET used = 1 WHERE kind = ?1 AND key = ?2",
-    { { text = kind }, { text = key } })
+  local keys = found_keys[kind] or {}
+  keys[#keys + 1] = key
+  found_keys[kind] = keys
   -- Not owed to the shared file: the tool that made the row may have been of other code than this one.
   return value
 end
@@ -300,8 +312,16 @@ end
 
 function check_memo.finish(db: Sqlite.Handle, kind: string, now_ns?: integer, partial?: boolean, within?: boolean)
   if partial ~= true then
-    local _, _ = db:run("DELETE FROM check_memo WHERE kind = ?1 AND used = 0", { { text = kind } })
+    local quoted: mut {string} = {}
+    for i, key in ipairs(found_keys[kind] or {}) do
+      quoted[i] = '"' .. (key:gsub('[%c"\\]', function(c: string): string
+        return string.format("\\u%04x", c:byte()!)
+      end)) .. '"'
+    end
+    local _, _ = db:run("DELETE FROM check_memo WHERE kind = ?1 AND used = 0 AND key NOT IN " ..
+        "(SELECT value FROM json_each(?2))", { { text = kind }, { text = "[" .. table.concat(quoted, ",") .. "]" } })
   end
+  found_keys[kind] = nil
   if within ~= true then
     local _, _ = db:run("COMMIT")
   end
@@ -358,6 +378,40 @@ function check_memo.salt(root: string, files: {string}, version: string): string
   return Hash.hex_sha256(table.concat(parts, "\0"))
 end
 
+function check_memo.closure_salt(db: Sqlite.Handle, modules: {string}, version: string): string?, string
+  local imports, imports_trouble = db:rows("SELECT path, requires FROM imports")
+  if imports == nil then return nil, "reading the imports: " .. tostring(imports_trouble) end
+  local hashes, hashes_trouble = db:rows("SELECT path, hex(source_hash) FROM modules")
+  if hashes == nil then return nil, "reading the modules: " .. tostring(hashes_trouble) end
+  local requires: mut {string: mut {string}} = {}
+  for _, row in ipairs(imports) do
+    local list = requires[row:text(1)] or {}
+    local required = row:text(2)
+    list[#list + 1] = required
+    requires[row:text(1)] = list
+  end
+  local hash_of: mut {string: string} = {}
+  for _, row in ipairs(hashes) do hash_of[row:text(1)] = row:text(2) end
+  local reached: mut {string: boolean} = {}
+  local stack: mut {string} = {}
+  for _, name in ipairs(modules) do stack[#stack + 1] = name end
+  while #stack > 0 do
+    local name = assert(stack[#stack])
+    stack[#stack] = nil
+    if reached[name] == nil then
+      reached[name] = true
+      for _, required in ipairs(requires[name] or {}) do stack[#stack + 1] = required end
+    end
+  end
+  local names: mut {string} = {}
+  for name in pairs(reached) do names[#names + 1] = name end
+  table.sort(names)
+  local parts: mut {string} = {}
+  for _, name in ipairs(names) do parts[#parts + 1] = name .. "=" .. (hash_of[name] or "") end
+  parts[#parts + 1] = version
+  return Hash.hex_sha256(table.concat(parts, "\0")), ""
+end
+
 local ESCAPES <const>: {string: string} = { ["\\"] = "\\\\", ["\t"] = "\\t", ["\n"] = "\\n", ["\r"] = "\\r" }
 local UNESCAPES <const>: {string: string} = { ["\\"] = "\\", t = "\t", n = "\n", r = "\r" }
 
@@ -378,12 +432,31 @@ function check_memo.decode(text: string): {{string}}
   if text == "" then
     return rows
   end
-  for line in (text .. "\n"):gmatch("(.-)\n") do
+  -- Plain finds, and an unescape only for a line that holds a `\\`: a run decodes the memo of every file of the tree,
+  -- and patterns and a substitution for each field were most of that.
+  local size = #text
+  local at = 1
+  -- Where the next `\\` is, found again only once a line passes it, so that a memo with none is searched once.
+  local escape = text:find("\\", 1, true) or size + 1
+  -- Where the next tab is, kept as the escape is, so that a line without one does not search the rest of the text.
+  local tab = text:find("\t", 1, true) or size + 1
+  while at <= size + 1 do
+    local stop = text:find("\n", at, true) or size + 1
+    if escape < at then escape = text:find("\\", at, true) or size + 1 end
+    local escaped = escape < stop
     local fields: mut {string} = {}
-    for field in (line .. "\t"):gmatch("(.-)\t") do
-      fields[#fields + 1] = (field:gsub("\\(.)", UNESCAPES))
+    local from = at
+    while true do
+      if tab < from then tab = text:find("\t", from, true) or size + 1 end
+      local last = if tab < stop then tab - 1 else stop - 1 end
+      local field = text:sub(from, last)
+      if escaped then field = (field:gsub("\\(.)", UNESCAPES)) end
+      fields[#fields + 1] = field
+      if last + 1 >= stop then break end
+      from = last + 2
     end
     rows[#rows + 1] = fields
+    at = stop + 1
   end
   return rows
 end

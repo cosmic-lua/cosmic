@@ -110,6 +110,18 @@ local record Coded
   mut trouble: string
 end
 
+--- The digest of every byte of the running tool ahead of its database, its core, read once; nil and why where the tool
+--- cannot be read. A memo whose result turns on what the core does (its globals, the declarations it carries) holds it.
+local core_digest: string? = nil
+function tree_checked.core_digest(): string?, string
+  if core_digest ~= nil then return core_digest, "" end
+  local head, head_trouble = artifact.trusted_prefix()
+  if head == nil then return nil, head_trouble end
+  local digest = Hash.hex_sha256(head)
+  core_digest = digest
+  return digest, ""
+end
+
 --- Shares the rows of this process's memoed checks with the host's other checkouts ([`build.check_memo`]), under the
 --- code this tool checks with: the bytecode of the modules `cosmic fix` loads, read from the tool's own database and
 --- not a projection attached ahead of it, and every byte of the tool ahead of that database. Returns whether they are
