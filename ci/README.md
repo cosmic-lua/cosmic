@@ -534,8 +534,11 @@ branch's push runs nothing.
   which macOS keeps elsewhere (`/sbin/sha256sum`), and a break only
   macOS meets showed before only in the next daily or manual run. The checked suite runs
   in three shares at once (`linux-x86_64-checked-1` to `-3`,
-  `cosmic test --shard`), so it is not the entry's longest job; a share
-  does not check the C functions, which main's push does. The checked
+  `cosmic test --shard`), so it is not the entry's longest job. A share
+  cannot check the C functions alone: it writes the ones its tests did
+  not enter (`COSMIC_TEST_UNENTERED`), and the `ci` gate fails for one
+  no share entered ([`cosmic_ci/unentered.tl`], `unentered-join`), as
+  main's push, which runs the suite whole, does. The checked
   narrowing suite runs in three shares too
   (`linux-x86_64-checked-narrowing-1` to `-3`): whole, standing on no
   verdict, it reached its deadline. The gate
@@ -799,6 +802,7 @@ the first tried once, with the clearing and sleeping step between them.
 [`cosmic_ci/queue_verdicts.tl`]: cosmic_ci/queue_verdicts.tl
 [`cosmic_ci/requeue.tl`]: cosmic_ci/requeue.tl
 [`cosmic_ci/requeue_test.tl`]: cosmic_ci/requeue_test.tl
+[`cosmic_ci/unentered.tl`]: cosmic_ci/unentered.tl
 [`Fixture.figure`]: cosmic_ci/fixture.tl
 [`Islands.complaint`]: cosmic_ci/islands.tl
 [`Islands.paths`]: cosmic_ci/islands.tl

@@ -36,6 +36,9 @@ local record c_functions
     --- requirement and the probe's reason. An entered function stays entered.
     unavailable: mut {string}
   end
+  --- What a share of the whole suite writes for the join of every share
+  --- (COSMIC_TEST_UNENTERED, ci/cosmic_ci/unentered.tl).
+  share_list: function(index: integer, count: integer, tally: Tally): string
 
   --- Where one C function's body is: its [`key_of`], its file, the line it
   --- is defined on (`first`) and the line after its last (`stop`, nil for the
@@ -327,6 +330,16 @@ function c_functions.tally(functions: {Coverage.Function}, hits: Coverage.Hits,
     end
   end
   return tally
+end
+
+--- The list share `index` of `count` writes of `tally`: a line `shard
+--- I/N`, then each function its tests did not enter and none exempts, a
+--- line each. A function in every share's list is one no test of the
+--- whole suite entered, which the join of every share fails for.
+function c_functions.share_list(index: integer, count: integer, tally: c_functions.Tally): string
+  local lines: mut {string} = { string.format("shard %d/%d", index, count) }
+  for _, key in ipairs(tally.unentered) do lines[#lines + 1] = key end
+  return table.concat(lines, "\n") .. "\n"
 end
 
 return c_functions
