@@ -1325,12 +1325,12 @@ end
 local function test_a_file_that_does_not_parse_and_a_testdata_file_count_no_errors_of_their_own(dir: string)
   local root = dir .. "/declarebroken"
   assert(Fs.mkdirs(root .. "/build"))
-  assert(Fs.mkdirs(root .. "/eval/testdata"))
+  assert(Fs.mkdirs(root .. "/lab/testdata"))
   assert(Fs.write(root .. "/build/broken.tl", source("local record R", "  n: integer", "end", "local t: {{string, integer}}",
     "local x: {number: integer}", "return R")))
   assert(Fs.write(root .. "/build/user.tl", source("local type R = require(\"build.broken\")", "local y: R", "local z: {R: integer}", "return y")))
-  assert(Fs.write(root .. "/eval/testdata/t.tl", source("local x: {number: integer}", "return x")))
-  assert(Fs.write(root .. "/eval/testdata/u.tl", source("local type Gone = require(\"gone\")", "local g: Gone", "return g")))
+  assert(Fs.write(root .. "/lab/testdata/t.tl", source("local x: {number: integer}", "return x")))
+  assert(Fs.write(root .. "/lab/testdata/u.tl", source("local type Gone = require(\"gone\")", "local g: Gone", "return g")))
   assert(#tree_checked.declared(root) == 0, table.concat(tree_checked.declared(root), "\n"))
 end
 
@@ -1421,14 +1421,14 @@ end
 local function test_a_mistake_in_a_body_is_refused_with_its_fix_and_held_by_its_marker(dir: string)
   local root = dir .. "/checkroot"
   assert(Fs.mkdirs(root .. "/build"))
-  assert(Fs.mkdirs(root .. "/eval/testdata"))
+  assert(Fs.mkdirs(root .. "/lab/testdata"))
   assert(Fs.write(root .. "/build/shape.tl", source("local record Shape", "  n: integer", "end", "return Shape")))
   assert(Fs.write(root .. "/build/ok.tl", source("local Shape = require(\"build.shape\")", "local s: Shape = { n = 1 }")))
   assert(Fs.write(root .. "/build/bad.tl", source("local Shape = require(\"build.shape\")", "local s: Shape = { n = 1.5 }",
     "local t: integer = 3.5")))
   assert(Fs.write(root .. "/build/broken.tl", source("local t: {{string, integer}}", "local u: integer = 3.5", "return t")))
   assert(Fs.write(root .. "/build/types.d.tl", source("global record Gone", "  n: integer", "end")))
-  assert(Fs.write(root .. "/eval/testdata/t.tl", source("local u: integer = 3.5", "return u")))
+  assert(Fs.write(root .. "/lab/testdata/t.tl", source("local u: integer = 3.5", "return u")))
   local found = table.concat(tree_checked.checked(root), "\n")
   assert(found:find("build/bad.tl:2:24: `1.5` is `number`, where `integer` is wanted as the field `n` of `Shape`", 1, true) and
       found:find("(not_assignable): convert with `math.tointeger(1.5)` or `math.floor(1.5)`", 1, true) and

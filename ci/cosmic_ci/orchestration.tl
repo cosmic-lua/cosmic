@@ -1779,8 +1779,9 @@ local function format_command(root: string): {string}
   command[#command + 1] = "--"
   for line in text:gmatch("[^\n]+") do
     -- The tree's run refuses a path of `ci/`, which it checks as the project it is, with the tree's tool and the pinned
-    -- release (build/fix/ci_project.tl).
-    if line ~= "ci" and not String.starts_with(line, "ci/") then command[#command + 1] = line end
+    -- release (build/fix/ci_project.tl), and one of `eval/`, which ci.yml's step of its own checks.
+    local own = line == "ci" or String.starts_with(line, "ci/") or line == "eval" or String.starts_with(line, "eval/")
+    if not own then command[#command + 1] = line end
   end
   return command
 end

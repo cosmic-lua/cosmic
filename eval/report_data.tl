@@ -1,5 +1,5 @@
 --- The record eval/report.tmpl writes the agent evals' report.md from, and the stages that write its numbers.
---- [`eval/agent.tl`] fills it.
+--- [`agent.tl`] fills it.
 
 local record Data
   --- One tool over every task.

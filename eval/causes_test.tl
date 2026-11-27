@@ -1,6 +1,6 @@
---- [`eval/causes.tl`]: the cause a refusal's code and text give, the findings of a refusal's text, and the names
+--- [`causes.tl`]: the cause a refusal's code and text give, the findings of a refusal's text, and the names
 --- it shows a model guessed.
-local Causes = require("eval.causes")
+local Causes = require("causes")
 local Test = require("cosmic.test")
 
 Test.policy{}

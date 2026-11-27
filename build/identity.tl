@@ -128,11 +128,13 @@ local tool_dirs: {string:boolean} = {
 }
 
 --- Trees of their own that sit inside cosmic's: `ci/` is the project
---- the pinned CI driver runs from, with its own `o/`, so this tree's
---- build never reads its modules or tests. It walks it, all but that
---- `o/`, only for the TODOs its files hold ([`build.work`]).
+--- the pinned CI driver runs from, and `eval/` the evals the pinned
+--- release runs, each with its own `o/`, so this tree's build never
+--- reads their modules or tests. It walks them, all but that `o/`, only
+--- for the TODOs their files hold ([`build.work`]).
 local foreign_trees: {string:boolean} = {
   ["ci"] = true,
+  ["eval"] = true,
 }
 
 --- Whether `name`, a directory at the root of cosmic's own tree, is a
@@ -280,7 +282,7 @@ end
 --- the tool carries as it does Teal's) except a test, which [`is_tool`]
 --- has already left out. The tool carries every module of the tree but
 --- its tests and examples ([`build.writer`]'s `dropped_modules`), so
---- eval/'s and test/portable's are carried as much as build/'s, and a
+--- test/portable's are carried as much as build/'s, and a
 --- tree that holds none of the tool's C still moves `boot_hash` when one
 --- of its modules does. An example outside the tool trees is taken too,
 --- as one inside them is: a carried module may require it, and one more

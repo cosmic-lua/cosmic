@@ -1,6 +1,6 @@
---- [`eval/agent.tl`] with a fake System: the command line, the runs it makes, how each is graded, what a session
+--- [`agent.tl`] with a fake System: the command line, the runs it makes, how each is graded, what a session
 --- spent, and the report. No agent is started.
-local Agent = require("eval.agent")
+local Agent = require("agent")
 local AgentMcp = require("cosmic.agent.mcp")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")

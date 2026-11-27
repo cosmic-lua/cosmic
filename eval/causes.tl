@@ -1,5 +1,5 @@
 --- What the checker's refusals of the agent's snippets come from, and which names the model guessed that do not
---- exist: the two reads [`eval/agent`]'s report makes of a refused run's text.
+--- exist: the two reads [`agent`]'s report makes of a refused run's text.
 ---
 --- A refusal is a text of lines `run.tl:LINE:COL: MESSAGE (CODE): FIX`. The code says what rule was broken, and
 --- hides the cause: one code (`alternatives_as_value`) is a call used as a value in one snippet and `Json.get(x)!` in

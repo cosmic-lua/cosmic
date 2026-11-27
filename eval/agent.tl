@@ -4,7 +4,7 @@
 --- tokens, cost, seconds and tool calls, read from each tool's own sessions.db. Two tools of one task compare, for
 --- example, the agent with code mode and the release before it.
 ---
----     bin/cosmic eval/agent.tl --tool NAME=PATH [--tool NAME=PATH ...] --fixture DIR --out DIR
+---     eval/agent --tool NAME=PATH [--tool NAME=PATH ...] --fixture DIR --out DIR
 ---         [--offer NAME=TOOL,...] [--effort [NAME=]LEVEL] [--tasks T,...|all] [--reps N] [--model M]
 ---         [--timeout S]
 ---
@@ -22,8 +22,8 @@
 --- once the run is graded (as is each other directory the evals make), with
 --- `HOME` and `XDG_DATA_HOME` the tool's own under <out>/<tool>. ANTHROPIC_API_KEY, or HARNESS_ANTHROPIC_API_KEY,
 --- is the key. <out>/report.md is the report, <out>/results.json each run's numbers, and each run's answer, the
---- agent's words, and the grade are in <out>/<tool>/<task>-<rep>.txt. [`eval/agent`] runs this on the checkout's
---- own cosmic, and the report is the text template eval/report.tmpl. [`Agent.execute`] works through an [`Agent.System`], which a test
+--- agent's words, and the grade are in <out>/<tool>/<task>-<rep>.txt. [`agent`] runs this on the pinned
+--- release, in eval/, and the report is the text template eval/report.tmpl. [`Agent.execute`] works through an [`Agent.System`], which a test
 --- replaces with a fake.
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
@@ -31,9 +31,9 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Proc = require("cosmic.proc")
-local Causes = require("eval.causes")
-local Report = require("eval.report")
-local ReportData = require("eval.report_data")
+local Causes = require("causes")
+local Report = require("report")
+local ReportData = require("report_data")
 local Sqlite = require("cosmic.sqlite")
 
 local record Agent
@@ -768,11 +768,11 @@ Agent.tasks = {
   },
   {
     name = "fix-bug",
-    prompt = "Ranges.merge in eval/plant/ranges.tl has a bug: ranges that touch or share an end must join (`1-3` and " ..
+    prompt = "Ranges.merge in test/plant/ranges.tl has a bug: ranges that touch or share an end must join (`1-3` and " ..
       "`4-6` cover 1 to 6 with no gap, and `1-3` and `3-5` overlap), but it leaves them apart. Fix the bug and " ..
-      "change nothing else. Its tests, eval/plant/ranges_test.tl, run with `cosmic test eval/plant/ranges_test.tl`.",
+      "change nothing else. Its tests, test/plant/ranges_test.tl, run with `cosmic test test/plant/ranges_test.tl`.",
     truth = "echo pass",
-    check = [==[mkdir mini && cp eval/plant/ranges.tl mini/ranges.tl && cp eval/plant/ranges_test.tl mini/ranges_test.tl && sed -i 's/eval\.plant\.ranges/ranges/' mini/ranges_test.tl && cat > mini/hidden_test.tl <<'EOF'
+    check = [==[mkdir mini && cp test/plant/ranges.tl mini/ranges.tl && cp test/plant/ranges_test.tl mini/ranges_test.tl && sed -i 's/test\.plant\.ranges/ranges/' mini/ranges_test.tl && cat > mini/hidden_test.tl <<'EOF'
 local Ranges = require("ranges")
 
 local function show(list: {Ranges.Range}): string
@@ -797,11 +797,11 @@ if (cd mini && $tool test > /dev/null 2>&1); then echo pass; else echo fail; fi]
   },
   {
     name = "fix-rle",
-    prompt = "Rle in eval/plant/rle.tl does not round-trip: decoding what encode wrote does not always answer the " ..
+    prompt = "Rle in test/plant/rle.tl does not round-trip: decoding what encode wrote does not always answer the " ..
       "first text (try `abc` and a run of twelve `a`). Find the bugs and fix them, and change nothing else. Its " ..
-      "tests are eval/plant/rle_test.tl; run them with `cosmic test eval/plant/rle_test.tl`.",
+      "tests are test/plant/rle_test.tl; run them with `cosmic test test/plant/rle_test.tl`.",
     truth = "echo pass",
-    check = [==[mkdir mini && cp eval/plant/rle.tl mini/rle.tl && cat > mini/hidden_test.tl <<'EOF'
+    check = [==[mkdir mini && cp test/plant/rle.tl mini/rle.tl && cat > mini/hidden_test.tl <<'EOF'
 local Rle = require("rle")
 
 local function test_a_text_round_trips()
@@ -824,12 +824,12 @@ if (cd mini && $tool test > /dev/null 2>&1); then echo pass; else echo fail; fi]
   },
   {
     name = "fix-calc",
-    prompt = "Calc.eval in eval/plant/calc.tl answers wrong values: it should give `2-3-4` = -5, `10-4-3` = 3, " ..
+    prompt = "Calc.eval in test/plant/calc.tl answers wrong values: it should give `2-3-4` = -5, `10-4-3` = 3, " ..
       "`2^3^2` = 512 (`^` groups from the right) and `-2^2` = -4 (`^` binds tighter than a minus before it), and " ..
       "keep `10/4/5` = 0.5, `2*3+4` = 10 and `(1+2)*3` = 9. Find the bugs and fix them, and change nothing else. " ..
-      "Its tests are eval/plant/calc_test.tl; run them with `cosmic test eval/plant/calc_test.tl`.",
+      "Its tests are test/plant/calc_test.tl; run them with `cosmic test test/plant/calc_test.tl`.",
     truth = "echo pass",
-    check = [==[mkdir mini && cp eval/plant/calc.tl mini/calc.tl && cat > mini/hidden_test.tl <<'EOF'
+    check = [==[mkdir mini && cp test/plant/calc.tl mini/calc.tl && cat > mini/hidden_test.tl <<'EOF'
 local Calc = require("calc")
 
 local function test_minus_groups_from_the_left()
@@ -962,7 +962,7 @@ function Agent.parse(argv: {string}): Agent.Options?, string
   end
   if #tools == 0 then return nil, "--tool is required; " .. USAGE end
   if fixture == "" or out == "" then return nil, "--fixture and --out are required; " .. USAGE end
-  -- The runs read and write them from other directories, and eval/agent runs from the checkout's root.
+  -- The runs read and write them from other directories, and eval/agent runs from eval/.
   if fixture:sub(1, 1) ~= "/" or out:sub(1, 1) ~= "/" then
     return nil, "--fixture and --out take absolute paths: " .. (if fixture:sub(1, 1) ~= "/" then fixture else out end)
   end

@@ -7,9 +7,9 @@
 ---     cosmic --standalone eval/round.tl <task,...|all> --model M [--tool PATH]
 ---         [--out DIR] [--run N] [--jobs N] [--max-turns N] [--timeout S]
 ---
---- It runs [`eval/arena`], [`eval/solve`], the task's `eval/check/<task>`,
---- [`eval/summarize`] and [`eval/result`] as programs, each of which
---- stays usable by hand (eval/README.md). [`eval/round`] runs this on the
+--- It runs [`arena`], [`solve`], the task's `eval/check/<task>`,
+--- [`summarize`] and [`result`] as programs, each of which
+--- stays usable by hand (eval/README.md). [`round`] runs this on the
 --- bootstrap cosmic: it requires `cosmic.*` modules only, so nothing here
 --- can call those scripts' functions. [`Round.plan`] is the round as data;
 --- [`Round.execute`] carries it out through a [`Round.System`], which a test
@@ -44,7 +44,7 @@ local record Round
     solve: {string}
     summarize: {string}
     grade: {string}
-    --- The head of [`eval/result`]'s command line; the grade's status and
+    --- The head of [`result`]'s command line; the grade's status and
     --- log follow once known.
     result: {string}
   end
@@ -56,7 +56,7 @@ local record Round
   end
 
   --- The tasks `all` stands for: one for each eval/task/<task>.md
-  --- ([`eval/round_test.tl`] holds the list to them).
+  --- ([`round_test.tl`] holds the list to them).
   mut all_tasks: {string}
 
   --- A finished command's exit status and its output (standard

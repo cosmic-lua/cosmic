@@ -20,6 +20,7 @@ local RecordSplices = require("build.syntax_record_splices")
 local SyntaxNode = require("build.syntax_node")
 local Template = require("cosmic.template")
 local analysis_schema = require("build.analysis_schema")
+local identity = require("build.identity")
 local doctest = require("build.doctest")
 local positions = require("build.positions")
 local gen_syscalls = require("build.gen_syscalls")
@@ -335,8 +336,10 @@ function TreeProgram.derived_of(root: string): {{string}}?, string
       end
     end
   end
+  -- The tree checks run on cosmic's own tree, whose trees of their own (`ci/`, `eval/`) check their templates themselves.
   local listed, walk_trouble = Fs.walk(root, { skip = function(relative: string, name: string, kind: Fs.Kind): boolean
-    return kind == "dir" and (name:sub(1, 1) == "." or relative == "vendor" or relative == "o" or relative == "ci/o")
+    return kind == "dir" and (name:sub(1, 1) == "." or relative == "vendor" or relative == "o" or
+      identity.is_foreign_tree(relative))
   end })
   if listed == nil then
     return nil, tostring(walk_trouble)

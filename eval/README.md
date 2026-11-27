@@ -7,8 +7,19 @@ what slowed it down. This directory is that measure, runnable: a task,
 an arena to run it in, and a grader that checks the result without
 trusting the agent's word.
 
-Nothing here is part of the build, and CI never runs it: an eval spends
-money and minutes on a model, and reaches the network to do so.
+Nothing here is part of the build, and CI never runs an eval: an eval
+spends money and minutes on a model, and reaches the network to do so.
+
+eval/ is a project of its own, as ci/ is: cosmic's own build leaves it
+out, and the release ci/cosmic-driver.pin names builds and tests it, in
+place, so its code uses the standard library alone. CI runs its tests
+and its format check on that release. To run them here:
+
+```sh
+cd eval
+../bin/cosmic-bootstrap test
+../bin/cosmic-bootstrap fix --check .
+```
 
 ## what an eval is
 
@@ -432,9 +443,9 @@ ranking. Then:
 - **"The one change that would have helped most"** has been right every
   time so far, and cheap. Start there.
 
-[`bin/cosmic-bootstrap`]: ../bin/cosmic-bootstrap
-[`bin/cosmic`]: ../bin/cosmic
-[`build/eval_task_links_test.tl`]: ../build/eval_task_links_test.tl
+[`bin/cosmic-bootstrap`]: https://github.com/cosmic-lua/cosmic/blob/main/bin/cosmic-bootstrap
+[`bin/cosmic`]: https://github.com/cosmic-lua/cosmic/blob/main/bin/cosmic
+[`build/eval_task_links_test.tl`]: https://github.com/cosmic-lua/cosmic/blob/main/build/eval_task_links_test.tl
 [`eval/arena`]: arena
 [`eval/check/grade.tl`]: check/grade.tl
 [`eval/check/testdata_test.tl`]: check/testdata_test.tl
@@ -443,7 +454,7 @@ ranking. Then:
 [`eval/round`]: round
 [`eval/solve`]: solve
 [`eval/summarize`]: summarize
-[`Test.policy`]: ../cosmic/test.tl
+[`Test.policy`]: https://github.com/cosmic-lua/cosmic/blob/main/cosmic/test.tl
 
 ## cosmic agent's own evals
 
@@ -485,7 +496,7 @@ it made a request, it ends the round at once and the command prints why, so a wr
 
 The report also reads each run's refusals. "refusals by root cause" names each cause of a refused snippet, with its
 layer: `lang` (a rule of the language or checker), `stdlib` (a name or shape the library lacks) or `prompt` (only the
-run text's wording). The rules are in [`eval/causes.tl`], each with the reason beside it; a refusal no rule names is
+run text's wording). The rules are in [`causes.tl`], each with the reason beside it; a refusal no rule names is
 `untagged`, listed by its code, and wants a new rule. The layer with the most refusals is where the next change
 should go. "names the model guessed that do not exist" lists each unknown field, module and variable the model tried,
 by the number of runs, and a name that recurs is a candidate for an alias, a function or a better hint. Each task row
@@ -496,7 +507,7 @@ be a plain shell command that gives the one right answer. Prefer work of several
 this repository, where the agent's way of working shows in what it spends.
 
 [`Agent.tasks`]: agent.tl
-[`cosmic.agent.host`]: ../cosmic/agent/host.tl
+[`causes.tl`]: causes.tl
+[`cosmic.agent.host`]: https://github.com/cosmic-lua/cosmic/blob/main/cosmic/agent/host.tl
 [`eval/agent.tl`]: agent.tl
 [`eval/agent`]: agent
-[`eval/causes.tl`]: causes.tl
