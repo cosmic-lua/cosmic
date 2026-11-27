@@ -31,6 +31,7 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Proc = require("cosmic.proc")
+local Causes = require("causes")
 local Report = require("report")
 local ReportData = require("report_data")
 local Sqlite = require("cosmic.sqlite")
@@ -99,6 +100,9 @@ local record Agent
     model: string
     --- Each ask's deadline, in seconds: a task with a follow-up asks twice.
     timeout: integer
+    --- True to leave AGENTS.md and CLAUDE.md out of each copy of the fixture (the truth's too), so the agent has
+    --- only what the binary tells it; the report says so.
+    without_agents_md?: boolean
   end
 
   --- A finished command: its exit status (124 for a timeout), and its standard output and error.
@@ -124,6 +128,16 @@ local record Agent
     --- How many run calls the checker refused, and how often each of its codes was named in them.
     refused: integer
     codes: {string: integer}
+    --- How often each root cause ("TAG: name", from [`Causes.of`]) was named in a refused snippet, once a snippet.
+    causes: {string: integer}
+    --- How many refused snippets each layer ("lang", "stdlib", "prompt", "untagged") was a cause in, once a snippet.
+    layers: {string: integer}
+    --- Each name the model tried that does not exist ("NAME (CODE)", from [`Causes.guess`]), once a run.
+    guesses: {string: integer}
+    --- How many run snippets repeated the one before them to the letter.
+    resends: integer
+    --- How many run snippets sorted ([`Host.sort`], `table.sort` or `version_sort`).
+    sorts: integer
     --- How many snippets of run named each Host helper, by its name (`bash` for Host.bash, a command no other
     --- helper served): the use a helper is kept or pruned by.
     helpers: {string: integer}
@@ -136,8 +150,13 @@ local record Agent
     tool: string
     task: string
     rep: integer
-    --- "pass", "fail" or "unfit" (the truth was empty on the fixture).
+    --- "pass", "fail", "unfit" (the truth was empty on the fixture) or "broken" (the agent ended with an error
+    --- before its first request: the harness or the setup failed, and the model was not tried).
     grade: string
+    --- The first line of the standard error of a broken run; nil for any other.
+    why?: string
+    --- Why the round ended with this run, on the last result of one that did not run to its end.
+    mut stopped?: string
     --- nil where no session was found for the run.
     spent?: Spent
     --- How long the agent ran, by the wall clock, tools and all.
@@ -840,7 +859,8 @@ if (cd mini && $tool test > /dev/null 2>&1); then echo pass; else echo fail; fi]
 }
 
 local USAGE <const> = "usage: eval/agent --tool NAME=PATH [--tool NAME=PATH ...] --fixture DIR --out DIR " ..
-  "[--offer NAME=TOOL,...] [--effort [NAME=]LEVEL] [--tasks T,...|all] [--reps N] [--model M] [--timeout S]"
+  "[--offer NAME=TOOL,...] [--effort [NAME=]LEVEL] [--tasks T,...|all] [--reps N] [--model M] [--timeout S] " ..
+  "[--no-agents-md]"
 
 local EFFORTS <const>: {string: boolean} = { low = true, medium = true, high = true, xhigh = true, max = true }
 
@@ -857,11 +877,17 @@ function Agent.parse(argv: {string}): Agent.Options?, string
   local effort: string? = nil
   local fixture, out, model = "", "", "sonnet"
   local reps, timeout = 2, 1200
+  local without_agents_md = false
   local tasks: mut {Agent.Task} = {}
   for _, t in ipairs(Agent.tasks) do tasks[#tasks + 1] = t end
   local i = 1
   while argv[i] ~= nil do
     local word, value = argv[i], argv[i + 1]
+    if word == "--no-agents-md" then
+      without_agents_md = true
+      i = i + 1
+      continue
+    end
     if value == nil then return nil, word .. " needs a value; " .. USAGE end
     if word == "--tool" then
       local name, path = value:match("^([%w_-]+)=(.+)$")
@@ -946,7 +972,7 @@ function Agent.parse(argv: {string}): Agent.Options?, string
     offering[#offering + 1] = { name = t.name, path = t.path, tools = offers[t.name], effort = efforts[t.name] or effort }
   end
   return { tools = offering, fixture = fixture, out = out, tasks = tasks, reps = reps, model = model,
-    timeout = timeout }, ""
+    timeout = timeout, without_agents_md = if without_agents_md then true else nil end }, ""
 end
 
 --- `text`'s lines, each without its trailing blanks, and with no blank lines at its end: what grading compares.
@@ -1004,7 +1030,9 @@ local function laid_out(system: Agent.System, given: {Agent.Server}, tool: Agent
 end
 
 --- Runs every task of `options` `reps` times with each tool, through `system`, with `key` and `base` the
---- environment; each run's answer goes to `write`. The results, in order.
+--- environment; each run's answer goes to `write`. The results, in order. A run that ends with an error before its
+--- first request, when no run before it made one, is graded "broken" and ends the round (the last result says why
+--- in `stopped`), since every run after it would meet what it met.
 function Agent.execute(options: Agent.Options, system: Agent.System, key: string, base: {string: string},
                        write: function(string, string)): {Agent.Result}
   -- Every directory the evals make, each removed once it is used, and all that are left where a step raises.
@@ -1025,12 +1053,22 @@ function Agent.execute(options: Agent.Options, system: Agent.System, key: string
     put = system.put,
     serve = system.serve,
   }
+  -- A copy of the fixture at `dest`, with the files that instruct an agent left out when the evals say so.
+  local function copied(dest: string)
+    own.run({ "cp", "-a", options.fixture .. "/.", dest }, "/", nil, 600)
+    if options.without_agents_md == true then
+      own.run({ "rm", "-f", dest .. "/AGENTS.md", dest .. "/CLAUDE.md" }, "/", nil, 60)
+    end
+  end
+  -- Why the round stopped before its end: the first run ended before its first request, so the rest would too.
+  local halted: string? = nil
+  local reached = false
   local ran, got = pcall(function(): {Agent.Result}
     local results: mut {Agent.Result} = {}
     local truths: mut {string: string} = {}
     for _, task in ipairs(options.tasks) do
       local pristine = own.fresh("truth-" .. task.name .. "-")
-      own.run({ "cp", "-a", options.fixture .. "/.", pristine }, "/", nil, 600)
+      copied(pristine)
       local script = task.truth
       local first = task.servers and task.servers[1]
       local site = task.site
@@ -1047,14 +1085,17 @@ function Agent.execute(options: Agent.Options, system: Agent.System, key: string
       sweep()
     end
     for _, tool in ipairs(options.tools) do
+      if halted ~= nil then break end
       local data, home = options.out .. "/" .. tool.name .. "/data", options.out .. "/" .. tool.name .. "/home"
       own.run({ "mkdir", "-p", data, home }, "/", nil, 60)
       local env = env_of(base, key, data, home)
       for _, task in ipairs(options.tasks) do
+        if halted ~= nil then break end
         for rep = 1, options.reps do
+          if halted ~= nil then break end
           local marker = "bench-" .. tool.name .. "-" .. task.name .. "-"
           local work = own.fresh(marker)
-          own.run({ "cp", "-a", options.fixture .. "/.", work }, "/", nil, 600)
+          copied(work)
           local argv: mut {string} = { tool.path, "agent", "ask", "--model", options.model }
           local effort = tool.effort
           if effort ~= nil then
@@ -1113,11 +1154,25 @@ function Agent.execute(options: Agent.Options, system: Agent.System, key: string
           local left = Agent.lines_of(own.run({ "bash", "-c", "tool=" .. quoted(tool.path) .. "; " .. task.check }, work, nil, 60).stdout)
           local grade = "fail"
           if truth == "" then grade = "unfit" elseif left == truth then grade = "pass" end
+          local spent = own.spent(tool.name, work:match("[^/]+$") or marker)
+          -- An error exit with no request made was not the model's: a setup that failed is told from a wrong answer.
+          local broke: string? = nil
+          -- A timeout (124) is slow, not broken: its request may have been out when it ended.
+          if asked.code ~= 0 and asked.code ~= 124 and (spent == nil or spent.requests == 0) then
+            grade = "broken"
+            broke = Agent.first_line(if asked.stderr ~= "" then asked.stderr else asked.stdout end)
+            if unserved == nil and not reached then
+              halted = "the first run ended before its first request (exit " .. tostring(asked.code) .. "): " ..
+                (broke or "no output")
+            end
+          elseif spent ~= nil and spent.requests > 0 then
+            reached = true
+          end
           write(options.out .. "/" .. tool.name .. "/" .. task.name .. "-" .. tostring(rep) .. ".txt",
             "grade: " .. grade .. "\nexit: " .. tostring(asked.code) .. "\n--- left\n" .. left .. "\n--- truth\n" ..
               truth .. "\n--- words\n" .. asked.stdout .. "\n--- stderr\n" .. asked.stderr .. "\n")
-          results[#results + 1] = { tool = tool.name, task = task.name, rep = rep, grade = grade,
-            spent = own.spent(tool.name, work:match("[^/]+$") or marker), wall = asked.seconds or 0 }
+          results[#results + 1] = { tool = tool.name, task = task.name, rep = rep, grade = grade, why = broke,
+            spent = spent, wall = asked.seconds or 0 }
           sweep()
         end
       end
@@ -1126,7 +1181,18 @@ function Agent.execute(options: Agent.Options, system: Agent.System, key: string
   end)
   sweep()
   if not ran then error(got, 0) end
+  local last = got[#got]
+  if halted ~= nil and last ~= nil then last.stopped = halted end
   return got
+end
+
+--- The first line of `text` that is not blank, cut to 200 bytes; nil for none.
+function Agent.first_line(text: string): string?
+  for line in (text .. "\n"):gmatch("(.-)\n") do
+    local trimmed = ((line:gsub("^%s+", "")):gsub("%s+$", ""))
+    if trimmed ~= "" then return trimmed:sub(1, 200) end
+  end
+  return nil
 end
 
 --- What the session of a run spent, from `db`: the newest session whose directory's name holds `marker`.
@@ -1141,10 +1207,12 @@ function Agent.spent_in(db: Sqlite.Handle, marker: string): Agent.Spent?
       "coalesce(sum(cost), 0.0), coalesce(sum(ms), 0) FROM requests WHERE session = ?1", { { integer = id } })
   local o, _ = db:rows("SELECT count(*), coalesce(sum(tool = 'run'), 0) FROM outputs WHERE session = ?1",
     { { integer = id } })
-  local snippets, _ = db:rows("SELECT input FROM outputs WHERE session = ?1 AND tool = 'run'",
+  local snippets, _ = db:rows("SELECT input FROM outputs WHERE session = ?1 AND tool = 'run' ORDER BY rowid",
     { { integer = id } })
   -- A helper's name starts with a small letter (Host.Count is a record type), after no other word (MyHost.x).
   local helpers: mut {string: integer} = {}
+  local resends, sorts = 0, 0
+  local before: string? = nil
   for _, snippet in ipairs(snippets or {}) do
     local seen: mut {string: boolean} = {}
     -- The code as the snippet has it, not its JSON, where `\nHost.x` would hide a helper that starts a line.
@@ -1158,19 +1226,41 @@ function Agent.spent_in(db: Sqlite.Handle, marker: string): Agent.Spent?
         helpers[name] = (helpers[name] or 0) + 1
       end
     end
+    if text == before then resends = resends + 1 end
+    before = text
+    if text:find("%f[%w_]Host%.sort%f[^%w_]") ~= nil or text:find("%f[%w_]table%.sort%f[^%w_]") ~= nil or
+        text:find("%f[%w_]version_sort%f[^%w_]") ~= nil then
+      sorts = sorts + 1
+    end
   end
   local first, _ = db:rows("SELECT coalesce(cache_read, 0) FROM requests WHERE session = ?1 AND status = 200 ORDER BY rowid " ..
       "LIMIT 1", { { integer = id } })
   local refusals, _ = db:rows("SELECT text FROM outputs WHERE session = ?1 AND tool = 'run' AND " ..
       "instr(text, 'The checker refused the snippet') = 1", { { integer = id } })
   local codes: mut {string: integer} = {}
+  local causes: mut {string: integer} = {}
+  local guesses: mut {string: integer} = {}
+  local layers: mut {string: integer} = {}
   for _, refusal in ipairs(refusals or {}) do
     local seen: mut {string: boolean} = {}
-    for code in refusal:text(1):gmatch("%(([%l_]+)%):") do
-      if seen[code] == nil then
-        seen[code] = true
-        codes[code] = (codes[code] or 0) + 1
+    local named: mut {string: boolean} = {}
+    local tags: mut {string: boolean} = {}
+    for _, finding in ipairs(Causes.findings(refusal:text(1))) do
+      if seen[finding.code] == nil then
+        seen[finding.code] = true
+        codes[finding.code] = (codes[finding.code] or 0) + 1
       end
+      local cause = finding.cause.tag .. ": " .. finding.cause.name
+      if named[cause] == nil then
+        named[cause] = true
+        causes[cause] = (causes[cause] or 0) + 1
+      end
+      if tags[finding.cause.tag] == nil then
+        tags[finding.cause.tag] = true
+        layers[finding.cause.tag] = (layers[finding.cause.tag] or 0) + 1
+      end
+      local guess = Causes.guess(finding)
+      if guess ~= nil then guesses[guess] = 1 end
     end
   end
   local req, out = r and r[1], o and o[1]
@@ -1178,7 +1268,8 @@ function Agent.spent_in(db: Sqlite.Handle, marker: string): Agent.Spent?
   local opened = first and first[1]
   return { requests = req:integer(1), input = req:integer(2), output = req:integer(3), cache_read = req:integer(4),
     cache_write = req:integer(5), cost = req:number(6), seconds = req:integer(7) / 1000, tools = out:integer(1),
-    runs = out:integer(2), refused = #(refusals or {}), codes = codes, helpers = helpers,
+    runs = out:integer(2), refused = #(refusals or {}), codes = codes, causes = causes, layers = layers, guesses = guesses,
+    resends = resends, sorts = sorts, helpers = helpers,
     first_read = if opened ~= nil then opened:integer(1) else 0 end }
 end
 
@@ -1199,6 +1290,9 @@ local function ranked(counts: {string: integer}, show: function(k: integer): str
   return table.concat(parts, ", ")
 end
 
+--- How many guessed names a tool's section of the report lists.
+local GUESSES_SHOWN <const> = 25
+
 --- The report of `results` for `options`: for each task, each tool's passes and mean spending per run, as
 --- Markdown, which the text template eval/report.tmpl writes.
 function Agent.report(options: Agent.Options, results: {Agent.Result}): string
@@ -1210,11 +1304,13 @@ function Agent.report(options: Agent.Options, results: {Agent.Result}): string
   -- Each tool over every task: what a comparison reads first.
   local totals: mut {ReportData.Total} = {}
   for _, tool in ipairs(options.tools) do
-    local passed, n, unfit, counted = 0, 0, 0, 0
+    local passed, n, unfit, counted, broken = 0, 0, 0, 0, 0
     local cost, write, read, output = 0.0, 0.0, 0.0, 0.0
     for _, r in ipairs(results) do
       if r.tool == tool.name and r.grade == "unfit" then
         unfit = unfit + 1
+      elseif r.tool == tool.name and r.grade == "broken" then
+        broken = broken + 1
       elseif r.tool == tool.name then
         n = n + 1
         if r.grade == "pass" then passed = passed + 1 end
@@ -1228,26 +1324,31 @@ function Agent.report(options: Agent.Options, results: {Agent.Result}): string
     end
     local d = math.max(counted, 1)
     totals[#totals + 1] = { tool = tool.name, passed = passed, n = n, unfit = if unfit > 0 then unfit else nil end,
+      broken = if broken > 0 then broken else nil end,
       cost = cost / d, cache_read = read / d, cache_write = write / d, output = output / d, total = cost }
   end
   local tasks: mut {ReportData.Task} = {}
   for _, task in ipairs(options.tasks) do
     local rows: mut {ReportData.Row} = {}
     for _, tool in ipairs(options.tools) do
-      local passed, unfit, n, counted = 0, 0, 0, 0
+      local passed, unfit, n, counted, broken = 0, 0, 0, 0, 0
+      local why: string? = nil
       local sum: mut {string: number} = { requests = 0, input = 0, output = 0, cache_read = 0, cache_write = 0,
-        cost = 0, seconds = 0, tools = 0, runs = 0, refused = 0, first_read = 0, wall = 0 }
+        cost = 0, seconds = 0, tools = 0, runs = 0, refused = 0, first_read = 0, wall = 0, resends = 0, sorts = 0 }
       local codes: mut {string: integer} = {}
       local helpers: mut {string: integer} = {}
       for _, r in ipairs(results) do
         if r.tool == tool.name and r.task == task.name then
-          n = n + 1
+          if r.grade ~= "broken" then n = n + 1 end
           if r.grade == "pass" then
             passed = passed + 1
           elseif r.grade == "unfit" then
             unfit = unfit + 1
+          elseif r.grade == "broken" then
+            broken = broken + 1
+            why = why or r.why
           end
-          sum["wall"] = (sum["wall"] or 0) + r.wall
+          if r.grade ~= "broken" then sum["wall"] = (sum["wall"] or 0) + r.wall end
           local s = r.spent
           if s ~= nil then
             counted = counted + 1
@@ -1262,6 +1363,8 @@ function Agent.report(options: Agent.Options, results: {Agent.Result}): string
             sum["runs"] = (sum["runs"] or 0) + s.runs
             sum["refused"] = (sum["refused"] or 0) + s.refused
             sum["first_read"] = (sum["first_read"] or 0) + s.first_read
+            sum["resends"] = (sum["resends"] or 0) + s.resends
+            sum["sorts"] = (sum["sorts"] or 0) + s.sorts
             for code, k in pairs(s.codes) do codes[code] = (codes[code] or 0) + k end
             for name, k in pairs(s.helpers) do helpers[name] = (helpers[name] or 0) + k end
           end
@@ -1271,10 +1374,13 @@ function Agent.report(options: Agent.Options, results: {Agent.Result}): string
       local function mean(k: string): number return (sum[k] or 0) / d end
       local grade = tostring(passed) .. " of " .. tostring(n) .. " passed"
       if unfit > 0 then grade = "unfit on this fixture" end
+      if broken > 0 then grade = grade .. ", " .. tostring(broken) .. " broken" end
       rows[#rows + 1] = { tool = tool.name, grade = grade, requests = mean("requests"), cost = mean("cost"),
         wall = (sum["wall"] or 0) / math.max(n, 1), seconds = mean("seconds"), input = mean("input"),
         output = mean("output"), cache_read = mean("cache_read"), first_read = mean("first_read"),
         cache_write = mean("cache_write"), tools = mean("tools"), runs = mean("runs"), refused = mean("refused"),
+        resends = if (sum["resends"] or 0) > 0 then mean("resends") else nil end,
+        sorts = if (sum["sorts"] or 0) > 0 then mean("sorts") else nil end, broken = why,
         refused_for = ranked(codes, function(k: integer): string return tostring(k) end),
         helpers = ranked(helpers, function(k: integer): string
           return string.format("%.1f", k / d)
@@ -1282,8 +1388,67 @@ function Agent.report(options: Agent.Options, results: {Agent.Result}): string
     end
     tasks[#tasks + 1] = { name = task.name, rows = rows }
   end
+  local causes: mut {ReportData.Causes} = {}
+  local guesses: mut {ReportData.Guesses} = {}
+  for _, tool in ipairs(options.tools) do
+    local refused = 0
+    local by_cause: mut {string: integer} = {}
+    local cause_tasks: mut {string: mut {string: integer}} = {}
+    local by_layer: mut {string: integer} = {}
+    local by_name: mut {string: integer} = {}
+    local name_tasks: mut {string: mut {string: integer}} = {}
+    for _, r in ipairs(results) do
+      local s = r.spent
+      if r.tool == tool.name and s ~= nil then
+        refused = refused + s.refused
+        for tag, k in pairs(s.layers) do by_layer[tag] = (by_layer[tag] or 0) + k end
+        for key, k in pairs(s.causes) do
+          by_cause[key] = (by_cause[key] or 0) + k
+          local per = cause_tasks[key] or {}
+          per[r.task] = (per[r.task] or 0) + k
+          cause_tasks[key] = per
+        end
+        for key, k in pairs(s.guesses) do
+          by_name[key] = (by_name[key] or 0) + k
+          local per = name_tasks[key] or {}
+          per[r.task] = (per[r.task] or 0) + k
+          name_tasks[key] = per
+        end
+      end
+    end
+    local listed: mut {ReportData.Cause} = {}
+    local function shown(k: integer): string return tostring(k) end
+    for key, k in pairs(by_cause) do
+      local tag, name = key:match("^(%l+): (.*)$")
+      listed[#listed + 1] = { tag = tag or "untagged", name = name or key, count = k,
+        tasks = ranked(cause_tasks[key] or {}, shown) or "" }
+    end
+    table.sort(listed, function(a: ReportData.Cause, b: ReportData.Cause): boolean
+      if a.count ~= b.count then return a.count > b.count end
+      return a.name < b.name
+    end)
+    if #listed > 0 then
+      causes[#causes + 1] = { tool = tool.name, refused = refused, layers = ranked(by_layer, shown) or "",
+        causes = listed }
+    end
+    local names: mut {ReportData.Guess} = {}
+    for key, k in pairs(by_name) do
+      names[#names + 1] = { name = key, runs = k, tasks = ranked(name_tasks[key] or {}, shown) or "" }
+    end
+    table.sort(names, function(a: ReportData.Guess, b: ReportData.Guess): boolean
+      if a.runs ~= b.runs then return a.runs > b.runs end
+      return a.name < b.name
+    end)
+    if #names > 0 then
+      local more = #names - GUESSES_SHOWN
+      while #names > GUESSES_SHOWN do names[#names] = nil end
+      guesses[#guesses + 1] = { tool = tool.name, names = names, more = if more > 0 then more else nil end }
+    end
+  end
   return Report.render({ model = options.model, reps = options.reps, fixture = options.fixture,
-    effort = if #set > 0 then table.concat(set, ", ") else nil end, totals = totals, tasks = tasks })
+    effort = if #set > 0 then table.concat(set, ", ") else nil end, totals = totals, tasks = tasks,
+    agents_md = if options.without_agents_md == true then "AGENTS.md and CLAUDE.md left out of the fixture" else nil end,
+    causes = causes, guesses = guesses })
 end
 
 --- The world as it is: commands found on PATH, run with Child.
@@ -1388,10 +1553,18 @@ function Agent.main(argv: {string}): integer
       row["helpers"] = helpers
     end
     rows[#rows + 1] = row
-    failed = failed or r.grade == "fail"
+    local broke = r.why
+    if broke ~= nil then row["why"] = broke end
+    failed = failed or r.grade == "fail" or r.grade == "broken"
   end
   assert(Fs.write(options.out .. "/results.json", assert(Json.encode(Json.array(rows))) .. "\n"))
   print(options.out .. "/report.md")
+  local last = results[#results]
+  local stopped = last and last.stopped
+  if stopped ~= nil then
+    local _, _ = Fs.put(Fs.stderr, "eval/agent: stopped: " .. stopped .. "\n")
+    return 1
+  end
   if failed then return 1 end
   return 0
 end
