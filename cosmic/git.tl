@@ -1639,15 +1639,27 @@ local class Repository is Git.Repo
 
   --- Every blob, link and submodule under a tree, by path.
   function flatten(self, tree_oid: string, prefix: string, into: mut {string:Recorded}): (true) | (nil, Failure)
-    local entries, trouble = self:tree(tree_oid)
-    if entries == nil then return nil, trouble end
-    for _, e in ipairs(entries) do
-      local mode = mode_number(e.mode)
+    -- The tree's bytes are read here, not through parse_tree: its oids stay raw, and only a subtree's is spelled
+    -- in hex, so a tree of thousands of files costs no hex round trip for each.
+    local object, trouble = self:read_kind(tree_oid, "tree")
+    if object == nil then return nil, trouble end
+    local data = object.data
+    local at = 1
+    while at <= #data do
+      local space = data:find(" ", at, true)
+      local nul = space and data:find("\0", space, true)
+      if space == nil or nul == nil or nul + 20 > #data then
+        return refuse("tree " .. tree_oid .. " is malformed")
+      end
+      local mode = mode_number(data:sub(at, space - 1))
+      local name = data:sub(space + 1, nul - 1)
+      local oid = data:sub(nul + 1, nul + 20)
+      at = nul + 21
       if mode == 0x4000 then
-        local ok, ftrouble = self:flatten(e.oid, prefix .. e.name .. "/", into)
+        local ok, ftrouble = self:flatten(Codec.hex(oid), prefix .. name .. "/", into)
         if not ok then return nil, ftrouble end
       else
-        into[prefix .. e.name] = { mode = mode, oid = raw_of(e.oid) }
+        into[prefix .. name] = { mode = mode, oid = oid }
       end
     end
     return true
@@ -1816,19 +1828,22 @@ local class Repository is Git.Repo
         parse_ignore(own, dir, more)
         rules = more
       end
-      local names, trouble = Fs.list(full)
+      -- readdir names each entry's kind as lstat would (it asks lstat where the file system does not say), so
+      -- the walk needs no lstat of its own.
+      local kinds, _, lerrno = sys.readdir(full)
       -- git warns of a directory it cannot open below the top, and goes on.
-      if names == nil then
-        if dir == "" then return nil, trouble end
+      if kinds == nil then
+        if dir == "" then return nil, Failure.system(lerrno, full) end
         return true
       end
+      local names: mut {string} = {}
+      for name in pairs(kinds) do names[#names + 1] = name end
+      table.sort(names)
       for _, name in ipairs(names) do
         local path = dir .. name
+        local kind = kinds[name]!
         if name ~= ".git" then
-          local st, _, errno = sys.lstat(full .. "/" .. name)
-          if st == nil then
-            if errno ~= sys.ENOENT then return nil, Failure.system(errno, full .. "/" .. name) end
-          elseif st.kind == "dir" then
+          if kind == "dir" then
             if gitlinks[path] == nil and not is_ignored(rules, path, true, fold) then
               if tracked_dirs[path] == nil and holds_repository(full .. "/" .. name) then
                 found[#found + 1] = path .. "/"
