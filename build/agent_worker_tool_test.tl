@@ -168,7 +168,9 @@ local function test_the_run_tool_shows_what_a_snippet_printed_returned_and_was_r
   local templated = tools_run("run", { code = "local n = 3\nHost.reply(Template.text(\"{{.n}} files\", { n = n }))\n" }, context)
   assert(not templated.is_error and templated.answer == "3 files", templated.text)
   local typo = tools_run("run", { code = "Host.reply(Template.text(\"{{.m}} files\", { n = 3 }))\n" }, context)
-  assert(typo.is_error and typo.answer == nil, typo.text)
+  assert(typo.is_error and typo.answer == nil and typo.text:find("field_unknown", 1, true) ~= nil, typo.text)
+  local nonliteral = tools_run("run", { code = "local t = \"{{.n}} files\"\nHost.reply(Template.text(t, { n = 3 }))\n" }, context)
+  assert(nonliteral.is_error and nonliteral.answer == nil, nonliteral.text)
   local blank = tools_run("run", { code = "Host.reply(\"  \")\n" }, { cwd = dir, worker = w })
   assert(blank.is_error and blank.answer == nil and blank.text:find("blank", 1, true) ~= nil, blank.text)
   local raised_after = tools_run("run", { code = "Host.reply(\"no\")\nerror(\"boom\")\n" },
