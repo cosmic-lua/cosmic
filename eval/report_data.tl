@@ -78,6 +78,8 @@ local record Data
     count: integer
     --- Each task that had it, with how often, most first.
     tasks: string
+    --- The refused snippets it was named in, in the earlier round the run is set against, when there is one.
+    was: integer?
   end
 
   --- One tool's refusals by root cause.
@@ -86,10 +88,14 @@ local record Data
     tool: string
     --- The snippets the checker refused.
     refused: integer
+    --- The runs they come from.
+    runs: integer
     --- The causes of the refusals by layer ("lang 4, stdlib 2"), most first.
     layers: string
     --- Each cause, most first.
     causes: {Cause}
+    --- The same line of the earlier round the run is set against ("N refused snippets in M runs; by layer: ..."), when there is one.
+    was: string?
   end
 
   --- One name a tool's agent tried that does not exist.

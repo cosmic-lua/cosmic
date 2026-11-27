@@ -28,8 +28,8 @@ Model {{.model}}; runs of each task with each tool: {{.reps}}; fixture {{.fixtur
 
 Each refused snippet counts once for each cause. The layer says what change removes it: lang (a rule of the language or checker), stdlib (a name or shape the library lacks) or prompt (only the run text's wording). eval/causes.tl holds the rules.
 {{range .}}
-- {{.tool}}: {{.refused}} refused snippets; by layer: {{.layers}}
-{{range .causes}}  - {{.tag}}: {{.name}}: {{.count}} ({{.tasks}})
+- {{.tool}}: {{.refused}} refused snippets in {{.runs}} runs; by layer: {{.layers}}{{with .was}}; before: {{.}}{{end}}
+{{range .causes}}  - {{.tag}}: {{.name}}: {{.count}}{{with .was}} (was {{.}}){{end}}{{with .tasks}} ({{.}}){{end}}
 {{end}}{{end}}{{end}}
 {{- with .guesses}}
 ## names the model guessed that do not exist

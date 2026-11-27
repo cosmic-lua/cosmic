@@ -103,6 +103,18 @@ local record Agent
     --- True to leave AGENTS.md and CLAUDE.md out of each copy of the fixture (the truth's too), so the agent has
     --- only what the binary tells it; the report says so.
     without_agents_md?: boolean
+    --- The results.json of an earlier round, whose refusal causes the report sets beside this round's; nil for none.
+    against?: string
+  end
+
+  --- What an earlier round's results.json says of one tool: the refused snippets and their causes ("TAG: name",
+  --- as [`Spent`]'s) and layers, each summed over the tool's runs.
+  record Earlier
+    mut refused: integer
+    --- The runs that kept causes.
+    mut runs: integer
+    causes: mut {string: integer}
+    layers: mut {string: integer}
   end
 
   --- A finished command: its exit status (124 for a timeout), and its standard output and error.
@@ -860,7 +872,7 @@ if (cd mini && $tool test > /dev/null 2>&1); then echo pass; else echo fail; fi]
 
 local USAGE <const> = "usage: eval/agent --tool NAME=PATH [--tool NAME=PATH ...] --fixture DIR --out DIR " ..
   "[--offer NAME=TOOL,...] [--effort [NAME=]LEVEL] [--tasks T,...|all] [--reps N] [--model M] [--timeout S] " ..
-  "[--no-agents-md]"
+  "[--no-agents-md] [--against RESULTS.json]"
 
 local EFFORTS <const>: {string: boolean} = { low = true, medium = true, high = true, xhigh = true, max = true }
 
@@ -878,6 +890,7 @@ function Agent.parse(argv: {string}): Agent.Options?, string
   local fixture, out, model = "", "", "sonnet"
   local reps, timeout = 2, 1200
   local without_agents_md = false
+  local against: string? = nil
   local tasks: mut {Agent.Task} = {}
   for _, t in ipairs(Agent.tasks) do tasks[#tasks + 1] = t end
   local i = 1
@@ -927,6 +940,9 @@ function Agent.parse(argv: {string}): Agent.Options?, string
         if not found then return nil, "--effort " .. name .. ": name a --tool given before it" end
         efforts[name] = wanted
       end
+    elseif word == "--against" then
+      if value:sub(1, 1) ~= "/" then return nil, "--against takes an absolute path: " .. value end
+      against = value
     elseif word == "--fixture" then
       fixture = value
     elseif word == "--out" then
@@ -972,7 +988,7 @@ function Agent.parse(argv: {string}): Agent.Options?, string
     offering[#offering + 1] = { name = t.name, path = t.path, tools = offers[t.name], effort = efforts[t.name] or effort }
   end
   return { tools = offering, fixture = fixture, out = out, tasks = tasks, reps = reps, model = model,
-    timeout = timeout, without_agents_md = if without_agents_md then true else nil end }, ""
+    timeout = timeout, without_agents_md = if without_agents_md then true else nil end, against = against }, ""
 end
 
 --- `text`'s lines, each without its trailing blanks, and with no blank lines at its end: what grading compares.
@@ -1186,6 +1202,49 @@ function Agent.execute(options: Agent.Options, system: Agent.System, key: string
   return got
 end
 
+--- Reads the results.json `text` of an earlier round: for each tool, the runs, the refused snippets, and the causes
+--- and layers of its runs. A tool none of whose runs kept causes (a round from before the report named them) is left
+--- out, and a file with no such tool, or a count that is not an integer, is refused with why.
+function Agent.earlier(text: string): ({string: Agent.Earlier}) | (nil, string)
+  local rows, why = Json.decode_array(text)
+  if rows == nil then return nil, "not a results.json: " .. tostring(why) end
+  local found: mut {string: Agent.Earlier} = {}
+  for i, row in ipairs(rows) do
+    local fields = Json.object_of(row)
+    local named = fields and fields["tool"]
+    local causes = fields and Json.object_of(fields["causes"])
+    if fields == nil or not (named is string) then
+      return nil, "row " .. tostring(i) .. " has no tool"
+    end
+    if causes ~= nil then
+      local into = found[named] or { refused = 0, runs = 0, causes = {}, layers = {} }
+      local refused = fields["refused"]
+      if not (refused is integer) then
+        return nil, "row " .. tostring(i) .. ": refused is not an integer"
+      end
+      into.refused = into.refused + refused
+      into.runs = into.runs + 1
+      for cause, k in pairs(causes) do
+        if not (k is integer) then
+          return nil, "row " .. tostring(i) .. ": cause " .. cause .. " is not an integer"
+        end
+        into.causes[cause] = (into.causes[cause] or 0) + k
+      end
+      for tag, k in pairs(Json.object_of(fields["layers"]) or {}) do
+        if not (k is integer) then
+          return nil, "row " .. tostring(i) .. ": layer " .. tag .. " is not an integer"
+        end
+        into.layers[tag] = (into.layers[tag] or 0) + k
+      end
+      found[named] = into
+    end
+  end
+  if next(found) == nil then
+    return nil, "it has no refusal causes: run that round again with this eval/agent"
+  end
+  return found
+end
+
 --- The first line of `text` that is not blank, cut to 200 bytes; nil for none.
 function Agent.first_line(text: string): string?
   for line in (text .. "\n"):gmatch("(.-)\n") do
@@ -1295,7 +1354,7 @@ local GUESSES_SHOWN <const> = 25
 
 --- The report of `results` for `options`: for each task, each tool's passes and mean spending per run, as
 --- Markdown, which the text template eval/report.tmpl writes.
-function Agent.report(options: Agent.Options, results: {Agent.Result}): string
+function Agent.report(options: Agent.Options, results: {Agent.Result}, earlier?: {string: Agent.Earlier}): string
   local set: mut {string} = {}
   for _, tool in ipairs(options.tools) do
     local effort = tool.effort
@@ -1391,7 +1450,7 @@ function Agent.report(options: Agent.Options, results: {Agent.Result}): string
   local causes: mut {ReportData.Causes} = {}
   local guesses: mut {ReportData.Guesses} = {}
   for _, tool in ipairs(options.tools) do
-    local refused = 0
+    local refused, counted_runs = 0, 0
     local by_cause: mut {string: integer} = {}
     local cause_tasks: mut {string: mut {string: integer}} = {}
     local by_layer: mut {string: integer} = {}
@@ -1401,6 +1460,7 @@ function Agent.report(options: Agent.Options, results: {Agent.Result}): string
       local s = r.spent
       if r.tool == tool.name and s ~= nil then
         refused = refused + s.refused
+        counted_runs = counted_runs + 1
         for tag, k in pairs(s.layers) do by_layer[tag] = (by_layer[tag] or 0) + k end
         for key, k in pairs(s.causes) do
           by_cause[key] = (by_cause[key] or 0) + k
@@ -1417,19 +1477,32 @@ function Agent.report(options: Agent.Options, results: {Agent.Result}): string
       end
     end
     local listed: mut {ReportData.Cause} = {}
+    local before = if earlier ~= nil then earlier[tool.name] else nil end
     local function shown(k: integer): string return tostring(k) end
     for key, k in pairs(by_cause) do
       local tag, name = key:match("^(%l+): (.*)$")
       listed[#listed + 1] = { tag = tag or "untagged", name = name or key, count = k,
-        tasks = ranked(cause_tasks[key] or {}, shown) or "" }
+        tasks = ranked(cause_tasks[key] or {}, shown) or "", was = if before ~= nil then before.causes[key] or 0 else nil end }
+    end
+    -- A cause the earlier round had and this one lacks is the change a fix is made for: it stays, at none.
+    if before ~= nil then
+      for key, k in pairs(before.causes) do
+        if by_cause[key] == nil then
+          local tag, name = key:match("^(%l+): (.*)$")
+          listed[#listed + 1] = { tag = tag or "untagged", name = name or key, count = 0, tasks = "", was = k }
+        end
+      end
     end
     table.sort(listed, function(a: ReportData.Cause, b: ReportData.Cause): boolean
       if a.count ~= b.count then return a.count > b.count end
+      if a.was ~= b.was then return (a.was or 0) > (b.was or 0) end
       return a.name < b.name
     end)
     if #listed > 0 then
-      causes[#causes + 1] = { tool = tool.name, refused = refused, layers = ranked(by_layer, shown) or "",
-        causes = listed }
+      causes[#causes + 1] = { tool = tool.name, refused = refused, runs = counted_runs,
+        layers = ranked(by_layer, shown) or "", causes = listed,
+        was = if before ~= nil then tostring(before.refused) .. " refused snippets in " .. tostring(before.runs) ..
+            " runs; by layer: " .. (ranked(before.layers, shown) or "none") else nil end }
     end
     local names: mut {ReportData.Guess} = {}
     for key, k in pairs(by_name) do
@@ -1528,13 +1601,28 @@ function Agent.main(argv: {string}): integer
     local _, _ = Fs.put(Fs.stderr, "eval/agent: set ANTHROPIC_API_KEY or HARNESS_ANTHROPIC_API_KEY\n")
     return 2
   end
+  local earlier: {string: Agent.Earlier}? = nil
+  local against = options.against
+  if against ~= nil then
+    local text, read_why = Fs.read(against)
+    if text == nil then
+      local _, _ = Fs.put(Fs.stderr, "eval/agent: --against " .. against .. ": " .. tostring(read_why) .. "\n")
+      return 2
+    end
+    local before, bad = Agent.earlier(text)
+    if before == nil then
+      local _, _ = Fs.put(Fs.stderr, "eval/agent: --against " .. against .. ": " .. bad .. "\n")
+      return 2
+    end
+    earlier = before
+  end
   assert(Fs.mkdirs(options.out))
   local results = Agent.execute(options, real(options.out), key, Env.all(), function(path: string, text: string)
     assert(Fs.write(path, text))
     -- A line as each run ends, so a long round shows it moves.
     print((text:match("^grade: (%S+)") or "?") .. "  " .. path)
   end)
-  assert(Fs.write(options.out .. "/report.md", Agent.report(options, results) .. "\n"))
+  assert(Fs.write(options.out .. "/report.md", Agent.report(options, results, earlier) .. "\n"))
   local rows: mut {Json.Value} = {}
   local failed = false
   for _, r in ipairs(results) do
@@ -1548,6 +1636,15 @@ function Agent.main(argv: {string}): integer
       local codes: mut {string: Json.Value} = {}
       for code, k in pairs(s.codes) do codes[code] = k end
       row["codes"] = codes
+      local causes: mut {string: Json.Value} = {}
+      for cause, k in pairs(s.causes) do causes[cause] = k end
+      row["causes"] = causes
+      local layers: mut {string: Json.Value} = {}
+      for tag, k in pairs(s.layers) do layers[tag] = k end
+      row["layers"] = layers
+      local guesses: mut {string: Json.Value} = {}
+      for name, k in pairs(s.guesses) do guesses[name] = k end
+      row["guesses"] = guesses
       local helpers: mut {string: Json.Value} = {}
       for name, k in pairs(s.helpers) do helpers[name] = k end
       row["helpers"] = helpers
