@@ -145,7 +145,7 @@ function Causes.findings(text: string): {Finding}
 end
 
 --- The name a model tried that does not exist, as "NAME (CODE)", or nil: from a finding of `field_unknown`
---- (`Json.string_of`), `require_unknown` (`cosmic.nothere`) or `unknown_variable` (`foo`).
+--- (`Json.nothere`), `require_unknown` (`cosmic.nothere`) or `unknown_variable` (`foo`).
 function Causes.guess(found: Finding): string?
   local code, message = found.code, found.message
   if code == "field_unknown" then
