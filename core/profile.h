@@ -23,14 +23,20 @@
  *   cosmic-profile 1
  *   process <pid> parent <ppid> clock <cpu|wall> hz <n>
  *   command <the command line, joined by spaces>
- *   total wall_ns <n> cpu_ns <n> sampled_us <n> dropped_us <n> other_us <n>
- *   span <names> <count> <wall_ns> <cpu_ns>
+ *   total wall_ns <n> cpu_ns <n> sampled_us <n> dropped_us <n> other_us <n> peak_rss_kb <n>
+ *   span <names> <count> <wall_ns> <cpu_ns> <heap_kb>
  *   sample <frames> <line> <us>
  *
  * A span is a named stretch a program marks ([`Clock.span`],
  * [`Clock.phase`]; the `profile_span_open` call): its line totals the
  * spans of one path, the names of the spans it stood in and its own, each
- * `[name]`, joined by `;`. Its CPU time is the thread's.
+ * `[name]`, joined by `;`. Its CPU time is the thread's, and `heap_kb`
+ * the most the Lua heap held as one of them closed (no collection runs
+ * first, so it counts garbage too; 0 for one that closed only as the
+ * process exited). A module the process loads from the store is a span
+ * `[require:<module>]` while its chunk runs (a load that raises closes
+ * its span too), so the modules it requires stand in it. `peak_rss_kb` is the
+ * resident set's peak over the whole process.
  *
  * A sample's frames run from the outermost, joined by `;`, the spans open
  * when it was taken first: a Lua
@@ -61,7 +67,9 @@
 #ifndef COSMIC_PROFILE_H
 #define COSMIC_PROFILE_H
 
+#include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <sys/types.h>
 
 #include "lua.h"
@@ -86,6 +94,19 @@ size_t cosmic_profile_entries (char *const **entries);
  * a new file in the same directory, and the timer, which a fork does
  * not keep. Nothing in the parent, or where no profile is taken. */
 void cosmic_profile_forked (pid_t pid);
+
+/* Whether this process takes a profile, with its tables made: spans are
+ * kept from then on. */
+bool cosmic_profile_taking (void);
+
+/* Opens a span named `prefix` then `name` (`[require:cosmic.json]`) and
+ * answers its token, or 0 where none is taken: no profile, or 32 spans
+ * open. [`Clock.span`] is the same span from Lua. */
+int64_t cosmic_profile_span_open (const char *prefix, const char *name);
+
+/* Closes the span `token` names, with every span opened in it and left
+ * open; false where it is not open. */
+bool cosmic_profile_span_close (int64_t token);
 
 /* Writes the profile, once, in the process that took it; nothing where
  * none is taken. atexit calls it; a path that leaves by _exit or exec

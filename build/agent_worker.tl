@@ -309,6 +309,9 @@ local record Loading
   roots: {string}
   --- The modules of those trees the checker read, by module ([`Pipeline.Options.nearby`]).
   found: mut {string: Pipeline.Nearby}
+  --- The MCP servers' modules and the standard library, without the trees: what [`Host.check`] reads beside trees of
+  --- its own, so its reads leave `found` as the snippets' checker left it.
+  carried: Driver.Provider
   options: Pipeline.Options
   mut kept: Pipeline.Kept
 end
@@ -573,6 +576,28 @@ local function refresh(loading: Loading, code: string)
   end
 end
 
+--- What checks the Teal text of a file the snippet names ([`Host.check`]): the checker's lines, none where it
+--- passes, the lines of each module of the trees it requires among them. It reads what a snippet may load, as `cosmic
+--- fix` checks a file of a tree, so an unused name is refused, where a snippet's is not; a `_test.tl` file is checked
+--- as a test. It reads the trees anew each time, into a map of its own, so the snippets' checker still sees what
+--- changed since it read them.
+local function checks_of(loading: Loading): Host.Checks
+  return function(path: string, text: string): {string}
+    local given = loading.options
+    local found: mut {string: Pipeline.Nearby} = {}
+    local near = Nearby.provider(loading.roots, found)
+    local carried = loading.carried
+    local trees = #loading.roots > 0
+    local strict: Pipeline.Options = { globals = given.globals, types = given.types, project = given.project,
+      lax = false, nearby = found, standard = function(module: string): Driver.Source?
+        return carried(module) or (if trees then near(module) else nil end)
+      end }
+    local made = Pipeline.checked_alone(path, text, strict, path:sub(-8) == "_test.tl")
+    if made.code ~= nil then return {} end
+    return made.lines
+  end
+end
+
 --- The response line to the request `line` holds, checked by `kept` and run within `capture`, its calls sent on `channel`;
 --- the MCP modules a snippet requires are made into `modules`, which `kept` reads.
 local function answer_to(loading: Loading, modules: Modules, capture: Capture, channel: Channel, line: string): Answer
@@ -591,7 +616,7 @@ local function answer_to(loading: Loading, modules: Modules, capture: Capture, c
   -- Connected anew for each request: a snippet that connects Host itself changes only its own run.
   Host.connect(transport_of(channel), function(change: Host.Change)
     channel.changes[#channel.changes + 1] = change
-  end)
+  end, checks_of(loading))
   local trouble = provide(modules, code)
   if trouble ~= nil then return { id = id, refused = Json.array({ trouble }) } end
   local refusals = unloadable(loading, code)
@@ -688,19 +713,22 @@ function worker.main(given?: {string}): integer
   local found: mut {string: Pipeline.Nearby} = {}
   local near = Nearby.provider(roots, found)
   -- The checker reads the standard library whatever a snippet may load: Host's declarations are made of it.
+  local carried = function(module: string): Driver.Source?
+    return made(module) or standard(module)
+  end
   options.standard = function(module: string): Driver.Source?
-    return made(module) or standard(module) or (if #roots > 0 then near(module) else nil end)
+    return carried(module) or (if #roots > 0 then near(module) else nil end)
   end
   options.nearby = found
   -- A snippet runs once and no one reads it after: an unused name is no reason to refuse it.
   options.lax = true
-  local loading: Loading = { cosmic = cosmic, roots = roots, found = found, options = options,
+  local loading: Loading = { cosmic = cosmic, roots = roots, found = found, carried = carried, options = options,
     kept = Pipeline.kept_alone(SNIPPET, options) }
   local channel: Channel = { input = input, out = out, pending = "", id = Json.null, next_call = 1, replies = {},
     reading = false, waiting = 0, changes = {} }
   Host.connect(transport_of(channel), function(change: Host.Change)
     channel.changes[#channel.changes + 1] = change
-  end)
+  end, checks_of(loading))
   while true do
     local line = line_of(channel)
     if line == nil then break end

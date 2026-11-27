@@ -9,6 +9,7 @@ local Fs = require("cosmic.fs")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
+local tool_fixture = require("build.tool_fixture")
 
 --- The program itself, started with the projection as its store: a kept compile is keyed on the boot hash the
 --- projection records, and the closure store a test is otherwise given records none.
@@ -106,9 +107,11 @@ local function test_a_chunks_compile_is_kept_apart_from_a_files(tmp: string)
   assert(Store.meta("boot_hash") ~= nil, "the projection records no boot hash")
   local chunk = 'local exit_status = require("build.exit_status") print(exit_status.uncompiled) return 0'
   assert(Fs.write(tmp .. "/same.tl", chunk))
-  local env = { XDG_CACHE_HOME = tmp .. "/cache", COSMIC_TRACE_REQUIRE = "1" }
-  local function run(words: {string}): Child.Result
-    local started = Test.cosmic(words, { env = env, cwd = tmp, stdout = "capture",
+  local env = { XDG_CACHE_HOME = tmp .. "/cache" }
+  local function run(words: {string}, profile?: string): Child.Result
+    local given: mut {string: string} = { XDG_CACHE_HOME = env.XDG_CACHE_HOME }
+    if profile ~= nil then given["COSMIC_PROFILE"] = profile end
+    local started = Test.cosmic(words, { env = given, cwd = tmp, stdout = "capture",
       stderr = "capture", timeout_ns = Clock.seconds(30) })
     local r = assert(Child.run(started.argv, started.options))
     return r
@@ -119,9 +122,10 @@ local function test_a_chunks_compile_is_kept_apart_from_a_files(tmp: string)
   end
   refused_as_a_file()
   for round = 1, 2 do
-    local r = run({ "-e", chunk })
+    local dir = tmp .. "/prof-" .. tostring(round)
+    local r = run({ "-e", chunk }, dir)
     assert(r.ok and r.stdout == "4\n", tostring(round) .. tostring(r.stdout) .. tostring(r.stderr))
-    local checked = (r.stderr or ""):find(" build.pipeline ", 1, true) ~= nil
+    local checked = tool_fixture.loaded(dir)["build.pipeline"] == true
     assert(checked == (round == 1), ("run %d of the chunk loaded the checker: %s"):format(round, tostring(checked)))
   end
   refused_as_a_file()
