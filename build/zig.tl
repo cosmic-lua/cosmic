@@ -1231,7 +1231,10 @@ function Zig.enter(argv: {string}, script: string): integer
         local build_argv: mut {string} = { program }
         for _, a in ipairs(Zig.build_args(root, project, output,
             given, Proc.cpu_count(),
-            { "-Dpatched=" .. manifest })) do
+            { "-Dpatched=" .. manifest,
+                -- Keyed in zig's configuration cache as an option (build.zig
+                -- seedCompiler says why); the seed compile reads the variable.
+                "-Dbootstrap=" .. (zig_env["COSMIC_BOOTSTRAP"] or "") })) do
           build_argv[#build_argv + 1] = a
         end
         return build_argv

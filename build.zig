@@ -1229,7 +1229,12 @@ fn seedCompiler(b: *std.Build) std.Build.LazyPath {
     compile.addFileInput(listing);
     compile.addFileInput(b.path("ci/cosmic-driver.pin"));
     compile.addFileInput(b.path("bin/cosmic-bootstrap"));
-    if (b.graph.environ_map.get("COSMIC_BOOTSTRAP")) |stand_in| {
+    // The stand-in comes as an option, not from the environment: zig
+    // keys its configuration cache on the options, and a configuration
+    // read from COSMIC_BOOTSTRAP would keep the first stand-in's seed.
+    // bin/zig passes the variable's value, empty where it is unset.
+    const stand_in = b.option([]const u8, "bootstrap", "the cosmic standing in for the pinned bootstrap (COSMIC_BOOTSTRAP); bin/zig passes it") orelse "";
+    if (stand_in.len > 0) {
         compile.addFileInput(.{ .cwd_relative = stand_in });
     }
     return out;
