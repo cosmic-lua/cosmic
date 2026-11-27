@@ -63,6 +63,13 @@ to the bytes one operation reads for a rate in GB/s.
   each bench, or one JSON object per bench with `--json`.
 - `--rounds`, `--target-ms` and `--json` without `--bench` are refused,
   and so is a `--bench` whose selectors name no bench.
+- `cosmic test --bench --against <old-cosmic> [file or directory...]`
+  compares two binaries. Each runs its own copy of the chosen test files
+  outside the checkout, so each uses its own built-in standard library.
+  They alternate for `--rounds` rounds (20, at least 6). Each bench gets
+  both bests, the paired ratio, its 95% band and a verdict: faster,
+  slower or the same. `--binary` names the new side (this cosmic by
+  default). The old binary must know `--bench`.
 - A bench that needs a fixture declares it with [`Test.policy`], as a test
   does. Put a costly fixture in the body before `b.reset()`, not at the
   file's top level, where every test of the file would pay for it.
