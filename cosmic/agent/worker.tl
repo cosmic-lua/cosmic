@@ -182,12 +182,16 @@ local function held_to(given: Sandbox.Policy, runs: boolean, program?: string): 
     local letters = if not strip then grant.letters else (grant.letters:gsub("x", "")) end
     if program ~= nil and letters:find("w", 1, true) ~= nil then
       -- Each by its real path, as the kernel holds them: a link from elsewhere into the grant is the file it names.
-      local reach, _ = Fs.absolute(grant.path)
-      if reach ~= nil then
-        local real, _ = sys.realpath(reach)
-        reach = real or reach
+      -- Under `isolate` a grant's `from` is where it reaches; its path is a name there.
+      local over = false
+      for _, place in ipairs({ grant.path, grant.from or grant.path }) do
+        local reach, _ = Fs.absolute(place)
+        if reach ~= nil then
+          local real, _ = sys.realpath(reach)
+          if Fs.within(program, real or reach) then over = true end
+        end
       end
-      if reach ~= nil and Fs.within(program, reach) then
+      if over then
         -- A snippet that could write the program could run what it wrote.
         return nil, Failure.new("worker: " .. program .. " lies where a snippet may write (" .. grant.path ..
             "): start cosmic agent with a cosmic outside it, such as one on PATH")

@@ -595,7 +595,8 @@ local function checks_of(loading: Loading): Host.Checks
     local own = Nearby.own(loading.roots, Store.meta("built_from"))
     local strict: Pipeline.Options = { globals = given.globals, types = given.types, project = given.project,
       lax = false, nearby = found, standard = function(module: string): Driver.Source?
-        if #own > 0 then
+        -- Only the stdlib's names: the tree's other modules go through `near`, which records them as found.
+        if #own > 0 and (module == "cosmic" or module:sub(1, 7) == "cosmic.") then
           local mine = Nearby.file(own, module)
           if mine ~= nil then return Driver.source(module, mine.file, mine.text, "tl") end
         end
