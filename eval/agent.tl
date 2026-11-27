@@ -55,7 +55,7 @@ local record Agent
     --- holds what the task's truth and setup need, such as files written out in full.
     truth: string
     --- A bash command run in the run's copy once the agent ended: its output must be the truth's. `$tool` is the
-    --- path of the tool under test, for a task whose answer is a program to run.
+    --- path of the tool under test, for a task whose answer is a program to run, and `$files` as for the truth.
     check: string
     --- The project of eval/testdata the task works in, such as "shop", in place of `--fixture`: a small cosmic
     --- project of its own, whose builds and tests take a second, so a check may build it. Nil for `--fixture`.
@@ -564,23 +564,13 @@ local SHOP_MUTANTS <const> = {
   "/text:sub(-1) == \".\"/d",
 }
 
---- The git tasks: the shop tree as a repository of six commits, made at eval time by the git program. The config
---- outside the repository is not read, and the dates are fixed, so every copy's commits have the same oids.
-local GIT_ENV <const> = "export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 " ..
-  "GIT_AUTHOR_DATE='2026-01-02T03:04:05Z' GIT_COMMITTER_DATE='2026-01-02T03:04:05Z'; "
-local GIT_SHOP <const> = GIT_ENV .. "git init -q -b main && git config user.name Eval && " ..
-  "git config user.email eval@example.com && git add -A && git commit -qm 'shop: first tree' && " ..
-  "echo '-- Amounts are whole cents.' >> money.tl && git commit -qam 'money: say what an amount is' && " ..
-  "echo '-- Widths are in bytes.' >> text.tl && git commit -qam 'text: say what a width is' && " ..
-  "echo '-- Money.format writes the cents.' >> catalog.tl && git commit -qam 'catalog: name the money format' && " ..
-  "echo '-- Parse refuses three decimals.' >> money.tl && echo '-- Totals use money.' >> report.tl && " ..
-  "git commit -qam 'money and report: note the rules' && " ..
-  "echo '-- Rows are one product each.' >> report.tl && git commit -qam 'report: say what a row is'"
---- What the shop-git-commit check reports: the last two subjects, what HEAD changed, what is left, who committed,
---- HEAD's parent, and whether git finds the store sound.
-local GIT_COMMIT_REPORT <const> = GIT_ENV .. "git log -2 --format=%s; git show --name-only --format= HEAD; " ..
-  "git status --porcelain; git log -1 --format='%an <%ae>'; git rev-parse HEAD~1; " ..
-  "if git fsck --strict --no-dangling > /dev/null 2>&1; then echo sound; else echo unsound; fi"
+--- The git tasks: the shop tree as a repository of six commits, made at eval time by cosmic.git, with no git
+--- program (eval/testdata/files/shop-git-commit/shop.tl). Names and dates are fixed, so every copy's commits have
+--- the same oids.
+local GIT_SHOP <const> = "\"$tool\" - < \"$files/../shop-git-commit/shop.tl\""
+--- What the shop-git-commit check reports, from cosmic.git: the last two subjects, what HEAD changed, what is left,
+--- who committed, HEAD's parent, and whether every object HEAD reaches reads.
+local GIT_COMMIT_REPORT <const> = "\"$tool\" - < \"$files/../shop-git-commit/report.tl\""
 
 local function shop_mutants(): string
   local out: mut {string} = { "kept=$(mktemp)", "cp money.tl \"$kept\"" }
@@ -974,8 +964,7 @@ if (cd mini && $tool test > /dev/null 2>&1); then echo pass; else echo fail; fi]
     prompt = "This tree is a git repository. Commit the change to text.tl alone, with the message " ..
       "`text: note the trim rule`, on top of the current branch. Leave the change to report.tl and the file " ..
       "notes.txt as they are, not committed.",
-    truth = "export GIT_CONFIG_GLOBAL=/dev/null; git add text.tl && git commit -qm 'text: note the trim rule' && " ..
-      GIT_COMMIT_REPORT,
+    truth = "\"$tool\" - < \"$files/truth.tl\" && " .. GIT_COMMIT_REPORT,
     check = GIT_COMMIT_REPORT,
   },
   {
@@ -984,7 +973,7 @@ if (cd mini && $tool test > /dev/null 2>&1); then echo pass; else echo fail; fi]
     setup = GIT_SHOP,
     prompt = "This tree is a git repository. Write answer.txt: the subject (first line of the message) of each " ..
       "commit on the current branch that changed money.tl, newest first, one a line.",
-    truth = GIT_ENV .. "git log --format=%s -- money.tl",
+    truth = "\"$tool\" - < \"$files/truth.tl\"",
     check = "cat answer.txt",
   },
   {
@@ -1404,7 +1393,8 @@ function Agent.execute(options: Agent.Options, system: Agent.System, key: string
           stop()
           if not ran then error(why, 0) end
           local truth = truths[task.name] or ""
-          local left = Agent.lines_of(own.run({ "bash", "-c", "tool=" .. quoted(tool.path) .. "; " .. task.check }, work, nil, 60).stdout)
+          local left = Agent.lines_of(own.run({ "bash", "-c", "tool=" .. quoted(tool.path) .. "; files=" ..
+              quoted((options.testdata or "") .. "/files/" .. task.name) .. "; " .. task.check }, work, nil, 60).stdout)
           local grade = "fail"
           if truth == "" then grade = "unfit" elseif left == truth then grade = "pass" end
           local spent = own.spent(tool.name, work:match("[^/]+$") or marker)
