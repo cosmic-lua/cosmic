@@ -51,9 +51,9 @@ end
 --- `cosmic --profile <dir>` runs the command with COSMIC_PROFILE set, so its process writes a profile there, and
 --- exits as the command does; it refuses a line with no command.
 local function test_the_profile_flag_profiles_the_command(tmp: string)
-  local ran = tool_fixture.cosmic(tmp, { "--profile", "flagged", "-e", "print(6 * 7) return 3" })
+  local ran = tool_fixture.cosmic(tmp, { "--profile", "made/flagged", "-e", "print(6 * 7) return 3" })
   assert(ran.code == 3 and ran.out == "42\n", ran.out .. ran.err)
-  local names = assert(Fs.list(tmp .. "/flagged"))
+  local names = assert(Fs.list(tmp .. "/made/flagged"))
   assert(#names == 1 and assert(names[1]):match("^%d+%.prof$") ~= nil, table.concat(names, " "))
   local refused = tool_fixture.cosmic(tmp, { "--profile", "flagged" })
   assert(refused.code == 2 and refused.err:find("--profile takes a directory and the command", 1, true) ~= nil,

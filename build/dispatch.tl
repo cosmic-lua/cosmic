@@ -1051,6 +1051,12 @@ local function profiled(argv: {string}, main: function({string}): integer): inte
   if Env.get("COSMIC_PROFILE") == dir then
     return main(rest)
   end
+  -- Made with its parents, as `cosmic test --profile` makes it: the core makes the last name alone.
+  local made, made_trouble = require("cosmic.fs").mkdirs(dir)
+  if not made then
+    log:complain("--profile: " .. tostring(made_trouble))
+    return 1
+  end
   local Proc = require("cosmic.proc")
   local relaunch, trouble = Proc.relaunch()
   if relaunch == nil then
