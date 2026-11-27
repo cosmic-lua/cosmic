@@ -782,8 +782,8 @@ end
 --- Ends the turn with `text` as the reply to the user, once the snippet has run to its end: no request asks the model
 --- for one, so a snippet that has what the user asked for saves a turn. A snippet that raises gives no answer, and the
 --- last answer given is the one. Where `values` is given, each `{name}` of `text` is filled from it
---- ([`String.fill`]): `Host.answer("{n} files over 1 MB", { n = #big })`. Raises where it fails.
-function Host.answer(text: string, values?: {string: string | number | boolean})
+--- ([`String.fill`]): `Host.reply("{n} files over 1 MB", { n = #big })`. Raises where it fails.
+function Host.reply(text: string, values?: {string: string | number | boolean})
   local said = if values ~= nil then String.fill(text, values) else text end
   local _, why = Host.call("answer", { text = said })
   if why ~= nil then error(tostring(why), 2) end
