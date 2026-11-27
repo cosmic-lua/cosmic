@@ -662,9 +662,9 @@ end
 --- The key of a test given the store of its closure moves with
 --- `image_hash` exactly where its closure holds a reader. The row is the
 --- one a boot records over a tree whose seed files (build/seed.txt) one
---- comment edited ([`identity.record_fingerprint`]): the edit moves it,
---- and moves the key of the reader alone.
-local function test_a_comment_in_a_seed_file_moves_the_key_of_a_reader_alone(tmp: string)
+--- code edited ([`identity.record_fingerprint`]): the edit moves it, and moves the key of the reader alone; an edit
+--- of a comment moves neither.
+local function test_a_code_edit_in_a_seed_file_moves_the_key_of_a_reader_alone(tmp: string)
   local seed = tmp .. "/seed"
   for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "bin", "lang" }) do
     assert(Fs.mkdirs(seed .. "/" .. dir))
@@ -681,8 +681,10 @@ local function test_a_comment_in_a_seed_file_moves_the_key_of_a_reader_alone(tmp
   end
   local before = recorded()
   assert(Fs.write(seed .. "/lang/truthy.tl", "local record truthy\nend\n-- a comment\nreturn truthy\n"))
+  assert(recorded() == before, "a comment in a seed file moved image_hash")
+  assert(Fs.write(seed .. "/lang/truthy.tl", "local record truthy\nend\nlocal x = 1\nreturn truthy\n"))
   local after = recorded()
-  assert(after ~= before, "a comment in a seed file did not move image_hash")
+  assert(after ~= before, "a code edit in a seed file did not move image_hash")
 
   local root = tmp .. "/a"
   assert(Fs.mkdirs(root))
@@ -710,8 +712,8 @@ local function test_a_comment_in_a_seed_file_moves_the_key_of_a_reader_alone(tmp
   end
   local plain_before = keyed("plain_test", { "greet", "plain_test" }, before)
   local plain_after = keyed("plain_test", { "greet", "plain_test" }, after)
-  assert(plain_before == plain_after, "a comment in a seed file moved the key of a test that reads no image_hash")
+  assert(plain_before == plain_after, "a code edit in a seed file moved the key of a test that reads no image_hash")
   local read_before = keyed("reads_test", { reader, "reads_test" }, before)
   local read_after = keyed("reads_test", { reader, "reads_test" }, after)
-  assert(read_before ~= read_after, "a comment in a seed file left the key of a test that reads image_hash")
+  assert(read_before ~= read_after, "a code edit in a seed file left the key of a test that reads image_hash")
 end
