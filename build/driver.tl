@@ -413,6 +413,17 @@ local function error_of(result: Driver.Outcome, stage: string, code: string, msg
     -- and has no rewrite, which would edit text that is not there.
     local at = SourceParse.placed(splices, result.source.text, offset, length)
     if at.inside then rewrite = nil end
+    local into = if rewrite ~= nil then rewrite.place else nil end
+    if rewrite ~= nil and into ~= nil then
+      -- A rewrite of another place is at that place of the text written, and none where the place is in what a lowering wrote.
+      local moved = SourceParse.placed(splices, result.source.text, into.offset, into.length)
+      if moved.inside then
+        rewrite = nil
+      else
+        rewrite = { before = rewrite.before, after = rewrite.after, text = rewrite.text,
+          place = { y = moved.y, x = moved.x, offset = moved.offset, length = moved.length } }
+      end
+    end
     y, x, offset, length = at.y, at.x, at.offset, at.length
     if other ~= nil then
       local o = SourceParse.placed(splices, result.source.text, other.offset, other.length)

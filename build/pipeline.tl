@@ -891,8 +891,7 @@ function Pipeline.edits(result: Driver.Outcome): {Rewrite.Edit}
     local r = p.rewrite
     local codes = held[p.y]
     if r ~= nil and not (codes ~= nil and codes[p.code] == true) then
-      out[#out + 1] = { code = p.code, y = p.y, x = p.x, offset = p.offset, length = p.length, before = r.before,
-        after = r.after }
+      out[#out + 1] = Rewrite.edit(p.code, p.y, p.x, p.offset, p.length, r)
     end
   end
   return out

@@ -102,7 +102,7 @@ function ValueLists.first_value(ctx: Ctx, node: Ast.Node, alts: {Alt}): Type
     report(ctx, "alternatives_as_value", node, subject(ctx, node) .. " answers one of " .. tostring(#alts) ..
         " lists of values, which is no value",
       "bind its values and test the first (`local " .. Naming.bound(alts) .. " = " .. call .. "`)" .. taken ..
-        " or match the call: `match " .. call .. " do | ... end`" .. raises)
+        " or match the call: `match " .. call .. " do | ... end`" .. raises .. Naming.json_hint(call))
     return ctx.invalid
   end
   local alt = alts[1]

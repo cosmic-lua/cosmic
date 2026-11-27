@@ -165,6 +165,17 @@ function Naming.call(ctx: Ctx, node: Ast.Node): string
   return text
 end
 
+--- Where the call `call` reads or decodes JSON (`Json.decode(text)`), what to take instead of its value: that is a [`Json.Value`],
+--- which may be false, so no `!` takes it. Empty for any other call.
+function Naming.json_hint(call: string): string
+  if call:find("^Json%.decode%(") == nil and call:find("^Json%.get%(") == nil and call:find("^Json%.read%(") == nil then
+    return ""
+  end
+  return "; a `Json.Value` may be false, so `!` does not take it: read an object with `Json.decode_object(text)!` (`Json.read_object(path)!` " ..
+    "for a file), an array with `Json.decode_array(text)!`, one field with `Json.string_of(v)`, `Json.integer_of(v)`, " ..
+    "`Json.object_of(v)` or `Json.array_of(v)`, or decode into a record with `Shape.decode_into(text, spec)`"
+end
+
 --- What `t` (named) has, for a read of the field `name` it does not have: the members `name` may mean ([`Context.nearest`]
 --- `close`, then [`NearNames.related`] ones) with their types, then the names of the others; nil where it has none.
 function Naming.members_told(ctx: Ctx, t: Type, name: string, close: string): string?

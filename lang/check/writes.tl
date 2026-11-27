@@ -1,6 +1,8 @@
 --- The checks of writes to tables: a write that leaves no hole in an array, a read counted by a test, and `table.move`.
 
 local Ast = require("lang.ast")
+local Codes = require("lang.check_codes")
+local Lexer = require("lang.lexer")
 local Types = require("lang.types")
 local Context = require("lang.check.context")
 local Naming = require("lang.check.naming")
@@ -954,6 +956,24 @@ function Writes.report_hole(ctx: Ctx, vals: Values, p: Pending)
       "append with `" .. t .. "[#" .. t .. " + 1] = v` or `table.insert`, " .. guard .. "remove with `table.remove`, " ..
         "or key a map `{integer: T}` for sparse data", { show(ctx, p.base) })
   end
+end
+
+--- The rewrite of a write to the view `object`: `mut ` before the type it is declared with, where it is a local of this
+--- text declared with a type that is an array or a map (`local seen: {string: boolean} = {}`). Nil for any other, which a
+--- choice puts right: a parameter, a field, a local that takes its type from its value.
+function Writes.view_rewrite(ctx: Ctx, object: Ast.Node): Codes.Rewrite?
+  local name = peel(object)
+  if not (name.kind == "Name") then return nil end
+  local binding = name.binding
+  if binding == nil then return nil end
+  local declared = ctx.annotated[binding]
+  if declared == nil or not (declared.kind == "TypeArray" or declared.kind == "TypeMap") then
+    return nil
+  end
+  local tokens = ctx.tokens
+  local first = declared.first
+  return { before = "mut ", after = "", place = { y = Lexer.y(tokens, first), x = Lexer.x(tokens, first),
+    offset = Lexer.offset(tokens, first), length = 0 } }
 end
 
 return Writes

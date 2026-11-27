@@ -13,8 +13,7 @@ local function edits_of(source: string): {Rewrite.Edit}, integer
   for _, e in ipairs(r.errors) do
     local w = e.rewrite
     if w ~= nil then
-      out[#out + 1] = { code = tostring(e.code), y = e.y, x = e.x, offset = e.offset, length = e.length,
-        before = w.before, after = w.after }
+      out[#out + 1] = Rewrite.edit(tostring(e.code), e.y, e.x, e.offset, e.length, w)
     end
   end
   return out, #r.errors
@@ -91,6 +90,46 @@ local function test_an_optional_boolean_that_and_or_assert_passes_on_has_no_rewr
   assert(errors == 1 and #edits == 0, tostring(errors))
   local called, called_errors = edits_of("local function f(): boolean?, string return nil, \"\" end\nassert(f())\n")
   assert(called_errors == 1 and #called == 0, tostring(called_errors))
+end
+
+--- `c and x or y` is `if c then x else y end` where `x` is never false or nil; the `if` is written whole, with its `end`.
+local function test_a_ternary_whose_middle_is_never_false_is_written_as_an_if_expression()
+  local text, told = rewritten("local a = true\nlocal n: string = \"q\"\nlocal s = a and n or \"z\"\nprint(s)\n")
+  assert(text == "local a = true\nlocal n: string = \"q\"\nlocal s = if a then n else \"z\" end\nprint(s)\n", text)
+  assert(told[1] == "a.tl:3:11: and_ternary: `a and n or \"z\"` -> `if a then n else \"z\" end`", told[1])
+  -- as an argument, and over several lines
+  local called = rewritten("local a = true\nprint(a and \"x\" or \"y\")\nprint(a and\n  \"x\" or \"y\")\n")
+  assert(called == "local a = true\nprint(if a then \"x\" else \"y\" end)\nprint(if a then \"x\" else \"y\" end)\n", called)
+  -- a middle that may be false or nil keeps the refusal: the `if` expression answers it differently
+  local edits, errors = edits_of("local a = true\nlocal b: boolean = false\nlocal s = a and b or \"z\"\nprint(s)\n")
+  assert(errors >= 1 and #edits == 0, tostring(errors) .. " errors, " .. tostring(#edits) .. " rewrites")
+  local maybe, maybe_errors = edits_of("local a = true\nlocal n: string? = nil\nlocal s = a and n or \"z\"\nprint(s)\n")
+  assert(maybe_errors >= 1 and #maybe == 0, tostring(maybe_errors) .. " errors, " .. tostring(#maybe) .. " rewrites")
+end
+
+--- A range shorter than the string it is tested against is made as long as the string.
+local function test_a_range_shorter_than_its_string_is_made_as_long()
+  local text, told = rewritten("local line = \"local function test_x\"\n" ..
+      "if line:sub(1, 19) == \"local function test_\" then print(line) end\n")
+  assert(text == "local line = \"local function test_x\"\n" ..
+      "if line:sub(1, 20) == \"local function test_\" then print(line) end\n", text)
+  assert(told[1] == "a.tl:2:4: compare_disjoint: `line:sub(1, 19) == \"local function test_\"` -> " ..
+      "`line:sub(1, 20) == \"local function test_\"`", told[1])
+  -- the string first, a range from the end, and `~=`
+  local from_end = rewritten("local l = \"abc\"\nprint(\"_test.tl\" ~= l:sub(-3))\n")
+  assert(from_end == "local l = \"abc\"\nprint(\"_test.tl\" ~= l:sub(-8))\n", from_end)
+end
+
+--- A view that a local of the text declares and the text writes is declared `mut` where it is made.
+local function test_a_written_view_is_declared_mut_where_it_is_made()
+  local text, told = rewritten("local sums: {string: integer} = {}\nlocal list: {string} = {}\nsums[\"a\"] = 0\n" ..
+      "list[#list + 1] = \"x\"\nprint(sums, list)\n")
+  assert(text == "local sums: mut {string: integer} = {}\nlocal list: mut {string} = {}\nsums[\"a\"] = 0\n" ..
+      "list[#list + 1] = \"x\"\nprint(sums, list)\n", text)
+  assert(#told == 2 and told[1]:find("view_written", 1, true) ~= nil, table.concat(told, "\n"))
+  -- a parameter is declared by its caller: a choice, no rewrite
+  local edits, errors = edits_of("local function f(t: {string})\n  t[#t + 1] = \"x\"\nend\nf({})\n")
+  assert(errors >= 1 and #edits == 0, tostring(errors) .. " errors, " .. tostring(#edits) .. " rewrites")
 end
 
 local function test_overlapping_and_repeated_edits_are_made_once()
