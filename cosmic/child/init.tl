@@ -145,10 +145,10 @@ local with_grants = Hold.with_grants
 
 local record Result
   --- The child's exit status, or nil when a signal ended it.
-  mut code?: integer
+  code?: integer
   --- The number of the signal that ended the child, or nil when it
   --- exited by itself.
-  mut signal?: integer
+  signal?: integer
   --- Whether the child exited with status 0 and was not ended for
   --- running past its timeout.
   ok: boolean
@@ -156,18 +156,18 @@ local record Result
   --- [`Options.timeout_ns`], or [`Handle.wait`]'s -- and was ended for it.
   timed_out: boolean
   --- Captured stdout, when stdout was "capture".
-  mut stdout?: string
+  stdout?: string
   --- Captured stderr, when stderr was "capture".
-  mut stderr?: string
+  stderr?: string
   --- Every captured stream by the child's descriptor number, stdout and
   --- stderr included.
   captured: mut {integer:string}
   --- Whether any captured stream lost its beginning to `capture_limit`.
-  mut truncated: boolean
+  truncated: boolean
   --- What settling the child could not clear, in words: members of its
   --- process group still alive after SIGKILL, or a policy's `tmp`
   --- directory that could not be removed. Nil when it cleared all.
-  mut remains?: string
+  remains?: string
 end
 
 --- The paths a sandbox gives a child ([`Sandbox.unveil`]), each
@@ -1342,17 +1342,11 @@ local function end_child(self: Handle): Result?, string
   -- task may settle this handle meanwhile: its Result is the one.
   if self__result ~= nil then return self__result, "" end
   local final = assert(self._status)
-  local r: Result = {
-    ok = final.code == 0 and not timed_out,
-    timed_out = timed_out,
-    captured = {},
-    truncated = false,
-  }
-  if final.code >= 0 then r.code = final.code end
-  if final.signal >= 0 then r.signal = final.signal end
   end_input(self)
   close_fd(self._feed_fd)
   self._feed_fd = nil
+  local captured: mut {integer:string} = {}
+  local truncated = false
   local streams = self._streams
   if streams then
     -- Anything still buffered in a pipe is there for the taking now;
@@ -1367,21 +1361,29 @@ local function end_child(self: Handle): Result?, string
     for _, stream in ipairs(streams) do
       if not stream.streamed then
         end_stream(stream)
-        r.captured[stream.child_fd] = text_of(self, stream)
-        if stream.truncated then r.truncated = true end
+        captured[stream.child_fd] = text_of(self, stream)
+        if stream.truncated then truncated = true end
       end
     end
-    r.stdout = r.captured[1]
-    r.stderr = r.captured[2]
   end
-  self._result, self._closed = r, true
   local remains: mut {string} = {}
   if not cleared then
     remains[#remains + 1] = "child: process group " .. tostring(self.pid) .. " still has members after SIGKILL"
   end
   local tmp_trouble = remove_tmp(self)
   if tmp_trouble ~= "" then remains[#remains + 1] = tmp_trouble end
-  if #remains > 0 then r.remains = table.concat(remains, "; ") end
+  local r: Result = {
+    code = if final.code >= 0 then final.code else nil end,
+    signal = if final.signal >= 0 then final.signal else nil end,
+    ok = final.code == 0 and not timed_out,
+    timed_out = timed_out,
+    stdout = if streams then captured[1] else nil end,
+    stderr = if streams then captured[2] else nil end,
+    captured = captured,
+    truncated = truncated,
+    remains = if #remains > 0 then table.concat(remains, "; ") else nil end,
+  }
+  self._result, self._closed = r, true
   return r, ""
 end
 

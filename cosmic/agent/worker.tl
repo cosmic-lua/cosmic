@@ -42,6 +42,7 @@ local Proc = require("cosmic.proc")
 local String = require("cosmic.string")
 local Sandbox = require("cosmic.sandbox")
 local Stream = require("cosmic.stream")
+local sys = require("cosmic.sys")
 
 local record Worker
   --- The most bytes of a snippet's output a result holds: 64KB.
@@ -180,10 +181,16 @@ local function held_to(given: Sandbox.Policy, runs: boolean, program?: string): 
     -- become another program, nor run itself again. A grant of `x` alone is then no grant.
     local letters = if not strip then grant.letters else (grant.letters:gsub("x", "")) end
     if program ~= nil and letters:find("w", 1, true) ~= nil then
+      -- Each by its real path, as the kernel holds them: a link from elsewhere into the grant is the file it names.
       local reach, _ = Fs.absolute(grant.path)
-      if reach ~= nil and (program == reach or program:sub(1, #reach + 1) == reach .. "/") then
+      if reach ~= nil then
+        local real, _ = sys.realpath(reach)
+        reach = real or reach
+      end
+      if reach ~= nil and Fs.within(program, reach) then
         -- A snippet that could write the program could run what it wrote.
-        return nil, Failure.new("worker: " .. program .. " lies where a snippet may write (" .. grant.path .. ")")
+        return nil, Failure.new("worker: " .. program .. " lies where a snippet may write (" .. grant.path ..
+            "): start cosmic agent with a cosmic outside it, such as one on PATH")
       end
     end
     if letters ~= "" then
@@ -539,8 +546,11 @@ function Worker.program(set: Worker.Set, words: {string}, cwd: string, policy?: 
   if kept >= 3 and given[kept] == "worker" and given[kept - 1] == "agent" then kept = kept - 2 end
   if given[1] == nil then return nil, Failure.new("worker: it is started by no program") end
   -- Granted by its path, the program is named whole: a bare name would resolve where the snippet runs.
-  local program, unresolved = Fs.absolute(given[1])
-  if program == nil then return nil, unresolved end
+  local named, unresolved = Fs.absolute(given[1])
+  if named == nil then return nil, unresolved end
+  -- By its real path, which the sandbox grants and the kernel runs: a link is the file it names.
+  local real, _ = sys.realpath(named)
+  local program = real or named
   local held: Sandbox.Policy? = nil
   if policy ~= nil then
     local made, why = held_to(policy, false, program)
