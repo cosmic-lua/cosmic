@@ -252,7 +252,11 @@ end
 --- holds about as many bytes as it has.
 local function write_big_tgz(path: string, mib: integer): integer
   local block: mut {string} = {}
-  for i = 1, 1 << 16 do block[i] = string.char(math.random(0, 255)) end
+  local state = 12345 -- fixed seed: the same bytes on every run
+  for i = 1, 1 << 16 do
+    state = (state * 1103515245 + 12345) & 0x7fffffff
+    block[i] = string.char((state >> 16) & 255)
+  end
   local chunk = table.concat(block)
   local rounds = mib * 16
   local left = rounds

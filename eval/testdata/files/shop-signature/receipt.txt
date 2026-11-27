@@ -1,0 +1,16 @@
+Ada, Leeds
+  2 x green tea      $3.50    $7.00
+  1 x mug            $7.25    $7.25
+total $14.25
+
+Bo, York
+  1 x coffee beans  $12.00   $12.00
+  3 x honey          $5.05   $15.15
+total $27.15
+
+Ada, Leeds
+  1 x honey          $5.05    $5.05
+total $5.05
+
+Bo $27.15
+Ada $19.30
