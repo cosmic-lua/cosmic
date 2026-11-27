@@ -402,6 +402,13 @@ SyntaxCodes.catalog = {
     fix = "write string literals, `<const>` locals of the same block given them, and the `ddl` of another schema " ..
       "(`Other.ddl`, `module.Other.ddl`), joined with `..`",
   },
+  {
+    code = "template_refused", stage = "parser", rule = GRAMMAR,
+    why = "the build turns the template of a `Template.text` call into code before the checker reads it, so a template " ..
+      "it cannot read is refused where it is written, not when the program runs",
+    fix = "write the template as the reason says: `{{.field}}`, `{{if .x}}..{{end}}`, `{{range .list}}..{{end}}`, " ..
+      "`{{with .x}}..{{end}}`, and `{{\"{{\"}}` for a literal `{{`",
+  },
   -- the scope builder
   {
     code = "unknown_variable", stage = "scopes", rule = "globals are what a declaration file declares",

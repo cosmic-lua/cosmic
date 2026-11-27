@@ -72,8 +72,12 @@ local record Driver
   record Outcome
     module: string
     source: Source
-    --- The text the checker reads: the source's text, or the text a [`Driver.Build.replace`] gave.
+    --- The text the checker reads: the source's text, or the text a [`Driver.Build.replace`] gave, lowered
+    --- ([`SourceParse.lowering`]).
     text: string
+    --- The places the lowering replaced in that text, in order: none where it replaced nothing. A place of `text` is
+    --- one of the text given by [`SourceParse.placed`].
+    splices: {SourceParse.Splice}
     --- Whether an expression can be neither false nor nil, from its syntax alone ([`lang.truthy`]),
     --- for the code generator's `if` expressions: set for every source. A file writes an `if` expression only for a value
     --- that cannot be false; the generator is told what the rule knows, or it writes a function called on the spot where a
@@ -245,6 +249,9 @@ local record Driver
   --- project for before an index is made.
   declared: function(entries: {{string}}, skip: function(path: string): boolean, own: boolean): string
 
+  --- [`SourceParse.lowering`]: what lowers a module before it is checked.
+  lowering: function(lower: SourceParse.Lowering)
+
   --- The provider of `index`.
   files: function(index: Index): Provider
 
@@ -280,6 +287,7 @@ Driver.index = SourceParse.index
 Driver.pairing = SourceParse.pairing
 Driver.naming = SourceParse.naming
 Driver.declared = SourceParse.declared
+Driver.lowering = SourceParse.lowering
 
 local type Read = SourceParse.Read
 local make = SourceParse.make
@@ -399,6 +407,18 @@ local function error_of(result: Driver.Outcome, stage: string, code: string, msg
                         offset: integer, length: integer, argument?: Check.Argument,
                         other?: Scopes.Place, rewrite?: Check.Rewrite): Driver.Problem
   local instead = RemovedFix.fix({ tokens = result.chunk.tokens, scoped = result.scoped }, code, offset, length)
+  local splices = result.splices
+  if #splices > 0 then
+    -- The place in the text written, not the lowered one: an error in what a lowering wrote is at what it replaced,
+    -- and has no rewrite, which would edit text that is not there.
+    local at = SourceParse.placed(splices, result.source.text, offset, length)
+    if at.inside then rewrite = nil end
+    y, x, offset, length = at.y, at.x, at.offset, at.length
+    if other ~= nil then
+      local o = SourceParse.placed(splices, result.source.text, other.offset, other.length)
+      other = { y = o.y, x = o.x, offset = o.offset, length = o.length }
+    end
+  end
   return {
     kind = "error", stage = stage, code = code, msg = msg, fix = instead or fix, y = y, x = x, offset = offset,
     length = length, other = other, removed = instead ~= nil, argument = argument, rewrite = rewrite,
@@ -563,7 +583,7 @@ function Driver.new(options: Driver.Options): Driver.Build
       syntax[#syntax + 1] = problem_of("error", "syntax", tostring(e.code), e.msg, e.fix, e.y, e.x, e.offset, e.length)
     end
     local result: Driver.Outcome = {
-      module = source.module, source = source, text = read.text, never_false = Truthiness.never_false, chunk = read.chunk,
+      module = source.module, source = source, text = read.text, splices = read.splices, never_false = Truthiness.never_false, chunk = read.chunk,
       scoped = scoped, broken = #syntax > 0, lowered = nil, checked = nil, syntax = syntax, scope_errors = {},
       declared = {}, bodies = {}, errors = {}, warnings = {}, types = {}, callees = {},
     }
@@ -580,7 +600,7 @@ function Driver.new(options: Driver.Options): Driver.Build
   local function unlowered(entry: Entry): Entry
     local old = entry.result
     local result: Driver.Outcome = {
-      module = old.module, source = old.source, text = old.text, never_false = old.never_false, chunk = old.chunk,
+      module = old.module, source = old.source, text = old.text, splices = old.splices, never_false = old.never_false, chunk = old.chunk,
       scoped = old.scoped, broken = old.broken, lowered = nil, checked = nil, syntax = old.syntax, scope_errors = {},
       declared = {}, bodies = {}, errors = {}, warnings = {}, types = {}, callees = {},
     }
@@ -973,9 +993,10 @@ function Driver.new(options: Driver.Options): Driver.Build
         end
         for _, w in ipairs(checked.warnings) do
           if not (w.code == "unused_function" and exempt[w.offset] == true) then
+            local at = SourceParse.placed(result.splices, result.source.text, w.offset, w.length)
             result.warnings[#result.warnings + 1] = {
-              kind = w.kind, stage = "warning", code = w.code, msg = w.msg, fix = w.fix, y = w.y, x = w.x,
-              offset = w.offset, length = w.length, removed = false,
+              kind = w.kind, stage = "warning", code = w.code, msg = w.msg, fix = w.fix, y = at.y, x = at.x,
+              offset = at.offset, length = at.length, removed = false,
             }
           end
         end

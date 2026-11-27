@@ -226,8 +226,11 @@ local function test_every_code_of_the_parser_has_a_case()
   for _, code in ipairs(Lexer.codes) do
     lexer[code] = true
   end
+  -- A code the build emits for the parser, whose cases are its own: `template_refused` is a template the lowering of a
+  -- module refused before the checker ([`build.template_lower`]), tested in build/template_lower_test.tl.
+  local lowered: {string: boolean} = { template_refused = true }
   for _, code in ipairs(Parser.codes) do
-    assert(covered[code] == true or lexer[code] == true, "no case for " .. code)
+    assert(covered[code] == true or lexer[code] == true or lowered[code] == true, "no case for " .. code)
   end
 end
 
