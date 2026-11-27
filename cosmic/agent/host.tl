@@ -590,13 +590,14 @@ function Host.edit(path: string, edits: {Host.Replacement}): integer
   return made
 end
 
---- What reads a data file's text by its type, `nil` and why where it does not read: each as its module reads it.
+--- true where `text` is JSON values a line each, as [`Json.decode_lines`] reads them; else nil and why.
 local function json_lines(text: string): (true) | (nil, Failure)
   local _, why = Json.decode_lines(text)
   if why ~= nil then return nil, why end
   return true
 end
 
+--- What reads a data file's text, by its type in lower case: true, or nil and why, as its module reads it.
 local data_checks: {string: function(text: string): (true) | (nil, Failure)} = {
   json = function(text: string): (true) | (nil, Failure) return Json.check(text) end,
   jsonl = json_lines,
@@ -613,14 +614,15 @@ local data_checks: {string: function(text: string): (true) | (nil, Failure)} = {
   end,
 }
 
---- Checks the file `path` you wrote, by its type, and raises with what is wrong where it does not pass, so that what
---- follows in the snippet runs only for a file that passes; it runs no code. A `.tl` file is checked as `cosmic fix`
---- checks a file of its tree: it reads the modules a snippet may require, and tells the lines of each module of a tree
---- it requires too. A `.json` file is read as [`Json.check`] reads it, `.jsonl` and `.ndjson` as
---- [`Json.decode_lines`], and `.csv` and `.tsv` as [`Csv.table`] does, every record as wide as the header. Raises too
---- where it cannot be read, for any other type, or for `.tl` where no checker is here (outside cosmic agent's worker).
+--- Checks the file `path` you wrote by its type, its extension in any case, and raises with what is wrong where it
+--- does not pass, so that what follows in the snippet runs only for a file that passes; it runs no code. A `.tl` file
+--- is checked as `cosmic fix` checks a file of its tree: it reads the modules a snippet may require, and tells the
+--- checker's lines for each module of a tree it requires too. `.json` is one value ([`Json.check`]); `.jsonl` and
+--- `.ndjson` a value a line ([`Json.decode_lines`]); `.csv` and `.tsv` records each as wide as the header
+--- ([`Csv.table`]), where a header alone or no text passes. Each of those raises with the one reason its module gives.
+--- Any other type is refused before it is read; it raises too where the file cannot be read, or for `.tl` where no
+--- checker is here (outside cosmic agent's worker).
 function Host.check(path: string)
-  local text = Host.read(path)
   local kind = (path:match("%.([%w]+)$") or ""):lower()
   if kind ~= "tl" then
     local read = data_checks[kind]
@@ -628,10 +630,11 @@ function Host.check(path: string)
       error("host: check: " .. path .. ": no check for this type; it checks .tl, .json, .jsonl, .ndjson, .csv " ..
         "and .tsv files", 2)
     end
-    local _, why = read(text)
+    local _, why = read(Host.read(path))
     if why ~= nil then error("host: check: " .. path .. " does not pass: " .. tostring(why), 2) end
     return
   end
+  local text = Host.read(path)
   local check = checks
   if check == nil then
     error("host: check: no checker answers here: a snippet of cosmic agent's run tool reaches one", 2)

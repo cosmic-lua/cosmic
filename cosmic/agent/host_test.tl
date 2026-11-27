@@ -38,8 +38,6 @@ local function test_docs_say_why_there_are_none()
   assert(Host.docs("  ") == "host: docs: name a module, a function or words to search for")
 end
 
---- The helpers a snippet composes, named for the commands they do as: find, read, edit, grep, sed, wc, sort, uniq; each
---- raises where it fails, so a snippet needs no assert.
 --- Host.check reads a data file by its type, as its module reads it, and raises naming where it does not read; a
 --- type it has no check for is refused by name. These need no checker, so they run outside a worker.
 local function test_check_reads_a_data_file_by_its_type(tmp: string)
@@ -60,11 +58,14 @@ local function test_check_reads_a_data_file_by_its_type(tmp: string)
   Test.raises(function() Host.check(tmp .. "/open.CSV") end, "open.CSV does not pass: ")
   Host.write(tmp .. "/good.tsv", { "name\tn", "a,b\t1" })
   Host.check(tmp .. "/good.tsv")
-  Host.write(tmp .. "/notes.txt", "x")
+  -- A type with no check is refused by name before any read; a dotted directory gives its file no type.
   Test.raises(function() Host.check(tmp .. "/notes.txt") end, "notes.txt: no check for this type; it checks .tl, .json")
+  Test.raises(function() Host.check(tmp .. "/a.json/Makefile") end, "Makefile: no check for this type")
   Test.raises(function() Host.check(tmp .. "/none.json") end, "host: read: ")
 end
 
+--- The helpers a snippet composes, named for the commands they do as: find, read, edit, grep, sed, wc, sort, uniq; each
+--- raises where it fails, so a snippet needs no assert.
 local function test_the_helpers_do_as_their_commands_do(tmp: string)
   assert(Fs.mkdirs(tmp .. "/d/sub"))
   Host.write(tmp .. "/d/a.tl", { "local x = 1", "-- TODO one" })
