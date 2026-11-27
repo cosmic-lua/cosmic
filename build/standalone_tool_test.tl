@@ -233,3 +233,30 @@ local function test_a_run_with_no_boot_hash_keeps_no_compile(tmp: string)
   local kept, _ = Fs.list(tmp .. "/cache/cosmic/standalone")
   assert(kept == nil or #kept == 0, "a compile is kept")
 end
+
+--- A capitalized name that is a module of cosmic's (`Json` for cosmic.json) needs no require, in a file and in a chunk of
+--- `-e` as in a snippet: it is bound as `local Json = require("cosmic.json")` would, and an error is told at the place of
+--- the text's own. A name the text declares is its own, and a name no module answers to is still refused.
+local function test_a_name_of_a_cosmic_module_needs_no_require(tmp: string)
+  local function run(args: {string}): Child.Result
+    local started = Test.cosmic(args, { cwd = tmp, env = { XDG_CACHE_HOME = tmp .. "/cache" },
+      stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
+    return (assert(Child.run(started.argv, started.options)))
+  end
+  local file = tmp .. "/implicit.tl"
+  assert(Fs.write(file, 'print(Json.quote("x"), Fs.basename("/a/b"))\nlocal Shell = 3\nprint(Shell + 1)\n'))
+  for _, args in ipairs({ { "--standalone", file }, { "-e", 'print(Json.quote("x"), Fs.basename("/a/b"))\nlocal Shell = 3\nprint(Shell + 1)' } }) do
+    local ran = run(args)
+    assert(ran.code == 0 and ran.stdout == '"x"\tb\n4\n', tostring(ran.stdout) .. tostring(ran.stderr))
+  end
+  -- A fault past the names is told where it is, on line 1 as past it.
+  local wrong = run({ "-e", 'local n: integer = Json.quote("x"); print(Nosuch.x)' })
+  assert(wrong.code ~= 0, tostring(wrong.stderr))
+  local told = tostring(wrong.stderr)
+  assert(told:find("-e:1:20:", 1, true) ~= nil and told:find("-e:1:43:", 1, true) ~= nil and told:find("`Nosuch` is not declared", 1, true) ~= nil, told)
+  -- A file with a `#!` line keeps it first: the refusal stays the one it had.
+  local shebang = tmp .. "/shebang.tl"
+  assert(Fs.write(shebang, '#!/usr/bin/env cosmic\nprint(Nosuch.x, Json.quote("x"))\n'))
+  local refused = run({ "--standalone", shebang })
+  assert(refused.code ~= 0 and tostring(refused.stderr):find("`Nosuch` is not declared", 1, true) ~= nil, tostring(refused.stderr))
+end
