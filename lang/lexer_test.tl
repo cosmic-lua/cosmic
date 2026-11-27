@@ -33,9 +33,13 @@ local function shape(source: string): string
   return table.concat(parts, " ")
 end
 
---- The one error of `source`, which has exactly one.
+--- The one error of `source`, which has exactly one, but for the
+--- `invalid_utf8` one a source of raw bytes (`\200`) also draws.
 local function only_error(source: string): Lexer.Error
-  local errors = lex(source).errors
+  local errors: mut {Lexer.Error} = {}
+  for _, e in ipairs(lex(source).errors) do
+    if e.code ~= "invalid_utf8" then errors[#errors + 1] = e end
+  end
   local only = errors[1]
   assert(#errors == 1 and only ~= nil, "expected one error, found " .. tostring(#errors) .. " in " .. source)
   return only
@@ -474,6 +478,21 @@ local function test_a_bang_on_what_it_follows_is_a_token()
   end
 end
 
+local function test_source_that_is_not_utf8_is_refused_once_at_its_first_bad_byte()
+  local found = lex("x = 1\ny = \"a\255b\"\nz = \"\254\"").errors
+  local e = found[1]
+  assert(#found == 1 and e ~= nil, "expected one error")
+  assert(e.code == "invalid_utf8" and e.y == 2 and e.x == 7 and e.offset == 13 and e.length == 1, e.msg)
+  assert(e.msg == "the source is not UTF-8 text: byte 13 is `\\xFF`", e.msg)
+  -- the bad byte is reported in place among the errors before and after it
+  local errors = lex("a @ b\n\"\255\" $").errors
+  assert(#errors == 3 and errors[1].code == "stray_byte" and errors[2].code == "invalid_utf8" and
+      errors[3].code == "stray_byte")
+  assert(#lex("\"" .. E_ACUTE .. "\"").errors == 0)
+  local comment = lex("-- \255").errors[1]
+  assert(comment ~= nil and comment.code == "invalid_utf8")
+end
+
 local function test_a_non_ascii_character_is_one_error_token()
   local e = only_error("x = \"ok\" -- " .. E_ACUTE .. "\ny = " .. E_ACUTE)
   assert(e.code == "stray_byte" and e.msg == "stray `" .. E_ACUTE .. "`" and e.length == 2 and e.y == 2 and e.x == 5)
@@ -527,10 +546,11 @@ local REFUSALS <const>: {Lexer.Code: string} = {
   unterminated_long_string = "[[x",
   bad_escape = "'\\q'",
   stray_byte = "@",
+  invalid_utf8 = "'\255'",
 }
 
 local function test_every_code_has_a_refusal_with_a_message_and_a_fix()
-  assert(#Lexer.codes == 10)
+  assert(#Lexer.codes == 11)
   for _, code in ipairs(Lexer.codes) do
     local source = REFUSALS[code]
     assert(source ~= nil, code .. " has no refusal here")

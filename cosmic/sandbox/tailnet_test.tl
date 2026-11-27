@@ -166,6 +166,16 @@ local function test_a_policy_resolves_through_the_daemon_and_refuses_a_target_of
   assert(said[2] == 'sandbox: connect "tag:dbs:5432" names no peer of the tailnet that tailscaled lists', said[2])
 end
 
+--- A daemon that cannot be asked fails the start as the daemon's own
+--- failure does (its kind and errno kept, [`Failure.within`]), with what
+--- the sandbox was doing in front.
+local function test_a_daemon_that_cannot_be_asked_keeps_the_cause(tmp: string)
+  local merged = assert(Sandbox.union({ grants = { { connect = "tag:db:5432" } } }))
+  local _, why = tailnet.policy(merged, { socket = tmp .. "/none.sock" })
+  assert(why ~= nil, "a daemon that is not there was asked")
+  assert(tostring(why):find('which tailscaled was asked for: tailscale: ', 1, true) ~= nil, tostring(why))
+end
+
 --- A node that is not running knows no peers, which fails the start.
 local function test_a_node_that_is_not_running_fails_the_start(tmp: string)
   local why = ""

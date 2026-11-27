@@ -91,6 +91,11 @@ SyntaxCodes.catalog = {
     why = "a byte that begins no token is no part of the language, so the rest of the line cannot be read",
     fix = "delete it, or write it inside a string",
   },
+  {
+    code = "invalid_utf8", stage = "lexer", rule = LEXICAL,
+    why = "source is UTF-8 text, so a byte that is not part of a character leaves a reader, and a column, with no meaning",
+    fix = "save the file as UTF-8, or write the byte as an escape inside a string",
+  },
   -- the parser
   {
     code = "semicolon", stage = "parser", rule = LEFT_OUT,

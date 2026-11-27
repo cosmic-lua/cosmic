@@ -1162,6 +1162,14 @@ function Zig.enter(argv: {string}, script: string): integer
   -- applied, unless the caller names a library of their own.
   local environment: mut {string:string} = {}
   for name, value in pairs(Env.all()) do environment[name] = value end
+  -- A stand-in named relative to the caller's directory is made whole:
+  -- the seed compile runs at the tree's root, and zig keys the file it
+  -- names by its path, so both read the one file.
+  local stand_in = environment["COSMIC_BOOTSTRAP"] or ""
+  if stand_in ~= "" and stand_in:sub(1, 1) ~= "/" then
+    local whole, _ = Fs.absolute(stand_in)
+    if whole ~= nil then environment["COSMIC_BOOTSTRAP"] = whole end
+  end
   local install = found.install
   if install ~= nil and (environment["ZIG_LIB_DIR"] or "") == "" then
     local lib, lib_trouble = patched_lib(root, install)
@@ -1231,7 +1239,10 @@ function Zig.enter(argv: {string}, script: string): integer
         local build_argv: mut {string} = { program }
         for _, a in ipairs(Zig.build_args(root, project, output,
             given, Proc.cpu_count(),
-            { "-Dpatched=" .. manifest })) do
+            { "-Dpatched=" .. manifest,
+                -- Keyed in zig's configuration cache as an option (build.zig
+                -- seedCompiler says why); the seed compile reads the variable.
+                "-Dbootstrap=" .. (zig_env["COSMIC_BOOTSTRAP"] or "") })) do
           build_argv[#build_argv + 1] = a
         end
         return build_argv

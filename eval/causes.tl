@@ -101,7 +101,7 @@ local RULES <const>: {Rule} = {
 local SYNTAX <const>: {string: boolean} = {
   label_or_goto = true, long_comment = true, unterminated_long_comment = true, digit_separator = true,
   hex_float = true, malformed_number = true, unterminated_string = true, unterminated_long_string = true,
-  bad_escape = true, stray_byte = true, semicolon = true, reserved_word = true, nil_union = true,
+  bad_escape = true, stray_byte = true, invalid_utf8 = true, semicolon = true, reserved_word = true, nil_union = true,
   method_in_record = true, continue_outside_loop = true, break_outside_loop = true, continue_skips_local = true,
   unclosed = true, expected_token = true, expected_name = true, expected_expression = true, expected_type = true,
   unexpected_token = true, not_a_statement = true, bad_target = true, statement_after_return = true,
