@@ -384,11 +384,11 @@ local function real_system(): Round.System
     end,
     write = function(path: string, text: string): boolean
       local wrote, _ = Fs.write(path, text)
-      return wrote
+      return wrote == true
     end,
     mkdirs = function(path: string): boolean
       local made, _ = Fs.mkdirs(path)
-      return made
+      return made == true
     end,
   }
 end

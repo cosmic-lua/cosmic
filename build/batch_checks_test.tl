@@ -70,3 +70,21 @@ end
 local function test_no_ci_check_holds_it_out()
   assert(said({}) == "no ci check at its head", said({}))
 end
+
+--- A cancelled run holds no verdict: #4412 was read as failed on a ci
+--- run a newer one had cancelled.
+local function test_a_cancelled_run_takes_no_place_of_the_run_before_it()
+  local runs = {
+    check("macos-aarch64", "completed", "success", "2026-11-26T21:48:30Z"),
+    check("ci", "completed", "success", "2026-11-26T22:08:50Z"),
+    check("ci", "completed", "cancelled", "2026-11-26T22:30:00Z"),
+    check("linux-x86_64", "completed", "cancelled", "2026-11-26T22:30:00Z"),
+  }
+  assert(batch_checks.refusal(runs) == nil, said(runs))
+end
+
+--- A head with only cancelled runs has no verdict yet.
+local function test_only_cancelled_runs_hold_it_out()
+  local runs = { check("ci", "completed", "cancelled", "2026-11-26T22:30:00Z") }
+  assert(said(runs) == "no ci check at its head", said(runs))
+end
