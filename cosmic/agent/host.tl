@@ -628,7 +628,7 @@ function Host.check(path: string)
     local read = data_checks[kind]
     if read == nil then
       error("host: check: " .. path .. ": no check for this type; it checks .tl, .json, .jsonl, .ndjson, .csv " ..
-        "and .tsv files", 2)
+          "and .tsv files", 2)
     end
     local _, why = read(Host.read(path))
     if why ~= nil then error("host: check: " .. path .. " does not pass: " .. tostring(why), 2) end
