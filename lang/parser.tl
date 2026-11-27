@@ -42,7 +42,7 @@ local record Parser
   enum Code
     "label_or_goto" "long_comment" "unterminated_long_comment"
     "digit_separator" "hex_float" "malformed_number" "unterminated_string"
-    "unterminated_long_string" "bad_escape" "stray_byte"
+    "unterminated_long_string" "bad_escape" "stray_byte" "invalid_utf8"
     -- a `;` between the items of a table, which `,` separates
     "semicolon"
     -- a reserved word where a name stands
@@ -166,6 +166,7 @@ local LEXER_CODES <const>: {string: Parser.Code} = {
   unterminated_long_string = "unterminated_long_string",
   bad_escape = "bad_escape",
   stray_byte = "stray_byte",
+  invalid_utf8 = "invalid_utf8",
 }
 
 local record Loop
@@ -3099,7 +3100,7 @@ end
 Parser.codes = {
   "label_or_goto", "long_comment", "unterminated_long_comment", "digit_separator",
   "hex_float", "malformed_number", "unterminated_string", "unterminated_long_string", "bad_escape",
-  "stray_byte", "semicolon", "reserved_word", "nil_union", "method_in_record", "continue_outside_loop",
+  "stray_byte", "invalid_utf8", "semicolon", "reserved_word", "nil_union", "method_in_record", "continue_outside_loop",
   "break_outside_loop", "continue_skips_local", "unclosed", "expected_token", "expected_name",
   "expected_expression", "expected_type", "unexpected_token", "not_a_statement", "bad_target",
   "statement_after_return", "chained_optional", "chained_is", "is_union", "bare_function",

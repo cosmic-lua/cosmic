@@ -5,6 +5,7 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Maps = require("cosmic_ci.maps")
 local Proc = require("cosmic.proc")
+local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 
@@ -704,7 +705,12 @@ local function test_driver_records_success_failures_timeout_and_interruption(tmp
   -- regression can only ever touch a throwaway file.
   local inside = assert(sys.mkdtemp(candidate .. "/ci/.sentinel.XXXXXX"))
   local sentinel = inside .. "/sentinel.db"
-  assert(Fs.write(sentinel, "sentinel"))
+  -- A real database, so a driver that opened the target would change it
+  -- (a plain file only makes the open fail, which the case cannot tell
+  -- from the boundary check refusing).
+  local seed = assert(Sqlite.open(sentinel, { writable = true }))
+  assert(seed:exec("CREATE TABLE sentinel (id INTEGER PRIMARY KEY)"))
+  assert(seed:close())
   local before = Hash.hex_sha256((assert(Fs.read(sentinel))))
   local symlink_runner_temp = tmp .. "/symlink-runner-temp"
   assert(Fs.mkdirs(symlink_runner_temp .. "/cosmic-ci"))
@@ -714,6 +720,8 @@ local function test_driver_records_success_failures_timeout_and_interruption(tmp
     "--", "/bin/sh", "-c", "exit 0" }, project, tmp .. "/symlink-db.out",
     driver_context(candidate, symlink_runner_temp), driver_timeout)
   assert(not linked.ok, "symlink operation database was accepted")
+  assert((assert(Fs.read(tmp .. "/symlink-db.out"))):find("outside candidate checkout", 1, true),
+    "symlink operation database was refused for another reason")
   assert(Hash.hex_sha256((assert(Fs.read(sentinel)))) == before,
     "rejected symlink changed its target")
   assert(Fs.remove_tree(inside))
