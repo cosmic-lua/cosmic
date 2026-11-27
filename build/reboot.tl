@@ -410,8 +410,13 @@ end
 --- included, before it could see that it is stale and rebuild. Nil when it
 --- started; else why, with what it said.
 function reboot.start_check(candidate: string): string?
+  -- Without the portable startup test's handshake, which this process may hold: a child would wait on it for a signal
+  -- no one sends it.
+  local environment = Env.all()
+  environment["COSMIC_PORTABLE_STARTUP_TEST_READY"] = nil
+  environment["COSMIC_PORTABLE_STARTUP_TEST_GO"] = nil
   local result, failure = Child.run({ candidate, "--version" },
-    { timeout_ns = Clock.seconds(60), stdout = "capture", stderr = "capture" })
+    { env = environment, timeout_ns = Clock.seconds(60), stdout = "capture", stderr = "capture" })
   if result == nil then
     return "the rebuilt tool did not start for its check: " .. tostring(failure)
   end
