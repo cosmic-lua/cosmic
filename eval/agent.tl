@@ -1323,7 +1323,11 @@ function Agent.execute(options: Agent.Options, system: Agent.System, key: string
           -- Each run's own build home and temporary directory, as a test's worker has them in its scratch
           -- directory (build/test_sandbox.tl): no run reads what another built.
           local scratch = own.fresh("scratch-" .. marker)
-          own.run({ "mkdir", "-p", scratch .. "/build", scratch .. "/tmp" }, "/", nil, 60)
+          -- Searchable by every user, its tmp as /tmp is: where the agent is root, its sandboxed programs run as a user
+          -- of their own, which is granted files beneath it.
+          local laid = own.run({ "bash", "-c", 'mkdir -p "$0/build" "$0/tmp" && chmod 755 "$0" "$0/build" && ' ..
+              'chmod 1777 "$0/tmp"', scratch }, "/", nil, 60)
+          assert(laid.code == 0, "the scratch directory of a run was not laid out: " .. laid.stderr)
           local run_env: mut {string: string} = {}
           for k, v in pairs(env) do run_env[k] = v end
           run_env["COSMIC_BUILD_HOME"] = scratch .. "/build"
