@@ -119,6 +119,7 @@ local Verb = require("cosmic.cli.test")
 local Clock = require("cosmic.clock")
 local Coverage = require("cosmic.coverage")
 local Env = require("cosmic.env")
+local Bench = require("cosmic.bench")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local type test_inputs = require("build.test_inputs")
@@ -149,6 +150,7 @@ local writer = require("build.writer")
 local confine = require("build.confine")
 local shared_compiles = require("build.shared_compiles")
 local shared_verdicts = require("build.shared_verdicts")
+local test_names = require("build.test_names")
 local test_report = require("build.test_report")
 local type_violations = require("build.type_violations")
 local test_sandbox = require("build.test_sandbox")
@@ -1669,6 +1671,10 @@ local function finish(rec: Recording, job: Job, result: Child.Result?,
   local elapsed = wall_ns
   if reported ~= nil then
     elapsed = reported.elapsed_ns
+    local timings, timing = rec.timings, reported.timing
+    if timings ~= nil and timing ~= nil and passed then
+      timings[job.m.file .. ":" .. job.name] = timing
+    end
     if rec.checks then
       take_violations(rec, id, reported)
       if rec.violators[id] ~= nil then rec.violator_ns[id] = elapsed end
@@ -2523,6 +2529,13 @@ local function say_shown(rec: Recording, tally: State.Tally)
   if note ~= nil then log:say(note) end
 end
 
+--- What `cosmic test --bench` asks of the run ([`Run`]'s `bench`).
+local record BenchAsk
+  target_ns: integer
+  rounds: integer
+  json: boolean
+end
+
 --- What one run of the verb carries from phase to phase: each of
 --- [`run`]'s phases fills the fields it owns, and reads only fields the
 --- driver or an earlier phase has set.
@@ -2564,6 +2577,9 @@ local record Run
   --- The directory, absolute, each worker writes its profile into (`--profile`, or the run's own
   --- `COSMIC_PROFILE`); nil for none.
   mut profile?: string
+  --- What `--bench` asks: each bench's batches take at least `target_ns` and `rounds` of them are timed, and
+  --- `json` prints a JSON object per bench in place of the table; nil for a run that times nothing.
+  mut bench?: BenchAsk
 
   -- The checkout ([`hold_checkout`]).
   mut started?: integer
@@ -2770,6 +2786,21 @@ local function read_command(ctx: Run): integer?
     end
     local absolute, _ = Fs.absolute(profile_dir)
     ctx.profile = absolute
+  end
+  -- A bench run times what it selects, whatever verdict stands, one worker at a time: two at once time each other.
+  if parsed.set["--bench"] == true then
+    local rounds = math.tointeger(tonumber(parsed.values["--rounds"] or "5")) or 5
+    local target_ms = math.tointeger(tonumber(parsed.values["--target-ms"] or "50")) or 50
+    ctx.bench = { target_ns = target_ms * 1000000, rounds = rounds, json = parsed.set["--json"] == true }
+    ctx.forced = true
+    limits.jobs = 1
+  else
+    for _, flag in ipairs({ "--rounds", "--target-ms", "--json" }) do
+      if parsed.values[flag] ~= nil or parsed.set[flag] == true then
+        log:complain("test: " .. flag .. " is an option of a bench run, which --bench asks for")
+        return 2
+      end
+    end
   end
   return nil
 end
@@ -3076,7 +3107,10 @@ local function select_tests(ctx: Run): integer?
             wanted = true
           end
         end
-        if wanted then chosen[#chosen + 1] = name end
+        -- A bench run chooses only benches.
+        if wanted and (ctx.bench == nil or test_names.is_bench(name)) then
+          chosen[#chosen + 1] = name
+        end
       end
       if #chosen > 0 then
         selected_modules[#selected_modules + 1] = m
@@ -3124,6 +3158,12 @@ local function select_tests(ctx: Run): integer?
       log:complain("test: no test in " .. m.path .. " is named " .. name .. "; it has " ..
           table.concat(near, ", ") .. (if #m.tests > #near then ", ..." else "" end))
     end
+    return 1
+  end
+  if ctx.bench ~= nil and #selected_modules == 0 then
+    local _, _ = work.close(assert(ctx.handle))
+    log:complain("test: --bench: no bench in " .. (if #selectors == 0 then "the tree" else table.concat(selectors, ", ") end) ..
+        ": a bench is a top-level `local function bench_*(b: Bench.B)` of a *_test.tl file (cosmic docs cosmic.bench)")
     return 1
   end
   -- A share of the chosen tests (`--shard`), dealt over all of them
@@ -3239,12 +3279,15 @@ local function make_recording(ctx: Run)
   ctx.native_lines = native_lines
   local sandbox_mode = ctx.sandbox_mode
   local ctx_root = ctx.root
+  local ask = ctx.bench
   local rec: Recording = {
     records = records, root = assert(ctx_root),
     -- What every key holds of the harness and the runtime, which
     -- [`test_key.begin`] sets below and is the only code that does.
     runtime = "", sandbox = false, epoch = "", timeout_ns = 0, store_salt = "", carried = {},
     run_at_ns = ctx.run_at_ns, run = handle.run, profile = ctx.profile,
+    bench = if ask ~= nil then tostring(ask.target_ns) .. " " .. tostring(ask.rounds) else nil end,
+    timings = if ask ~= nil then {} else nil end,
     checks = ctx.checks == true, files = {}, violations = {}, violation_order = {}, violation_tests = {},
     violations_dropped = 0, fact_wraps = assert(ctx.result).fact_wraps,
     parameter_checks = assert(ctx.result).parameter_checks, violation_met = {}, violators = {}, violator_ns = {},
@@ -3922,6 +3965,31 @@ local function floor_clause(ctx: Run): string
   return "; " .. shortfall.clause
 end
 
+--- A bench run's result, on stdout, in the order of the benches' names: a line of each bench's fastest and median
+--- ns per operation ([`Bench.line`]), or with `--json` a JSON object of each on a line of its own ([`Bench.record`]).
+local function say_timings(ctx: Run)
+  local ask, timings = ctx.bench, assert(ctx.rec).timings
+  if ask == nil or timings == nil then return end
+  local names: mut {string} = {}
+  local width = 0
+  for name in pairs(timings) do
+    names[#names + 1] = name
+    width = math.max(width, #name)
+  end
+  table.sort(names)
+  local lines: mut {string} = {}
+  for _, name in ipairs(names) do
+    local timed = assert(timings[name])
+    local samples: mut {number} = {}
+    for i, ns in ipairs(timed.batches) do samples[i] = ns / timed.n end
+    local timing = Bench.timing(name, timed.n, samples, timed.bytes)
+    lines[#lines + 1] = if ask.json then Bench.record(timing) else Bench.line(timing, width) end
+  end
+  if #lines > 0 then
+    local _, _ = Fs.put(Fs.stdout, table.concat(lines, "\n") .. "\n")
+  end
+end
+
 --- The run's summary said, last on stdout, with the skips, failures and
 --- errors that bear on it, and its exit code: 0 when every test passed.
 local function report(ctx: Run): integer
@@ -3929,6 +3997,7 @@ local function report(ctx: Run): integer
   local failures, errors = assert(ctx.failures), assert(ctx.errors)
   local total, started = assert(ctx.total), assert(ctx.started)
   local refused = assert(ctx.refusals)
+  say_timings(ctx)
   if #failures == 0 and #errors == 0 and #refused == 0 then
     if total == 0 then
       log:say("test: nothing to run: a test is a top-level `local function " ..
