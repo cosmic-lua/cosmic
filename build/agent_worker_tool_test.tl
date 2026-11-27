@@ -986,28 +986,28 @@ local function test_a_snippet_requires_a_module_of_the_working_directory_and_see
   worker_close(w)
 end
 
---- Host.check tells the checker's lines on a file the snippet names, none where it passes, with no code of it run: it
+--- Host.check raises with the checker's lines on a file the snippet names, and passes quietly, with no code of it run: it
 --- reads the working directory's tree, as a snippet's require does.
 local function test_a_snippet_checks_a_file_it_wrote_without_running_it()
   local w = set_of_worker()
   local dir = Fs.mkdtemp("agent-worker-")!
   assert(Fs.write(dir .. "/util.tl", "local record U\nend\nfunction U.twice(n: integer): integer return n * 2 end\nreturn U\n"))
   assert(Fs.write(dir .. "/top.tl", "local util = require(\"util\")\nprint(\"ran\")\nreturn util.twice(1)\n"))
-  local good = run(w, "return { lines = #Host.check(\"top.tl\") }\n", nil, dir)
-  assert(good["ok"] == true and value_text(good) == "{\"lines\":0}" and good["output"] == "", shown(good))
+  local good = run(w, "Host.check(\"top.tl\")\nreturn { passed = true }\n", nil, dir)
+  assert(good["ok"] == true and value_text(good) == "{\"passed\":true}" and good["output"] == "", shown(good))
   assert(Fs.write(dir .. "/top.tl", "local util = require(\"util\")\nlocal s: string = util.twice(1)\nreturn s\n"))
-  local bad = run(w, "return { first = Host.check(\"top.tl\")[1] or \"\" }\n", nil, dir)
-  assert(bad["ok"] == true and value_text(bad):find("top.tl:2:", 1, true) ~= nil, shown(bad))
+  local bad = run(w, "Host.check(\"top.tl\")\nprint(\"after\")\n", nil, dir)
+  assert(bad["ok"] ~= true and tostring(bad["error"]):find("top.tl:2:", 1, true) ~= nil and bad["output"] == "", shown(bad))
   -- A module it requires is checked too, read anew: a snippet that loaded it first still sees the edit after.
   local loaded = run(w, "local U = require(\"util\")\nreturn { n = U.twice(2) }\n", nil, dir)
   assert(loaded["ok"] == true and value_text(loaded) == "{\"n\":4}", shown(loaded))
   assert(Fs.write(dir .. "/util.tl", "local record U\nend\nfunction U.twice(n: integer): integer return \"x\" end\nreturn U\n"))
   assert(Fs.write(dir .. "/top.tl", "local util = require(\"util\")\nreturn util.twice(1)\n"))
-  local deep = run(w, "return { first = Host.check(\"top.tl\")[1] or \"\" }\n", nil, dir)
-  assert(deep["ok"] == true and value_text(deep):find("util.tl:3:", 1, true) ~= nil, shown(deep))
+  local deep = run(w, "Host.check(\"top.tl\")\n", nil, dir)
+  assert(deep["ok"] ~= true and tostring(deep["error"]):find("util.tl:3:", 1, true) ~= nil, shown(deep))
   local after = run(w, "local U = require(\"util\")\nreturn { n = U.twice(2) }\n", nil, dir)
   assert(after["refused"] ~= nil, shown(after))
-  local gone = run(w, "return { n = #Host.check(\"none.tl\") }\n", nil, dir)
+  local gone = run(w, "Host.check(\"none.tl\")\n", nil, dir)
   assert(gone["ok"] ~= true, shown(gone))
   worker_close(w)
 end
