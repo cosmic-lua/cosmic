@@ -3061,7 +3061,7 @@ function test_key.prepare(rec: Recording, job: Job, forks?: {string}): Prepared
     start = s.started, env = s.env, root = s.root, cwd = s.cwd, module_path = job.m.path,
     name = job.name, scratch = s.inside, own_scratch = job.own_scratch, needs = test_inputs.canonical(job.m.inputs),
     hold = s.hold, store = s.attached, closure = rec.closures[job.m.path], tree = rec.tree_names, -- checked: index_may_be_nil
-    policy = s.policy, runs = s.runs, checks = rec.checks,
+    policy = s.policy, runs = s.runs, checks = rec.checks, profile = rec.profile,
     program = if plan ~= nil then plan.program else nil end,
   })
   return { command = command, trouble = "", refused = false, unavailable = nil, relay = relay }

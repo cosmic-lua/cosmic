@@ -216,9 +216,14 @@ it when it ends.
 
 ## a profiler
 
-A sampling profiler, which needs no change to the code it measures, is on
-the [roadmap](../roadmap.md#measuring): `cosmic test --profile` would record
-each function's and line's own time into a table of `build.db`.
+A sampling profiler needs no change to the code it measures.
+`cosmic test --profile prof` runs the tests it selects, and each test's
+worker writes a profile into `prof/`. `COSMIC_PROFILE=prof` does the same
+for any cosmic process and the processes it starts. `cosmic profile prof`
+prints where the time went: the spans, then the functions with the most
+time of their own and in their stack. A [`Clock.span`] is a span of the
+profile too. [doc/performance.md](../performance.md#finding-where-time-goes)
+has the variables and the other lists.
 
 [`Clock.report`]: ../../cosmic/clock.tl
 [`Clock.span`]: ../../cosmic/clock.tl
