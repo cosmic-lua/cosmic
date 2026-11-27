@@ -1170,7 +1170,7 @@ local function loop(s: Agent.Session): boolean, string
     -- Why the budget halted the turn, where it did rather than the user.
     local spent_reason: string? = nil
     local calls = false
-    -- What a snippet gave by Host.answer: the turn ends with it as the model's reply.
+    -- What a snippet gave by Host.done: the turn ends with it as the model's reply.
     local reply_given: string? = nil
     for _, item in ipairs(content or {}) do
       local block, _ = Json.to_object(item)
@@ -1288,7 +1288,7 @@ local function loop(s: Agent.Session): boolean, string
       return finish(s, false, spent_reason)
     end
     if halted then return stop(s) end
-    -- A snippet gave the answer (Host.answer): it is the reply, kept as the model's, and no request asks for one. Not
+    -- A snippet gave the answer (Host.done): it is the reply, kept as the model's, and no request asks for one. Not
     -- where the user wrote meanwhile: the model reads that next.
     if reply_given ~= nil and #sent == 0 then
       local added, add_why = add(s, { role = "assistant", content = Json.array({ { type = "text", text = reply_given } }) })
