@@ -22,6 +22,26 @@ local function test_rows_with_tabs_breaks_and_backslashes_come_back_as_written()
   assert(#check_memo.decode("") == 0)
 end
 
+local function test_plain_rows_beside_escaped_ones_and_empty_fields_come_back_as_written()
+  local rows: {{string}} = {
+    { "plain" },
+    { "a", "" },
+    { "" },
+    { "x\\y", "\t" },
+    { "after", "the", "escape" },
+    { "", "", "" },
+  }
+  local back = check_memo.decode(check_memo.encode(rows))
+  assert(#back == #rows, #back)
+  for i, row in ipairs(rows) do
+    local got = Array.at(back, i)
+    assert(#got == #row, tostring(i) .. ": " .. tostring(#got))
+    for j, field in ipairs(row) do
+      assert(Array.at(got, j) == field, tostring(i) .. "," .. tostring(j))
+    end
+  end
+end
+
 local function test_a_key_moves_with_the_salt_the_dialect_and_the_bytes()
   local base = check_memo.key("salt", "tl", "bytes")
   assert(base == check_memo.key("salt", "tl", "bytes"))
@@ -44,6 +64,22 @@ local function test_a_run_keeps_the_rows_it_used_and_drops_the_rest()
   assert(check_memo.get(db, "k", "one") == "1")
   check_memo.finish(db, "k")
   assert(check_memo.get(db, "k", "two") == nil and check_memo.get(db, "other", "one") == "x")
+  assert(db:close())
+end
+
+--- A key a run used is kept whatever its bytes, the quotes, backslashes and control bytes the list of used keys escapes.
+local function test_a_used_key_of_any_bytes_is_kept()
+  local db = assert(Sqlite.memory())
+  local odd = 'a"b\\c\td\0e'
+  assert(check_memo.prepare(db, "k"))
+  check_memo.put(db, "k", odd, "1")
+  check_memo.put(db, "k", "plain", "2")
+  check_memo.finish(db, "k")
+  assert(check_memo.prepare(db, "k"))
+  assert(check_memo.get(db, "k", odd) == "1")
+  check_memo.finish(db, "k")
+  assert(check_memo.get(db, "k", odd) == "1", "a used key with odd bytes was dropped")
+  assert(check_memo.get(db, "k", "plain") == nil, "an unused key was kept")
   assert(db:close())
 end
 

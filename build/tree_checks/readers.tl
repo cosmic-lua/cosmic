@@ -33,6 +33,8 @@ end
 -- Until then the store's loud refusal ([`Store.meta`] raises for a withheld
 -- row) is the backstop for a read by name; a query of the handle finds no row.
 local function reads(line: string, entry: key_parts.MetaReaders): boolean
+  -- Each read below names `meta`: a line without it is looked at no further.
+  if line:find("meta", 1, true) == nil then return false end
   if line:find("^%s*function ") ~= nil then return false end
   for _, name in ipairs(entry.keys) do
     for _, quote in ipairs({ '"', "'" }) do
@@ -84,7 +86,9 @@ function tree_readers.meta_readers(db: Build, group: string, named?: {string}): 
   end
   local found: mut {string: boolean} = {}
   for _, row in ipairs(rows) do
-    for line in String.lines(row:text(2)) do
+    local source = row:text(2)
+    -- A source that never names `meta` has no line that reads it.
+    for line in String.lines(if source:find("meta", 1, true) ~= nil then source else "" end) do
       if reads(line, entry) then
         found[row:text(1)] = true
         break

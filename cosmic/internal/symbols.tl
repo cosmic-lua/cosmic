@@ -142,7 +142,10 @@ function symbols.shown_docs(alias: string, public: boolean, indexed?: boolean): 
       ".module AND lr.source_symbol = " .. written .. " AND " ..
       symbols.local_declaration("lr") .. ")"
   else
-    hidden = "(" .. alias .. ".module, " .. written .. ") NOT IN (SELECT lr.module, " ..
+    -- One value and not the pair: SQLite gathers a list of values once into an index of its own, but tests a pair
+    -- against the list row by row, which took seconds over the tree's docs. A module's name holds no space, so the
+    -- joined value names the pair.
+    hidden = "(" .. alias .. ".module || ' ' || " .. written .. ") NOT IN (SELECT lr.module || ' ' || " ..
       "lr.source_symbol FROM docs lr WHERE " .. symbols.local_declaration("lr") .. ")"
   end
   return module .. " AND (" .. symbol .. " = '' OR (" ..
