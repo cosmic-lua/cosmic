@@ -1291,6 +1291,10 @@ local record Fix
   mut changes_only?: boolean
   --- The `Old=new` of `--rename`, made before the rest of the run ([`rename_first`]).
   mut rename?: string
+  --- The files `--rename` wrote, root-relative ([`rename_first`]).
+  mut renamed?: {string}
+  --- The module of the member `--rename` renamed ([`rename_first`]).
+  mut renamed_module?: string
   mut root?: string
   mut standing?: tree.Standing
 
@@ -1373,7 +1377,20 @@ local function rename_first(ctx: Fix): integer?
     log:complain("fix: --rename left " .. String.counted(#done.left, "line") .. " named above: edit them by hand")
     return 1
   end
+  ctx.renamed = done.written
+  ctx.renamed_module = done.module
   return nil
+end
+
+--- Starts the check of `ci/` beside a run over the whole tree, and tells that `eval/` is not checked: each is a
+--- project of its own, which the tree's own checks read none of, checked beside them as CI does.
+local function start_projects(ctx: Fix)
+  if not assert(ctx.picked).whole then return end
+  if CiProject.applies(assert(ctx.root)) then
+    ctx.ci = CiProject.start(assert(ctx.root), ctx.checking == true)
+  end
+  log:say("fix: eval/ is a project of its own and is not checked here: run `cosmic fix --check` with eval/ as the " ..
+      "working directory (CI does)")
 end
 
 --- Chooses the files the run covers, narrowing them for `--changed`.
@@ -1424,14 +1441,8 @@ local function choose_files(ctx: Fix): integer?
     end
   end
   ctx.picked = picked
-  -- ci/ is a project of its own, which the tree's own checks read none of: it is checked beside them, as CI does.
-  if picked.whole and CiProject.applies(assert(ctx.root)) then
-    ctx.ci = CiProject.start(assert(ctx.root), ctx.checking == true)
-  end
-  if picked.whole then
-    log:say("fix: eval/ is a project of its own and is not checked here: run `cosmic fix --check` with eval/ as the " ..
-        "working directory (CI does)")
-  end
+  -- A rename's run starts them once the rename is made ([`fix_verb`]).
+  if ctx.rename == nil then start_projects(ctx) end
   -- What the checks spanning files cover: a run of `--changed` lays out
   -- only some of it.
   local every = picked.every
@@ -2300,6 +2311,37 @@ local function fix_verb(argv: {string}): integer
   if ctx.rename ~= nil then
     code = rename_first(ctx)
     if code ~= nil then return code end
+    -- With no paths named, the rest of the run lays out and checks the files the rename wrote, not the whole tree:
+    -- in cosmic's own tree that is seconds, not minutes of the checks that span it.
+    -- Those are the files it wrote and each Teal file that binds the module by `require`, where a use `cosmic uses`
+    -- missed would hide: the build of them names any place left.
+    local renamed = ctx.renamed
+    if renamed ~= nil and #renamed > 0 and #assert(ctx.paths) == 0 and ctx.changes_only ~= true then
+      local root = assert(ctx.root)
+      local Rename = require("build.fix.rename")
+      local module = assert(ctx.renamed_module)
+      local seen: mut {string: boolean} = {}
+      local paths: mut {string} = {}
+      for _, file in ipairs(renamed) do
+        seen[file] = true
+        paths[#paths + 1] = root .. "/" .. file
+      end
+      for _, file in ipairs(assert(ctx.picked).files) do
+        if seen[file] == nil then
+          local source, _ = Fs.read(root .. "/" .. file)
+          if source ~= nil and Rename.binds(source, module) then
+            seen[file] = true
+            paths[#paths + 1] = root .. "/" .. file
+          end
+        end
+      end
+      ctx.paths = paths
+      code = choose_files(ctx)
+      if code ~= nil then return code end
+    else
+      -- A run the rename did not narrow covers what it would have without one.
+      start_projects(ctx)
+    end
   end
   -- Only a run over the whole of cosmic's tree makes the memoed checks worth sharing; one that cannot share makes
   -- them itself.

@@ -36,6 +36,8 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Proc = require("cosmic.proc")
+local sys = require("cosmic.sys")
+local ArtifactRow = require("artifact_row")
 local Causes = require("causes")
 local Report = require("report")
 local ReportData = require("report_data")
@@ -73,6 +75,11 @@ local record Agent
     --- the report's per-set totals say whether a change helps beyond the tasks it was made from. A task moves to
     --- the tuned set when a change is made from its refusals.
     held?: boolean
+    --- True for a task on cosmic's own tree, `--fixture` a checkout of the tool's own source: each run's copy gets
+    --- the tool in its build directory, its `built_from` row naming the copy ([`ArtifactRow.with`]), so the copy is
+    --- cosmic's own tree to it, as CI's copies of the tree are. A fixture that is not the tool's source makes the tool
+    --- rebuild itself, which takes minutes.
+    own?: boolean
   end
 
   --- A web API of a task: a program started for each run, which serves its data at 127.0.0.1 on a port the
@@ -216,6 +223,8 @@ local record Agent
     --- Starts `argv` in `cwd` and waits, for at most `seconds`, until the file `ready` holds a port: the port,
     --- and a call that ends the program. Nil and why where it ended or did not say so in time.
     serve: function(argv: {string}, cwd: string, ready: string, seconds: integer): (string, function()) | (nil, string)
+    --- Writes the tool `from` at `to`, executable, as one built from the tree at `root` (its real path).
+    retarget: function(from: string, to: string, root: string)
   end
 
   --- Every task, in the order a report lists them.
@@ -809,6 +818,7 @@ Agent.tasks = {
   {
     name = "rename-shared",
     held = true,
+    own = true,
     prompt = "In cosmic/, rename the function format of cosmic/web/cookies.tl (`Cookies.format`) to render, " ..
       "everywhere it is defined, called or named as `Cookies.format` in the .tl files, and change nothing else, " ..
       "comment prose too: other functions named format (Csp.format, Json.format, Example.format, string.format) stay.",
@@ -1241,6 +1251,7 @@ function Agent.execute(options: Agent.Options, system: Agent.System, key: string
     spent = system.spent,
     put = system.put,
     serve = system.serve,
+    retarget = system.retarget,
   }
   -- A copy of the task's fixture at `dest`, with the files that instruct an agent left out when the evals say so,
   -- and the task's setup run in it.
@@ -1309,7 +1320,31 @@ function Agent.execute(options: Agent.Options, system: Agent.System, key: string
           local marker = "bench-" .. tool.name .. "-" .. task.name .. "-"
           local work = own.fresh(marker)
           copied(work, task)
-          local argv: mut {string} = { tool.path, "agent", "ask", "--model", options.model }
+          -- Each run's own build home and temporary directory, as a test's worker has them in its scratch
+          -- directory (build/test_sandbox.tl): no run reads what another built.
+          local scratch = own.fresh("scratch-" .. marker)
+          -- Searchable by every user, its tmp as /tmp is: where the agent is root, its sandboxed programs run as a user
+          -- of their own, which is granted files beneath it.
+          local laid = own.run({ "bash", "-c", 'mkdir -p "$0/build" "$0/tmp" && chmod 755 "$0" "$0/build" && ' ..
+              'chmod 1777 "$0/tmp"', scratch }, "/", nil, 60)
+          assert(laid.code == 0, "the scratch directory of a run was not laid out: " .. laid.stderr)
+          local run_env: mut {string: string} = {}
+          for k, v in pairs(env) do run_env[k] = v end
+          run_env["COSMIC_BUILD_HOME"] = scratch .. "/build"
+          run_env["TMPDIR"] = scratch .. "/tmp"
+          local program = tool.path
+          if task.own == true then
+            local found = own.run({ tool.path, "--standalone", work .. "/build/paths.tl", work }, work, run_env, 60)
+            local directory = Agent.first_line(found.stdout)
+            assert(found.code == 0 and directory ~= nil,
+              "the build directory of " .. task.name .. "'s copy was not named: " .. found.stderr)
+            program = directory .. "/bin/cosmic"
+            own.retarget(tool.path, program, work)
+            -- The sandbox grants a deep `bin` on PATH as its parent (cosmic/agent/policy.tl): this copy's own build
+            -- directory, which its commands build into all the same.
+            if bin ~= nil then run_env["PATH"] = directory .. "/bin:" .. (run_env["PATH"] or "") end
+          end
+          local argv: mut {string} = { program, "agent", "ask", "--model", options.model }
           local effort = tool.effort
           if effort ~= nil then
             argv[#argv + 1] = "--effort"
@@ -1354,10 +1389,10 @@ function Agent.execute(options: Agent.Options, system: Agent.System, key: string
           local asked: Agent.Output = { code = 127, stdout = "", stderr = unserved or "" }
           local ran, why = pcall(function()
             if unserved ~= nil then return end
-            asked = own.run(argv, work, env, options.timeout)
+            asked = own.run(argv, work, run_env, options.timeout)
             if follow_up == nil or asked.code ~= 0 then return end
             again[#again + 1] = follow_up
-            local next_asked = own.run(again, work, env, options.timeout)
+            local next_asked = own.run(again, work, run_env, options.timeout)
             asked = { code = next_asked.code, stdout = asked.stdout .. "\n--- follow-up\n" .. next_asked.stdout,
               stderr = asked.stderr .. "\n--- follow-up\n" .. next_asked.stderr,
               seconds = (asked.seconds or 0) + (next_asked.seconds or 0) }
@@ -1867,7 +1902,21 @@ local function real(out: string): Agent.System
     stop()
     return nil, "it did not serve in " .. tostring(seconds) .. " s"
   end
-  return { run = run, fresh = fresh, discard = discard, spent = spent, put = put, serve = serve }
+  local function retarget(from: string, to: string, root: string)
+    local parent = to:match("^(.*)/[^/]*$")
+    if parent ~= nil and parent ~= "" then assert(Fs.mkdirs(parent)) end
+    local real_root = assert(sys.realpath(root))
+    -- A tool named bare, as `--tool t=cosmic` names it, is the one on PATH, as [`real`]'s `run` finds it.
+    local source = from
+    if from:find("/", 1, true) == nil then
+      local found, _ = Proc.find(from)
+      source = found or from
+    end
+    assert(Fs.write(to, ArtifactRow.with(assert(Fs.read(source)), to .. ".retarget.db", real_root)))
+    -- rwxr-xr-x
+    assert(Fs.chmod(to, 493))
+  end
+  return { run = run, fresh = fresh, discard = discard, spent = spent, put = put, serve = serve, retarget = retarget }
 end
 
 --- Runs the evals `argv` asks for: 0 when every graded run passed, 1 when one did not, 2 for a bad command line.
