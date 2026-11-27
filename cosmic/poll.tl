@@ -13,7 +13,7 @@
 --- [`Poll.run`] runs its function as the first task, and returns once every
 --- task has ended. A task waits by calling `wait` (`readable` and
 --- `writable` are calls to it) or a Task's `join`, each of which
---- returns true once what it waits for happens, or false and a
+--- returns true once what it waits for happens, or nil and a
 --- [`Failure`] of kind "timeout" once its `timeout_ns` passes first, or of
 --- kind "cancelled" once the task is cancelled; `ready` waits on
 --- several descriptors at once, and returns what each had, as
@@ -48,7 +48,7 @@ local record Poll
   --- [`Poll.spawn`].
   interface Task
     --- Waits for the task to end, at most `timeout_ns` nanoseconds (no
-    --- limit when nil): true once it has returned, false and
+    --- limit when nil): true once it has returned, nil and
     --- a Failure of kind "timeout" or "cancelled" otherwise -- "cancelled", too, for
     --- a task killed, or one a failed run closed where it waited.
     join: function(Task, timeout_ns?: integer): (true) | (nil, Failure)
@@ -731,7 +731,7 @@ end
 --- or has failed, at most `timeout_ns` nanoseconds (no limit when nil):
 --- true once it has, nil and a Failure of kind "timeout" once `timeout_ns`
 --- passes first, nil and a Failure of kind "cancelled" once the task is cancelled,
---- or false and why the descriptor could not be waited on. In a task
+--- or nil and why the descriptor could not be waited on. In a task
 --- the other tasks run meanwhile. A caller that is none holds the thread:
 --- one [`sys.poll`] for the whole time left, called again only where it
 --- returns early with nothing ready (a signal). With no `timeout_ns`,

@@ -849,7 +849,7 @@ function wire.body(input: wire.Input, head: wire.Head, limits: wire.Limits,
   return r
 end
 
---- True, or false and why the server cannot send `headers` as given: a name that is
+--- True, or nil and why the server cannot send `headers` as given: a name that is
 --- no token, a value holding CR, LF or NUL, or a header the server
 --- writes itself.
 local function headers_trouble(headers: {string: string | {string}}): (true) | (nil, Failure)

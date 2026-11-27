@@ -387,7 +387,7 @@ local record McpServer
     --- `notifications/cancelled` cancels the request it names. Called
     --- outside a [`Poll.run`], it runs one of its own. A line longer than
     --- [`Mcp.MAX_MESSAGE_BYTES`], or a failure to read or write, ends it
-    --- with false and why. Write nothing else to stdout meanwhile: it is
+    --- with nil and why. Write nothing else to stdout meanwhile: it is
     --- the protocol's alone, and a log goes to stderr.
     serve_stdio: function(Instance, input?: Stream.Reader, output?: Stream.Writer): (true) | (nil, Failure)
     --- A handler for [`cosmic.http.server`] that speaks Streamable HTTP at `spec.path`: one POST a message, each response

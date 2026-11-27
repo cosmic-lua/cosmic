@@ -159,7 +159,7 @@ local function fail(p: Parser, why: Failure): nil, Failure
   return nil, why
 end
 
---- Reads more of the source into the buffer; false and why when it fails.
+--- Reads more of the source into the buffer; nil and why when it fails.
 --- At the end of the source `eof` is set and nothing is added.
 local function fill(p: Parser): (true) | (nil, Failure)
   if p.eof then return true end

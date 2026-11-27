@@ -1109,12 +1109,20 @@ local function asserted_boolean(ctx: Ctx, node: Ast.Node, args: {Ast.Exp}, t: Ty
   if callee.kind ~= "Name" or callee.binding ~= nil or callee.text ~= "assert" or not holds_boolean(ctx, t) then
     return
   end
-  local text = text_of(ctx, first)
+  -- As in a condition, the right operand of `and` and `or` is the one whose value is asserted.
   local at = peel(first)
-  if (at.kind == "Binary") and (at.op == "and" or at.op == "or") then
-    -- As in a condition: each operand is tested, and the whole is no value of its own.
-    return
+  while (at.kind == "Binary") and (at.op == "and" or at.op == "or") do
+    local right = ctx.right_types[at.id]
+    if right == nil then
+      break
+    end
+    if not holds_boolean(ctx, right) then
+      return
+    end
+    first, t = at.right, right
+    at = peel(first)
   end
+  local text = text_of(ctx, first)
   local fix = "say which is asserted: `assert(" .. text .. " ~= nil)` that it is there, or `assert(" .. text .. " == true)` that it is true"
   -- `assert` passes the value where it is `true`. A call's other values would be cut by `==`, so a call has no rewrite.
   local rewrite: Codes.Rewrite? = if Operands.only_boolean(ctx, t) then Operands.is_true(first) else nil end

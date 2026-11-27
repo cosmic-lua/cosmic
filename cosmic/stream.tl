@@ -188,7 +188,7 @@ local record Stream
     --- True while more may be written; nil and the failure, or
     --- "<name>: the writer is closed" once `close` or `abort` ran.
     usable: function(Sticky): (true) | (nil, Failure)
-    --- Puts `trailer` and closes the Writer, once: false and the
+    --- Puts `trailer` and closes the Writer, once: nil and the
     --- failure kept when there is one, and true when it is already
     --- closed.
     close: function(Sticky, trailer: string): (true) | (nil, Failure)

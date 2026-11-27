@@ -249,13 +249,13 @@ local record Fs
   --- Every failure names the path, never the temporary file, and is
   --- sticky.
   interface Staged
-    --- Appends `data`: false and a [`Failure`] when it cannot all be
+    --- Appends `data`: nil and a [`Failure`] when it cannot all be
     --- written.
     write: function(Staged, string): (true) | (nil, Failure)
     --- Flushes what was written to storage, so that the rename `close`
     --- makes cannot reach it before the data does.
     sync: function(Staged): (true) | (nil, Failure)
-    --- Renames the file onto its path: false and a [`Failure`] when a
+    --- Renames the file onto its path: nil and a [`Failure`] when a
     --- write failed, or the rename or the closing of the file does.
     --- Safe to call more than once; after `abort` it renames nothing
     --- and returns true.
@@ -523,7 +523,7 @@ end
 --- new one, so it gets `mode` (default 0644, less the umask) and never
 --- keeps an existing file's mode. Nothing is synced, so a crash can
 --- still lose the write. A device, FIFO or socket at `path` is refused,
---- as [`Fs.create`] says. Returns true, or false and a [`Failure`] that
+--- as [`Fs.create`] says. Returns true, or nil and a [`Failure`] that
 --- names `path` and the errno.
 function Fs.write(path: string, data: string, mode?: integer): (true) | (nil, Failure)
   local file, trouble = staged_file(path, mode)
@@ -680,7 +680,7 @@ end
 --- file. Each write starts at the file's current end, but short writes
 --- can interleave with another appender, and a failure can leave a
 --- prefix appended. Nothing is synced; use [`Fs.write`] to replace a
---- file atomically instead. Returns true, or false and a [`Failure`]
+--- file atomically instead. Returns true, or nil and a [`Failure`]
 --- naming `path`; a write failure wins over a close failure.
 function Fs.append(path: string, data: string, mode?: integer): (true) | (nil, Failure)
   local file <close>: AppendFile = { fd = -1 }

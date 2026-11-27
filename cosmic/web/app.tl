@@ -192,7 +192,7 @@ end
 
 --- Runs `app` over [`Server.serve`]: its lifespan first, then the server
 --- until it stops, then the lifespan's cleanup: true when the server
---- stopped cleanly, or false and a [`Failure`]. See [`Web.serve`].
+--- stopped cleanly, or nil and a [`Failure`]. See [`Web.serve`].
 --- @param app Types.App The app
 --- @param opts Types.ServeOptions Where and how
 function App.serve(app: Types.App, opts: Types.ServeOptions): (true) | (nil, Failure)

@@ -727,7 +727,7 @@ local stat <const> = sys.stat
 local seatbelt_resolve <const> = Seatbelt.resolve
 local seatbelt_compile <const> = Seatbelt.compile
 
---- What [`Sandbox.restrict`] returns for a failure: false and `why`.
+--- What [`Sandbox.restrict`] returns for a failure: nil and `why`.
 local function denied(why: string): (true) | (nil, Failure)
   return nil, Failure.new("sandbox: restrict: " .. why)
 end

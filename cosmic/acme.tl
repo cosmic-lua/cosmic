@@ -173,7 +173,7 @@ local record Acme
     --- The challenge type to complete, "http-01" when nil.
     challenge?: ChallengeType
     --- Publishes a challenge's response before the server checks it:
-    --- true, or false and why, which stops the issue. The server checks
+    --- true, or nil and why, which stops the issue. The server checks
     --- as soon as this returns, so it returns only once the response is
     --- reachable: a dns-01 record has spread to the zone's servers.
     present: function(challenge: Challenge): (true) | (nil, Failure)
@@ -223,7 +223,7 @@ local record Acme
   record DnsHooks
     --- Puts the TXT record `challenge.dns_name` with the value
     --- `challenge.dns_value` in the zone. Returns true only once the
-    --- zone's servers respond with it, or false and why, which stops the
+    --- zone's servers respond with it, or nil and why, which stops the
     --- issue.
     present: function(challenge: Challenge): (true) | (nil, Failure)
     --- Removes it, once the authorization is settled either way.
@@ -306,7 +306,7 @@ local record Acme
     get_order: function(self: Client, url: string): (Order) | (nil, Failure)
     --- The authorization at `url`.
     authorization: function(self: Client, url: string): (Authorization) | (nil, Failure)
-    --- Tells the server to check the challenge: true, or false and why.
+    --- Tells the server to check the challenge: true, or nil and why.
     respond: function(self: Client, challenge: Challenge): (true) | (nil, Failure)
     --- Polls the order or authorization at `url` until its status is
     --- not "pending" or "processing", and returns that status. Nil and
@@ -643,7 +643,7 @@ local function leaf_of(chain: string): (Leaf) | (nil, Failure)
 end
 
 --- Whether the leaf of the PEM `chain` certifies `key` for exactly the
---- DNS names `names`: true, or false and why.
+--- DNS names `names`: true, or nil and why.
 local function leaf_matches(chain: string, key: Key.Secret, names: {string}): (true) | (nil, Failure)
   local leaf, why = leaf_of(chain)
   if leaf == nil then return nil, why end

@@ -1546,7 +1546,7 @@ function Http.download(url: string, path: string, opts: Http.DownloadOptions): (
 end
 
 --- Whether the TLS stack reads `der` as one X.509 certificate, as it
---- reads each CA root this binary trusts: true, or false and a
+--- reads each CA root this binary trusts: true, or nil and a
 --- [`Failure`]. A certificate it cannot read is one it would never
 --- trust, so a set of roots is worth checking with this before a binary
 --- carries it. Raises when there was no memory to read it.

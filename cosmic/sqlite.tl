@@ -6,7 +6,7 @@
 --- caller wants: a query that yields rows, all at once (`db:rows`) or
 --- one at a time (`db:query`), a statement run once (`db:run`), and a
 --- transaction that rolls back when the work inside it fails
---- (`db:transact`); each returns nil or false and a [`Failure`] when
+--- (`db:transact`); each returns nil and a [`Failure`] when
 --- SQLite refuses.
 ---
 --- Parameters are a list of values, one per `?N`, in order; a result
@@ -795,7 +795,7 @@ local class Handle
   --- the others cannot do, since each prepares exactly one statement.
   --- No statement is retried: an earlier statement may already have
   --- changed the database when a later one fails. For SQL holding a NUL
-  --- it returns false and why ([`Sqlite.MISUSE`]).
+  --- it returns nil and why ([`Sqlite.MISUSE`]).
   function exec(self, sql: string): (true) | (nil, Failure)
     if sql:find("\0", 1, true) ~= nil then
       return nil, Failure.coded("sqlite: the SQL holds a NUL", MISUSE)
@@ -1239,7 +1239,7 @@ local class Handle
   --- opening a database in write-ahead mode makes its `-wal` and `-shm`
   --- files beside it where they are missing (`immutable` opens none).
   --- A refusal returns [`Sqlite.AUTH`] and says what was refused. Returns
-  --- true, or false and why; calling it again does nothing. A borrowed
+  --- true, or nil and why; calling it again does nothing. A borrowed
   --- handle, such as the store's, raises: the store holds its own to
   --- queries already. [`Sqlite.open`]'s `reads_only` does this as it opens.
   ---
@@ -1253,7 +1253,7 @@ local class Handle
     return true
   end
 
-  --- Closes the connection: true, or false and why, [`Sqlite.BUSY`] as
+  --- Closes the connection: true, or nil and why, [`Sqlite.BUSY`] as
   --- SQLite returns it, while a statement or query is still open.
   --- Closing one already closed does nothing. A borrowed handle, such as
   --- the store's, only lets go of it.

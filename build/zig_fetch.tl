@@ -173,6 +173,13 @@ function ZigFetch.limits(connect_ns: integer, low_speed_bytes: integer, low_spee
     digests = if sha256 ~= nil then { ["sha256"] = sha256 } else nil end }
 end
 
+--- [`Http.download`] as a [`ZigFetch.Fetcher`] downloads, read at each call (a test may replace it).
+local function http_download(url: string, path: string, opts: Http.DownloadOptions): Failure?
+  local done, why = Http.download(url, path, opts)
+  if done == true then return nil end
+  return why
+end
+
 --- Downloads the file whose sha256 is `sha256` to `path` from the first
 --- of `urls` that serves it, going over them up to `ROUNDS` times with a
 --- growing pause between rounds. Every url but the last is a mirror,
@@ -189,13 +196,6 @@ end
 --- mismatch too, and giving up the one source every list ends with on
 --- that would make it fatal. When every attempt fails, the message names
 --- each source, its last trouble and how long that attempt ran.
---- [`Http.download`] as a [`ZigFetch.Fetcher`] downloads, read at each call (a test may replace it).
-local function http_download(url: string, path: string, opts: Http.DownloadOptions): Failure?
-  local done, why = Http.download(url, path, opts)
-  if done == true then return nil end
-  return why
-end
-
 function ZigFetch.fetch(urls: {string}, path: string, sha256: string,
                         via?: ZigFetch.Fetcher): boolean, string
   local fetcher: ZigFetch.Fetcher = { download = http_download, sleep = real_sleep, now = Clock.monotonic_ns }

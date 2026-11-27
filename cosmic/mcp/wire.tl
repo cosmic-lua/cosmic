@@ -781,7 +781,7 @@ function wire.needs_input(result: any): boolean
   return kind ~= nil and kind.resultType == "input_required"
 end
 
---- Whether `result` is a final result: true, or false and why for one that is no object, asks
+--- Whether `result` is a final result: true, or nil and why for one that is no object, asks
 --- for more ("input_required", which this client never declared a
 --- capability for) or names a kind no revision defines.
 function wire.complete(result: any): (true) | (nil, Failure)

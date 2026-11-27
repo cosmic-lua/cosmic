@@ -1079,7 +1079,7 @@ end
 --- Serves HTTP/1.1 at each of `spec.listeners`, calling `spec.handle`
 --- for each request, until the server stops: [`Net.serve`], whose
 --- connections, signals and stopping it shares, speaking HTTP. It
---- returns when [`Net.serve`] does: true, or false and its
+--- returns when [`Net.serve`] does: true, or nil and its
 --- [`Failure`]. It raises for a spec of the wrong shape, naming
 --- the field, and when called in a task of a [`Poll.run`]. What
 --- `spec.on_ready` or `spec.on_error` raises, it raises, as [`Net.serve`]

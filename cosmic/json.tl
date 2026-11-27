@@ -718,7 +718,7 @@ function Json.encode(value: Json.Value, opts?: Json.EncodeOptions): (string) | (
   return got
 end
 
---- true when `decode(text, opts)` would read the text; else false and
+--- true when `decode(text, opts)` would read the text; else nil and
 --- the [`Failure`] it would fail with. It builds no value, so it
 --- costs a fraction of a decode. `null_value` changes nothing here.
 function Json.check(text: string, opts?: Json.DecodeOptions): (true) | (nil, Failure)
