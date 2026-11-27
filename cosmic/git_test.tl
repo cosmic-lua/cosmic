@@ -180,3 +180,33 @@ local function test_refusals(tmp: string)
   local strange, strange_why = Git.open(root)
   assert(strange == nil and tostring(strange_why):find("unheardof", 1, true) ~= nil, tostring(strange_why))
 end
+
+--- The refusals a hostile worktree or repository meets: a path through
+--- a link, `.git` in another spelling, a linked `.gitmodules`, a HEAD
+--- that names a file outside refs/, and an identity that would forge a
+--- header line.
+local function test_hostile_inputs_are_refused(tmp: string)
+  local root = scratch(tmp)
+  assert(Fs.mkdirs(tmp .. "/elsewhere"))
+  assert(Fs.write(tmp .. "/elsewhere/secret", "secret\n"))
+  assert(Fs.symlink(tmp .. "/elsewhere", root .. "/linked"))
+  local repo = assert(Git.open(root))
+  local through, through_why = repo:add({ "linked/secret" })
+  assert(through == nil and tostring(through_why):find("symbolic link", 1, true) ~= nil, tostring(through_why))
+  for _, path in ipairs({ ".GIT/config", "dir/.Git./x", "GIT~1/config", "dir/../a.txt", "./" }) do
+    local got, why = repo:add({ path })
+    assert(got == nil, path .. ": " .. tostring(why))
+  end
+  assert(Fs.symlink("a.txt", root .. "/.gitmodules"))
+  local modules, modules_why = repo:add({ ".gitmodules" })
+  assert(modules == nil, tostring(modules_why))
+  assert(Fs.remove(root .. "/.gitmodules"))
+  local forged, forged_why = repo:commit({ message = "forged", allow_empty = true,
+    author = { name = "Test", email = "t@example.com>\ncommitter Evil <e@example.com", time = 1, tz = "+0000" } })
+  assert(forged == nil and tostring(forged_why):find("identity", 1, true) ~= nil, tostring(forged_why))
+  assert(Fs.write(root .. "/.git/HEAD", "ref: refs/../config\n"))
+  local head, head_why = repo:head()
+  assert(head == nil and tostring(head_why):find("malformed", 1, true) ~= nil, tostring(head_why))
+  assert(Fs.write(root .. "/.git/HEAD", "ref: refs/heads/main\n"))
+  git(root, { "fsck", "--strict", "--no-dangling" })
+end

@@ -309,6 +309,17 @@ local function exercise(root: string): boolean, string
   return true, ""
 end
 
+--- Config lines that open refuses, then ones it reads past.
+local CONFIG_LINES <const> = {
+  "[core]\n\trepositoryformatversion = 2\n",
+  "[core]\n\trepositoryformatversion = 1\n[extensions]\n\tobjectformat = sha256\n",
+  "[core]\n\trepositoryformatversion = 1\n[extensions]\n\trefstorage = reftable\n",
+  "[core]\n\trepositoryformatversion = 1\n[extensions]\n\tunheardof\n",
+  "[core]\n\tlogallrefupdates = off\n",
+  "[core]\n\tfilemode = 0\n",
+  "[user]\n\tname = \"quoted \\\" name\"\n",
+}
+
 local function test_every_call_is_total_over_a_damaged_repository(tmp: string)
   local sample = samples(tmp .. "/template")
   local paths: mut {string} = {}
@@ -319,6 +330,13 @@ local function test_every_call_is_total_over_a_damaged_repository(tmp: string)
     name = "git damaged",
     dir = tmp,
     gen = function(src: Fuzz.Source): string
+      -- A quarter of the inputs add a config line that open must refuse
+      -- or read past, so the refusals are reached and not left to the
+      -- mutator.
+      if src:int(0, 3) == 0 then
+        local config = ".git/config"
+        return Fuzz.pack({ config, sample[config]! .. Fuzz.pick(src, CONFIG_LINES), "as is" })
+      end
       local path = Fuzz.pick(src, paths)
       local signed = if path == ".git/index" and src:int(0, 1) == 0 then "signed" else "as is" end
       return Fuzz.pack({ path, Fuzz.mutate(src, sample[path]!, 4), signed })

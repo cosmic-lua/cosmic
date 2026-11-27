@@ -187,10 +187,13 @@ end
 
 local ZERO_OID <const> = string.rep("0", 40)
 --- The most deltas one object may stand on: git's own default depth is
---- 50, and a chain far longer than any git writes is a loop or an attack.
-local MAX_DELTA_DEPTH <const> = 10000
---- The most bytes one object may expand to.
-local MAX_OBJECT <const> = 1 << 31
+--- 50, and pack-objects writes at most 4095.
+local MAX_DELTA_DEPTH <const> = 4095
+--- The most bytes one object may expand to: a small zlib stream or
+--- delta can claim far more than it holds.
+local MAX_OBJECT <const> = 1 << 28
+--- The most bytes of resolved pack objects kept for delta bases.
+local CACHE_BYTES <const> = 1 << 26
 local NS <const> = Clock.seconds(1)
 local U32 <const> = 0xFFFFFFFF
 
@@ -200,6 +203,40 @@ local KIND_NAMES: {string:Git.Kind} = { commit = "commit", tree = "tree", blob =
 --- The raw (20-byte) form of a hex oid already checked by [`is_oid`].
 local function raw_of(oid: string): string
   return Codec.unhex(oid)!
+end
+
+--- Whether `name` is a ref name git accepts (check-ref-format): HEAD,
+--- or under refs/ with no `..`, `@{`, empty or dot-led part, `.lock`
+--- part end, control byte or any of ` ~^:?*[\`.
+local function valid_ref(name: string): boolean
+  if name == "HEAD" then return true end
+  if name:find("^refs/") == nil or name:sub(-1) == "/" or name:sub(-1) == "." then return false end
+  if name:find("..", 1, true) ~= nil or name:find("@{", 1, true) ~= nil or name:find("//", 1, true) ~= nil then
+    return false
+  end
+  if name:find("[%z\1-\31\127 ~%^:%?%*%[\\]") ~= nil then return false end
+  for part in name:gmatch("[^/]+") do
+    if part:sub(1, 1) == "." or part:sub(-5) == ".lock" then return false end
+  end
+  return true
+end
+
+--- Why git would refuse `path` as an index path (verify_path), or nil:
+--- empty parts, `.` or `..`, `.git` in any spelling a case-folding
+--- or NTFS file system reads as it, or a NUL.
+local function path_trouble(path: string): string?
+  if path == "" then return "an empty path names no file" end
+  if path:find("%z") ~= nil then return "path holds a NUL" end
+  if path:sub(1, 1) == "/" or path:sub(-1) == "/" or path:find("//", 1, true) ~= nil then
+    return "path holds an empty part"
+  end
+  for part in path:gmatch("[^/]+") do
+    local folded = part:lower():gsub("[%. ]+$", "")
+    if part == "." or part == ".." or folded == ".git" or folded == "git~1" then
+      return "path holds a \"" .. part .. "\" part"
+    end
+  end
+  return nil
 end
 
 local function is_oid(s: string): boolean
@@ -287,7 +324,11 @@ local function config_bool(c: Config, name: string, default: boolean): boolean
   local v = config_get(c, name)
   if v == nil then return default end
   v = v:lower()
-  return v == "true" or v == "yes" or v == "on" or v == "1" or v == ""
+  if v == "true" or v == "yes" or v == "on" then return true end
+  if v == "false" or v == "no" or v == "off" or v == "" then return false end
+  local n = math.tointeger(tonumber(v))
+  if n ~= nil then return n ~= 0 end
+  return default
 end
 
 --- Repository extensions this module reads correctly, as their
@@ -806,6 +847,7 @@ local class Repository is Git.Repo
   mut shallow?: {string:boolean}
   --- Resolved pack objects by "<pack path>@<offset>", for delta bases.
   mut cache: mut {string:Git.Object}
+  --- The bytes of data `cache` holds.
   mut cached: integer
 
   function list_packs(self): ({Pack}) | (nil, Failure)
@@ -856,7 +898,9 @@ local class Repository is Git.Repo
       size = size | ((c & 0x7F) << shift)
       shift = shift + 7
     end
-    if size > MAX_OBJECT then return refuse("pack entry too large", p.path) end
+    if size < 0 or size > MAX_OBJECT or shift > 60 then
+      return refuse("pack entry too large", p.path)
+    end
     local base: Git.Object?
     if kind_number == 6 then
       local back: integer
@@ -889,12 +933,12 @@ local class Repository is Git.Repo
     else
       return refuse("pack entry of unknown type " .. tostring(kind_number), p.path)
     end
-    if self.cached >= 256 then
+    if self.cached + #object.data > CACHE_BYTES then
       self.cache = {}
       self.cached = 0
     end
     self.cache[key] = object
-    self.cached = self.cached + 1
+    self.cached = self.cached + #object.data
     return object
   end
 
@@ -920,7 +964,7 @@ local class Repository is Git.Repo
     return false
   end
 
-  function read_object(self, oid: string, depth: integer): (Git.Object) | (nil, Failure)
+  function read_object(self, oid: string, depth: integer, rescanned?: boolean): (Git.Object) | (nil, Failure)
     if not is_oid(oid) then return refuse("not an object name: " .. oid) end
     local loose, ltrouble = self:read_loose(oid)
     if loose == nil then return nil, ltrouble end
@@ -938,6 +982,14 @@ local class Repository is Git.Repo
           break
         end
       end
+    end
+    if object == nil and self.packs ~= nil and rescanned ~= true then
+      -- Another program may have repacked since the packs were listed:
+      -- list them again, once.
+      self.packs = nil
+      self.cache = {}
+      self.cached = 0
+      return self:read_object(oid, depth, true)
     end
     if object == nil then return refuse("object " .. oid .. " is not in the store") end
     if name_of(object.kind, object.data) ~= oid then
@@ -1049,6 +1101,7 @@ local class Repository is Git.Repo
       if value == false then return false, name end
       if not value:find("^ref: ") then return value, name end
       name = value:sub(6)
+      if not valid_ref(name) then return refuse("symbolic ref to a malformed name: " .. name) end
     end
     return refuse("symbolic refs loop at " .. name)
   end
@@ -1063,7 +1116,11 @@ local class Repository is Git.Repo
     local value, trouble = self:ref_value("HEAD")
     if value == nil then return nil, trouble end
     if value == false then return refuse("HEAD is missing") end
-    if value:find("^ref: ") then return value:sub(6) end
+    if value:find("^ref: ") then
+      local name = value:sub(6)
+      if not valid_ref(name) then return refuse("HEAD names a malformed ref: " .. name) end
+      return name
+    end
     return false
   end
 
@@ -1149,7 +1206,8 @@ local class Repository is Git.Repo
     while at <= #spec do
       local op = spec:sub(at, at)
       local digits = spec:match("^%d*", at + 1) or ""
-      local n = if digits == "" then 1 else math.tointeger(tonumber(digits)) or 1 end
+      local n = if digits == "" then 1 else math.tointeger(tonumber(digits)) end
+      if n == nil then return refuse("revision count out of range in " .. spec) end
       at = at + 1 + #digits
       if op ~= "^" and op ~= "~" then return refuse("unknown revision " .. spec) end
       local steps = if op == "~" then n else 1 end
@@ -1360,13 +1418,24 @@ local class Repository is Git.Repo
       path = inside
     end
     path = path:gsub("^%./", ""):gsub("/+$", "")
-    if path == "" then return refuse("an empty path names no file") end
-    for part in path:gmatch("[^/]+") do
-      if part == "." or part == ".." or part:lower() == ".git" then
-        return refuse("path holds a \"" .. part .. "\" part", path)
+    local bad = path_trouble(path)
+    if bad ~= nil then return refuse(bad, path) end
+    -- Every directory on the way must be a real one: a link there would
+    -- read, and record, a file from wherever it points.
+    local walked = self.worktree
+    local parts: mut {string} = {}
+    for part in path:gmatch("[^/]+") do parts[#parts + 1] = part end
+    for i = 1, #parts - 1 do
+      walked = walked .. "/" .. parts[i]!
+      local st, _, errno = sys.lstat(walked)
+      if st == nil then
+        if errno == sys.ENOENT or errno == sys.ENOTDIR then break end
+        return nil, Failure.system(errno, walked)
+      end
+      if st.kind ~= "dir" then
+        return refuse("path goes through a symbolic link or a file", path)
       end
     end
-    if path:find("//", 1, true) then return refuse("path holds an empty part", path) end
     return path
   end
 
@@ -1394,6 +1463,9 @@ local class Repository is Git.Repo
       if seen == nil then return fail(strouble) end
       drop[path] = true
       local now, st, blob = seen.recorded, seen.st, seen.blob
+      if now ~= nil and now.mode == 0xA000 and path:lower():match("[^/]*$") == ".gitmodules" then
+        return fail(Failure.new("git: .gitmodules may not be a symbolic link", path))
+      end
       if now ~= nil and st ~= nil and blob ~= nil then
         local oid, wtrouble = self:write_object("blob", blob)
         if oid == nil then return fail(wtrouble) end
@@ -1456,18 +1528,32 @@ local class Repository is Git.Repo
     for _, e in ipairs(entries) do
       if stage_of(e) ~= 0 then return refuse("the index has unmerged paths: " .. e.path) end
       if e.xflags & XFLAG_INTENT_TO_ADD == 0 then
+        local bad = path_trouble(e.path)
+        if bad ~= nil then return refuse("the index holds a path git refuses: " .. bad, e.path) end
+        local kind = e.mode & 0xF000
+        local mode = if kind == 0x8000 then (if e.mode & 0x49 ~= 0 then 0x81ED else 0x81A4 end)
+          elseif kind == 0xA000 or kind == 0xE000 then kind else 0 end
+        if mode == 0 then return refuse("the index holds an entry of unknown mode", e.path) end
         local node = top
         local parts: mut {string} = {}
         for part in e.path:gmatch("[^/]+") do parts[#parts + 1] = part end
         for i = 1, #parts - 1 do
-          local next_node = node.dirs[parts[i]]
+          local part = parts[i]!
+          if node.files[part] ~= nil then
+            return refuse("the index holds a file and a directory at once", e.path)
+          end
+          local next_node = node.dirs[part]
           if next_node == nil then
             next_node = { files = {}, dirs = {} }
-            node.dirs[parts[i]] = next_node
+            node.dirs[part] = next_node
           end
           node = next_node
         end
-        node.files[parts[#parts]!] = { mode = e.mode, oid = e.oid }
+        local leaf = parts[#parts]!
+        if node.files[leaf] ~= nil or node.dirs[leaf] ~= nil then
+          return refuse("the index holds a path twice, or a file and a directory at once", e.path)
+        end
+        node.files[leaf] = { mode = mode, oid = e.oid }
       end
     end
     local function write(node: Node): (string) | (nil, Failure)
@@ -1518,6 +1604,7 @@ local class Repository is Git.Repo
   --- exist) to `new` under its lock, and logs the move.
   function update_ref(self, ref: string, old: string?, new: string, reason: string,
                       who: Git.Person): (true) | (nil, Failure)
+    if not valid_ref(ref) then return refuse("not a ref name: " .. ref) end
     local path = self:ref_path(ref)
     local made, mtrouble = Fs.mkdirs(Fs.dirname(path))
     if not made then return nil, mtrouble end
@@ -1532,20 +1619,30 @@ local class Repository is Git.Repo
       drop_lock(lock)
       return refuse(ref .. " moved while committing; nothing was changed")
     end
-    local ok, trouble = commit_lock(lock)
-    if not ok then return nil, trouble end
+    -- The reflog is written under the lock, before the ref moves, as git
+    -- does: a failure leaves the ref where it was.
     local line = (old or ZERO_OID) .. " " .. new .. " " .. format_person(who) .. "\t" ..
       reason:gsub("\n.*", "") .. "\n"
     local logs: {string} = { ref }
     if ref ~= "HEAD" then logs = { ref, "HEAD" } end
+    local log_all = config_bool(self.config, "core.logallrefupdates", true)
     for _, name in ipairs(logs) do
       local log_path = (if name == "HEAD" then self.gitdir else self.commondir end) .. "/logs/" .. name
-      local dir_ok, dtrouble = Fs.mkdirs(Fs.dirname(log_path))
-      if not dir_ok then return nil, dtrouble end
-      local logged, atrouble = Fs.append(log_path, line)
-      if not logged then return nil, atrouble end
+      local present, _ = sys.lstat(log_path)
+      if log_all or present ~= nil then
+        local dir_ok, dtrouble = Fs.mkdirs(Fs.dirname(log_path))
+        if not dir_ok then
+          drop_lock(lock)
+          return nil, dtrouble
+        end
+        local logged, atrouble = Fs.append(log_path, line)
+        if not logged then
+          drop_lock(lock)
+          return nil, atrouble
+        end
+      end
     end
-    return true
+    return commit_lock(lock)
   end
 
   function commit(self, opts: Git.CommitOptions): (string) | (nil, Failure)
@@ -1575,7 +1672,16 @@ local class Repository is Git.Repo
       if c == nil then return nil, ctrouble end
       committer = c
     end
+    for _, who in ipairs({ author, committer }) do
+      if (who.name .. who.email):find("[<>\n%z]") ~= nil or who.name == "" then
+        return refuse("an identity may not hold <, >, a newline or a NUL: " .. who.name .. " <" .. who.email .. ">")
+      end
+      if who.tz:find("^[%+%-]%d%d%d%d$") == nil or who.time < 0 then
+        return refuse("an identity's time must be seconds and a +hhmm zone: " .. who.tz)
+      end
+    end
     local message = opts.message
+    if message:find("%z") ~= nil then return refuse("a commit message may not hold a NUL") end
     if message:sub(-1) ~= "\n" then message = message .. "\n" end
     local lines: mut {string} = { "tree " .. tree }
     if parent_oid ~= nil then lines[#lines + 1] = "parent " .. parent_oid end
