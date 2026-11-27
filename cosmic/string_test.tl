@@ -1,6 +1,7 @@
 local String = require("cosmic.string")
 local Test = require("cosmic.test")
 local StringList = require("build.string_list_fixture")
+local Bench = require("cosmic.bench")
 
 local function collected(text: string): {string}
   local out: mut {string} = {}
@@ -185,4 +186,32 @@ local function test_plain_find_finds_a_byte_at_every_offset()
   -- A byte at 0x80 or above is found as itself.
   local high = ("a"):rep(70) .. "\255" .. ("a"):rep(3)
   assert(high:find("\255", 1, true) == 71)
+end
+
+--- Benches. Split, lines, trim and a predicate over 1 MiB of lines.
+local BENCH_LINES <const> = string.rep("alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu\n", 16384)
+
+local function bench_split_lines_1_mib(b: Bench.B)
+  b.bytes = #BENCH_LINES
+  for _ = 1, b.n do local _ = String.split(BENCH_LINES, "\n") end
+end
+
+local function bench_lines_iterate_1_mib(b: Bench.B)
+  b.bytes = #BENCH_LINES
+  for _ = 1, b.n do
+    local count = 0
+    for _ in String.lines(BENCH_LINES) do count = count + 1 end
+  end
+end
+
+local function bench_trim_1_mib(b: Bench.B)
+  local padded = "   " .. BENCH_LINES .. "   "
+  b.bytes = #BENCH_LINES
+  b.reset()
+  for _ = 1, b.n do local _ = String.trim(padded) end
+end
+
+local function bench_contains_miss_1_mib(b: Bench.B)
+  b.bytes = #BENCH_LINES
+  for _ = 1, b.n do local _ = String.contains(BENCH_LINES, "needle") end
 end

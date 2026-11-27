@@ -66,6 +66,10 @@ to the bytes one operation reads for a rate in GB/s.
 - A bench that needs a fixture declares it with [`Test.policy`], as a test
   does. Put a costly fixture in the body before `b.reset()`, not at the
   file's top level, where every test of the file would pay for it.
+- `b.dir` is an empty directory. Each timed batch gets a new, empty one,
+  so a bench that writes files starts each batch from nothing.
+- A helper whose name starts with `bench_` is taken as a bench; name it
+  otherwise (`sample_repo`, not `bench_repo`).
 
 doc/decisions/0002-one-companion-one-runner.md says why a bench is a
 function of a test file.

@@ -1,5 +1,6 @@
 local Stream = require("cosmic.stream")
 local Xml = require("cosmic.xml")
+local Bench = require("cosmic.bench")
 
 --- Events as text, to compare: one per `|`, each its kind, then its name
 --- and its attributes (sorted, `name=value`) or its text, quoted.
@@ -439,4 +440,35 @@ local function test_a_closed_writer_keeps_its_document()
   assert(w:close())
   assert(w:abort())
   assert(out:result() == "<r/>", out:result())
+end
+
+--- Benches. 1000 records, parsed to a tree, to events, and written back.
+local function sample_items(): string
+  local rows: mut {string} = {}
+  for i = 1, 1000 do
+    rows[i] = ('<item id="%d" kind="a"><name>user%d</name><note>fish &amp; chips</note></item>'):format(i, i)
+  end
+  return '<?xml version="1.0"?><items>' .. table.concat(rows, "") .. "</items>"
+end
+
+local function bench_tree_1000_items(b: Bench.B)
+  local text = sample_items()
+  b.bytes = #text
+  b.reset()
+  for _ = 1, b.n do local _ = Xml.tree(text)! end
+end
+
+local function bench_events_1000_items(b: Bench.B)
+  local text = sample_items()
+  b.bytes = #text
+  b.reset()
+  for _ = 1, b.n do local _ = Xml.events(text)! end
+end
+
+local function bench_write_1000_items(b: Bench.B)
+  local text = sample_items()
+  local events = Xml.events(text)!
+  b.bytes = #text
+  b.reset()
+  for _ = 1, b.n do local _ = Xml.write(events)! end
 end

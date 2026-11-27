@@ -7,6 +7,8 @@
 local Cipher = require("cosmic.cipher")
 local Codec = require("cosmic.codec")
 local Test = require("cosmic.test")
+local Bench = require("cosmic.bench")
+local Rand = require("cosmic.rand")
 
 local function unhex(hex: string): string
   return (assert(Codec.unhex(hex)))
@@ -333,4 +335,22 @@ local function test_channel_raises_on_one_key_for_both_directions()
   -- end's first message under the same key and nonce.
   local key = channel_keys()
   Test.raises(function() Cipher.channel(key, key) end, "must differ")
+end
+
+--- Benches. The AEAD cipher seals and opens 1 MiB.
+local MIB <const> = 1024 * 1024
+local BENCH_KEY <const>, BENCH_NONCE <const> = string.rep("k", 32), string.rep("n", 12)
+
+local function bench_seal_chacha20_1_mib(b: Bench.B)
+  local bytes = Rand.new(2026):bytes(MIB)
+  b.bytes = MIB
+  b.reset()
+  for _ = 1, b.n do local _ = Cipher.seal("chacha20-poly1305", BENCH_KEY, BENCH_NONCE, bytes) end
+end
+
+local function bench_open_chacha20_1_mib(b: Bench.B)
+  local sealed = Cipher.seal("chacha20-poly1305", BENCH_KEY, BENCH_NONCE, Rand.new(2026):bytes(MIB))
+  b.bytes = MIB
+  b.reset()
+  for _ = 1, b.n do local _ = Cipher.open("chacha20-poly1305", BENCH_KEY, BENCH_NONCE, sealed)! end
 end

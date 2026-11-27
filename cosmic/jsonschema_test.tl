@@ -3,6 +3,7 @@
 
 local Json = require("cosmic.json")
 local JsonSchema = require("cosmic.jsonschema")
+local Bench = require("cosmic.bench")
 
 local function decoded(text: string): Json.Value
   local v, why = Json.decode(text, { null_value = Json.null })
@@ -159,4 +160,39 @@ local function test_a_value_nested_too_deep_fails()
   for _ = 1, 70 do v = Json.array({ v }) end
   local ok, failed = schema_of('{"uniqueItems":true}'):check(Json.array({ v, v }))
   assert(not ok and assert(failed).message:find("nested past 64", 1, true) ~= nil)
+end
+
+--- Benches. A schema of five properties, compiled, and 1000 records checked against it.
+local BENCH_SCHEMA <const> = [[{"type":"object","required":["id","name"],"properties":{
+  "id":{"type":"integer","minimum":1},"name":{"type":"string","minLength":1,"maxLength":40},
+  "score":{"type":"number"},"active":{"type":"boolean"},
+  "tags":{"type":"array","items":{"type":"string"},"maxItems":8}}}]]
+
+local function sample_schema_value(): Json.Value
+  local value, why = Json.decode(BENCH_SCHEMA)
+  if value == nil then error(tostring(why)) end
+  return value
+end
+
+local function bench_compile(b: Bench.B)
+  local value = sample_schema_value()
+  b.reset()
+  for _ = 1, b.n do local _ = JsonSchema.compile(value)! end
+end
+
+local function bench_check_1000_records(b: Bench.B)
+  local schema = JsonSchema.compile(sample_schema_value())!
+  local records: mut {Json.Value} = {}
+  for i = 1, 1000 do
+    local record: Json.Value = { id = i, name = "user" .. tostring(i), score = i / 7, active = i % 2 == 0,
+      tags = Json.array({ "a", "b", "c" }) }
+    records[#records + 1] = record
+  end
+  b.reset()
+  for _ = 1, b.n do
+    for _, record in ipairs(records) do
+      local ok, why = schema:check(record)
+      if not ok then error(tostring(why)) end
+    end
+  end
 end

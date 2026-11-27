@@ -1,6 +1,7 @@
 local Codec = require("cosmic.codec")
 local Hash = require("cosmic.hash")
 local Plist = require("cosmic.plist")
+local Bench = require("cosmic.bench")
 
 --- What `plistlib` writes before an XML property list's value, and after it.
 local XML_HEAD <const> = '<?xml version="1.0" encoding="UTF-8"?>\n' ..
@@ -1775,3 +1776,33 @@ local function test_a_value_that_holds_itself_is_not_written()
   unwritable(dict, "an array or a dict holds itself")
   unwritable(dict, "an array or a dict holds itself", { form = "xml" })
 end
+
+--- Benches. 1000 dicts of three entries, written and read as binary and as XML.
+local function sample_dicts(): Plist.Value
+  local entries: mut {Plist.Value} = {}
+  for i = 1, 1000 do
+    local item = Plist.dict({ { key = "id", value = Plist.integer(i) },
+      { key = "name", value = Plist.string("user" .. tostring(i)) }, { key = "score", value = Plist.real(i / 7) } })
+    entries[#entries + 1] = item
+  end
+  return Plist.array(entries)
+end
+
+local function encoding(b: Bench.B, form: Plist.Form)
+  local value = sample_dicts()
+  b.bytes = #Plist.encode(value, { form = form })!
+  b.reset()
+  for _ = 1, b.n do local _ = Plist.encode(value, { form = form })! end
+end
+
+local function decoding(b: Bench.B, form: Plist.Form)
+  local text = Plist.encode(sample_dicts(), { form = form })!
+  b.bytes = #text
+  b.reset()
+  for _ = 1, b.n do local _ = Plist.decode(text)! end
+end
+
+local function bench_encode_binary_1000_dicts(b: Bench.B) encoding(b, "binary") end
+local function bench_decode_binary_1000_dicts(b: Bench.B) decoding(b, "binary") end
+local function bench_encode_xml_1000_dicts(b: Bench.B) encoding(b, "xml") end
+local function bench_decode_xml_1000_dicts(b: Bench.B) decoding(b, "xml") end

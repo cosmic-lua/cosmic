@@ -98,3 +98,21 @@ end
   assert(code ~= 0, out)
   assert(out:find("broken_test bench_raises: ", 1, true) and out:find("renamed away", 1, true), out)
 end
+
+local function test_each_timed_batch_is_handed_an_empty_directory(tmp: string)
+  local root = project(tmp)
+  assert(Fs.write(root .. "/files_test.tl", [[
+local Bench = require("cosmic.bench")
+local Fs = require("cosmic.fs")
+
+local function bench_writes_one_file(b: Bench.B)
+  assert(#assert(Fs.list(b.dir)) == 0, "the last batch's file is still in " .. b.dir)
+  assert(Fs.write(b.dir .. "/one", "x"))
+  b.reset()
+  for _ = 1, b.n do local _ = assert(Fs.read(b.dir .. "/one")) end
+end
+]]))
+  local out, code = run(root, { "--bench", "files_test.tl", "--rounds", "2", "--target-ms", "1" })
+  assert(code == 0, out)
+  assert(out:find("files_test.tl:bench_writes_one_file ", 1, true), out)
+end

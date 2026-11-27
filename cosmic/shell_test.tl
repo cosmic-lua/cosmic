@@ -2,6 +2,7 @@
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Shell = require("cosmic.shell")
+local Bench = require("cosmic.bench")
 
 --- split keeps a last line with no newline, adds none past a last newline, and keeps a `\r`.
 local function test_split_cuts_at_each_newline()
@@ -126,4 +127,66 @@ local function test_plain_grep_counts_lines_of_every_length(tmp: string)
     end
   end
   assert(#hits == seen, #hits)
+end
+
+--- Benches. cosmic.shell's calls in this process, on a small file and on 1 MiB, and a find over 200 files.
+
+--- Writes the small file (20 lines) or the big one (16384 lines, about 1 MiB) to `dir` and returns its path.
+local function sample_file(dir: string, big: boolean): string
+  local parts: mut {string} = {}
+  if big then
+    for i = 1, 16384 do
+      parts[i] = string.rep("x", 50 + i % 7) .. (if i % 97 == 0 then " TODO" else "" end) .. tostring(i % 89)
+    end
+  else
+    for i = 1, 20 do
+      parts[i] = "line " .. tostring(i) .. (if i % 3 == 0 then " TODO" else "" end)
+    end
+  end
+  local path = dir .. (if big then "/big.txt" else "/small.txt" end)
+  assert(Fs.write(path, table.concat(parts, "\n") .. "\n"))
+  return path
+end
+
+local function wcing(b: Bench.B, big: boolean)
+  local path = sample_file(b.dir, big)
+  b.reset()
+  for _ = 1, b.n do assert(Shell.wc(path)) end
+end
+
+local function grepping(b: Bench.B, big: boolean)
+  local path = sample_file(b.dir, big)
+  b.reset()
+  for _ = 1, b.n do assert(Shell.grep("TODO", { path }, true)) end
+end
+
+local function sorting(b: Bench.B, big: boolean)
+  local path = sample_file(b.dir, big)
+  b.reset()
+  for _ = 1, b.n do local _ = Shell.sort(assert(Shell.lines(path))) end
+end
+
+local function counting(b: Bench.B, big: boolean)
+  local path = sample_file(b.dir, big)
+  b.reset()
+  for _ = 1, b.n do local _ = Shell.top(Shell.uniq(assert(Shell.lines(path)))) end
+end
+
+local function bench_wc_small(b: Bench.B) wcing(b, false) end
+local function bench_wc_1_mib(b: Bench.B) wcing(b, true) end
+local function bench_grep_small(b: Bench.B) grepping(b, false) end
+local function bench_grep_1_mib(b: Bench.B) grepping(b, true) end
+local function bench_sort_small(b: Bench.B) sorting(b, false) end
+local function bench_sort_1_mib(b: Bench.B) sorting(b, true) end
+local function bench_sort_uniq_c_small(b: Bench.B) counting(b, false) end
+local function bench_sort_uniq_c_1_mib(b: Bench.B) counting(b, true) end
+
+local function bench_find_200_files(b: Bench.B)
+  for i = 1, 200 do
+    local sub = b.dir .. "/tree/d" .. tostring(i % 10)
+    assert(Fs.mkdirs(sub))
+    assert(Fs.write(sub .. "/f" .. tostring(i) .. ".tl", ""))
+  end
+  b.reset()
+  for _ = 1, b.n do assert(Shell.find(b.dir .. "/tree")) end
 end
