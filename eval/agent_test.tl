@@ -156,7 +156,7 @@ local function test_runs_are_graded_against_the_truth_of_an_untouched_copy()
       "language or checker), stdlib (a name or shape the library lacks) or prompt (only the run text's wording). " ..
       "eval/causes.tl holds the rules.",
     "",
-    "- good: 2 refused snippets; by layer: prompt 2",
+    "- good: 2 refused snippets in 2 runs; by layer: prompt 2",
     "  - prompt: a Lua habit the parser refuses: 2 (rename 1, todos 1)",
     "",
     "## names the model guessed that do not exist",
@@ -736,6 +736,15 @@ local function test_a_report_sets_its_causes_beside_an_earlier_rounds()
       '{"tool":"a","task":"u","refused":1,"causes":{"lang: x":1},"layers":{"lang":1}},{"tool":"a","task":"v"}]')
   local a = assert(before, why)["a"]
   assert(a ~= nil and a.refused == 4 and a.causes["lang: x"] == 3 and a.causes["prompt: gone"] == 1 and a.layers["lang"] == 3)
+  assert(a.runs == 2)
+  -- A tool none of whose runs kept causes is left out, and a count that is no integer is refused.
+  local mixed, _ = Agent.earlier('[{"tool":"a","refused":1,"causes":{"lang: x":1},"layers":{}},{"tool":"b","refused":1}]')
+  assert(mixed ~= nil and mixed["a"] ~= nil and mixed["b"] == nil)
+  for _, text in ipairs({ '[{"tool":"a","refused":1.5,"causes":{}}]', '[{"tool":"a","refused":1,"causes":{"x":"3"}}]',
+      '[{"tool":"a","refused":1,"causes":{},"layers":{"lang":2.0}}]', '[{"refused":1,"causes":{}}]' }) do
+    local got, wrong = Agent.earlier(text)
+    assert(got == nil, text .. " " .. wrong!)
+  end
   local none, bad = Agent.earlier('[{"tool":"a","task":"t","refused":3}]')
   assert(none == nil and bad:find("no refusal causes", 1, true) ~= nil, tostring(bad))
   local broken_text, _ = Agent.earlier("{")
@@ -746,7 +755,7 @@ local function test_a_report_sets_its_causes_beside_an_earlier_rounds()
     seconds = 1, tools = 0, runs = 0, refused = 2, codes = {}, causes = { ["lang: x"] = 1, ["stdlib: new"] = 1 },
     layers = { lang = 1, stdlib = 1 }, guesses = {}, resends = 0, sorts = 0, first_read = 0, helpers = {} }
   local report = Agent.report(o, { { tool = "a", task = "todos", rep = 1, grade = "pass", spent = spent, wall = 1 } }, before)
-  assert(report:find("- a: 2 refused snippets; by layer: lang 1, stdlib 1; before: 4 refused snippets; by layer: lang 3, " ..
+  assert(report:find("- a: 2 refused snippets in 1 runs; by layer: lang 1, stdlib 1; before: 4 refused snippets in 2 runs; by layer: lang 3, " ..
       "prompt 1\n", 1, true) ~= nil, report)
   assert(report:find("  - lang: x: 1 (was 3) (todos 1)\n", 1, true) ~= nil, report)
   assert(report:find("  - stdlib: new: 1 (was 0) (todos 1)\n", 1, true) ~= nil, report)

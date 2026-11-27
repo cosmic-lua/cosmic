@@ -88,11 +88,13 @@ local record Data
     tool: string
     --- The snippets the checker refused.
     refused: integer
+    --- The runs they come from.
+    runs: integer
     --- The causes of the refusals by layer ("lang 4, stdlib 2"), most first.
     layers: string
     --- Each cause, most first.
     causes: {Cause}
-    --- The same line of the earlier round the run is set against ("N refused snippets; by layer: ..."), when there is one.
+    --- The same line of the earlier round the run is set against ("N refused snippets in M runs; by layer: ..."), when there is one.
     was: string?
   end
 

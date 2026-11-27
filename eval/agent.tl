@@ -111,6 +111,8 @@ local record Agent
   --- as [`Spent`]'s) and layers, each summed over the tool's runs.
   record Earlier
     mut refused: integer
+    --- The runs that kept causes.
+    mut runs: integer
     causes: mut {string: integer}
     layers: mut {string: integer}
   end
@@ -1200,40 +1202,44 @@ function Agent.execute(options: Agent.Options, system: Agent.System, key: string
   return got
 end
 
---- `v` as a count: its integer, and 0 for anything else.
-local function count_of(v: Json.Value?): integer
-  if v is integer then return v end
-  return 0
-end
-
---- Reads the results.json `text` of an earlier round: for each tool, the refused snippets and the causes and layers
---- of its runs. A round from before the report named causes has none, and is refused with why.
+--- Reads the results.json `text` of an earlier round: for each tool, the runs, the refused snippets, and the causes
+--- and layers of its runs. A tool none of whose runs kept causes (a round from before the report named them) is left
+--- out, and a file with no such tool, or a count that is not an integer, is refused with why.
 function Agent.earlier(text: string): ({string: Agent.Earlier}) | (nil, string)
   local rows, why = Json.decode_array(text)
   if rows == nil then return nil, "not a results.json: " .. tostring(why) end
   local found: mut {string: Agent.Earlier} = {}
-  local seen = false
-  for _, row in ipairs(rows) do
+  for i, row in ipairs(rows) do
     local fields = Json.object_of(row)
     local named = fields and fields["tool"]
-    local tool = if named is string then named else nil end
-    if fields ~= nil and tool ~= nil then
-      local into = found[tool] or { refused = 0, causes = {}, layers = {} }
-      into.refused = into.refused + count_of(fields["refused"])
-      local causes = Json.object_of(fields["causes"])
-      if causes ~= nil then
-        seen = true
-        for cause, k in pairs(causes) do
-          into.causes[cause] = (into.causes[cause] or 0) + count_of(k)
+    local causes = fields and Json.object_of(fields["causes"])
+    if fields == nil or not (named is string) then
+      return nil, "row " .. tostring(i) .. " has no tool"
+    end
+    if causes ~= nil then
+      local into = found[named] or { refused = 0, runs = 0, causes = {}, layers = {} }
+      local refused = fields["refused"]
+      if not (refused is integer) then
+        return nil, "row " .. tostring(i) .. ": refused is not an integer"
+      end
+      into.refused = into.refused + refused
+      into.runs = into.runs + 1
+      for cause, k in pairs(causes) do
+        if not (k is integer) then
+          return nil, "row " .. tostring(i) .. ": cause " .. cause .. " is not an integer"
         end
+        into.causes[cause] = (into.causes[cause] or 0) + k
       end
       for tag, k in pairs(Json.object_of(fields["layers"]) or {}) do
-        into.layers[tag] = (into.layers[tag] or 0) + count_of(k)
+        if not (k is integer) then
+          return nil, "row " .. tostring(i) .. ": layer " .. tag .. " is not an integer"
+        end
+        into.layers[tag] = (into.layers[tag] or 0) + k
       end
-      found[tool] = into
+      found[named] = into
     end
   end
-  if not seen then
+  if next(found) == nil then
     return nil, "it has no refusal causes: run that round again with this eval/agent"
   end
   return found
@@ -1444,7 +1450,7 @@ function Agent.report(options: Agent.Options, results: {Agent.Result}, earlier?:
   local causes: mut {ReportData.Causes} = {}
   local guesses: mut {ReportData.Guesses} = {}
   for _, tool in ipairs(options.tools) do
-    local refused = 0
+    local refused, counted_runs = 0, 0
     local by_cause: mut {string: integer} = {}
     local cause_tasks: mut {string: mut {string: integer}} = {}
     local by_layer: mut {string: integer} = {}
@@ -1454,6 +1460,7 @@ function Agent.report(options: Agent.Options, results: {Agent.Result}, earlier?:
       local s = r.spent
       if r.tool == tool.name and s ~= nil then
         refused = refused + s.refused
+        counted_runs = counted_runs + 1
         for tag, k in pairs(s.layers) do by_layer[tag] = (by_layer[tag] or 0) + k end
         for key, k in pairs(s.causes) do
           by_cause[key] = (by_cause[key] or 0) + k
@@ -1492,10 +1499,10 @@ function Agent.report(options: Agent.Options, results: {Agent.Result}, earlier?:
       return a.name < b.name
     end)
     if #listed > 0 then
-      causes[#causes + 1] = { tool = tool.name, refused = refused, layers = ranked(by_layer, shown) or "",
-        causes = listed,
-        was = if before ~= nil then tostring(before.refused) .. " refused snippets; by layer: " ..
-            (ranked(before.layers, shown) or "none") else nil end }
+      causes[#causes + 1] = { tool = tool.name, refused = refused, runs = counted_runs,
+        layers = ranked(by_layer, shown) or "", causes = listed,
+        was = if before ~= nil then tostring(before.refused) .. " refused snippets in " .. tostring(before.runs) ..
+            " runs; by layer: " .. (ranked(before.layers, shown) or "none") else nil end }
     end
     local names: mut {ReportData.Guess} = {}
     for key, k in pairs(by_name) do

@@ -75,8 +75,8 @@ local RULES <const>: {Rule} = {
   { code = "unknown_variable", name = "a name that is declared nowhere", tag = "stdlib" },
   -- The run text shows `local out: mut {string} = {}`, and models still write `local out = {}`: the rule asks for
   -- what the models leave out, so inferring the type from the first use is the language's change to weigh.
-  { code = "literal_needs_type", name = "an empty table literal with no declared type", tag = "lang" },
-  { code = "return_unexpected", name = "a function that returns a value but declares none", tag = "prompt" },
+  { code = "literal_needs_type", name = "a table literal with no declared type", tag = "lang" },
+  { code = "return_unexpected", name = "a return where the function declares none", tag = "prompt" },
   { code = "array_hole", name = "an index write that leaves a hole", tag = "prompt" },
   { code = "local_untyped", name = "a local declared with no value or type", tag = "prompt" },
   -- Documented in the run text.
