@@ -461,7 +461,7 @@ print(tostring(long))
   assert(Fs.write(dir .. "/one.tl", "x\n"))
   assert(Fs.write(dir .. "/notes.txt", "x\n"))
   local shown_example = tools_run("run", { code = example }, context)
-  assert(not shown_example.is_error and shown_example.text:find("^txt 2\ntl 1\n") ~= nil, shown_example.text)
+  assert(not shown_example.is_error and shown_example.text:find("^tl 1\ntxt 2\n") ~= nil, shown_example.text)
   -- Host, Fs and Json need no require; a snippet's own local of the name is its own, and the lines stay its own.
   local bare = tools_run("run", { code = "print(#Host.find(\".\"), Json.quote(\"x\"), Fs.basename(\"/a/b\"))" }, context)
   assert(not bare.is_error and bare.text:find("^3\t\"x\"\tb\n") ~= nil, bare.text)
@@ -494,7 +494,7 @@ print(tostring(long))
   local commented = tools_run("run", { code = "-- a note\n(print)(Host.read(\"one.tl\"))" }, context)
   assert(not commented.is_error and commented.text:find("^x\n") ~= nil, commented.text)
   -- A hint that names a snippet's own line-1 local is the snippet's refusal, not the bare one's.
-  local typo = tools_run("run", { code = "local count = Host.wc(\"one.tl\")\nprint(cuont)" }, context)
+  local typo = tools_run("run", { code = "local count = #Host.lines(\"one.tl\")\nprint(cuont)" }, context)
   assert(typo.is_error and typo.text:find("cuont", 1, true) ~= nil and typo.text:find("`Host`", 1, true) == nil, typo.text)
   -- Beside a type error on its line, a `;` is no refusal.
   local both = tools_run("run", { code = "local n: integer = \"x\"; print(n)" }, context)
@@ -870,21 +870,22 @@ local function test_a_failed_fetch_raises_in_the_snippet()
   worker_close(w)
 end
 
---- A snippet keeps a SQLite file and hashes in its own directory, with no program run.
+--- A snippet keeps a SQLite file with cosmic.shell and hashes with cosmic.hash, in its own directory, with no program run.
 local function test_a_snippet_uses_sqlite_and_hash()
   local w = set_of_worker()
   local dir = assert(Fs.mkdtemp("agent-worker-"))
   local context: Tools.Context = { cwd = dir, worker = w }
-  local ran = tools_run("run", { code = "Host.sqlite(\"notes.db\", \"create table t (k text, v integer, n); \" ..\n" ..
-      "  \"insert into t values ('a', 1, null)\")\n" ..
-      "Host.sqlite(\"notes.db\", \"insert into t values (?1, ?2, ?3)\", { \"b\", 2, true })\n" ..
-      "for _, r in ipairs(Host.sqlite(\"notes.db\", \"select k, v, n from t order by k\")) do\n" ..
+  local ran = tools_run("run", { code = "local Shell = require(\"cosmic.shell\")\nlocal Hash = require(\"cosmic.hash\")\n" ..
+      "local _ = Shell.sqlite(\"notes.db\", \"create table t (k text, v integer, n); \" ..\n" ..
+      "  \"insert into t values ('a', 1, null)\")!\n" ..
+      "local _ = Shell.sqlite(\"notes.db\", \"insert into t values (?1, ?2, ?3)\", { \"b\", 2, true })!\n" ..
+      "for _, r in ipairs(Shell.sqlite(\"notes.db\", \"select k, v, n from t order by k\")!) do\n" ..
       "  print(r[\"k\"], r[\"v\"], r[\"n\"] == Json.null)\nend\n" ..
-      "Host.write(\"x.txt\", \"abc\")\nprint(Host.sha256(\"x.txt\"))\n" ..
-      "local _, why = pcall(Host.sqlite, \"notes.db\", \"select nope from t\")\nprint(tostring(why))\n" }, context)
+      "Host.write(\"x.txt\", \"abc\")\nprint(Hash.hex_file(\"sha256\", \"x.txt\")!)\n" ..
+      "local _, why = Shell.sqlite(\"notes.db\", \"select nope from t\")\nprint(tostring(why))\n" }, context)
   assert(not ran.is_error and ran.text:find("^a\t1\ttrue\nb\t2\tfalse\n", 1) ~= nil, ran.text)
   assert(ran.text:find("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", 1, true) ~= nil, ran.text)
-  assert(ran.text:find("host: sqlite: ", 1, true) ~= nil and ran.text:find("nope", 1, true) ~= nil, ran.text)
+  assert(ran.text:find("nope", 1, true) ~= nil, ran.text)
   worker_close(w)
 end
 
@@ -904,17 +905,6 @@ local function test_a_snippet_reads_json_into_records()
       "local last = assert(Shape.decode_into('{\"items\": []}', Shape.record_of(\"Page\").spec))\n" ..
       "print(#last.items, last.next == nil)\n" }, context)
   assert(not ran.is_error and ran.text:find("^x2\nnext 2\n0\ttrue\n") ~= nil, ran.text)
-  worker_close(w)
-end
-
---- Host.sort returns a new list the snippet may add to, so a list sorted in place of itself still checks.
-local function test_a_snippet_sorts_a_list_into_itself_and_adds_to_it()
-  local w = set_of_worker()
-  local dir = assert(Fs.mkdtemp("agent-worker-"))
-  local context: Tools.Context = { cwd = dir, worker = w }
-  local ran = tools_run("run", { code = "local rows: mut {string} = { \"b\", \"a\" }\n" ..
-      "rows = Host.sort(rows)\nrows[#rows + 1] = \"c\"\nprint(table.concat(rows, \",\"))\n" }, context)
-  assert(not ran.is_error and ran.text:find("^a,b,c\n") ~= nil, ran.text)
   worker_close(w)
 end
 
@@ -1039,7 +1029,7 @@ local function test_a_snippet_loads_no_code_its_modules_do_not_name()
   assert(tree["refused"] ~= nil, shown(tree))
   local loads = under({}, "local f = load(\"return 1\")\nreturn { f = f ~= nil }\n")
   assert(loads["ok"] == false and tostring(loads["error"]):find("load: this chunk loads no code", 1, true) ~= nil, shown(loads))
-  local host = under({}, "return { here = Host.exists(\"util.tl\") }\n")
+  local host = under({}, "return { here = Host.read(\"util.tl\") ~= \"\" }\n")
   assert(host["ok"] == true and value_text(host) == "{\"here\":true}", shown(host))
   local both = under({ "." }, "local U = require(\"util\")\nreturn { n = U.one() }\n")
   assert(both["ok"] == true and value_text(both) == "{\"n\":1}", shown(both))
