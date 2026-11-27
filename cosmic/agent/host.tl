@@ -589,17 +589,20 @@ function Host.edit(path: string, edits: {Host.Replacement}): integer
   return made
 end
 
---- The checker's lines on the Teal file `path`, as `cosmic fix` tells them of a file of its tree: none where it passes.
---- It reads the modules a snippet may require, and tells the lines of each module of a tree it requires too; it runs no
---- code. Raises where it cannot be read, or where
---- no checker is here (outside cosmic agent's worker).
-function Host.check(path: string): {string}
+--- Checks the Teal file `path` as `cosmic fix` checks a file of its tree, and raises with the checker's lines where it
+--- does not pass, so that what follows in the snippet runs only for a file that passes. It reads the modules a snippet
+--- may require, and tells the lines of each module of a tree it requires too; it runs no code. Raises too where it
+--- cannot be read, or where no checker is here (outside cosmic agent's worker).
+function Host.check(path: string)
   local text = Host.read(path)
   local check = checks
   if check == nil then
     error("host: check: no checker answers here: a snippet of cosmic agent's run tool reaches one", 2)
   end
-  return check(path, text)
+  local lines = check(path, text)
+  if #lines > 0 then
+    error("host: check: " .. path .. " does not pass:\n" .. table.concat(lines, "\n"), 2)
+  end
 end
 
 --- The lines of the file `path` ([`Shell.lines`]); raises where it cannot be read.
@@ -610,9 +613,15 @@ function Host.lines(path: string): mut {string}
 end
 
 --- Writes `text` to the file `path`, in place of what it held, as `>` does; a list of lines is written one a line, each ending
---- in a newline. Raises where it cannot be written.
+--- in a newline. It writes text: where the text is not UTF-8 (a raw digest, say), it raises naming the first byte that
+--- is not, and writes nothing; Fs.write writes any bytes. Raises too where it cannot be written.
 function Host.write(path: string, text: string | {string})
   local body = if text is string then text elseif #text == 0 then "" else table.concat(text, "\n") .. "\n" end
+  local _, bad = utf8.len(body)
+  if bad ~= nil then
+    error("host: write: " .. path .. ": byte " .. tostring(bad) .. " is not UTF-8 text, so nothing is written (a digest " ..
+        "from Hash.sha256 is raw bytes: Hash.hex_sha256 spells it as sha256sum does; Fs.write writes bytes)", 2)
+  end
   local ok, why = Fs.write(path, body)
   if not ok then error("host: write: " .. tostring(why), 2) end
   local hears = noted
