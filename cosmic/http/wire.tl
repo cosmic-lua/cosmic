@@ -849,28 +849,30 @@ function wire.body(input: wire.Input, head: wire.Head, limits: wire.Limits,
   return r
 end
 
---- Why the server cannot send `headers` as given, or "": a name that is
+--- True, or false and why the server cannot send `headers` as given: a name that is
 --- no token, a value holding CR, LF or NUL, or a header the server
 --- writes itself.
-local function headers_trouble(headers: {string: string | {string}}): string
+local function headers_trouble(headers: {string: string | {string}}): (true) | (false, Failure)
   for name, value in pairs(headers) do
-    if not name:find(TOKEN) then return ("header %q: its name is no token"):format(name) end
+    if not name:find(TOKEN) then
+      return false, Failure.new(("header %q: its name is no token"):format(name))
+    end
     if value is string then
       if value:find("[\r\n%z]") then
-        return ("header %s: its value holds CR, LF or NUL"):format(name)
+        return false, Failure.new(("header %s: its value holds CR, LF or NUL"):format(name))
       end
     else
       for _, entry in ipairs(value) do
         if entry:find("[\r\n%z]") then
-          return ("header %s: its value holds CR, LF or NUL"):format(name)
+          return false, Failure.new(("header %s: its value holds CR, LF or NUL"):format(name))
         end
       end
     end
     if OWNED[name:lower()] == true then
-      return ("header %s: the server writes it itself"):format(name)
+      return false, Failure.new(("header %s: the server writes it itself"):format(name))
     end
   end
-  return ""
+  return true
 end
 
 --- Whether a reply of `status` carries no body: a 1xx, 204 or 304.
@@ -915,7 +917,7 @@ local function declared(reply: wire.Reply): integer?
   return size
 end
 
---- Why `reply` cannot be sent, or "": a status outside 100 to 999, a
+--- True, or false and a Failure saying why `reply` cannot be sent: a status outside 100 to 999, a
 --- header [`headers_trouble`] refuses, a body given to a 1xx, 204 or
 --- 304, or a size it declares, by Content-Length or `length`, that is
 --- below 0, that the two give differently, that a 1xx or 204 is given
@@ -923,39 +925,43 @@ end
 --- 0 where there is no body (nil or ""), but to HEAD, whose size is the
 --- GET's. A 304's is the size of a 200's body, as RFC 9110 8.6 asks,
 --- which no body here shows, and is passed on as given.
-function wire.check(reply: wire.Reply): string
+function wire.check(reply: wire.Reply): (true) | (false, Failure)
   local status = reply.status
-  if status < 100 or status > 999 then return "the status is not from 100 to 999" end
+  if status < 100 or status > 999 then
+    return false, Failure.new("the status is not from 100 to 999")
+  end
   local headers = reply.headers or {}
-  local trouble = headers_trouble(headers)
-  if trouble ~= "" then return trouble end
+  local fine, trouble = headers_trouble(headers)
+  if not fine then return false, trouble end
   local given, why = given_length(headers)
-  if given == nil then return tostring(why) end
+  if given == nil then return false, why end
   local length = reply.length
-  if length ~= nil and length < 0 then return "the length is below 0" end
+  if length ~= nil and length < 0 then return false, Failure.new("the length is below 0") end
   if given ~= false and length ~= nil and given ~= length then
-    return ("the Content-Length header is %d, but the length is %d"):format(given, length)
+    return false, Failure.new(("the Content-Length header is %d, but the length is %d"):format(given, length))
   end
   local size = if given == false then length else given end
   local body = reply.body
   if body == "" then body = nil end
   if bodiless(status) then
-    if body ~= nil then return ("no body goes with status %d"):format(status) end
-    if size ~= nil and status ~= 304 then
-      return ("no Content-Length goes with status %d"):format(status)
+    if body ~= nil then
+      return false, Failure.new(("no body goes with status %d"):format(status))
     end
-    return ""
+    if size ~= nil and status ~= 304 then
+      return false, Failure.new(("no Content-Length goes with status %d"):format(status))
+    end
+    return true
   end
-  if size == nil then return "" end
+  if size == nil then return true end
   if body is string then
     if size ~= #body then
-      return ("the Content-Length is %d, but the body is %s"):format(size, String.counted(#body, "byte"))
+      return false, Failure.new(("the Content-Length is %d, but the body is %s"):format(size, String.counted(#body, "byte")))
     end
   elseif body == nil and size ~= 0 and reply.method ~= "HEAD" then
-    return ("the Content-Length is %d, but the reply has no body: only a reply to HEAD gives a size" ..
-      " without its bytes"):format(size)
+    return false, Failure.new(("the Content-Length is %d, but the reply has no body: only a reply to HEAD gives a size" ..
+      " without its bytes"):format(size))
   end
-  return ""
+  return true
 end
 
 --- How a reply is framed: the Content-Length to write (nil for none),

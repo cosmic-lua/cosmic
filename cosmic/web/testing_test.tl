@@ -71,7 +71,7 @@ local function test_a_response_reads_as_text_json_and_header_lines()
   assert(value ~= nil, reason)
   assert(assert(Json.to_object(value))["ok"] == true)
   local none, why = client:get("/plain"):json()
-  assert(none == nil and why:find("json:", 1, true) ~= nil, why)
+  assert(none == nil and tostring(why):find("json:", 1, true) ~= nil, tostring(why))
 end
 
 local function test_the_jar_keeps_cookies_between_calls_and_drops_a_deleted_one()

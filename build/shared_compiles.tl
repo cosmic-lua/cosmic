@@ -167,7 +167,9 @@ end
 --- this one's by default).
 --- The file the module is read from is no salt here: the module's own
 --- key holds it already (build.plans' `dependency_keys`), so a
---- compile is never taken across a moved file.
+--- compile is never taken across a moved file. That key holds a module it
+--- requires by its shape ([`build.shape_key`]), so a compile is taken
+--- across an edit to a body of one.
 function shared_compiles.key(key: string, own_tree: boolean, generated?: boolean,
                              format?: string): string
   return Hash.hex_sha256((format or compiled) .. "\n" .. key .. "\n" ..

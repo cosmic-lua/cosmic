@@ -210,7 +210,7 @@ local function test_a_request_the_client_writes_is_read_back_by_the_relay(tmp: s
       assert(host and port, "the generator packs a host and a port")
       local request, why = Wire.socks_client_request(host, port)
       if request == nil then
-        if why == "" then return false, "refused without saying why" end
+        if tostring(why) == "" then return false, "refused without saying why" end
         return true, ""
       end
       local seen = Wire.socks_request_reader():feed(request)
@@ -266,9 +266,10 @@ local function test_a_username_and_password_the_client_writes_are_read_back_by_t
       local message, why = Wire.socks_client_auth(user, password)
       local fits = #user >= 1 and #user <= 255 and #password >= 1 and #password <= 255
       if message == nil then
-        if fits then return false, "refused what fits: " .. why end
-        if why == "" then return false, "refused without saying why" end
-        if why:find(password, 1, true) ~= nil and #password > 3 then
+        if fits then return false, "refused what fits: " .. tostring(why) end
+        local text = tostring(why)
+        if text == "" then return false, "refused without saying why" end
+        if text:find(password, 1, true) ~= nil and #password > 3 then
           return false, "the reason holds the password"
         end
         Fuzz.label("refused")

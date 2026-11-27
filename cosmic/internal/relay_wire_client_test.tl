@@ -88,8 +88,8 @@ local function test_a_username_and_password_are_written_for_the_relay_to_read()
     local username, password, says = case[1], case[2], case[3]
     assert(username and password and says, "a case is a username, a password and what the refusal says")
     local refused, why = Wire.socks_client_auth(username, password)
-    assert(refused == nil and why:find(says, 1, true) ~= nil, tostring(why))
-    assert(not why:find("pp", 1, true), "the reason holds no password")
+    assert(refused == nil and tostring(why):find(says, 1, true) ~= nil, tostring(why))
+    assert(not tostring(why):find("pp", 1, true), "the reason holds no password")
   end
 end
 
@@ -117,13 +117,14 @@ end
 
 local function test_a_request_that_cannot_be_encoded_is_refused_naming_why()
   local empty, empty_why = Wire.socks_client_request("", 22)
-  assert(empty == nil and empty_why:find("empty", 1, true) ~= nil, tostring(empty_why))
+  assert(empty == nil and tostring(empty_why):find("empty", 1, true) ~= nil, tostring(empty_why))
   local long, long_why = Wire.socks_client_request(("a"):rep(256), 22)
-  assert(long == nil and long_why:find("255", 1, true) ~= nil, tostring(long_why))
-  assert(Wire.socks_client_request(("a"):rep(255), 22) ~= nil, "255 bytes fit")
+  assert(long == nil and tostring(long_why):find("255", 1, true) ~= nil, tostring(long_why))
+  local fits, fits_why = Wire.socks_client_request(("a"):rep(255), 22)
+  assert(fits, "255 bytes fit: " .. tostring(fits_why))
   for _, port in ipairs({ 0, 65536, -1 }) do
     local request, why = Wire.socks_client_request("host", port)
-    assert(request == nil and why:find("port", 1, true) ~= nil, tostring(port))
+    assert(request == nil and tostring(why):find("port", 1, true) ~= nil, tostring(port))
   end
 end
 

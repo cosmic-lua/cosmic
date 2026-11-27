@@ -8,6 +8,7 @@ local Net = require("cosmic.net")
 local Server = require("cosmic.http.server")
 local Shape = require("cosmic.shape")
 local Stream = require("cosmic.stream")
+local type Failure = require("cosmic.failure")
 local type Acme = require("cosmic.acme")
 local type Json = require("cosmic.json")
 local type Tailscale = require("cosmic.tailscale")
@@ -746,6 +747,8 @@ local record Types
     grace_ns?: integer
     --- As [`Server.ServeSpec.on_ready`].
     on_ready?: function({Net.Address}, Net.Server)
+    --- As [`Server.ServeSpec.on_listen`]: before `acme` first issues.
+    on_listen?: function({Net.Address}, Net.Server)
     --- Called when the server begins to stop, after `app:stopping()` is
     --- true and the functions of `app:on_stop` have run.
     on_stop?: function(Net.Server)
@@ -817,8 +820,8 @@ local record Types
     header_list: function(self: TestResponse, name: string): {string}
     --- The body as text.
     text: function(self: TestResponse): string
-    --- The body decoded as JSON; nil and why when it is none.
-    json: function(self: TestResponse): Json.Value?, string
+    --- The body decoded as JSON; nil and a Failure when it is none.
+    json: function(self: TestResponse): (Json.Value) | (nil, Failure)
   end
 end
 

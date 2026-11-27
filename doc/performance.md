@@ -141,8 +141,76 @@ time of their own and in their stack. `--by line` lists the lines,
 `--by process` the processes, and `--folded` prints folded stacks for a
 flame graph tool.
 
-`bin/cosmic bench/runtime.tl [name...]` times the standard library's hot
-paths (JSON, SQLite, streams, CSV) and prints nanoseconds per operation. It
-measures; no test reads its numbers.
 
 [`core/profile.h`]: ../core/profile.h
+
+# Micro-benchmarks
+
+The scripts under `bench/` time small operations: [`bench/runtime.tl`] the
+standard library's hot paths (JSON, SQLite, streams, CSV), [`bench/base64.tl`]
+MIME base64 decoding, and [`bench/shell.tl`] cosmic.shell's calls against the
+commands they are named after. They share one harness, [`bench/harness.tl`]:
+
+```teal
+local Bench = require("bench.harness")
+local Json = require("cosmic.json")
+
+local bench = Bench.new("runtime")
+local small = '{"id":42,"ok":true}'
+bench.case("json.decode small", function(n: integer) for _ = 1, n do assert(Json.decode(small)) end end)
+return function(argv: {string}): integer return bench.main(argv) end
+```
+
+A case's body runs its operation `n` times. The harness doubles `n` until
+one batch takes 50 ms (`--target-ms`), then times five batches of that size
+(`--rounds`) and prints one line per case: the fastest and the median, in
+nanoseconds per operation. A case's options add a `setup` that runs once,
+only when the case is selected; a `bytes` count, for a rate in GB/s; and a
+`baseline` case, for the ratio of this case's best to that one's. Words
+after the options select the cases whose names hold any of them. `--list`
+prints the names. A body that ignores its `n` is refused by name.
+
+`--json` prints one JSON object per case, a line each, in place of the
+table: `suite`, `case`, `unit`, `best`, `median`, `n`, `rounds` and every
+`samples` value, with `gb_per_s` and `baseline_ratio` where the case has
+them. A loop, or the evidence of a logged item, can cite a line as it is.
+
+`--against <old-binary>` compares two cosmic binaries on the same cases.
+Keep the old tool before a change, then measure after it:
+
+```sh
+cp "$(bin/cosmic-bootstrap --standalone build/paths.tl .)/bin/cosmic" /tmp/cosmic-old
+# ... edit, then:
+bin/cosmic bench/runtime.tl --against /tmp/cosmic-old json
+```
+
+Each side first runs the script once with `--list`, untimed, which builds
+it and refuses a binary that cannot run it before anything is measured.
+This process then sizes each case's batch once, so both sides run the same
+batches, and each side runs one untimed child to warm up. Then each of 20 rounds (`--rounds`, at least 6) starts one child of
+each binary, the two alternating which goes first, and each child times
+every selected case twice and reports the faster. Both children run a copy
+of `bench/` in a temporary directory outside the checkout, each building it
+into a directory of its own there, so each uses the standard library built
+into it, not the checkout's source. Only the script and the harness are
+copied, so a script that requires another module of `bench/` has no compare
+mode. The table gives each side's best and their ratio (`best`, new over
+old: below 1 is faster), the median of the paired per-round ratios
+(`paired`), and a 95% sign interval for that median, the method of
+[`bin/perf`] on a smaller scale. The verdict is `faster` or `slower` when that band leaves
+out 1, and `same` otherwise. With `--json`, each case's record has `mode`
+`"compare"`, `old` and `new` objects (each with `binary`, `best`, `median`
+and `samples`), `ratio`, `paired`, `low`, `high` and `verdict`. `--binary <path>` replaces the new side, which is by default
+the cosmic that runs the script.
+
+Medians on a shared cloud VM swing by half from run to run. Paired rounds
+with alternating order cancel most of the drift: an A/A run of
+[`bench/runtime.tl`] (one binary on both sides, 20 rounds) gave every case
+`same`, with bands within 0.84 to 1.08. A change inside a case's band
+cannot be told from noise; more rounds narrow it. The harness measures; it gates nothing, and no
+test reads a case's numbers.
+
+[`bench/base64.tl`]: ../bench/base64.tl
+[`bench/harness.tl`]: ../bench/harness.tl
+[`bench/runtime.tl`]: ../bench/runtime.tl
+[`bench/shell.tl`]: ../bench/shell.tl

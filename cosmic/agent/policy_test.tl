@@ -16,7 +16,7 @@ local function allows(p: Sandbox.Policy, path: string, letters: string): boolean
   local actions: {string: string} = { r = "read", w = "write", c = "create" }
   for letter in letters:gmatch(".") do
     local real, why = Sandbox.permits(p, path, assert(actions[letter]))
-    if real == nil then return false, why end
+    if real == nil then return false, tostring(why) end
   end
   return true, ""
 end
@@ -253,4 +253,34 @@ local function test_a_file_is_made_only_where_its_directory_grants_c()
   -- A policy that is none says so.
   local unmerged, why = allows({ grants = { { profile = "nosuch" } } }, inside, "r")
   assert(not unmerged and why:find("nosuch", 1, true) ~= nil, why)
+end
+
+--- The agent's own process is held around its tools' policy: what the
+--- tools and its MCP servers have, what it keeps and reads, its API,
+--- and nest, in a root of its own, marked held.
+local function test_the_session_holds_what_its_tools_and_servers_have()
+  if Sandbox.on_macos() then Test.skip("macOS holds no session: it has no nest") end
+  local work = scratch()
+  local kept = scratch()
+  local served = scratch()
+  local note = kept .. "/note.md"
+  assert(Fs.write(note, "rules"))
+  local tools = assert(Policy.of(work, { mode = "write", network = false, grants = {} }))
+  local server: Sandbox.Policy = { grants = { { path = served, letters = "r" }, { connect = "mcp.test:443" } } }
+  local p = assert(Policy.session(tools, { keeps = { kept }, reads = { note }, connect = { "api.test:443" },
+    env = { "HOME" }, servers = { server } }))
+  assert(allows(p, work .. "/a.txt", "rwc"))
+  assert(allows(p, kept .. "/sessions.db", "rwc"))
+  assert(allows(p, note, "r"))
+  assert(allows(p, served .. "/x", "r"))
+  assert(not allows(p, served .. "/x", "w"), "a server's read grant stays a read")
+  local connect = table.concat(Sandbox.connects(p), " ")
+  assert(connect:find("api.test:443", 1, true) and connect:find("mcp.test:443", 1, true), connect)
+  local calls = table.concat(Sandbox.calls(p), " ")
+  for _, promise in ipairs({ "fork", "nest", "jit", "fattr" }) do
+    assert(calls:find(promise, 1, true), promise .. " is not in " .. calls)
+  end
+  assert(p.isolate ~= nil and p.isolate[1] == "file")
+  assert(assert(assert(p.setup).set_env)["COSMIC_AGENT_HELD"] == "1" and assert(p.setup).tmp == true)
+  assert(Sandbox.env(p)[1] == "HOME")
 end

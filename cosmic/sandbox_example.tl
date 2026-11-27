@@ -21,7 +21,7 @@ function Example.union()
   local clash, why = Sandbox.union({ limits = { open_files = 64 } }, { limits = { open_files = 128 } })
   print(why) -- sandbox: $.limits.open_files: given two values, 64 and 128
   assert(clash == nil)
-  assert(why:find("limits.open_files", 1, true), why)
+  assert(tostring(why):find("limits.open_files", 1, true), why)
 end
 
 --- A profile's grants as a policy: "system" is what a host's programs read, and a profile named in `profiles` is

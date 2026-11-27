@@ -64,6 +64,13 @@ local record tree_checks
   --- What [`tree_checks.read_off`] keeps of a file's parse for the plurals check: the plurals found in one text.
   type Plurals = tree_docs.Plurals
 
+  --- What the checks of the tree keep of a file's parse ([`tree_checks.knows`]): what it requires and, for a test
+  --- file, its early returns.
+  record Known
+    requires: {string}
+    returns?: {{string}}
+  end
+
   --- What a run of every check of the tree is given ([`tree_checks.whole`]).
   record Whole
     --- The root of cosmic's own tree.
@@ -232,6 +239,19 @@ end
 --- Keeps what `chunk`, `cosmic fix`'s parse of `source` as the text of `file`, tells the checks of the tree, so that they
 --- do not parse the file again: what it requires, a test's early returns, and the plurals of its texts, which it
 --- returns (nil for none) for the caller to pass to [`tree_checks.whole`].
+--- Keeps what the text `source` of `file` requires, and its early returns, for the checks of the tree later in the run,
+--- as [`tree_checks.read_off`] does from a parse: what a memo of that read holds ([`build.fix.read_memo`]).
+function tree_checks.knows(source: string, file: string, requires: {string}, returns?: {{string}})
+  tree_common.knows(source, file, requires, returns)
+end
+
+--- What [`tree_checks.read_off`] or [`tree_checks.knows`] kept of the text `source` of `file`, nil where it kept none.
+function tree_checks.known_of(source: string, file: string): tree_checks.Known?
+  local requires, returns = tree_common.known_of(source, file)
+  if requires == nil then return nil end
+  return { requires = requires, returns = returns }
+end
+
 function tree_checks.read_off(file: string, source: string, chunk: Ast.Chunk): tree_checks.Plurals?
   tree_common.knows_parse(source, file, chunk)
   while file:sub(1, 2) == "./" do file = file:sub(3) end
@@ -490,8 +510,9 @@ function tree_checks.named_plurals(prefix: string, named: {string: string}): {st
 end
 
 --- The checks of the tree that cost a run of some paths in cosmic's own tree at `root` a few seconds, over the files
---- `named` (each to its path under `root`): the plurals, public docs and rendered docs of those files, and the names the
---- docs and help refer to. The rest wait for a run of the whole tree. Each line is the whole tree's check's, so a line may
+--- `named` (each to its path under `root`): the plurals, public docs and rendered docs of those files, the names the
+--- docs and help refer to, and the scopes, declarations, checker and untyped calls of those files and of the files that
+--- reach one. The rest wait for a run of the whole tree. Each line is the whole tree's check's, so a line may
 --- name a file that was not named: a new module's name can break a reference in another.
 function tree_checks.named(root: string, standing: tree_standing.Standing, named: {string: string}): {string}
   local findings: mut {string} = {}
@@ -526,6 +547,25 @@ function tree_checks.named(root: string, standing: tree_standing.Standing, named
     local _, _ = carried:close()
   end
   local _, _ = db:close()
+  -- The checks of the files themselves, and of the files that reach one, from the memo the whole tree's run keeps
+  -- ([`build.check_memo`]): what a run of the whole tree would find in them, minutes before it. The pipeline's
+  -- comparison of the build's own compile waits for that run.
+  local memo, _ = Sqlite.open(built.translate_check, { writable = true })
+  for _, line in ipairs(tree_checked.scoped(root, memo, nil, paths)) do
+    findings[#findings + 1] = "scopes: " .. line
+  end
+  for _, line in ipairs(tree_checked.declared(root, memo, nil, paths)) do
+    findings[#findings + 1] = "declarations: " .. line
+  end
+  for _, line in ipairs(tree_checked.checked(root, memo, nil, nil, paths)) do
+    findings[#findings + 1] = "checker: " .. line
+  end
+  for _, line in ipairs(tree_checked.untyped(root, memo, nil, paths)) do
+    findings[#findings + 1] = "untyped: " .. line
+  end
+  if memo ~= nil then
+    local _, _ = memo:close()
+  end
   return findings
 end
 

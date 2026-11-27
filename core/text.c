@@ -299,7 +299,104 @@ static int text_unbase64 (lua_State *L) {
   return 1;
 }
 
+/* `base64(bytes, url, padded)`: `bytes` as base64 text in the standard
+ * alphabet, or the URL-safe one where `url`, with `=` padding to a multiple
+ * of four characters where `padded`. No line breaks. */
+static int text_base64 (lua_State *L) {
+  static const char alphabets[2][65] = {
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_",
+  };
+  size_t len = 0;
+  const unsigned char *in = (const unsigned char *)luaL_checklstring(L, 1, &len);
+  const char *a = alphabets[lua_toboolean(L, 2) ? 1 : 0];
+  int padded = lua_toboolean(L, 3);
+  size_t whole = len - len % 3;
+  size_t left = len - whole;
+  size_t want = whole / 3 * 4 + (left == 0 ? 0 : padded ? 4 : left + 1);
+  luaL_Buffer b;
+  char *out = luaL_buffinitsize(L, &b, want);
+  size_t o = 0;
+  for (size_t i = 0; i < whole; i += 3) {
+    unsigned v = ((unsigned)in[i] << 16) | ((unsigned)in[i + 1] << 8) | in[i + 2];
+    out[o++] = a[v >> 18];
+    out[o++] = a[(v >> 12) & 63];
+    out[o++] = a[(v >> 6) & 63];
+    out[o++] = a[v & 63];
+  }
+  if (left == 1) {
+    unsigned v = (unsigned)in[whole] << 4;
+    out[o++] = a[v >> 6];
+    out[o++] = a[v & 63];
+    if (padded) { out[o++] = '='; out[o++] = '='; }
+  } else if (left == 2) {
+    unsigned v = ((unsigned)in[whole] << 10) | ((unsigned)in[whole + 1] << 2);
+    out[o++] = a[v >> 12];
+    out[o++] = a[(v >> 6) & 63];
+    out[o++] = a[v & 63];
+    if (padded) out[o++] = '=';
+  }
+  luaL_pushresultsize(&b, o);
+  return 1;
+}
+
+/* `hex(bytes)`: `bytes` as lowercase hexadecimal, two digits a byte. */
+static int text_hex (lua_State *L) {
+  static const char digits[] = "0123456789abcdef";
+  size_t len = 0;
+  const unsigned char *in = (const unsigned char *)luaL_checklstring(L, 1, &len);
+  luaL_Buffer b;
+  char *out = luaL_buffinitsize(L, &b, len * 2);
+  for (size_t i = 0; i < len; i++) {
+    out[2 * i] = digits[in[i] >> 4];
+    out[2 * i + 1] = digits[in[i] & 15];
+  }
+  luaL_pushresultsize(&b, len * 2);
+  return 1;
+}
+
+/* The value of each byte as a hex digit, or -1 for a byte that is none. Filled
+ * when the table opens. */
+static int8_t hex_values[256];
+
+static void hex_tables (void) {
+  memset(hex_values, -1, sizeof hex_values);
+  for (int i = 0; i < 10; i++) hex_values['0' + i] = (int8_t)i;
+  for (int i = 0; i < 6; i++) hex_values['a' + i] = hex_values['A' + i] = (int8_t)(10 + i);
+}
+
+/* Where `unhex` refused a text: nil and the 1-based place of the byte. */
+static int hex_refuse (lua_State *L, size_t at) {
+  lua_pushnil(L);
+  lua_pushinteger(L, (lua_Integer)at);
+  return 2;
+}
+
+/* `unhex(text)`: the bytes the hex digits of `text` spell, in either case.
+ * `text` must be of even length (the caller checks). Returns the bytes, or
+ * nil and the 1-based place of the first byte that is no hex digit. */
+static int text_unhex (lua_State *L) {
+  size_t len = 0;
+  const unsigned char *in = (const unsigned char *)luaL_checklstring(L, 1, &len);
+  luaL_argcheck(L, len % 2 == 0, 1, "an even number of digits");
+  luaL_Buffer b;
+  char *out = luaL_buffinitsize(L, &b, len / 2);
+  for (size_t i = 0; i < len; i += 2) {
+    int high = hex_values[in[i]];
+    int low = hex_values[in[i + 1]];
+    if ((high | low) < 0) {
+      return hex_refuse(L, high < 0 ? i + 1 : i + 2);
+    }
+    out[i / 2] = (char)((high << 4) | low);
+  }
+  luaL_pushresultsize(&b, len / 2);
+  return 1;
+}
+
 static const luaL_Reg module[] = {
+  {"hex", text_hex},
+  {"unhex", text_unhex},
+  {"base64", text_base64},
   {"lines", text_lines},
   {"newlines", text_newlines},
   {"sort", text_sort},
@@ -309,6 +406,7 @@ static const luaL_Reg module[] = {
 
 int cosmic_open_text (lua_State *L) {
   base64_tables();
+  hex_tables();
   luaL_newlib(L, module);
   return 1;
 }

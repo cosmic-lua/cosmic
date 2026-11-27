@@ -77,19 +77,23 @@ local record json
                   duplicate_keys?: boolean, big_as_string?: boolean): boolean, string
   -- The value `text` holds, read as `check` reads it, written again as
   -- RFC 8259 text: its members in the text's order and its numbers as
-  -- written (a JSON5 form as RFC 8259 writes the number), laid out
-  -- two spaces a level with `pretty`; or, with `canonical`, in RFC
-  -- 8785's form. nil and a message when the text does not read, or
-  -- holds NaN or an infinity.
+  -- written (a JSON5 form as RFC 8259 writes the number), laid out as
+  -- `encode` lays it out by `layout` and `width`; or, with `canonical`,
+  -- in RFC 8785's form. nil and a message when the text does not read,
+  -- or holds NaN or an infinity.
   format: function(text: string, max_depth?: integer, json5?: boolean,
                    lone_surrogates?: boolean, hash_comments?: boolean,
-                   duplicate_keys?: boolean, pretty?: boolean,
-                   canonical?: boolean): string?, string
+                   duplicate_keys?: boolean, layout?: string,
+                   canonical?: boolean, width?: integer): string?, string
   -- `value` as JSON text. nil and a message when it holds something
   -- JSON cannot say, naming where: `... at pointer "/users/2/name"`. Keys are
-  -- sorted by their bytes; `pretty` lays it out two spaces a level. Raises
-  -- when `max_depth` is outside 1 to `depth_limit`.
-  encode: function(value: any, pretty?: boolean, max_depth?: integer, ascii?: boolean): string?, string
+  -- sorted by their bytes. `layout` is "compact" (the default), "expanded"
+  -- (two spaces a level) or "fractured" (FracturedJson's layout, in lines
+  -- of `width` characters, 120 when absent). Raises when `max_depth` is
+  -- outside 1 to `depth_limit`, `layout` is another word, or `width` is
+  -- less than 1.
+  encode: function(value: any, layout?: string, max_depth?: integer, ascii?: boolean,
+                   width?: integer): string?, string
   -- Marks `t`, or a new table, as a JSON array and gives it back. Raises
   -- when `t` has another metatable.
   array: function(): {any}
@@ -103,6 +107,22 @@ local record json
   with_holes: function<T>(t: {integer: T}, holey: boolean): {integer: T}
   -- Whether `v` is a table carrying either array mark.
   is_array: function(v: any): boolean
+  -- How a table encodes: see cosmic/json.tl's [`Json.layout`].
+  enum TableLayout
+    "array"
+    "object"
+    "hole"
+    "mixed"
+  end
+  -- How the table `t` encodes, by the rules `encode` applies, by a raw
+  -- scan; a marked array is not scanned. nil for an unmarked table
+  -- with a `__pairs`, which the caller classifies by that walk.
+  classify: function<K is Key, V>(t: {K: V}): TableLayout?
+  -- The same, with the keys and the extent cosmic/json.tl's
+  -- [`Json.members`] names: a marked array is scanned, and `gaps` asks
+  -- for its integer keys when it has a gap. The keys are a new table;
+  -- empty, and the extent 0, when the layout is nil.
+  classify: function<K is Key, V>(t: {K: V}, members: boolean, gaps: boolean): TableLayout?, {string | integer}, integer
   -- The stand-in for JSON `null`: a userdata that encodes as `null`.
   null: Null
   -- How many arrays and objects may nest when the caller names no

@@ -539,6 +539,16 @@ local record Net
     --- [`Net.serve`] waits for too. What it raises, [`Net.serve`] raises,
     --- having closed every listener.
     on_ready?: function(addresses: {Address}, server: Server)
+    --- Called once every listener listens, with what `on_ready` is
+    --- given. With `clear`, it runs before `tls` first loads, while a
+    --- source may wait on what `clear` serves: here a caller learns the
+    --- port the kernel chose for a `clear` listener at port 0, so that
+    --- what checks it (a test's own ACME server) can reach it. Without
+    --- `clear`, `tls` loads before any listener opens, and this runs
+    --- just before `on_ready`. Not called where a listener cannot be
+    --- opened. What it raises, [`Net.serve`] raises, having closed
+    --- every listener.
+    on_listen?: function(addresses: {Address}, server: Server)
     --- Called once, as the server begins to stop -- at [`Server.stop`],
     --- or at a SIGINT or SIGTERM its guard caught -- in a task of the
     --- server's run, with the server, once every listener is closed;
@@ -1442,6 +1452,8 @@ local function serving(spec: Net.ServeSpec): boolean, string
   local watcher = Poll.spawn(function() watch(s) end)
   s.watcher = watcher
   local on_ready = spec.on_ready
+  local on_listen = spec.on_listen
+  if on_listen ~= nil then on_listen(addresses, server) end
   if certs ~= nil then
     -- The first load waits in this task, which `stop` cancels: `clear`
     -- serves meanwhile, so an ACME check reaches it, and a signal ends

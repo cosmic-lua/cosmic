@@ -5,6 +5,7 @@
 --- only so that cosmic.sandbox.seatbelt, which cosmic.sandbox requires, can require
 --- this.
 
+local Failure = require("cosmic.failure")
 local FieldPath = require("cosmic.internal.field_path")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
@@ -294,8 +295,8 @@ end
 
 --- What a function returns for a failure of this module: nil and `why`
 --- under the name "sandbox", as [`cosmic.sandbox`]'s own failures are.
-local function refuse(why: string): nil, string
-  return nil, "sandbox: " .. why
+local function refuse(why: string): nil, Failure
+  return nil, Failure.new("sandbox: " .. why)
 end
 
 local LETTERS <const> = "rwxcu"
@@ -700,10 +701,10 @@ end
 
 --- What the profile `name` holds on this host: [`Sandbox.profile`], which
 --- says how.
-function rules.profile(name: string): rules.Policy?, string
-  if name == "proc" then return proc_profile(), "" end
+function rules.profile(name: string): (rules.Policy) | (nil, Failure)
+  if name == "proc" then return proc_profile() end
   if name == "system" or name == "programs" then
-    return rules.system_profile(if rules.on_macos() then "darwin" else "linux" end, present, name), ""
+    return rules.system_profile(if rules.on_macos() then "darwin" else "linux" end, present, name)
   end
   if name == "cosmic" then return refuse(NO_COSMIC) end
   return refuse("unknown profile \"" .. tostring(name) .. "\" (known: " ..
@@ -712,10 +713,10 @@ end
 
 --- The database at `path`, with the SHA-256 of its bytes now:
 --- [`Sandbox.database`], which says how.
-function rules.database(path: string): rules.Database?, string
+function rules.database(path: string): (rules.Database) | (nil, Failure)
   local bytes, why = Fs.read(path)
   if bytes == nil then return refuse("database " .. tostring(why)) end
-  return { path = path, sha256 = Hash.hex_sha256(bytes) }, ""
+  return { path = path, sha256 = Hash.hex_sha256(bytes) }
 end
 
 --- The grants of `p` that name a path, in its order.
@@ -774,7 +775,7 @@ end
 
 --- What the policies given hold together: [`Sandbox.union`], which says
 --- how.
-function rules.merge(...: rules.Policy): rules.Policy?, string
+function rules.merge(...: rules.Policy): (rules.Policy) | (nil, Failure)
   local flat: mut {rules.Policy} = {}
   local given: {rules.Policy} = { ... }
   for _, p in ipairs(given) do
@@ -924,7 +925,7 @@ function rules.merge(...: rules.Policy): rules.Policy?, string
       user = user, group = group, database = database,
     },
   }
-  return result, ""
+  return result
 end
 
 --- The most open files a process under a policy may hold unless its
@@ -1030,7 +1031,7 @@ local function setup_conflict(name: string, a: string?, b: string?): string
 end
 
 --- What two merged policies hold stacked: what both allow.
-local function intersect_two(a: rules.Policy, b: rules.Policy): rules.Policy?, string
+local function intersect_two(a: rules.Policy, b: rules.Policy): (rules.Policy) | (nil, Failure)
   local grants: mut {rules.Grant} = {}
   for _, ga in ipairs(rules.paths(a)) do
     for _, gb in ipairs(rules.paths(b)) do
@@ -1112,7 +1113,7 @@ local function intersect_two(a: rules.Policy, b: rules.Policy): rules.Policy?, s
 end
 
 --- [`Sandbox.intersect`]: what the layers given hold stacked, merged.
-function rules.intersect(...: rules.Policy): rules.Policy?, string
+function rules.intersect(...: rules.Policy): (rules.Policy) | (nil, Failure)
   local layers: {rules.Policy} = { ... }
   if #layers == 0 then return refuse("intersect needs a layer") end
   local held: rules.Policy? = nil
@@ -1127,7 +1128,8 @@ function rules.intersect(...: rules.Policy): rules.Policy?, string
       held = joined
     end
   end
-  return held, ""
+  local stacked = assert(held, "a layer was merged")
+  return stacked
 end
 
 --- [`Sandbox.allows`] of a policy already merged.
