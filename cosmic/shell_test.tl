@@ -83,6 +83,17 @@ local function test_counting_and_sorting()
   assert(table.concat(by_path, ",") == "0a a.md,f0 b.md,0a c.md", table.concat(by_path, ","))
 end
 
+--- version_sort orders a run of digits by its number, as `sort -V` does: path:line texts come in line order.
+local function test_version_sort_orders_numbers_by_value()
+  local lines = Shell.version_sort({ "x.tl:1082", "x.tl:56", "a.tl:9", "a.tl:10", "x.tl:056", "b" })
+  assert(table.concat(lines, ",") == "a.tl:9,a.tl:10,b,x.tl:056,x.tl:56,x.tl:1082", table.concat(lines, ","))
+  assert(table.concat(Shell.version_sort({ "v10", "v9", "v" }), ",") == "v,v9,v10")
+  local by_last = Shell.version_sort({ "z 10", "a 9" }, function(l: string): string
+    return l:match("%d+$") or l
+  end)
+  assert(table.concat(by_last, ",") == "a 9,z 10", table.concat(by_last, ","))
+end
+
 -- Shell.split cuts at newlines it finds 64 and 32 bytes at a step
 -- (core/bytes.h): lines of every length around those widths come back
 -- whole.
