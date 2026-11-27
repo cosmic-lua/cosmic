@@ -1647,7 +1647,7 @@ find_links = function(handle: work.Handle, texts: {string:string}): boolean, str
     end
   end
   local unread, unread_trouble = db:rows(
-    "SELECT path, kind, sha256 FROM linked l WHERE NOT EXISTS (SELECT 1 FROM linked_texts t " ..
+    "SELECT path, kind, sha256, size FROM linked l WHERE NOT EXISTS (SELECT 1 FROM linked_texts t " ..
       "WHERE t.sha256 = l.sha256 AND t.kind = l.kind) ORDER BY path")
   if unread == nil then
     return false, tostring(unread_trouble)
@@ -1656,7 +1656,9 @@ find_links = function(handle: work.Handle, texts: {string:string}): boolean, str
     local path, kind, sha256 = row:text(1), row:text(2), row:text(3)
     local data = texts[path]
     if data == nil then
-      local read, read_trouble = Fs.read(handle.root .. "/" .. path)
+      -- At most the staged size, as staging reads: a file that grows
+      -- meanwhile then fails the digest below, not the read.
+      local read, read_trouble = Fs.read(handle.root .. "/" .. path, row:integer(4))
       if read == nil then
         return false, tostring(read_trouble)
       end
