@@ -343,8 +343,20 @@ function Pages.render_text(view: View, entry: Entry): {string}?, string
     for _, item in ipairs(declared) do
       listed_symbols[item.symbol] = true
     end
-    local best: Entry?
+    -- The module's own record, then its functions, then what is declared inside it (records, enums, values): an output
+    -- cut to its start keeps the calls, which a reader (or an agent) wants first, and the records they take follow.
+    local ordered: mut {Entry} = {}
+    local function nested(item: Entry): boolean
+      return not is_call(item) and item.source_symbol:find(".", 1, true) ~= nil
+    end
     for _, item in ipairs(declared) do
+      if not nested(item) then ordered[#ordered + 1] = item end
+    end
+    for _, item in ipairs(declared) do
+      if nested(item) then ordered[#ordered + 1] = item end
+    end
+    local best: Entry?
+    for _, item in ipairs(ordered) do
       if is_call(item) and (best == nil or points_better(item, best)) then best = item end
       if view.program ~= nil then
         item.uses, item.links = 0, 0
