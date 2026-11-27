@@ -169,6 +169,10 @@ local function held_to(given: Sandbox.Policy, runs: boolean, program?: string): 
   -- process there either, though it could still become another program.
   -- TODO: hold an x grant on macOS as map-only (Seatbelt's file-map-executable alone) once a grant can say so.
   local strip = (not runs or program ~= nil) and not Sandbox.on_macos()
+  if program ~= nil and not runs and Sandbox.on_macos() then
+    -- There every `x` stays and `fork` is given with the program, so what a snippet wrote could run any of them.
+    return nil, Failure.new("worker: cosmic runs from a snippet without --commands only on Linux, where its x grants go")
+  end
   for _, grant in ipairs(Sandbox.paths(merged)) do
     -- With no commands, no grant runs a file. The worker is this program, which its start runs as its core
     -- whatever the policy grants. The core holds its policy again at boot without that `rx` (under `isolate` file

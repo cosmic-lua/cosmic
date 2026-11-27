@@ -306,14 +306,6 @@ function rebuild.stage(root: string, carried?: string): rebuild.Where?, string
   return found, ""
 end
 
---- Builds the project at `root`, the working directory by default, as
---- `project` does, for the verb `verb`, which names itself in what it
---- says: a lookup's, which waits for no other run. With `start`, it
---- builds one no build has been made of yet too, and waits for another
---- run as a build does: `cosmic fix`, which stages and compiles the
---- directory to check it whatever it holds (`build.fix.spill`), so
---- that what its links name is the tree as it stands rather than
---- whatever an earlier `cosmic test` left.
 --- As [`here`] for a lookup of the project's own code, `cosmic uses`, whose answer names nothing until a build has
 --- been made: in a directory that looks like a project no build has been made of ([`looks_unbuilt`]), it makes the
 --- first, as `cosmic fix` would; anywhere else it does as a lookup's does.
@@ -324,6 +316,14 @@ function rebuild.here_built(verb: string): boolean, string
   return project(at, verb, found ~= nil and not found.project and looks_unbuilt(at))
 end
 
+--- Builds the project at `root`, the working directory by default, as
+--- `project` does, for the verb `verb`, which names itself in what it
+--- says: a lookup's, which waits for no other run. With `start`, it
+--- builds one no build has been made of yet too, and waits for another
+--- run as a build does: `cosmic fix`, which stages and compiles the
+--- directory to check it whatever it holds (`build.fix.spill`), so
+--- that what its links name is the tree as it stands rather than
+--- whatever an earlier `cosmic test` left.
 --- @param carried the `built_from` the tool carries, as [`tree.standing`] takes it
 function rebuild.here(verb: string, start?: boolean, root?: string, carried?: string): boolean, string
   local at = root

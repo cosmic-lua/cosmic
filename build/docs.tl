@@ -292,11 +292,6 @@ local function run(argv: {string}): integer
   return 0
 end
 
---- `cosmic uses <symbol> [path...]`: every place that refers to the
---- symbol, one `file:line` per line -- only those in a file under one
---- of the paths, when there are any -- then its summary on stderr. A link is
---- marked `link`; the symbol may be a file instead, which only links
---- name ([`doc/writing.md`], `doc/writing.md#every-example-runs`).
 --- `cosmic uses --unused [path...]`: each exported function of the tree's own modules -- in a file under the paths,
 --- when given -- that no code outside its own file uses, tests left out ([`Doc.unused`]), as `file:line: Module.name`.
 local function run_unused(words: {string}): integer
@@ -333,6 +328,11 @@ local function run_unused(words: {string}): integer
   return 0
 end
 
+--- `cosmic uses <symbol> [path...]`: every place that refers to the
+--- symbol, one `file:line` per line -- only those in a file under one
+--- of the paths, when there are any -- then its summary on stderr. A link is
+--- marked `link`; the symbol may be a file instead, which only links
+--- name ([`doc/writing.md`], `doc/writing.md#every-example-runs`).
 local function run_uses(argv: {string}): integer
   local parsed, parse_trouble = Flags.parse(argv, 2, assert(assert(Cli.verbs["uses"]).spec))
   if parsed == nil then
