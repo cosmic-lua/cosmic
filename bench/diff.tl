@@ -9,6 +9,7 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Diff = require("cosmic.diff")
 local Fs = require("cosmic.fs")
+local Merge = require("cosmic.merge")
 local Proc = require("cosmic.proc")
 
 --- A generator of integers in [1, n], the same for a seed on every host.
@@ -96,6 +97,23 @@ local function pair(name: string, old: string, new: string)
   end, { bytes = #old })
   local run = command({ "patch", "-s", "-o", work, a, patch_file })
   bench.case("apply " .. name .. ": command", run, { baseline = "apply " .. name })
+  -- The side-by-side and byte comparers on the same pair; `cmp` stops at the first difference, as `compare` does.
+  bench.case("sdiff " .. name, function(n: integer)
+    for _ = 1, n do local _ = Merge.sdiff(old, new) end
+  end, { bytes = #old + #new })
+  bench.case("sdiff " .. name .. ": command", command({ "sdiff", "-w", "130", a, b }), { baseline = "sdiff " .. name })
+  bench.case("compare " .. name, function(n: integer)
+    for _ = 1, n do local _ = Merge.compare(old, new) end
+  end, { bytes = #old + #new })
+  bench.case("compare " .. name .. ": command", command({ "cmp", a, b }), { baseline = "compare " .. name })
+  -- One side is the new text and the other adds a line at the end of it, so `diff3 -m` and [`Merge.three`] merge the
+  -- same two changes of the old text.
+  local c = a .. ".c"
+  assert(Fs.write(c, new .. "tail\n"))
+  bench.case("merge " .. name, function(n: integer)
+    for _ = 1, n do local _ = Merge.three(old, new, new .. "tail\n") end
+  end, { bytes = #old + #new * 2 })
+  bench.case("merge " .. name .. ": command", command({ "diff3", "-m", b, a, c }), { baseline = "merge " .. name })
 end
 
 local record Size
