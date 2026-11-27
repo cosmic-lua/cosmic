@@ -14,6 +14,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "cache_owner.h"
 #include "crypto.h"
 #include "executable.h"
 #include "environment.h"
@@ -308,16 +309,12 @@ static bool first_line (const char *path, char *text, size_t room) {
   return true;
 }
 
-/* Whether this process is in a user namespace other than the first: its
- * uid_map is there and is not the whole range mapped to itself. */
-static bool namespaced (void) {
+/* Whether this process is in a user namespace other than the first, by its
+ * uid_map; unknown where a sandbox holds /proc from it. */
+static enum cosmic_userns namespaced (void) {
   char map[128];
-  if (!first_line("/proc/self/uid_map", map, sizeof map)) return false;
-  unsigned long inside, outside, count;
-  char extra;
-  if (sscanf(map, " %lu %lu %lu %c", &inside, &outside, &count, &extra) != 3)
-    return true;
-  return !(inside == 0 && outside == 0 && count == 4294967295UL);
+  return cosmic_userns_of_map(
+      first_line("/proc/self/uid_map", map, sizeof map) ? map : NULL);
 }
 
 /* The uid a file of a user unmapped in this namespace shows: the kernel's
@@ -334,24 +331,14 @@ static uid_t overflow_uid (void) {
   return (uid_t)value;
 }
 
-/* Whether a 0555 entry owned by `owner` in a leaf owned by `leaf_owner`
- * is root's copy, as `user` sees it: root's in root's leaf, or, in a user
- * namespace whose root holds a leaf of this user's (isolate "file"), owned
- * by a root it cannot name, the overflow uid, which is never this user. */
-static bool roots_entry (uid_t owner, uid_t leaf_owner, uid_t user) {
-  if (owner == 0) return leaf_owner == 0;
-  return leaf_owner == user && owner != user && owner == overflow_uid() &&
-         namespaced();
-}
-
 /* Why the cache entry this core runs from, in the leaf `directory`, may not
  * run, or NULL where it may: what a warm launch takes on trust, since its
  * shell sees no mode or length (build/launcher.tl). The leaf is this
  * user's, or root's, and no group or others can write it, so no one else
  * can plant an entry there; the entry is mode 0500 and the manifest's
  * length, as the launcher publishes it, or root's own 0555 (the copies a
- * root caller's sandboxed child runs, [`roots_entry`]). Root's leaf is trusted as root is:
- * a worker that a root run of `cosmic test` starts as a user of its own
+ * root caller's sandboxed child runs, `cosmic_cache_roots_entry`).
+ * Root's leaf is trusted as root is: a worker that a root run of `cosmic test` starts as a user of its own
  * runs root's cached core. The entry's owner is not judged here: only the
  * leaf's owner can have put it there, and the launcher's warm start runs
  * only a file this user owns. A leaf that fails is refused as the launcher
@@ -382,7 +369,8 @@ static const char *cache_refusal (const char *directory, const char *stamp,
    * a root it cannot name (the overflow uid). Either way only root writes
    * or changes it, and its digest is checked below unless a stamp holds. */
   mode_t mode = core_stat->st_mode & 07777;
-  if (mode != 0500 && !(mode == 0555 && roots_entry(core_stat->st_uid, leaf.st_uid, user))) {
+  if (mode != 0500 && !(mode == 0555 && cosmic_cache_roots_entry(core_stat->st_uid, leaf.st_uid, user,
+                                      overflow_uid(), namespaced()))) {
     char reason[64];
     snprintf(reason, sizeof reason, "is not mode 0500 (mode %o)",
              (unsigned)mode);
