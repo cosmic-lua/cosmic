@@ -337,9 +337,6 @@ local function with_census(words: {string}): {string}
   return out
 end
 
---- `words`, a suite's command, run as the share `share` (`I/N`) of its
---- tests (`cosmic test --shard`); `words` itself where `share` is nil or
---- empty.
 --- Where share `share` (`I/N`) of the checked suite writes the C
 --- functions its tests did not enter, under `temp` (RUNNER_TEMP):
 --- `checked-unentered/share-I.txt`, which ci.yml's `checked` uploads for
@@ -351,6 +348,9 @@ function Orchestration.checked_unentered(share?: string, temp?: string): string?
   return temp .. "/checked-unentered/share-" .. index .. ".txt"
 end
 
+--- `words`, a suite's command, run as the share `share` (`I/N`) of its
+--- tests (`cosmic test --shard`); `words` itself where `share` is nil or
+--- empty.
 function Orchestration.with_share(words: {string}, share?: string): {string}
   if share == nil or share == "" then return words end
   local out: mut {string} = {}

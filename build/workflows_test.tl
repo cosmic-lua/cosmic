@@ -2505,6 +2505,7 @@ local function test_the_gate_joins_the_checked_shares_c_functions()
   local upload = step_named(job_of(jobs, "checked").steps, "upload the C functions this share's tests did not enter")
   assert(upload["if"] == "matrix.shard != ''", tostring(upload["if"]))
   assert(with_of(upload)["name"] == "checked-unentered-${{ matrix.name }}", tostring(with_of(upload)["name"]))
+  assert(with_of(upload)["overwrite"] == true, "a share's job run again cannot upload its list again")
   local gate = job_of(jobs, "ci").steps
   local download = step_with_id(gate, "unentered-download")
   assert(tostring(download["if"]):find("github.event_name == 'merge_group'", 1, true) ~= nil, tostring(download["if"]))

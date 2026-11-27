@@ -1093,6 +1093,8 @@
             name: "checked-unentered-${{ matrix.name }}",
             path: "${{ runner.temp }}/checked-unentered/",
             "if-no-files-found": "error",
+            # A job run again writes its share's list again.
+            overwrite: true,
             "retention-days": 1,
           },
         },
