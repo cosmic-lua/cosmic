@@ -602,6 +602,66 @@ function Host.check(path: string): {string}
   return check(path, text)
 end
 
+--- What the agent's call `cosmic` ran (`cosmic <verb> <args>`), as [`Host.Ran`]; raises where it could not run.
+local function cosmic_ran(verb: string, args: {string}): Host.Ran
+  local words: mut {Json.Value} = {}
+  for _, word in ipairs(args) do words[#words + 1] = word end
+  local value, why = Host.call("cosmic", { verb = verb, args = Json.array(words) })
+  if value == nil then error("host: " .. verb .. ": " .. tostring(why), 3) end
+  local fields, _ = Json.to_object(value)
+  local got: {string: Json.Value} = fields or {}
+  local output = Json.string_of(got["output"]) or ""
+  return { output = output, cut = got["cut"] == true, code = Json.integer_of(got["code"]),
+    signal = Json.integer_of(got["signal"]), ok = got["ok"] == true, timed_out = got["timed_out"] == true }
+end
+
+--- Every place under `paths` (all of the tree where none) that refers to `symbol`, as `cosmic uses` finds them: a
+--- name as declared (`Money.format`) or by its last part (`format`), or a file (`doc/a.md`), which only links name.
+--- It reads what the checker resolved, not text, so a word in prose or a field of the same name elsewhere is no
+--- use; a comment's link to it is. Each is a line of [`Host.grep`]'s shape, the file's line as `text`. None where
+--- nothing refers to it; raises where the tree does not build. It builds the tree first where no build has.
+function Host.uses(symbol: string, paths?: {string}): mut {Host.Hit}
+  local args: mut {string} = { symbol }
+  for _, path in ipairs(paths or {}) do args[#args + 1] = path end
+  local ran = cosmic_ran("uses", args)
+  if ran.output:find("which no build has made yet", 1, true) then
+    -- A lookup builds only a tree some build has made: make the first, and ask again.
+    local built = cosmic_ran("build", {})
+    if not built.ok then error("host: uses: the tree did not build: " .. built.output, 2) end
+    ran = cosmic_ran("uses", args)
+  end
+  if ran.cut then error("host: uses: its answer was cut; name paths to narrow it", 2) end
+  local hits: mut {Host.Hit} = {}
+  local files: mut {string: {string}} = {}
+  for line in ran.output:gmatch("[^\n]+") do
+    local path, number = line:match("^([^:]+):(%d+): ")
+    local at = if number ~= nil then math.tointeger(tonumber(number)) else nil end
+    if path ~= nil and at ~= nil then
+      local lines = files[path]
+      if lines == nil then
+        local read, _ = Shell.lines(path)
+        lines = read or {}
+        files[path] = lines
+      end
+      hits[#hits + 1] = { path = path, line = at, text = lines[at] or "" }
+    end
+  end
+  -- It exits 1 saying "nothing refers to" where none does; anything else that is not ok is a failure.
+  if not ran.ok and not (ran.code == 1 and ran.output:find("nothing refers to", 1, true) ~= nil and
+      ran.output:find("which no build has made yet", 1, true) == nil) then
+    error("host: uses: " .. ran.output, 2)
+  end
+  return hits
+end
+
+--- Runs the tests of `paths` (the test files, or the directories that hold them; the whole tree where none), as
+--- `cosmic test` runs them, in the snippet's sandbox: what it printed, and `ok` where every test passed. It runs
+--- with commands or without, as only cosmic itself may run.
+function Host.test(paths?: {string}): Host.Ran
+  local ran = cosmic_ran("test", paths or {})
+  return ran
+end
+
 --- The lines of the file `path` ([`Shell.lines`]); raises where it cannot be read.
 function Host.lines(path: string): mut {string}
   local lines, why = Shell.lines(path)
