@@ -248,9 +248,13 @@ local function is_oid(s: string): boolean
   return #s == 40 and s:find("^[0-9a-f]+$") ~= nil
 end
 
---- The hex name of an object.
-local function name_of(kind: string, data: string): string
-  return Codec.hex(Hash.digest("sha1", kind .. " " .. tostring(#data) .. "\0" .. data))
+--- The hex name of an object, hashed with collision detection, as git
+--- does: nil and a Failure for an object that holds a block of a known
+--- SHA-1 collision attack, which could share its name with another.
+local function name_of(kind: string, data: string): (string) | (nil, Failure)
+  local digest, trouble = Hash.sha1dc(kind .. " " .. tostring(#data) .. "\0" .. data)
+  if digest == nil then return nil, Failure.within(trouble, "git: a " .. kind .. " object") end
+  return Codec.hex(digest)
 end
 
 ------------------------------------------------------------------
@@ -1278,9 +1282,13 @@ local class Repository is Git.Repo
     if base ~= nil then
       local result, atrouble = apply_delta(base.data, data)
       if result == nil then return nil, atrouble end
-      object = { oid = name_of(base.kind, result), kind = base.kind, data = result }
+      local oid, ntrouble = name_of(base.kind, result)
+      if oid == nil then return nil, ntrouble end
+      object = { oid = oid, kind = base.kind, data = result }
     elseif plain_kind ~= nil then
-      object = { oid = name_of(plain_kind, data), kind = plain_kind, data = data }
+      local oid, ntrouble = name_of(plain_kind, data)
+      if oid == nil then return nil, ntrouble end
+      object = { oid = oid, kind = plain_kind, data = data }
     else
       return refuse("pack entry of unknown type " .. tostring(kind_number), p.path)
     end
@@ -1350,7 +1358,9 @@ local class Repository is Git.Repo
       end
       return refuse("object " .. oid .. " is not in the store")
     end
-    if name_of(object.kind, object.data) ~= oid then
+    local named, ntrouble = name_of(object.kind, object.data)
+    if named == nil then return nil, ntrouble end
+    if named ~= oid then
       return refuse("object " .. oid .. " is corrupt: its content hashes to another name")
     end
     return object
@@ -1399,7 +1409,8 @@ local class Repository is Git.Repo
   --- Writes an object to the store as a loose object, unless it is
   --- there already, and returns its oid.
   function write_object(self, kind: Git.Kind, data: string): (string) | (nil, Failure)
-    local oid = name_of(kind, data)
+    local oid, ntrouble = name_of(kind, data)
+    if oid == nil then return nil, ntrouble end
     if self:has(oid) then return oid end
     local dir = self.object_dirs[1]! .. "/" .. oid:sub(1, 2)
     local made, mtrouble = Fs.mkdirs(dir)
@@ -1639,15 +1650,27 @@ local class Repository is Git.Repo
 
   --- Every blob, link and submodule under a tree, by path.
   function flatten(self, tree_oid: string, prefix: string, into: mut {string:Recorded}): (true) | (nil, Failure)
-    local entries, trouble = self:tree(tree_oid)
-    if entries == nil then return nil, trouble end
-    for _, e in ipairs(entries) do
-      local mode = mode_number(e.mode)
+    -- The tree's bytes are read here, not through parse_tree: its oids stay raw, and only a subtree's is spelled
+    -- in hex, so a tree of thousands of files costs no hex round trip for each.
+    local object, trouble = self:read_kind(tree_oid, "tree")
+    if object == nil then return nil, trouble end
+    local data = object.data
+    local at = 1
+    while at <= #data do
+      local space = data:find(" ", at, true)
+      local nul = space and data:find("\0", space, true)
+      if space == nil or nul == nil or nul + 20 > #data then
+        return refuse("tree " .. tree_oid .. " is malformed")
+      end
+      local mode = mode_number(data:sub(at, space - 1))
+      local name = data:sub(space + 1, nul - 1)
+      local oid = data:sub(nul + 1, nul + 20)
+      at = nul + 21
       if mode == 0x4000 then
-        local ok, ftrouble = self:flatten(e.oid, prefix .. e.name .. "/", into)
+        local ok, ftrouble = self:flatten(Codec.hex(oid), prefix .. name .. "/", into)
         if not ok then return nil, ftrouble end
       else
-        into[prefix .. e.name] = { mode = mode, oid = raw_of(e.oid) }
+        into[prefix .. name] = { mode = mode, oid = oid }
       end
     end
     return true
@@ -1670,7 +1693,9 @@ local class Repository is Git.Repo
     if st.kind == "link" then
       local target, trouble = Fs.readlink(full)
       if target == nil then return nil, trouble end
-      return { st = st, blob = target, recorded = { mode = 0xA000, oid = raw_of(name_of("blob", target)) } }
+      local oid, ntrouble = name_of("blob", target)
+      if oid == nil then return nil, ntrouble end
+      return { st = st, blob = target, recorded = { mode = 0xA000, oid = raw_of(oid) } }
     end
     if st.kind ~= "file" then return { st = st } end
     local data, trouble = Fs.read(full)
@@ -1681,7 +1706,9 @@ local class Repository is Git.Repo
     elseif keep_mode ~= nil and keep_mode & 0xF000 == 0x8000 then
       mode = keep_mode
     end
-    return { st = st, blob = data, recorded = { mode = mode, oid = raw_of(name_of("blob", data)) } }
+    local oid, ntrouble = name_of("blob", data)
+    if oid == nil then return nil, ntrouble end
+    return { st = st, blob = data, recorded = { mode = mode, oid = raw_of(oid) } }
   end
 
   --- How the worktree's `path` differs from its index entry, or nil
@@ -1816,19 +1843,22 @@ local class Repository is Git.Repo
         parse_ignore(own, dir, more)
         rules = more
       end
-      local names, trouble = Fs.list(full)
+      -- readdir names each entry's kind as lstat would (it asks lstat where the file system does not say), so
+      -- the walk needs no lstat of its own.
+      local kinds, _, lerrno = sys.readdir(full)
       -- git warns of a directory it cannot open below the top, and goes on.
-      if names == nil then
-        if dir == "" then return nil, trouble end
+      if kinds == nil then
+        if dir == "" then return nil, Failure.system(lerrno, full) end
         return true
       end
+      local names: mut {string} = {}
+      for name in pairs(kinds) do names[#names + 1] = name end
+      table.sort(names)
       for _, name in ipairs(names) do
         local path = dir .. name
+        local kind = kinds[name]!
         if name ~= ".git" then
-          local st, _, errno = sys.lstat(full .. "/" .. name)
-          if st == nil then
-            if errno ~= sys.ENOENT then return nil, Failure.system(errno, full .. "/" .. name) end
-          elseif st.kind == "dir" then
+          if kind == "dir" then
             if gitlinks[path] == nil and not is_ignored(rules, path, true, fold) then
               if tracked_dirs[path] == nil and holds_repository(full .. "/" .. name) then
                 found[#found + 1] = path .. "/"
