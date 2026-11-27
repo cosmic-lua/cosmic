@@ -589,17 +589,18 @@ function Host.edit(path: string, edits: {Host.Replacement}): integer
   return made
 end
 
---- The checker's lines on the Teal file `path`, as `cosmic fix` tells them of a file of its tree: none where it passes.
---- It reads the modules a snippet may require, and tells the lines of each module of a tree it requires too; it runs no
---- code. Raises where it cannot be read, or where
---- no checker is here (outside cosmic agent's worker).
-function Host.check(path: string): {string}
+--- Checks the Teal file `path` as `cosmic fix` checks a file of its tree, and raises with the checker's lines where it
+--- does not pass, so that what follows in the snippet runs only for a file that passes. It reads the modules a snippet
+--- may require, and tells the lines of each module of a tree it requires too; it runs no code. Raises too where it
+--- cannot be read, or where no checker is here (outside cosmic agent's worker).
+function Host.check(path: string)
   local text = Host.read(path)
   local check = checks
   if check == nil then
     error("host: check: no checker answers here: a snippet of cosmic agent's run tool reaches one", 2)
   end
-  return check(path, text)
+  local lines = check(path, text)
+  if #lines > 0 then error("host: check: " .. path .. " does not pass:\n" .. table.concat(lines, "\n"), 2) end
 end
 
 --- The lines of the file `path` ([`Shell.lines`]); raises where it cannot be read.
