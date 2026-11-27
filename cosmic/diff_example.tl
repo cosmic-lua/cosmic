@@ -33,4 +33,39 @@ function Example.unified()
   assert(open == "--- a\n+++ b\n@@ -1 +1 @@\n-a\n+a\n\\ No newline at end of file\n")
 end
 
+--- A patch read back into files and hunks; `strip` drops leading path components as `patch -p` does.
+function Example.parse()
+  local text = "diff --git a/f.txt b/f.txt\n--- a/f.txt\n+++ b/f.txt\n@@ -1,2 +1,2 @@\n one\n-two\n+2\n"
+  local files = assert(Diff.parse(text, { strip = 1 }))
+  local file = assert(files[1])
+  assert(file.kind == "modify" and file.old_name == "f.txt" and file.new_name == "f.txt")
+  assert(#file.hunks == 1)
+  local _, failure = Diff.parse("--- a\n+++ b\n@@ -1,2 +1,2 @@\n one\n")
+  assert(failure ~= nil and failure.line == 3)
+end
+
+--- A patch applied to text that has moved: the result says how far each hunk sat from its header, and rejects a
+--- hunk it cannot place instead of changing the text.
+function Example.apply()
+  local old = "a\nb\nc\nd\ne\n"
+  local hunks = Diff.lines(old, "a\nb\nC\nd\ne\n", { context = 1 })
+  local moved = Diff.apply("new first line\n" .. old, hunks)
+  assert(moved.text == "new first line\na\nb\nC\nd\ne\n")
+  assert(assert(moved.placed[1]).offset == 1)
+  local other = Diff.apply("x\ny\nz\n", hunks)
+  assert(other.text == nil and #other.rejects == 1)
+  -- `fuzz` lets context lines at the ends of a hunk differ.
+  local drifted = Diff.apply("a\nb\nc\nD\ne\n", hunks, { fuzz = 1 })
+  assert(drifted.text == "a\nb\nC\nD\ne\n")
+  assert(assert(drifted.placed[1]).fuzz == 1)
+end
+
+--- A patch that undoes another.
+function Example.reverse()
+  local hunks = Diff.lines("a\n", "b\n")
+  local back = Diff.reverse(hunks)
+  assert(Diff.apply("b\n", back).text == "a\n")
+  assert(Diff.apply("b\n", hunks, { reverse = true }).text == "a\n")
+end
+
 return Example
