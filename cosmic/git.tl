@@ -99,7 +99,7 @@ local record Git
     kind: ChangeKind
   end
 
-  --- What `git status` reports, less untracked files.
+  --- What `git status -uall` reports.
   record Status
     --- The branch HEAD names, `main` for `refs/heads/main`; nil when
     --- HEAD is detached.
