@@ -783,6 +783,7 @@ pub fn build(b: *std.Build) void {
     const yyjson = patched(b, trees, "yyjson");
     const simdutf = patched(b, trees, "simdutf");
     const expat = patched(b, trees, "expat");
+    const sha1dc = patched(b, trees, "sha1dc");
 
     // The patched copies land in the build directory's vendor/.
     const vendored = b.step("vendor", "write the patched vendor trees");
@@ -797,6 +798,7 @@ pub fn build(b: *std.Build) void {
         .{ "monocypher", monocypher },
         .{ "nanopb", nanopb },
         .{ "simdutf", simdutf },
+        .{ "sha1dc", sha1dc },
     }) |pair| {
         const install = b.addInstallDirectory(.{
             .source_dir = pair[1],
@@ -975,7 +977,7 @@ pub fn build(b: *std.Build) void {
             .optimize = .debug,
         }),
     });
-    const sources: Sources = .{ .own = own, .lua = lua, .sqlite = sqlite, .sqlite_ext = sqlite_ext, .miniz = miniz, .monocypher = monocypher, .nanopb = nanopb, .mbedtls = mbedtls, .bzip2 = bzip2, .xz = xz, .zstd = zstd, .cares = cares, .curl = curl, .yyjson = yyjson, .simdutf = simdutf, .expat = expat, .config = config };
+    const sources: Sources = .{ .own = own, .lua = lua, .sqlite = sqlite, .sqlite_ext = sqlite_ext, .miniz = miniz, .monocypher = monocypher, .nanopb = nanopb, .mbedtls = mbedtls, .bzip2 = bzip2, .xz = xz, .zstd = zstd, .cares = cares, .curl = curl, .yyjson = yyjson, .simdutf = simdutf, .expat = expat, .sha1dc = sha1dc, .config = config };
 
     const host_name = hostName(b);
     for (targets) |t| {
@@ -1577,6 +1579,8 @@ const Sources = struct {
     yyjson: std.Build.LazyPath,
     simdutf: std.Build.LazyPath,
     expat: std.Build.LazyPath,
+    /// SHA-1 with collision detection, for cosmic.hash's sha1dc.
+    sha1dc: std.Build.LazyPath,
     /// The configuration headers the libraries read from core/, copied
     /// into the zig cache (see the head of `build`).
     config: ConfigHeaders,
@@ -1689,6 +1693,7 @@ fn vendorLibraries(
     const yyjson = sources.yyjson;
     const simdutf = sources.simdutf;
     const expat = sources.expat;
+    const sha1dc = sources.sha1dc;
     const crypto = mbedtls.path(b, "tf-psa-crypto");
 
     // The libraries' compiles run beside one another; the longest are
@@ -1911,6 +1916,14 @@ fn vendorLibraries(
             "-D_XOPEN_SOURCE=700",
             "-DMINIZ_NO_ZLIB_COMPATIBLE_NAMES",
         },
+    });
+
+    // sha1dc is SHA-1 that detects the near-collision blocks of known
+    // attacks (SHAttered and its kind), the hash git names objects with.
+    vendorPart(b, &libraries, configuration, target, "sha1dc", &.{sha1dc.path(b, "lib")}).addCSourceFiles(.{
+        .root = sha1dc.path(b, "lib"),
+        .files = &.{ "sha1.c", "ubc_check.c" },
+        .flags = &.{ "-std=c11", debug_dir },
     });
 
     // Monocypher signs and checks Ed25519 for cosmic.sign, which mbedtls
@@ -2234,7 +2247,7 @@ fn vendorLibraries(
 /// The include directories of the vendored libraries' public headers, which
 /// the core's own C reads to call into them, in the order a name is looked
 /// up. mbedtls's configuration header is not among them ([`core`]).
-fn libraryIncludes(b: *std.Build, sources: Sources) [crypto_core_dirs.len + 14]std.Build.LazyPath {
+fn libraryIncludes(b: *std.Build, sources: Sources) [crypto_core_dirs.len + 15]std.Build.LazyPath {
     return [_]std.Build.LazyPath{
         sources.lua.path(b, "src"),
         sources.sqlite,
@@ -2247,6 +2260,7 @@ fn libraryIncludes(b: *std.Build, sources: Sources) [crypto_core_dirs.len + 14]s
         sources.bzip2,
         sources.xz.path(b, "src/liblzma/api"),
         sources.zstd.path(b, "lib"),
+        sources.sha1dc,
     } ++ cryptoIncludes(b, sources.mbedtls.path(b, "tf-psa-crypto"), &crypto_core_dirs) ++ [_]std.Build.LazyPath{
         sources.mbedtls.path(b, "include"),
         sources.cares.path(b, "include"),

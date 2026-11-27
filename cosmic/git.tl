@@ -248,9 +248,13 @@ local function is_oid(s: string): boolean
   return #s == 40 and s:find("^[0-9a-f]+$") ~= nil
 end
 
---- The hex name of an object.
-local function name_of(kind: string, data: string): string
-  return Codec.hex(Hash.digest("sha1", kind .. " " .. tostring(#data) .. "\0" .. data))
+--- The hex name of an object, hashed with collision detection, as git
+--- does: nil and a Failure for an object that holds a block of a known
+--- SHA-1 collision attack, which could share its name with another.
+local function name_of(kind: string, data: string): (string) | (nil, Failure)
+  local digest, trouble = Hash.sha1dc(kind .. " " .. tostring(#data) .. "\0" .. data)
+  if digest == nil then return nil, Failure.within(trouble, "git: a " .. kind .. " object") end
+  return Codec.hex(digest)
 end
 
 ------------------------------------------------------------------
@@ -1278,9 +1282,13 @@ local class Repository is Git.Repo
     if base ~= nil then
       local result, atrouble = apply_delta(base.data, data)
       if result == nil then return nil, atrouble end
-      object = { oid = name_of(base.kind, result), kind = base.kind, data = result }
+      local oid, ntrouble = name_of(base.kind, result)
+      if oid == nil then return nil, ntrouble end
+      object = { oid = oid, kind = base.kind, data = result }
     elseif plain_kind ~= nil then
-      object = { oid = name_of(plain_kind, data), kind = plain_kind, data = data }
+      local oid, ntrouble = name_of(plain_kind, data)
+      if oid == nil then return nil, ntrouble end
+      object = { oid = oid, kind = plain_kind, data = data }
     else
       return refuse("pack entry of unknown type " .. tostring(kind_number), p.path)
     end
@@ -1350,7 +1358,9 @@ local class Repository is Git.Repo
       end
       return refuse("object " .. oid .. " is not in the store")
     end
-    if name_of(object.kind, object.data) ~= oid then
+    local named, ntrouble = name_of(object.kind, object.data)
+    if named == nil then return nil, ntrouble end
+    if named ~= oid then
       return refuse("object " .. oid .. " is corrupt: its content hashes to another name")
     end
     return object
@@ -1399,7 +1409,8 @@ local class Repository is Git.Repo
   --- Writes an object to the store as a loose object, unless it is
   --- there already, and returns its oid.
   function write_object(self, kind: Git.Kind, data: string): (string) | (nil, Failure)
-    local oid = name_of(kind, data)
+    local oid, ntrouble = name_of(kind, data)
+    if oid == nil then return nil, ntrouble end
     if self:has(oid) then return oid end
     local dir = self.object_dirs[1]! .. "/" .. oid:sub(1, 2)
     local made, mtrouble = Fs.mkdirs(dir)
@@ -1682,7 +1693,9 @@ local class Repository is Git.Repo
     if st.kind == "link" then
       local target, trouble = Fs.readlink(full)
       if target == nil then return nil, trouble end
-      return { st = st, blob = target, recorded = { mode = 0xA000, oid = raw_of(name_of("blob", target)) } }
+      local oid, ntrouble = name_of("blob", target)
+      if oid == nil then return nil, ntrouble end
+      return { st = st, blob = target, recorded = { mode = 0xA000, oid = raw_of(oid) } }
     end
     if st.kind ~= "file" then return { st = st } end
     local data, trouble = Fs.read(full)
@@ -1693,7 +1706,9 @@ local class Repository is Git.Repo
     elseif keep_mode ~= nil and keep_mode & 0xF000 == 0x8000 then
       mode = keep_mode
     end
-    return { st = st, blob = data, recorded = { mode = mode, oid = raw_of(name_of("blob", data)) } }
+    local oid, ntrouble = name_of("blob", data)
+    if oid == nil then return nil, ntrouble end
+    return { st = st, blob = data, recorded = { mode = mode, oid = raw_of(oid) } }
   end
 
   --- How the worktree's `path` differs from its index entry, or nil
