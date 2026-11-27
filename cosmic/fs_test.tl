@@ -14,6 +14,16 @@ local function test_read_answers_a_failure_with_the_path_and_the_errno(tmp: stri
   assert(assert(Fs.read(tmp .. "/present")) == "x")
 end
 
+--- A read with a limit stops there, even on a file with no end.
+local function test_read_with_a_limit_stops_at_the_limit(tmp: string)
+  assert(Fs.write(tmp .. "/ten", "0123456789"))
+  assert(Fs.read(tmp .. "/ten", 4)! == "0123")
+  assert(Fs.read(tmp .. "/ten", 0)! == "")
+  assert(Fs.read(tmp .. "/ten", 99)! == "0123456789")
+  -- /dev/zero never ends: the limit alone ends the read.
+  assert(Fs.read("/dev/zero", 70000)! == ("\0"):rep(70000))
+end
+
 local function test_stat_answers_a_failure_with_the_path_and_the_errno(tmp: string)
   local st, why = Fs.stat(tmp .. "/absent")
   assert(st == nil)
