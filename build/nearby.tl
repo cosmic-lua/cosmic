@@ -10,6 +10,7 @@
 local type Driver = require("build.driver")
 local Fs = require("cosmic.fs")
 local Store = require("cosmic.store")
+local sys = require("cosmic.sys")
 local type Pipeline = require("build.pipeline")
 
 local record Nearby
@@ -26,6 +27,14 @@ function Nearby.find(roots: {string}, name: string): Pipeline.Nearby?
   if carried == true then
     return nil
   end
+  return Nearby.file(roots, name)
+end
+
+--- The file of module `name` in the first of `roots` that has one, and its text, as [`Nearby.find`] reads it, but for
+--- any name: in cosmic's own tree a `cosmic.*` module and one the binary carries have files of the tree too, which
+--- [`Host.check`] reads as `cosmic fix` does.
+function Nearby.file(roots: {string}, name: string): Pipeline.Nearby?
+  if name:find("^[%w_]+[%w_.]*$") == nil then return nil end
   local stem = name:gsub("%.", "/")
   for _, root in ipairs(roots) do
     for _, candidate in ipairs({ stem .. ".tl", stem .. "/init.tl" }) do
@@ -37,6 +46,18 @@ function Nearby.find(roots: {string}, name: string): Pipeline.Nearby?
     end
   end
   return nil
+end
+
+--- The roots of `roots` that are cosmic's own tree to a tool built from `built` ([`build.tree`]'s `built_from`): those
+--- whose canonical path it is. None for a tool that records none, a release.
+function Nearby.own(roots: {string}, built: string?): {string}
+  local out: mut {string} = {}
+  if built == nil then return out end
+  for _, root in ipairs(roots) do
+    local real, _ = sys.realpath(root)
+    if real == built then out[#out + 1] = root end
+  end
+  return out
 end
 
 --- A provider of the modules of the trees at `roots`, each a checked source named for its file, which records each it
