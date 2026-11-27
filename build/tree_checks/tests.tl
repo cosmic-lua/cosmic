@@ -182,7 +182,7 @@ function tree_tests.test_clones(root: string, threshold?: integer): {string}
   return out
 end
 
---- The programs a test or eval may look for with [`Proc.find`] without declaring them: the ones [`bin/cosmic`] and
+--- The programs a test may look for with [`Proc.find`] without declaring them: the ones [`bin/cosmic`] and
 --- the tests' own shells already need.
 local BASELINE_PROGRAMS: {string: boolean} = { sh = true, cat = true, env = true }
 
@@ -192,10 +192,10 @@ local PROGRAM_EXEMPT: {string: string} = {
   ["ci/cosmic_ci/fuzz_test.tl setsid"] = "fails on Linux, skips on macOS, which has none (find_setsid)",
 }
 
---- Each `Proc.find("<program>")` of a `*_test.tl` or `eval/` file under `root` that names a program neither in
+--- Each `Proc.find("<program>")` of a `*_test.tl` file under `root` that names a program neither in
 --- the baseline (`sh`, `cat`, `env`), nor declared as `"program:<name>"` in the same file, nor exempt, as `<file>:<line>:
 --- looks for <program> ...`. A test that needs a program declares `requires = { "program:<name>" }` so a leg that
---- promises it fails when it is absent; an eval has no such declaration and runs no program at all.
+--- promises it fails when it is absent. eval/ is a tree of its own, which `sources_of` does not read.
 function tree_tests.undeclared_programs(root: string): {string}
   local sources, trouble = sources_of(root)
   if sources == nil then
@@ -204,7 +204,7 @@ function tree_tests.undeclared_programs(root: string): {string}
   local out: mut {string} = {}
   for _, entry in ipairs(sources) do
     local file, text = entry[1], entry[2]
-    local watched = file ~= nil and (file:match("_test%.tl$") ~= nil or file:match("^eval/") ~= nil)
+    local watched = file ~= nil and file:match("_test%.tl$") ~= nil
     if watched and text ~= nil and text:find("Proc.find(", 1, true) ~= nil then
       local line_number = 0
       for line in (text .. "\n"):gmatch("([^\n]*)\n") do
