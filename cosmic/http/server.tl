@@ -256,6 +256,8 @@ local record Server
     compress?: boolean | Compression
     --- As [`Net.ServeSpec.on_ready`].
     on_ready?: function(addresses: {Net.Address}, server: Net.Server)
+    --- As [`Net.ServeSpec.on_listen`].
+    on_listen?: function(addresses: {Net.Address}, server: Net.Server)
     --- As [`Net.ServeSpec.on_stop`]: called once, as the server begins
     --- to stop, in a task of its run. The server has by then marked
     --- itself stopping (a reply in flight is sent with `Connection:
@@ -315,7 +317,7 @@ local LINGER_BYTES <const> = 256 * KIB
 
 local SPEC_FIELDS <const>: {string:boolean} = {
   listeners = true, handle = true, limits = true, tls = true, clear = true, compress = true, timeout_ns = true, grace_ns = true,
-  idle_ns = true, head_ns = true, body_ns = true, on_ready = true, on_stop = true,
+  idle_ns = true, head_ns = true, body_ns = true, on_ready = true, on_listen = true, on_stop = true,
   on_error = true,
 }
 
@@ -1194,6 +1196,7 @@ function Server.serve(spec: Server.ServeSpec): (true) | (false, Failure)
     timeout_ns = s.timeout_ns,
     grace_ns = spec.grace_ns,
     on_ready = spec.on_ready,
+    on_listen = spec.on_listen,
     on_stop = function(server: Net.Server)
       s.stopping = true
       local idle: mut {Net.Conn} = {}
