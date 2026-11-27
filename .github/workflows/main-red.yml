@@ -1,0 +1,71 @@
+# Flow-style YAML, held by build/workflows_test.tl to what YAML and
+# JSON5 read alike; a longer script lives under .github/scripts/.
+{
+  name: "main-red",
+
+  # A push run of ci on main that fails is what the merge queue missed,
+  # and nothing else told of it: main stayed red for hours with no one
+  # told (2026-11-23, 2026-11-27). After each push run of main ends, this
+  # opens an issue labelled `main-red` where it failed, comments on the
+  # open one where main is still red, and closes it once a run passes
+  # again (cosmic_ci/main_red.tl). GitHub tells the repository's watchers
+  # of the new issue, and build/batch.tl's `stack` names it. A
+  # workflow_run always runs main's copy of this file, in main's context;
+  # it checks out main's tip, only what the driver needs, and runs no
+  # byte the triggering run made.
+  "on": {
+    workflow_run: {
+      workflows: ["ci"],
+      types: ["completed"],
+      branches: ["main"],
+    },
+  },
+
+  permissions: {contents: "read"},
+
+  jobs: {
+    "main-red": {
+      if: "github.repository == 'cosmic-lua/cosmic' && github.event.workflow_run.event == 'push'",
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 10,
+      # issues: to open, comment on and close the issue. actions: to read
+      # the run's jobs and main's newest runs.
+      permissions: {contents: "read", issues: "write", actions: "read"},
+      # One at a time, so two red runs open one issue. A group holds one
+      # running and one pending job: a third run ending at once cancels the
+      # pending one, and the last to come reads main afresh
+      # (cosmic_ci/main_red.tl's `newest`), so only a comment is lost.
+      concurrency: {group: "main-red", "cancel-in-progress": false},
+      steps: [
+        {
+          uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
+          with: {
+            "sparse-checkout": "/ci/\n/bin/cosmic-bootstrap\n/.github/scripts/cosmic-driver.sh\n/.github/actions/cosmic-driver/\n",
+            "sparse-checkout-cone-mode": false,
+            "persist-credentials": false,
+          },
+        },
+        {
+          name: "bootstrap the pinned CI driver",
+          uses: "./.github/actions/cosmic-driver",
+        },
+        {
+          name: "open, comment on or close the issue that tells of a red main",
+          "working-directory": "ci",
+          env: {
+            GH_TOKEN: "${{ github.token }}",
+            REPOSITORY: "${{ github.repository }}",
+            EVENT: "${{ github.event.workflow_run.event }}",
+            CONCLUSION: "${{ github.event.workflow_run.conclusion }}",
+            BRANCH: "${{ github.event.workflow_run.head_branch }}",
+            SHA: "${{ github.event.workflow_run.head_sha }}",
+            TITLE: "${{ github.event.workflow_run.display_title }}",
+            URL: "${{ github.event.workflow_run.html_url }}",
+            RUN_ID: "${{ github.event.workflow_run.id }}",
+          },
+          run: "cosmic-driver cosmic_ci/driver.tl main-red",
+        },
+      ],
+    },
+  },
+}

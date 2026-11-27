@@ -414,6 +414,16 @@ put it back fewer than twice; a pull request still in the queue is read
 again a few times first. [`cosmic_ci/requeue_test.tl`] drives it against a fake
 client.
 
+`main-red` is main-red.yml's, which runs after each push run of ci on
+main ends, with the workflow's own token (issues and actions). A failed
+push run is what the merge queue missed. [`cosmic_ci/main_red.tl`] opens
+an issue labelled `main-red` that names the commit and the jobs that
+failed, comments on the open one while main stays red, and closes it
+once a push run passes that is the newest of main's to pass or fail. A
+cancelled run says nothing. GitHub tells the repository's watchers of
+the issue, and build/batch.tl's `stack` names it.
+[`cosmic_ci/main_red_test.tl`] drives it against a fake client.
+
 `fuzz` and `fuzz-cancelled` are fuzz.yml's, and record no operation.
 `fuzz` runs the sanitized tool (`sanitized/bin/cosmic` in the build
 directory `build/paths.tl` names) as `test --all` from `GITHUB_WORKSPACE`
@@ -795,6 +805,8 @@ the first tried once, with the clearing and sleeping step between them.
 [`cosmic_ci/build_paths.tl`]: cosmic_ci/build_paths.tl
 [`cosmic_ci/checks_seal.tl`]: cosmic_ci/checks_seal.tl
 [`cosmic_ci/host_id.tl`]: cosmic_ci/host_id.tl
+[`cosmic_ci/main_red.tl`]: cosmic_ci/main_red.tl
+[`cosmic_ci/main_red_test.tl`]: cosmic_ci/main_red_test.tl
 [`cosmic_ci/orchestration.tl`]: cosmic_ci/orchestration.tl
 [`cosmic_ci/queue_verdicts.tl`]: cosmic_ci/queue_verdicts.tl
 [`cosmic_ci/requeue.tl`]: cosmic_ci/requeue.tl

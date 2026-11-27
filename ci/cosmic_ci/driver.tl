@@ -10,6 +10,7 @@ local Fuzz = require("cosmic_ci.fuzz")
 local HostId = require("cosmic_ci.host_id")
 local Images = require("cosmic_ci.images")
 local Islands = require("cosmic_ci.islands")
+local MainRed = require("cosmic_ci.main_red")
 local Orchestration = require("cosmic_ci.orchestration")
 local PlaceTree = require("cosmic_ci.place_tree")
 local Prerelease = require("cosmic_ci.prerelease")
@@ -157,6 +158,8 @@ local commands: {string:Command} = {
     usage = "", handler = PrereleaseFollow.command },
   ["prerelease-sweep"] = { about = "each hour, publish or retry the newest full run follow started, which fires no workflow_run",
     usage = "", handler = PrereleaseSweep.command },
+  ["main-red"] = { about = "after a push run of ci on main, open, comment on or close the issue that tells of a red main",
+    usage = "", handler = MainRed.command },
   requeue = { about = "after a merge queue run that passed, put its pull request back in the queue where the queue dropped it",
     usage = "", handler = Requeue.command },
   fuzz = { about = "fuzz every property on the checked core, for fuzz.yml",
