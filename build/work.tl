@@ -1030,9 +1030,9 @@ end
 --- The staged inputs whose files moved since [`work.stage`] read them,
 --- sorted: changed, replaced or gone. A run checks the tree as staged,
 --- so a failure in a tree edited during the run names these files and
---- says to run it again ([`work.moved_line`]). A row staged unsettled
---- keeps no time, so its file is hashed again and held to the staged
---- digest. A file added after the stage is not among them. Nil and the
+--- says to run it again ([`work.moved_line`]). A file whose stat moved,
+--- or whose row was staged unsettled and keeps no time, is hashed again
+--- and held to the staged digest. A file added after the stage is not among them. Nil and the
 --- trouble where the table cannot be read.
 function work.moved_since_stage(handle: work.Handle): {string}?, string
   local known, trouble = known_in(handle.db, "files")
@@ -1049,12 +1049,12 @@ function work.moved_since_stage(handle: work.Handle): {string}?, string
     local full = handle.root .. "/" .. path
     local was = known[path]!
     local st, _ = Fs.stat(full)
+    -- A stat that moved is held to the staged digest, so a chmod or a
+    -- touch with the bytes unchanged is not named.
     local changed = st == nil
-    if st ~= nil and was.mtime_ns == nil then
+    if st ~= nil and (was.mtime_ns == nil or differs(was, st, Clock.seconds(st.mtime) + st.mtime_ns)) then
       local now, _ = Hash.hex_file("sha256", full)
       changed = st.size ~= was.size or now ~= staged_sha[path]
-    elseif st ~= nil then
-      changed = differs(was, st, Clock.seconds(st.mtime) + st.mtime_ns)
     end
     if changed then out[#out + 1] = path end
   end

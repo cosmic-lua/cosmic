@@ -490,7 +490,8 @@ local function into(handle: work.Handle, argv: {string}, settle: boolean): strin
       return GrammarMode.tool(tool), ""
     end, true, shared_compiles.for_build(), importer.telling())
   if result == nil then
-    -- The compiler of a tool settling is the tree's: it cannot have moved.
+    -- The compiler of a tool settling is the tree's: it cannot have moved,
+    -- though files may have moved under the run.
     if settle then
       return not_built(handle, compile_trouble), false
     end

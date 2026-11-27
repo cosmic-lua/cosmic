@@ -471,6 +471,9 @@ local function test_moved_since_stage_names_files_edited_after_it(tmp: string)
   local handle = assert(work.open(tmp))
   assert(work.stage(handle, { own = false }))
   assert(#work.moved_since_stage(handle)! == 0, "nothing moved yet")
+  -- A new time with the same bytes is not a change.
+  assert(Fs.set_mtime(tmp .. "/b.tl", 0, 0))
+  assert(#work.moved_since_stage(handle)! == 0, "a touch is no change")
   assert(Fs.write(tmp .. "/c.tl", "return 33\n"))
   assert(Fs.remove(tmp .. "/a.tl"))
   local moved = work.moved_since_stage(handle)!
