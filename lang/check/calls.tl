@@ -17,6 +17,7 @@ local Tests = require("lang.check.tests")
 local Functions = require("lang.check.functions")
 local GenericCalls = require("lang.check.generic_calls")
 local Operands = require("lang.check.operands")
+local Unfilled = require("lang.check.unfilled")
 local type Codes = require("lang.check_codes")
 local type Type = Types.Type
 local type Named = Types.Named
@@ -104,7 +105,7 @@ local record Calls
   --- arguments. A weak "v" map may lose a value at any allocation, so the checker must never narrow a map index read
   --- (`m[k] ~= nil` then `m[k]`): only arrays have element facts, and no array is weak.
   weak_mode: function(args: {Ast.Exp}): string?
-  prepare: function(ctx: Ctx, args: {Ast.Exp}, wants: {integer: Type}?, asserting?: string): Prepared
+  prepare: function(ctx: Ctx, args: {Ast.Exp}, wants: {integer: Type}?, asserting?: string, early?: {integer: Type}): Prepared
   asserted: function(ctx: Ctx, alts: {Alt}, by_nil?: boolean): Alt?
   --- Notes that the call `node` runs no code of the program through the standard library: it was given a `string` receiver
   --- or none, and arguments of the types `types` and the `tail` an expanding last one gives, all plain ([`Tests.plain`]).
@@ -406,7 +407,7 @@ end
 --- Given `asserting`, the name of the callee `assert` or `must`, a last argument that returns several lists gives the
 --- values of the one list whose first value is never nil or false (for `must`, never nil): the callee raises at any
 --- other, so `assert(Fs.read(path))` is the text, and `Json.decode(text)!` the value.
-function Calls.prepare(ctx: Ctx, args: {Ast.Exp}, wants: {integer: Type}?, asserting?: string): Prepared
+function Calls.prepare(ctx: Ctx, args: {Ast.Exp}, wants: {integer: Type}?, asserting?: string, early?: {integer: Type}): Prepared
   local n = #args
   local last = args[n]
   local open = last ~= nil and ((last.kind == "Call") or (last.kind == "MethodCall") or (last.kind == "Vararg"))
@@ -416,7 +417,10 @@ function Calls.prepare(ctx: Ctx, args: {Ast.Exp}, wants: {integer: Type}?, asser
   local written = if open then n - 1 else n end
   for i = 1, written do
     local a = assert(args[i], "an argument is within the count")
-    if is_literal(a) then
+    local before = if early ~= nil then early[i] else nil end
+    if before ~= nil then
+      prep.known[i] = before
+    elseif is_literal(a) then
       prep.pending[i] = true
     else
       prep.known[i] = ctx.walk.expr(ctx, a, if wants ~= nil then wants[i] else nil end)
@@ -1149,7 +1153,14 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
   if (callee == "assert" or callee == "must") and #args == 1 and (node.kind == "Call") and Tests.quiet_callee(node.callee) then
     asserting = callee
   end
-  local prep = Calls.prepare(ctx, args, nil, asserting)
+  -- The first store into an empty table with no type gives it one: the value is checked first.
+  local early: mut {integer: Type}? = nil
+  if Unfilled.inserts(ctx, callee, args) then
+    local value = ctx.walk.expr(ctx, assert(args[2], "two arguments"), nil)
+    Unfilled.fill_insert(ctx, args, value)
+    early = { [2] = value }
+  end
+  local prep = Calls.prepare(ctx, args, nil, asserting, early)
   local known, pending, tail, count = prep.known, prep.pending, prep.tail, prep.count
   local reasons: mut {string} = {}
   -- Whether each of `reasons` is of a candidate that takes as many arguments as the call gives.

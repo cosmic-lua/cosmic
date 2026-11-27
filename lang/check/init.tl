@@ -117,6 +117,7 @@ local Names = require("lang.check.names")
 local Lookup = require("lang.check.members")
 local ValueLists = require("lang.check.values")
 local TableLiterals = require("lang.check.table_literals")
+local Unfilled = require("lang.check.unfilled")
 local Fields = require("lang.check.fields")
 local Places = require("lang.check.places")
 local Writes = require("lang.check.writes")
@@ -562,7 +563,10 @@ end
 
 --- The type of the read of a name: the type the facts hold of it, else the type it was declared with. A local that
 --- no path has assigned yet is refused (`not_assigned`) and taken as assigned from there on.
-local function read_name(ctx: Ctx, e: Ast.Name): Type
+local function read_name(ctx: Ctx, e: Ast.Name, expected: Type?): Type
+  if ctx.unfilled_n > 0 then
+    Unfilled.read(ctx, e, expected)
+  end
   local t = name_value(ctx, e)
   local id = e.binding
   if id == nil then
@@ -597,7 +601,7 @@ end
 local function leaf(ctx: Ctx, e: Ast.Exp, expected: Type?): Type
   local store = ctx.store
   if (e.kind == "Name") then
-    return read_name(ctx, e)
+    return read_name(ctx, e, expected)
   elseif (e.kind == "Integer") then
     return store.integer
   elseif (e.kind == "Float") then
@@ -693,6 +697,20 @@ local function apply(ctx: Ctx, n: Ast.Exp, t: Type, expected: Type?, wants_lists
   return ctx.invalid, nil
 end
 
+--- The type of the key `key` of a first store into an unfilled table, checked ahead of the store: what it reports is
+--- reported again where the store is checked, so it is dropped, unless the key itself filled or refused an unfilled
+--- local, which is not asked again.
+local function quiet_key(ctx: Ctx, key: Ast.Exp): Type
+  local mark, held = #ctx.errors, ctx.unfilled_n
+  local k = ctx.walk.expr(ctx, key, nil)
+  if ctx.unfilled_n == held then
+    while #ctx.errors > mark do
+      table.remove(ctx.errors)
+    end
+  end
+  return k
+end
+
 --- The type of `e`, and the lists it returns where `wants_lists` and it is a call.
 local function evaluate(ctx: Ctx, e: Ast.Exp, expected: Type?, wants_lists: boolean): Type, {Alt}?
   local base = #ctx.spine
@@ -708,16 +726,29 @@ local function evaluate(ctx: Ctx, e: Ast.Exp, expected: Type?, wants_lists: bool
     if (node.kind == "Binary") and (node.op == "==" or node.op == "~=") then
       -- A field compared with nil only asks whether it is there.
       local left, right = peel(nxt), peel(node.right)
-      if (left.kind == "Field") and (right.kind == "Nil") then
+      if (left.kind == "Field" or left.kind == "Index") and (right.kind == "Nil") then
         ctx.probes[left.id] = true
-      elseif (left.kind == "Nil") and (right.kind == "Field") then
+      elseif (left.kind == "Nil") and (right.kind == "Field" or right.kind == "Index") then
         ctx.probes[right.id] = true
       end
     end
     ctx.spine[#ctx.spine + 1] = node
     node = nxt
   end
-  local t = leaf(ctx, node, #ctx.spine == base and expected or nil) -- checked: and_ternary
+  local t: Type = ctx.invalid
+  local at = ctx.spine[#ctx.spine]
+  local held = if ctx.unfilled_n > 0 and at ~= nil and #ctx.spine > base and at.kind == "Index" and at.object == node then
+    Unfilled.held_by_key(ctx, node, at, function(): Type
+      return quiet_key(ctx, at.key)
+    end)
+    else
+    nil
+    end
+  if held ~= nil then
+    t = held
+  else
+    t = leaf(ctx, node, #ctx.spine == base and expected or nil) -- checked: and_ternary
+  end
   local types = ctx.types
   local typed = ctx.typed
   if typed then
@@ -1076,6 +1107,13 @@ local function local_statement(ctx: Ctx, s: Ast.Local)
       end
     end
   end
+  local lit = if next(wants) == nil then Unfilled.candidate(ctx, s) else nil end
+  if lit ~= nil then
+    local b = assert(s.bindings[1], "one binding")
+    Unfilled.declare(ctx, b.id, lit)
+    declare_local(ctx, b.id, false)
+    return
+  end
   local reported = #ctx.errors
   local vals = values_of(ctx, s.values, wants, nil)
   local counted = check_counts(ctx, s, n, vals, s.values, "name")
@@ -1323,6 +1361,35 @@ local function check_assignment(ctx: Ctx, s: Ast.Assign): Values?
   local first = s.values[1]
   local removes = #s.targets == 1 and #s.values == 1 and first ~= nil and peel(first).kind == "Nil"
   local runs_code = Writes.runs_code(s)
+  -- The first store into an empty table with no type gives it one: the value is checked first, with no type expected.
+  local early: Values? = nil
+  local into, unfilled = Unfilled.store_target(ctx, s)
+  if into ~= nil and unfilled ~= nil then
+    -- The value may read the table it fills (`counts[k] = (counts[k] or 0) + 1`): while it is checked, the table holds
+    -- what the key says, and no element type yet.
+    local lit = assert(ctx.unfilled[unfilled], "unfilled")
+    local function key_of(): Type
+      return quiet_key(ctx, into.key)
+    end
+    local provisional = Unfilled.provisional(ctx, Writes.is_append(into), key_of)
+    if provisional ~= nil then
+      ctx.unfilled[unfilled] = nil
+      ctx.unfilled_n = ctx.unfilled_n - 1
+      ctx.vars[unfilled] = provisional
+    end
+    early = values_of(ctx, s.values, {}, nil)
+    if provisional ~= nil then
+      ctx.unfilled[unfilled] = lit
+      ctx.unfilled_n = ctx.unfilled_n + 1
+      ctx.vars[unfilled] = ctx.invalid
+    end
+    local given = value_at(ctx, early, 1)
+    if given == nil then
+      Unfilled.fill_store(ctx, unfilled, into, ctx.invalid, true, nil)
+    else
+      Unfilled.fill_store(ctx, unfilled, into, given, Writes.is_append(into), key_of)
+    end
+  end
   for i, target in ipairs(s.targets) do
     local want, deleting = place_of_target(ctx, s, target, i, removes, runs_code, pending)
     if want ~= nil then
@@ -1330,7 +1397,7 @@ local function check_assignment(ctx: Ctx, s: Ast.Assign): Values?
       deletes[i] = deleting
     end
   end
-  local vals = values_of(ctx, s.values, wants, nil)
+  local vals = early or values_of(ctx, s.values, wants, nil)
   ctx.assigning = outer_assigning
   for _, p in ipairs(pending) do
     if p.view then
@@ -2601,7 +2668,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
     end, function(_node: Ast.Node, _spelled: string, _found: LoadOrder.Found) end),
     literals = {}, spreads = {}, tags = {}, declared = {}, union_fields = {}, spine = {},
     ternaries = {}, right_types = {}, spare = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, string_subs = {}, assigning = {}, quiet = 0, proving = 0, closers = 0, callee_module = "", member_module = "", moves = {},
-    loops = {}, ranges = {}, map_reads = {}, keys = {}, edges = {}, guards = {}, ties = {}, coroutine_reads = {}, top = tops, module_table = module_table(input, lowered), initialized = {}, given = {}, handed = false, reads = {}, unfixed = {}, narrowed = {}, inert = {}, runs = {}, inferred = {}, boundaries = {}, types = {}, callees = {}, consts = {}, unread_schemas = {}, call_columns = {}, row_lists = {}, row_columns = {}, starts = {}, library = {}, typed = typed ~= false, warnings = {},
+    loops = {}, ranges = {}, map_reads = {}, keys = {}, edges = {}, guards = {}, ties = {}, coroutine_reads = {}, top = tops, module_table = module_table(input, lowered), initialized = {}, given = {}, handed = false, reads = {}, unfixed = {}, narrowed = {}, inert = {}, runs = {}, inferred = {}, boundaries = {}, types = {}, callees = {}, consts = {}, unread_schemas = {}, unfilled = {}, unfilled_n = 0, call_columns = {}, row_lists = {}, row_columns = {}, starts = {}, library = {}, typed = typed ~= false, warnings = {},
     unite = function(a: Type, b: Type): Type
       return store:union({ a, b })
     end,
@@ -2715,6 +2782,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
     narrowed_type = nil,
   }
   block(ctx, input.chunk.body)
+  Unfilled.finish(ctx)
   Writes.move_stray(ctx)
   -- Source order; errors at one place stay in the order they were found.
   local position: mut {Codes.Error: integer} = {}
