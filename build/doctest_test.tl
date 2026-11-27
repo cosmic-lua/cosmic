@@ -152,6 +152,9 @@ local function load_module(m: Module): {string:any}
   put(env, "assert", function(...: any): any...
     return assert(...)
   end)
+  put(env, "must", function(...: any): any...
+    return must(...)
+  end)
   put(env, "error", error)
   put(env, "tostring", tostring)
   put(env, "string", string)

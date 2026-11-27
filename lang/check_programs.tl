@@ -218,6 +218,8 @@ do
     pairs: function<K is Key, V>({K: V}): (function({K: V}, p2?: K): (K, V), {K: V}, K)
     assert: function<A>(A?): A
     assert: function<A, B>(A?, B, ...: any): (A, B, any...)
+    must: function<A>(A?): A
+    must: function<A, B>(A?, B, ...: any): (A, B, any...)
     error: function(p1?: any): never
     require: function(string): any
     pcall: function((function())): (true) | (false, any)
@@ -255,6 +257,7 @@ do
   global ipairs <const> = Lib.ipairs
   global pairs <const> = Lib.pairs
   global assert <const> = Lib.assert
+  global must <const> = Lib.must
   global error <const> = Lib.error
   global require <const> = Lib.require
   global pcall <const> = Lib.pcall
@@ -600,6 +603,13 @@ local function own_fact(v: any, kinds: string, name: string, strings?: {string},
 end
 
 --- The Lua of a checked program: the code generator's text, with the classes its literals make and the enums it tests.
+-- `e!` calls the global `must`, which the environment of a program here does not hold: its overloads are no value to
+-- store. Each chunk defines it first, on its first line, so that no line moves: the value where it is not nil, `false`
+-- too, else a raise of the reason, as the core's `must` raises.
+local MUST <const> = "local must = function(...) local v, why = ... if select('#', ...) == 0 then " ..
+  "error(\"bad argument #1 to 'must' (value expected)\", 2) elseif v == nil then " ..
+  "error(why == nil and 'the value before `!` is nil' or why, 2) end return ... end "
+
 local function generated(run: Programs.Run, wraps: {integer: string}, kind_only: boolean?): string
   local classes: mut {integer: string} = {}
   for id, decl in pairs(run.result.literals) do
@@ -654,7 +664,7 @@ function Programs.execute(source: string, facts: boolean, modules?: {string: str
     if module == nil or not taken(module) then
       error("module '" .. name .. "' not found, or not taken by the checker", 2)
     end
-    local module_chunk, module_why = Compiled.load(generated(module, {}, kind_only), "=" .. name, env)
+    local module_chunk, module_why = Compiled.load(MUST .. generated(module, {}, kind_only), "=" .. name, env)
     if module_chunk == nil then
       error("the Lua of " .. name .. " does not load: " .. tostring(module_why), 2)
     end
@@ -662,7 +672,7 @@ function Programs.execute(source: string, facts: boolean, modules?: {string: str
     loaded[name] = value -- checked: view_written
     return value
   end
-  local chunk, why = Compiled.load(done.lua, "=t", env)
+  local chunk, why = Compiled.load(MUST .. done.lua, "=t", env)
   if chunk == nil then
     done.fault = "the Lua does not load: " .. tostring(why) -- checked: field_fixed
     return done

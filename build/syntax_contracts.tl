@@ -663,22 +663,22 @@ end
 
 -- Rule 1 -----------------------------------------------------------------------------------------------------------
 
---- Whether `call` is a call of the global `assert`, which returns what it is given and is no failure of its own: the fork
+--- Whether `call` is a call of the global `assert` or `must` (`e!`), which returns what it is given and is no failure of its own: the fork
 --- read its type as an overloaded function and judged none.
 local function is_assert(call: Ast.Node): boolean
   if (call.kind == "Call") then
     local callee = call.callee
-    return (callee.kind == "Name") and callee.text == "assert" and callee.binding == nil
+    return (callee.kind == "Name") and (callee.text == "assert" or callee.text == "must") and callee.binding == nil
   end
   return false
 end
 
---- Whether a call hands its last argument's reason on: `assert`, or a callee whose required, not variadic parameters end
+--- Whether a call hands its last argument's reason on: `assert` or `must` (`e!`), or a callee whose required, not variadic parameters end
 --- exactly where the argument's results do, with a `string` for the reason to land in.
 local function takes_reason(run: Run, call: Ast.Node, count: integer): boolean
   if (call.kind == "Call") then
     local callee = call.callee
-    if (callee.kind == "Name") and callee.text == "assert" and callee.binding == nil then
+    if (callee.kind == "Name") and (callee.text == "assert" or callee.text == "must") and callee.binding == nil then
       return true
     end
   end

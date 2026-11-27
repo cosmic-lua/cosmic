@@ -248,9 +248,9 @@ function Continuation.of(chunk: Ast.Chunk): Continuation.Plan
         bare[i] = true
       end
     end
-    -- The `assert` of `e!` holds no token (an empty range before `e`), and its argument is no sugar.
-    local must = kind == "Call" and head ~= nil and head.last < head.first
-    if (kind == "Call" or kind == "MethodCall") and kids[2] ~= nil and not must then
+    -- The `must` of `e!` holds no token (an empty range before `e`), and its argument is no sugar.
+    local bang = kind == "Call" and head ~= nil and head.last < head.first
+    if (kind == "Call" or kind == "MethodCall") and kids[2] ~= nil and not bang then
       local callee_end = (head or base).last + (if kind == "Call" then 1 else 3 end)
       if not spells(callee_end, "(") then
         sugar[callee_end] = true

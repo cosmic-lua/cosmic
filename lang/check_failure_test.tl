@@ -56,8 +56,24 @@ local function test_a_test_of_the_first_local_narrows_the_failure()
   refused("local n, why = parse(\"4\")\nif n ~= nil then\n  print(#why)\nend\n", "nil_not_allowed")
 end
 
---- `e!` is `assert(e)`: the value of a `(T) | (nil, E)` call, or a raise with its reason; on a value that may be nil,
+--- `e!` is `must(e)`: the value of a `(T) | (nil, E)` call, or a raise with its reason; on a value that may be nil,
 --- the value. It reads on as a call does, and the failure list is no value without it.
+--- `!` raises at nil alone, as `assert` does not: a `false` passes. So the value of a `(boolean) | (nil, E)` call, a
+--- `boolean?` and a map read of booleans are taken with `!`, and `v!` narrows `v` as `v ~= nil` does.
+local function test_a_must_passes_false()
+  stands("print(flag(true)!)\n", "false")
+  stands("local ok, why = pcall(function(): boolean\n  local v = flag(false)!\n  return v\nend)\nprint(ok, why)\n", "false\tt:15: off")
+  assert(type_of("local seen = flag(true)!\n", "seen") == "boolean")
+  stands("local t: {string: boolean} = { a = false }\nprint(t[\"a\"]!)\n", "false")
+  stands("local function f(v: boolean?): boolean\n  v!\n  return v\nend\nprint(f(false))\n", "false")
+  stands("local function take(v: boolean?): boolean\n  return v!\nend\nlocal ok, why = pcall(take, nil)\n" ..
+      "print(ok, tostring(why):find(\"the value before `!` is nil\", 1, true) ~= nil)\n", "false\ttrue")
+  -- A failure told by `false` is no failure to `!`, which would pass it: the lists are refused as `!` cannot tell them apart.
+  Programs.says("local function put(on: boolean): (true) | (false, string)\n  if on then\n    return true\n  end\n" ..
+      "  return false, \"off\"\nend\nlocal done = put(true)!\nprint(done)\n", "alternatives_as_value", "`put(true)!` tells none of them apart",
+    "`local ok, why = put(true)`")
+end
+
 local function test_a_must_takes_the_value_or_raises()
   stands("local n: integer = parse(\"4\")!\nprint(n + 1)\n", "5")
   stands("print(parse(\"4\")! * 2, parse(\"7\")! + 1)\n", "8\t8")

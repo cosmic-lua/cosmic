@@ -8,6 +8,10 @@ local record assertions
   --- counts each call, whether it passes or fails.
   assert: function(...: any): any...
 
+  --- The global `must` (which `v!` calls), counting each call as
+  --- [`assert`] does.
+  must: function(...: any): any...
+
   --- How many calls `assert` has had since the last [`reset`], or since
   --- the state began.
   count: function(): integer

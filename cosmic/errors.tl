@@ -135,7 +135,8 @@ local function lua_wrote(message: string): boolean
   line = line:gsub('^%[string ".-"%]:%d+: ', "", 1)
   return line:find("^attempt to ") ~= nil or
     line:find("^module '.-' not found") ~= nil or
-    line:find("^bad argument #%d+ to ") ~= nil
+    line:find("^bad argument #%d+ to ") ~= nil or
+    line == "the value before `!` is nil"
 end
 
 --- What the catalog of the one database `handle` says beneath an
@@ -146,8 +147,8 @@ end
 --- its own gets one line, naming its function and `cosmic docs`: the
 --- function's whole doc comment describes its use, not this failure, and
 --- would bury the message. A message Lua itself wrote
---- (`attempt to ...`, `module '...' not found`, `bad argument #n to ...`)
---- has none: the catalog is for the messages cosmic's own code raises.
+--- (`attempt to ...`, `module '...' not found`, `bad argument #n to ...`),
+--- or the core's `must` (`e!` of a nil `e`), has none: the catalog is for the messages cosmic's own code raises.
 --- [`Errors.guidance`] asks each database the store holds in turn. A program run from its source
 --- (`cosmic cmd/spam/main.tl`) is guided by the rows of the modules it would carry built alone, as the built program
 --- is, and by none of another program's.

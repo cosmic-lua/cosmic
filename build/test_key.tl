@@ -2410,8 +2410,8 @@ end
 --- tests again without a bump of the epoch. A verdict so reached is kept
 --- apart from one reached without a sandbox, by a runtime of its own, so
 --- neither stands for the other.
-function test_key.sandboxed_runtime(runtime: string, made: {string:string}, must: boolean): string
-  return runtime .. " sandboxed" .. (if must then " must" else "" end) .. " policy " ..
+function test_key.sandboxed_runtime(runtime: string, made: {string:string}, held: boolean): string
+  return runtime .. " sandboxed" .. (if held then " must" else "" end) .. " policy " ..
     hashing.hex_sha256(test_policy.common() .. "\0" ..
         (made["build.test_policy"] or "") .. "\0" .. (made["build.test_sandbox"] or ""))
 end
@@ -2420,8 +2420,8 @@ end
 --- COSMIC_TEST_SANDBOX and the " sandboxed" mark of the other already
 --- tell these verdicts from a sandboxed run's; the tag says so in the key
 --- itself (build/declared_unenforced_test.tl).
-function test_key.declared_runtime(runtime: string, must: boolean): string
-  return runtime .. " declared" .. (if must then " must" else "" end)
+function test_key.declared_runtime(runtime: string, held: boolean): string
+  return runtime .. " declared" .. (if held then " must" else "" end)
 end
 
 --- A finished test whose verdict waits to be kept ([`test_key.keep`]).

@@ -69,19 +69,19 @@ end
 local holds_boolean = Refusals.holds_boolean
 
 --- The fix for a read `e` of an index that may be nil. A map's key may be missing, so its read is tested, taken with
---- `!` (`e!`, which is `assert(e)`) or given a default. For an array, the counted loop and the range test are offered only where they could
---- apply: an array that is a local name, read at a name. [`Array.at`] and `!` take any array and key; `or <default>` is steered from.
+--- `!` (`e!`, which is `must(e)` and raises at nil alone) or given a default. For an array, the counted loop and the range
+--- test are offered only where they could apply: an array that is a local name, read at a name. [`Array.at`] and `!` take
+--- any array and key; `or <default>` is steered from.
 --
--- A value that may hold a boolean (`t`) is not taken with `assert(x)`, which raises for false and is refused
--- (`asserted_boolean` in [`lang.check.calls`]), nor given a default with `or`, which replaces false: it is named and said to be there.
+-- A value that may hold a boolean (`t`) is not given a default with `or`, which replaces false.
 local function index_fix(ctx: Ctx, e: Ast.Index, t: Type): string
   local xs, key = text_of(ctx, e.object), text_of(ctx, e.key)
   local read = text_of(ctx, e)
   local flag = holds_boolean(ctx, t)
-  local named = "name it and say it is there (`local v = " .. read .. "` then `assert(v ~= nil)`)"
   if ctx.map_reads[e.id] == true then
     if flag then
-      return "test it (`local v = " .. read .. " if v ~= nil then ... end`), or " .. named .. " where the key must be there"
+      return "test it (`local v = " .. read .. " if v ~= nil then ... end`), or take it with `" .. read .. "!` where " ..
+        "the key must be there"
     end
     return "test it (`local v = " .. read .. " if v ~= nil then ... end`), take it with `" .. read .. "!` where " ..
       "the key must be there, or write `" .. read .. " or <default>` where a missing key means that default"
@@ -98,21 +98,16 @@ local function index_fix(ctx: Ctx, e: Ast.Index, t: Type): string
       "with `for ... in`, or assigns " .. quoted(xs) .. " or " .. quoted(key) .. "; else "
   end
   return parts .. "read it with `Array.at(" .. xs .. ", " .. key .. ")` (`cosmic.array`: raises when missing)" ..
-    (if flag then ", " .. named else " or `" .. read .. "!`" end) .. ", or test it (`local v = " .. read .. " if v ~= nil then ... end`); `or <default>` turns an out-of-range " ..
+    " or `" .. read .. "!`, or test it (`local v = " .. read .. " if v ~= nil then ... end`); `or <default>` turns an out-of-range " ..
     "read into a wrong value"
 end
 
---- The fix for a value of type `t` that may be nil. One that may hold a boolean is not sent to `assert(x)`, as in
---- [`index_fix`].
+--- The fix for a value of type `t` that may be nil: test it, or take it with `!`, which raises at nil alone (a `false`
+--- passes).
 function Refusals.nil_fix(ctx: Ctx, node: Ast.Node, t: Type): string
   local e = peel(node)
-  local flag = holds_boolean(ctx, t)
   if (e.kind == "Call") or (e.kind == "MethodCall") then
     local call = subject(ctx, e)
-    if flag then
-      return "name the value and say it is there (`local v = " .. text_of(ctx, e) .. "` then `assert(v ~= nil)`), or test " ..
-        "it first (`if v == nil then " .. Naming.on_nil(ctx, "v") .. " end`); " .. call .. " answers nil when it fails"
-    end
     return "take the value with `local v = " .. text_of(ctx, e) .. "!`, or test it first (`if v == nil then " ..
       Naming.on_nil(ctx, "v") .. " end`); " .. call .. " answers nil when it fails"
   end
@@ -122,10 +117,10 @@ function Refusals.nil_fix(ctx: Ctx, node: Ast.Node, t: Type): string
   local s = text_of(ctx, e)
   if (e.kind == "Field") then
     return "copy " .. quoted(s) .. " to a local and test that: `local v = " .. s .. " if v ~= nil then ... end`, or " ..
-      (if flag then "say it is there with `assert(v ~= nil)`" else "take it with `" .. s .. "!`" end)
+      "take it with `" .. s .. "!`"
   end
   return "test it first (`if " .. s .. " == nil then " .. Naming.on_nil(ctx, s) .. " end`), or " ..
-    (if flag then "say it is there with `assert(" .. s .. " ~= nil)`" else "take it with `" .. s .. "!`" end)
+    "take it with `" .. s .. "!`"
 end
 local nil_fix = Refusals.nil_fix
 

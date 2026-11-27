@@ -25,12 +25,12 @@ local record assertions
   --- callers cast it.
   mut lua_assert: any
 
-  --- Replaces the global `assert` with the counting one, for the life of
+  --- Replaces the globals `assert` and `must` (which `v!` calls) with the counting ones, for the life of
   --- the process. Install it before a test's module loads, so a module that
   --- captures `local assert = assert` as it loads holds it.
   install: function()
 
-  --- Calls to `assert` since [`reset`].
+  --- Calls to `assert` and `must` since [`reset`].
   mut count: function(): integer
 
   --- Starts the count again from 0.
@@ -42,7 +42,10 @@ local state <const> = { installed = false }
 function assertions.install()
   if state.installed == true then return end
   state.installed = true
-  rawset(_G as {string:any}, "assert", raw.assert) -- checked: cast_refused, unchecked_binding
+  local counting: {string: function(...: any): any...} = { assert = raw.assert, must = raw.must }
+  for name, f in pairs(counting) do
+    rawset(_G as {string:any}, name, f) -- checked: cast_refused, unchecked_binding
+  end
 end
 
 assertions.lua_assert = lua_assert

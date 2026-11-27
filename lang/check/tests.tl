@@ -519,7 +519,8 @@ function Tests.length_proves(ctx: Ctx, object: Ast.Exp, key: Ast.Exp): boolean
 end
 
 function Tests.quiet_callee(callee: Ast.Exp?): boolean
-  return callee ~= nil and (callee.kind == "Name") and callee.binding == nil and (callee.text == "assert" or callee.text == "type")
+  return callee ~= nil and (callee.kind == "Name") and callee.binding == nil and (callee.text == "assert" or callee.text == "must" or
+    callee.text == "type")
 end
 
 function Tests.plain(ctx: Ctx, t: Type): boolean

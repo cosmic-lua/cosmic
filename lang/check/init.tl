@@ -387,6 +387,22 @@ local function after_call(ctx: Ctx, node: Ast.Node, callee: Ast.Exp?, alts: {Alt
     ctx.flow = Flow.forget_lengths(ctx.flow)
   end
   local first = args[1]
+  if callee ~= nil and (callee.kind == "Name") and callee.binding == nil and callee.text == "must" and first ~= nil then
+    -- `must(v)` (`v!`) passes where `v` is not nil, `false` too: it narrows as `v ~= nil` does.
+    local absent: Ast.Nil = { kind = "Nil", id = 0, first = base_of(first).last + 1, last = base_of(first).last }
+    local test: Ast.Binary = { kind = "Binary", id = 0, first = base_of(first).first, last = base_of(first).last,
+      op = "~=", left = first, right = absent }
+    local yes, _ = Narrowing.compare_edges(ctx, ctx.flow, test)
+    -- As for `assert` below: a call among the arguments may have shortened an array the test reads.
+    for _, given in ipairs(args) do
+      if Tests.has_call(ctx, given) then
+        yes = Flow.forget_lengths(yes)
+        break
+      end
+    end
+    ctx.flow = yes
+    return
+  end
   if callee ~= nil and (callee.kind == "Name") and callee.binding == nil and callee.text == "assert" and first ~= nil then
     local yes, _ = edges(ctx, ctx.flow, first)
     -- The test is read in the state after the arguments, and a call among them (the test's own or one after it) may have
@@ -2447,7 +2463,7 @@ local function stat(ctx: Ctx, s: Ast.Stat)
         report(ctx, "failure_ignored", c, subject(ctx, c) .. " answers one of " .. tostring(#alts) .. " lists of values, " ..
             "one of which may be a failure, and as a statement it drops which one it answered, so a failure would pass unseen",
           "bind its values and test the first (`local " .. Naming.bound(alts) .. " = " .. call .. "`), match the call, " ..
-            (if ValueLists.asserted(ctx, alts) ~= nil then "raise where it fails with `" .. call .. "!`, " else "" end) ..
+            (if ValueLists.asserted(ctx, alts, true) ~= nil then "raise where it fails with `" .. call .. "!`, " else "" end) ..
             "or discard them on purpose: `local " .. Naming.bound(alts, true) .. " = " .. call .. "`")
       end
     end
