@@ -789,7 +789,8 @@ end
 local function boot(root: string, argv: {string}, host_only: boolean, why: string,
                     run_in: mut {string:string}, entered: string): string
   local command = table.concat(reboot.boot_command("bin/zig", host_only), " ")
-  log:complain(why .. "; running " .. command)
+  -- The rebuild takes minutes with cold caches (about 3 on a 4-vCPU VM), so a caller can put it in the background at once.
+  log:complain(why .. "; running " .. command .. " (a cold rebuild takes a few minutes)")
   -- The boot takes the rebuild lock (build/zig.tl), which a guard
   -- calling this holds: handed on, rather than waited for.
   local boot_environment: {string:string} = run_in
@@ -948,7 +949,13 @@ function reboot.guard(handle: work.Handle, root: string,
       return 3
     end
     if entered_by(seen) ~= nil then
-      log:complain(closing(handle, "the tool is still stale after a reboot"))
+      -- Named before the handle closes: which modules the tool lacks as the tree has them, or that the
+      -- core itself differs, so a caller sees what to run (a run started again, `bin/zig build boot`).
+      local moved = stale_reason.of(handle)
+      if moved == "" then
+        moved = " (the core differs from the tree's: `bin/zig build boot` rebuilds it)"
+      end
+      log:complain(closing(handle, "the tool is still stale after a reboot" .. moved))
       return 3
     end
     local waited = serialize(handle, root, argv, reads == true)
