@@ -1001,18 +1001,18 @@ end
 local function test_a_snippet_checks_a_file_it_wrote_without_running_it()
   local w = set_of_worker()
   local dir = Fs.mkdtemp("agent-worker-")!
-  Fs.write(dir .. "/util.tl", "local record U\nend\nfunction U.twice(n: integer): integer return n * 2 end\nreturn U\n")!
-  Fs.write(dir .. "/top.tl", "local util = require(\"util\")\nprint(\"ran\")\nreturn util.twice(1)\n")!
+  assert(Fs.write(dir .. "/util.tl", "local record U\nend\nfunction U.twice(n: integer): integer return n * 2 end\nreturn U\n"))
+  assert(Fs.write(dir .. "/top.tl", "local util = require(\"util\")\nprint(\"ran\")\nreturn util.twice(1)\n"))
   local good = run(w, "return { lines = #Host.check(\"top.tl\") }\n", nil, dir)
   assert(good["ok"] == true and value_text(good) == "{\"lines\":0}" and good["output"] == "", shown(good))
-  Fs.write(dir .. "/top.tl", "local util = require(\"util\")\nlocal s: string = util.twice(1)\nreturn s\n")!
+  assert(Fs.write(dir .. "/top.tl", "local util = require(\"util\")\nlocal s: string = util.twice(1)\nreturn s\n"))
   local bad = run(w, "return { first = Host.check(\"top.tl\")[1] or \"\" }\n", nil, dir)
   assert(bad["ok"] == true and value_text(bad):find("top.tl:2:", 1, true) ~= nil, shown(bad))
   -- A module it requires is checked too, read anew: a snippet that loaded it first still sees the edit after.
   local loaded = run(w, "local U = require(\"util\")\nreturn { n = U.twice(2) }\n", nil, dir)
   assert(loaded["ok"] == true and value_text(loaded) == "{\"n\":4}", shown(loaded))
-  Fs.write(dir .. "/util.tl", "local record U\nend\nfunction U.twice(n: integer): integer return \"x\" end\nreturn U\n")!
-  Fs.write(dir .. "/top.tl", "local util = require(\"util\")\nreturn util.twice(1)\n")!
+  assert(Fs.write(dir .. "/util.tl", "local record U\nend\nfunction U.twice(n: integer): integer return \"x\" end\nreturn U\n"))
+  assert(Fs.write(dir .. "/top.tl", "local util = require(\"util\")\nreturn util.twice(1)\n"))
   local deep = run(w, "return { first = Host.check(\"top.tl\")[1] or \"\" }\n", nil, dir)
   assert(deep["ok"] == true and value_text(deep):find("util.tl:3:", 1, true) ~= nil, shown(deep))
   local after = run(w, "local U = require(\"util\")\nreturn { n = U.twice(2) }\n", nil, dir)
