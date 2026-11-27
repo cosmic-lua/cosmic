@@ -341,6 +341,31 @@ local function test_a_nesting_worker_is_handed_no_descriptor_of_the_program()
   assert(assert(plain.options.fds)[254] == 7 and assert(plain.options.fds)[255] == 8)
 end
 
+--- A profiled run's worker writes its profile into the run's directory: unsandboxed by its host path, sandboxed at
+--- [`worker.profile_place`], which its policy grants to write from the host's. A run that profiles nothing adds neither.
+local function test_a_profiled_worker_writes_into_the_run_directory()
+  local function started(profile?: string, policy?: Sandbox.Policy): worker.Command
+    return worker.invocation({
+      start = { argv = { "/bin/cosmic" }, env = {}, fds = {} }, env = {}, root = "/tree",
+      module_path = "suite.a_test", name = "test_x", scratch = "/tmp", needs = "", hold = "none",
+      closure = {}, tree = {}, profile = profile, policy = policy,
+    })
+  end
+  local plain = started("/runs/prof")
+  assert(assert(plain.options.env)["COSMIC_PROFILE"] == "/runs/prof")
+  local held = started("/runs/prof", { isolate = { "file" }, grants = { { calls = "fork" } } })
+  local policy = assert(held.options.policy)
+  assert(assert(assert(policy.setup).set_env)["COSMIC_PROFILE"] == worker.profile_place)
+  local granted = false
+  for _, grant in ipairs(policy.grants or {}) do
+    if grant is Sandbox.Path and grant.path == worker.profile_place then
+      granted = grant.from == "/runs/prof" and grant.letters == "rwc"
+    end
+  end
+  assert(granted, "the sandbox grants the profile directory to write")
+  assert(assert(started().options.env)["COSMIC_PROFILE"] == nil)
+end
+
 --- A test that said it could not check what it exists to check
 --- ([`Test.skip`]) reports why, and is judged skipped where it passed:
 --- only a pass is, since a failure is one whether it skipped or not.
