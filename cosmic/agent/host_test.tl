@@ -116,3 +116,46 @@ local function test_the_helpers_do_as_their_commands_do(tmp: string)
   local target, _ = Fs.readlink(tmp .. "/d/link.txt")
   assert(target == "e.txt", target)
 end
+
+--- A snippet reads and changes a repository through Host.git_*, with no git program: a commit of one file leaves the
+--- other changes alone, a diff is the working tree against HEAD, and the files of `.git` are not written.
+local function test_git_calls_commit_one_file_and_guard_dot_git(tmp: string)
+  local sys = require("cosmic.sys")
+  local Git = require("cosmic.git")
+  local root = tmp .. "/repo"
+  assert(Fs.mkdirs(root .. "/.git/objects"))
+  assert(Fs.mkdirs(root .. "/.git/refs/heads"))
+  assert(Fs.write(root .. "/.git/HEAD", "ref: refs/heads/main\n"))
+  assert(Fs.write(root .. "/.git/config", "[core]\n\trepositoryformatversion = 0\n\tbare = false\n" ..
+      "[user]\n\tname = Test\n\temail = test@example.com\n"))
+  assert(Fs.write(root .. "/a.txt", "one\n"))
+  assert(Fs.write(root .. "/b.txt", "two\n"))
+  local who: Git.Person = { name = "Test", email = "test@example.com", time = 1767225900, tz = "+0000" }
+  local repo = assert(Git.open(root))
+  assert(repo:add({ "a.txt", "b.txt" }))
+  assert(repo:commit({ message = "first", author = who, committer = who }))
+  local here = assert(sys.getcwd())
+  assert(sys.chdir(root))
+  local ok, why = pcall(function()
+    Host.write("a.txt", "one\nmore\n")
+    Host.write("b.txt", "two\nmore\n")
+    Host.write("c.txt", "new\n")
+    local status = Host.git_status()
+    assert(#status.unstaged == 2 and status.untracked[1] == "c.txt", "status")
+    local diff = Host.git_diff({ "a.txt" })
+    assert(diff:find("+more", 1, true) ~= nil and diff:find("a/a.txt", 1, true) ~= nil and
+        diff:find("b.txt", 1, true) == nil, diff)
+    Host.git_add({ "a.txt" })
+    local oid = Host.git_commit("a: add more")
+    local log = Host.git_log(2)
+    assert(#log == 2 and log[1]!.oid == oid and log[1]!.message == "a: add more\n", "log")
+    local after = Host.git_status()
+    assert(#after.staged == 0 and #after.unstaged == 1 and after.unstaged[1]!.path == "b.txt", "left alone")
+    local raised, message = pcall(Host.write, ".git/config", "[alias]\n")
+    assert(raised == false and tostring(message):find("inside .git", 1, true) ~= nil, tostring(message))
+    raised, message = pcall(Host.edit, "sub/../.git/hooks/pre-commit", { { old = "a", new = "b" } })
+    assert(raised == false and tostring(message):find("inside .git", 1, true) ~= nil, tostring(message))
+  end)
+  assert(sys.chdir(here))
+  assert(ok, tostring(why))
+end
