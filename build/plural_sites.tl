@@ -6,6 +6,13 @@ local Lexer = require("lang.lexer")
 local Node = require("build.syntax_node")
 
 local record PluralSites
+  --- The plurals found in one text of a file, read off a parse made before the checks ran ([`found_in`]).
+  record Plurals
+    --- The text the sites were found in.
+    source: string
+    sites: {{string}}
+  end
+
   --- Every literal plural noun in the tree `chunk` ([`Node.parse`]) that follows a number, as `{line, noun, snippet, fix}`,
   --- in source order: after a value that is not provably a string, by `..` (`#rows .. " tests"`, `tostring(n) .. " files"`,
   --- `(a - b) .. " rows"`, any name, field or call), or after a `%d` in a literal.
@@ -14,6 +21,19 @@ local record PluralSites
   --- `sites` as one line each, to compare two readings of a tree: the noun and the snippet of each, and its line first
   --- where `lined`.
   lines: function(sites: {{string}}, lined: boolean): {string}
+
+  --- Whether the plural check reads `file`, a path from the tree's root: a Teal source under `build/`, `cmd/`, `cosmic/`
+  --- or `ci/cosmic_ci/` that is no test or declaration file.
+  read_by_check: function(file: string): boolean
+
+  --- [`of_chunk`] of `source`, the text of `file`, parsed as the new checker reads it; nil and why where it does not
+  --- parse.
+  of_source: function(source: string, file: string): {{string}}?, string
+
+  --- What the plural check finds in `source`, the text of `file` (its path from the tree's root), read off `chunk`, the
+  --- caller's parse of it, or parsed here, so that the checks need not parse it again; nil for a file they do not read,
+  --- and for one that cannot be read, which the check then says.
+  found_in: function(file: string, source: string, chunk?: Ast.Chunk): Plurals?
 end
 
 --- Words after a number that are verbs or particles, not nouns:
@@ -194,6 +214,26 @@ function PluralSites.lines(sites: {{string}}, lined: boolean): {string}
     out[#out + 1] = (if lined then assert(site[1]) .. " " else "" end) .. assert(site[2]) .. ": " .. assert(site[3])
   end
   return out
+end
+
+function PluralSites.read_by_check(file: string): boolean
+  return file:match("%.tl$") ~= nil and file:match("_test%.tl$") == nil and file:match("%.d%.tl$") == nil and
+    (file:match("^build/") ~= nil or file:match("^cmd/") ~= nil or file:match("^cosmic/") ~= nil or
+      file:match("^ci/cosmic_ci/") ~= nil)
+end
+
+function PluralSites.of_source(source: string, file: string): {{string}}?, string
+  local chunk, trouble = Node.parse(source, file)
+  if chunk == nil then return nil, trouble end
+  return PluralSites.of_chunk(chunk), ""
+end
+
+function PluralSites.found_in(file: string, source: string, chunk?: Ast.Chunk): PluralSites.Plurals?
+  if not PluralSites.read_by_check(file) then return nil end
+  if chunk ~= nil then return { source = source, sites = PluralSites.of_chunk(chunk) } end
+  local sites, _ = PluralSites.of_source(source, file)
+  if sites == nil then return nil end
+  return { source = source, sites = sites }
 end
 
 return PluralSites

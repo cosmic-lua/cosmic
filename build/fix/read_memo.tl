@@ -1,4 +1,4 @@
---- What `cosmic fix` reads off a Teal file it lays out ([`build.fix`]'s `read_off`), kept by the file's path and text, so
+--- What `cosmic fix` reads off a Teal file it lays out ([`build.fix.read`]), kept by the file's path and text, so
 --- that a run over a tree whose files have not changed parses none of them again: what the file's links read
 --- ([`SyntaxLinks.Settled`]), the functions the notes compare (`candidates`, for a file they compare) and the plurals the
 --- tree checks look for. A row holds all three as [`build.check_memo`] encodes rows; one that does not decode is a miss.
@@ -11,7 +11,7 @@ local SyntaxLinkText = require("build.syntax_link_text")
 local SyntaxLinks = require("build.syntax_links")
 local check_memo = require("build.check_memo")
 local type near = require("build.fix.near")
-local type tree_checks = require("build.tree_checks")
+local type PluralSites = require("build.plural_sites")
 
 local record ReadMemo
   --- What one file's read made.
@@ -20,9 +20,9 @@ local record ReadMemo
     --- Nil for a file the notes do not compare.
     candidates?: {near.Candidate}
     --- Nil for a file with no plural sites.
-    plurals?: tree_checks.Plurals
+    mut plurals?: PluralSites.Plurals
     --- What the file requires and, for a test file, its early returns, which the checks of the tree read
-    --- ([`tree_checks.knows`]); nil where a read kept none.
+    --- ([`build.tree_checks.common`]'s `knows`); nil where a read kept none.
     mut requires?: {string}
     mut returns?: {{string}}
   end
@@ -38,12 +38,8 @@ local record ReadMemo
 end
 
 function ReadMemo.salt(root: string): string
-  return check_memo.salt(root, { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl",
-    "build/syntax_node.tl", "build/syntax_scopes.tl", "build/syntax_links.tl", "build/syntax_link_text.tl",
-    "build/syntax_analyzer.tl", "build/todo_scan.tl", "build/markers.tl", "build/plural_sites.tl",
-    "build/tree_checks/docs.tl", "build/tree_checks/init.tl", "build/tree_checks/common.tl", "build/fix/init.tl",
-    "build/fix/near.tl", "build/fix/read_memo.tl", "build/check_memo.tl", "cosmic/internal/link_text.tl",
-    "cosmic/string.tl", "build/test_returns.tl", "build/analysis_schema.tl" }, "read 3")
+  -- The code a read runs is the closure of build.fix.read, which loads this memo too.
+  return check_memo.salt(root, { "build/fix/read.tl" }, "read 4")
 end
 
 local function bit(value: boolean): string
@@ -197,7 +193,7 @@ function ReadMemo.decode(text: string, source: string): ReadMemo.Read?
       return nil
     end
   end
-  local plurals: tree_checks.Plurals? = nil
+  local plurals: PluralSites.Plurals? = nil
   if sites ~= nil then plurals = { source = source, sites = sites } end
   return {
     settled = { blocks = blocks, lines = lines, module_level = module_level, everywhere = everywhere },

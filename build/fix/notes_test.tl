@@ -5,11 +5,12 @@
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local fix = require("build.fix")
+local FixRead = require("build.fix.read")
 local fixture = require("build.docs_fixture")
 local links = require("build.links")
 local near = require("build.fix.near")
+local PluralSites = require("build.plural_sites")
 local SyntaxNode = require("build.syntax_node")
-local tree_checks = require("build.tree_checks")
 
 --- The standard library's one function, [`Proc.find`], in a database of its own under `tmp`.
 local function library_of(tmp: string): Sqlite.Handle
@@ -119,8 +120,8 @@ local function test_a_run_keeps_what_the_phases_after_the_parse_read(tmp: string
   local chunk = assert(SyntaxNode.parse(text, "build/paths.tl"))
   local facts: mut {string: links.Facts} = {}
   local ready: mut {string: {near.Candidate}} = {}
-  local plurals: {string: tree_checks.Plurals} = {}
-  fix.read_off("./build/paths.tl", chunk, text, facts, ready, plurals) -- checked: not_assignable
+  local plurals: mut {string: PluralSites.Plurals} = {}
+  local _ = FixRead.off("./build/paths.tl", chunk, text, facts, ready, plurals)
   assert(assert(facts["./build/paths.tl"]).source == text)
   local candidates = assert(ready["./build/paths.tl"])
   assert(#candidates == 1, #candidates)
