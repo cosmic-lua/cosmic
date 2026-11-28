@@ -4,7 +4,6 @@
 --- read from Linux's tables, and the config the relay is handed. These are
 --- pure: the live relay is in cosmic/child_relay_test.tl.
 
-local Json = require("cosmic.json")
 local RelayConfig = require("cosmic.internal.relay_config")
 
 local function test_the_environment_points_every_proxy_client_at_the_relay()
@@ -202,28 +201,28 @@ local function test_a_config_that_is_none_is_refused_naming_why()
     local config, why = RelayConfig.decode(text)
     assert(config == nil and why:find(expected, 1, true) ~= nil, text .. ": " .. tostring(why))
   end
-  says("not json", "")
-  says("[]", "")
-  says('{"own_addresses":[],"log":"null"}', "grants is not a list")
-  says('{"grants":["a"],"log":"null"}', "own_addresses is not a list")
-  says('{"grants":[1],"own_addresses":[],"log":"null"}', "grants[1] is not a string")
-  says('{"grants":["a"],"own_addresses":[],"log":"loud"}', "log is not")
-  local head = '{"grants":["a"],"own_addresses":[],"log":"null","upstream":'
-  local ok = '"host":"p.test","port":80,"no_proxy":[],"addresses":["10.0.0.9"]'
-  assert(RelayConfig.decode(head .. "{" .. ok .. "}}") ~= nil, "the fixture's record is whole")
-  says(head .. "3}", "upstream is not an object")
-  says(head .. '{"port":80,"no_proxy":[],"addresses":["10.0.0.9"]}}', "upstream.host")
-  says(head .. '{"host":"p.test","port":0,"no_proxy":[],"addresses":["10.0.0.9"]}}', "upstream.port")
-  says(head .. '{"host":"p.test","port":80,"authorization":"a\\nb","no_proxy":[],"addresses":["10.0.0.9"]}}',
-    "upstream.authorization")
-  says(head .. '{"host":"p.test","port":80,"authorization":5,"no_proxy":[],"addresses":["10.0.0.9"]}}',
-    "upstream.authorization")
-  says(head .. '{"host":"p.test","port":80,"addresses":["10.0.0.9"]}}', "upstream.no_proxy is not a list")
-  says(head .. '{"host":"p.test","port":80,"no_proxy":[1],"addresses":["10.0.0.9"]}}', "upstream.no_proxy[1]")
-  says(head .. '{"host":"p.test","port":80,"no_proxy":[]}}', "upstream.addresses is not given")
-  says(head .. '{"host":"p.test","port":80,"no_proxy":[],"addresses":[]}}', "holds no address")
-  says(head .. '{"host":"p.test","port":80,"no_proxy":[],"addresses":["p.test"]}}', "upstream.addresses[1]")
-  says('{"grants":["a"],"own_addresses":[],"log":"null","listeners":3}', "listeners is not 1 or 2")
-  says('{"grants":["a"],"own_addresses":[],"log":"null","token":7}', "token is not a string")
-  assert(Json.decode_object('{"grants":[]}'))
+  says("a=%zz", "")
+  says("own_addresses=&log=null", "grants is not given")
+  says("grants=a&log=null", "own_addresses is not given")
+  says("grants=a&grants=&own_addresses=&log=null", "grants[2] is empty")
+  says("grants=a&own_addresses=&log=loud", "log is not")
+  says("grants=a&own_addresses=&log=null&log=stderr", "log is given more than once")
+  says("grants=a&own_addresses=&log=null&extra=1", '"extra" is not a field of the config')
+  local head = "grants=a&own_addresses=&log=null&"
+  local ok = "upstream.port=80&upstream.no_proxy=&upstream.addresses=10.0.0.9"
+  assert(RelayConfig.decode(head .. "upstream.host=p.test&" .. ok) ~= nil, "the fixture's record is whole")
+  says(head .. ok, "upstream.host is not given")
+  says(head .. "upstream.host=p.test&upstream.port=0&upstream.no_proxy=&upstream.addresses=10.0.0.9", "upstream.port")
+  says(head .. "upstream.host=p.test&upstream.port=080&upstream.no_proxy=&upstream.addresses=10.0.0.9", "upstream.port")
+  says(head .. "upstream.host=p.test&upstream.no_proxy=&upstream.addresses=10.0.0.9", "upstream.port")
+  says(head .. "upstream.host=p.test&upstream.authorization=a%0Ab&" .. ok, "upstream.authorization")
+  says(head .. "upstream.host=p.test&upstream.port=80&upstream.addresses=10.0.0.9", "upstream.no_proxy is not given")
+  says(head .. "upstream.host=p.test&upstream.port=80&upstream.no_proxy=", "upstream.addresses is not given")
+  says(head .. "upstream.host=p.test&upstream.port=80&upstream.no_proxy=&upstream.addresses=", "holds no address")
+  says(head .. "upstream.host=p.test&upstream.port=80&upstream.no_proxy=&upstream.addresses=p.test",
+    "upstream.addresses[1]")
+  says(head .. "listeners=3", "listeners is not 1 or 2")
+  says(head .. "token=a&token=b", "token is given more than once")
+  local raised, why = pcall(RelayConfig.encode, { grants = { "" }, own_addresses = {}, log = "null" })
+  assert(not raised and tostring(why):find("grants[1] is empty", 1, true) ~= nil, tostring(why))
 end

@@ -1,9 +1,9 @@
 --- A policy's `connect` targets that name nodes of the machine's tailnet
 --- (`tag:db:5432`, `user:will@example.com:*`, read by [`Grant.tailnet`]),
---- turned into the addresses the relay grants. [`Child.start`] asks
---- tailscaled for the node's status ([`Tailscale.connect`]) once, as it
---- starts, and grants each address of every peer the target names: a
---- tag's peers, or the untagged peers a user owns. This node itself is
+--- turned into the addresses the relay grants. [`Child.start`] asks the
+--- client it is given (`tailscale`, a [`cosmic.tailscale`] client) for the
+--- node's status once, as it starts, and grants each address of every peer
+--- the target names: a tag's peers, or the untagged peers a user owns. This node itself is
 --- never among them, as the relay never connects to the host's own
 --- addresses.
 ---
@@ -15,7 +15,7 @@
 local Failure = require("cosmic.failure")
 local Grant = require("cosmic.relay.grant")
 local rules = require("cosmic.sandbox.policy")
-local type Tailscale = require("cosmic.tailscale")
+local type TsStatus = require("cosmic.tailscale.node")
 
 local record tailnet
 end
@@ -51,7 +51,7 @@ local function tailnet_target(address: string, port: string): string?
 end
 
 --- Whether `peer` is one of the nodes `target` names.
-local function names(target: Grant.Tailnet, peer: Tailscale.Peer, status: Tailscale.Status): boolean
+local function names(target: Grant.Tailnet, peer: TsStatus.Peer, status: TsStatus.Status): boolean
   if target.kind == "tag" then
     for _, tag in ipairs(peer.tags) do
       if tag == target.name then return true end
@@ -71,9 +71,9 @@ end
 --- A target that names no peer grants nothing here; [`tailnet.policy`]
 --- refuses it.
 --- @param connect {string} A policy's `connect` targets
---- @param status Tailscale.Status The node's status
+--- @param status TsStatus.Status The node's status
 --- @return {string} The targets the relay is given
-function tailnet.resolved(connect: {string}, status: Tailscale.Status): {string}
+function tailnet.resolved(connect: {string}, status: TsStatus.Status): {string}
   local out: mut {string} = {}
   local seen: mut {string: boolean} = {}
   local function add(text: string)
@@ -100,14 +100,10 @@ function tailnet.resolved(connect: {string}, status: Tailscale.Status): {string}
   return out
 end
 
---- The node's status, asked of the daemon `daemon` names
---- ([`Tailscale.connect`]; the machine's own when nil). Nil and a Failure where
---- the daemon cannot be asked, or this node is not running.
-local function status_of(daemon?: Tailscale.Daemon): (Tailscale.Status) | (nil, Failure)
-  local Live = require("cosmic.tailscale")
-  local ts, why = Live.connect(daemon)
-  if ts == nil then return nil, why end
-  local status, trouble = ts:status()
+--- The node's status, asked of `source`. Nil and a Failure where it
+--- cannot be asked, or this node is not running.
+local function status_of(source: TsStatus.Source): (TsStatus.Status) | (nil, Failure)
+  local status, trouble = source:status()
   if status == nil then return nil, trouble end
   if status.backend_state ~= "Running" then
     return nil, Failure.new("tailscale: the node is " .. status.backend_state .. ", so it knows no peers")
@@ -117,15 +113,22 @@ end
 
 --- The merged policy `merged` as the sandbox runs it: unchanged where
 --- its `connect` names nothing of the tailnet, and else with those
---- targets resolved ([`tailnet.resolved`]) against the status `daemon`
---- reports ([`Tailscale.connect`]; the machine's own when nil). Nil and
---- why, naming the target, where they cannot be, where one names no peer
---- (a typo, or a tag no node carries yet, which would start the program
---- with less than it was meant to reach).
-function tailnet.policy(merged: rules.Policy, daemon?: Tailscale.Daemon): (rules.Policy) | (nil, Failure)
+--- targets resolved ([`tailnet.resolved`]) against the status `source`
+--- reports (a [`cosmic.tailscale`] client). Nil and why, naming the
+--- target, where there is no source, where the status cannot be asked,
+--- or where one names no peer (a typo, or a tag no node carries yet,
+--- which would start the program with less than it was meant to reach).
+function tailnet.policy(merged: rules.Policy, source?: TsStatus.Source): (rules.Policy) | (nil, Failure)
   local connect = rules.connects(merged)
   if not tailnet.named(connect) then return merged end
-  local status, why = status_of(daemon)
+  for _, target in ipairs(connect) do
+    local read, _ = Grant.tailnet(target)
+    if read ~= nil and read ~= false and source == nil then
+      return nil, Failure.new("sandbox: connect \"" .. target ..
+          "\" names nodes of the tailnet, so the start needs tailscale = a client (Tailscale.connect())")
+    end
+  end
+  local status, why = status_of(assert(source))
   for _, target in ipairs(connect) do
     local read, _ = Grant.tailnet(target)
     if read ~= nil and read ~= false then

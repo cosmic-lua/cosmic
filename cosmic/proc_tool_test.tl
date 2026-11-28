@@ -10,6 +10,9 @@ local sys = require("cosmic.sys")
 local Fake = require("cosmic.fake")
 -- Required, so the fake's main is of this test's closure.
 local _fake = require("build.proc_tool_fake")
+-- In the closure, so the program the startup benches run finds them.
+local _json = require("cosmic.json")
+local _http = require("cosmic.http")
 local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
 local Bench = require("cosmic.bench")
