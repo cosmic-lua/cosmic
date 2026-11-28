@@ -274,7 +274,8 @@ local function run(argv: {string}): integer
     if stale ~= "" then local _, _ = logger.summary("docs", "answered " .. stale) end
     return if records.found then 0 else 1 end
   end
-  local answer, trouble = Doc.answer(view, parsed.words)
+  local ask = if parsed.set["--brief"] == true then Doc.brief else Doc.answer end
+  local answer, trouble = ask(view, parsed.words)
   if answer == nil then
     log:complain("docs: " .. tostring(trouble))
     return 1

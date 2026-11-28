@@ -48,7 +48,7 @@ local function test_each_output_is_kept_before_it_is_shown()
   local id = assert(assert(db:rows("SELECT id FROM outputs WHERE call = 't2'"))[1]):integer(1)
   -- It comes first, where a model that reads only the top sees it.
   assert(answer.text:find("[The whole output is kept as output " .. tostring(id) .. ": read it in run with Host.output(" ..
-      tostring(id) .. ").]\n", 1, true) == 1, answer.text:sub(1, 100))
+      tostring(id) .. "), cut as it is here when printed whole: find, count or write what you need in the snippet.]\n", 1, true) == 1, answer.text:sub(1, 100))
   -- With no run tool, nothing reads it, so there is no note.
   s, _, db = kept({ { content = { say_call("t3", string.rep("line\n", 3000)) }, stop_reason = "tool_use" }, text_reply("ok") })
   s.tools = { agent_fixture.SAY }

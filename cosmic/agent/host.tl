@@ -537,6 +537,14 @@ function Host.docs(query: string): string
   local Store = require("cosmic.store")
   local view, why = Docs.view(Store.databases())
   if view == nil then return "host: docs: " .. tostring(why) end
+  -- One bare word that many functions share ("walk") lists each a line, with its signature, not each in a page.
+  if #words == 1 and words[1]:match("^[%a_][%w_]*$") ~= nil then
+    local brief, brief_why = Docs.brief(view, words)
+    if brief == nil then return "host: docs: " .. tostring(brief_why) end
+    if #brief.lines >= 2 then
+      return table.concat(brief.lines, "\n") .. "\nOne of them whole: Host.docs(\"Module.name\")."
+    end
+  end
   local answer, answer_why = Docs.answer(view, words)
   if answer == nil then return "host: docs: " .. tostring(answer_why) end
   if not answer.found then return "host: docs: nothing is found for " .. Json.quote(query) end

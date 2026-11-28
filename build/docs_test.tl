@@ -1084,6 +1084,19 @@ local function test_several_qualified_names_are_each_looked_up(dir: string)
     answered(missing))
 end
 
+--- A brief search is a line a function: its signature and first sentence, no page.
+local function test_brief_lists_a_line_a_function(dir: string)
+  local db = built(dir, fs_tree())
+  local brief = assert(Doc.brief(view({ db }), { "read" }))
+  assert(brief.found and #brief.lines == 1, answered(brief))
+  local line = assert(brief.lines[1])
+  assert(line:find("cosmic.fs Fs.read(path: string)", 1, true) == 1, line)
+  assert(line:find(" -- The whole of a file.", 1, true), line)
+  local none = assert(Doc.brief(view({ db }), { "unheardword" }))
+  assert(not none.found and #none.lines == 0)
+  assert(db:close())
+end
+
 --- `--json` prints the entries a lookup finds, as [`Doc.answer`] would
 --- show them, one JSON object per line, qualified names in the order given.
 local function test_records_are_one_json_object_per_entry(dir: string)

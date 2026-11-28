@@ -60,6 +60,12 @@ local function test_the_command_line_names_tools_a_fixture_and_tasks()
   end
 end
 
+local function test_a_round_runs_its_tools_at_once_by_default()
+  assert(Agent.default_jobs(1) == 1 and Agent.default_jobs(0) == 1)
+  assert(Agent.default_jobs(3) == 3)
+  assert(Agent.default_jobs(28) == Agent.MAX_JOBS)
+end
+
 local function test_grading_ignores_trailing_blanks_and_blank_lines_at_the_end()
   assert(Agent.lines_of("a  \nb\t\n\n\n") == "a\nb")
   assert(Agent.lines_of("") == "")

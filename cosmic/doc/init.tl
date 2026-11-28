@@ -824,6 +824,37 @@ function Doc.answer(view: Doc.View, words: {string}): (Doc.Answer) | (nil, Failu
   return value
 end
 
+--- How long the signature on a line of [`Doc.brief`] runs.
+local BRIEF_SIGNATURE <const> = 90
+
+--- How long the note on a line of [`Doc.brief`] runs.
+local BRIEF_NOTE <const> = 100
+
+--- What a search for `words` finds, a line each and no page: `Module.name(signature) -- first sentence`, for each
+--- function the query names or the search relates to, in the order [`Doc.lookup`] gives, leaving out the modules'
+--- tests and examples. For a name that several modules share ("walk"), or a word to search for, which a page of each
+--- would show whole and at length. `found` is false when there is no line; `said` counts them.
+--- Nil and a [`Failure`] when a database cannot be read.
+function Doc.brief(view: Doc.View, words: {string}): (Doc.Answer) | (nil, Failure)
+  local found, why = lookup_text(view, table.concat(words, " "))
+  if found == nil then return nil, Failure.new(why) end
+  local lines: mut {string} = {}
+  local seen: mut {string: boolean} = {}
+  for _, entry in ipairs(found) do
+    local listed = (entry.kind == "function" and entry.signature:sub(1, 15) ~= "local function ") or entry.kind == "module"
+    local module = entry.module
+    if listed and module:sub(-5) ~= "_test" and module:sub(-8) ~= "_example" then
+      local name = if entry.kind == "module" then module else module .. " " .. clipped(entry.signature:gsub("^function ", ""), BRIEF_SIGNATURE) end
+      if seen[name] ~= true then
+        seen[name] = true
+        local note = clipped(first_sentence(entry.text), BRIEF_NOTE)
+        lines[#lines + 1] = name .. (if note ~= "" then " -- " .. note else "" end)
+      end
+    end
+  end
+  return { lines = lines, found = #lines > 0, said = String.counted(#lines, "line") }
+end
+
 -- Doc.records, its failure in words.
 local function records_text(view: View, words: {string}, stale?: boolean): Answer?, string
   local lines: mut {string} = {}
