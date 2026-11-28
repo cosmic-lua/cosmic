@@ -11,8 +11,10 @@
 ---
 --- A memo is an optimization and never required: a read or write that fails
 --- is a miss, and the check runs. A run is one transaction, from [`prepare`]
---- to [`finish`], which keeps the rows it used and drops the rest of its kind,
---- so the table does not grow with each edit.
+--- to [`finish`]. A row holds the number of the last run of its kind that used it,
+--- and a whole run drops the rows the last 8 runs did not use, so the
+--- table does not grow with each edit, and an edit then a revert (a probe, a
+--- bisect, a branch switch and back) finds the rows it had.
 ---
 --- The checkouts of a host share their rows through `checks.db` in
 --- [`Fs.cache_dir`]'s `build` directory, beside the compiles they share
@@ -48,16 +50,17 @@ local shared_sqlite = require("build.shared_sqlite")
 local sys = require("cosmic.sys")
 
 local record check_memo
-  --- Creates the table in `db` if it is not there, marks the rows of `kind`
-  --- unused and begins the run's transaction, unless it runs `within` one another kind of the run began. Returns
+  --- Creates the table in `db` if it is not there, numbers this run of `kind` one past the last and begins the
+  --- run's transaction, unless it runs `within` one another kind of the run began. Returns
   --- whether it could.
   prepare: function(db: Sqlite.Handle, kind: string, within?: boolean): boolean, string
   --- The text kept under `key` for `kind`, marked used; nil on a miss.
   get: function(db: Sqlite.Handle, kind: string, key: string): string?
   --- Keeps `value` under `key` for `kind`, marked used.
   put: function(db: Sqlite.Handle, kind: string, key: string, value: string)
-  --- Drops the rows of `kind` that this run did not use and commits, unless it runs `within` a transaction another
-  --- kind commits. A run that judged only some files (`partial`) drops none: the rows of the rest are the next whole run's.
+  --- Marks the rows of `kind` this run used with its number, drops those the last 8 runs did not use, and
+  --- commits, unless it runs `within` a transaction another kind commits. A run that judged only some files
+  --- (`partial`) drops none: the rows of the rest are the next whole run's.
   --- `now_ns` is the time the shared rows are stamped with and aged by, the clock's by default.
   finish: function(db: Sqlite.Handle, kind: string, now_ns?: integer, partial?: boolean, within?: boolean)
   --- Where the rows every checkout shares are kept, read from `environment` (the process's by default): `checks.db` in
@@ -138,6 +141,12 @@ local shared: Shared? = nil
 --- marked used there at once, in one statement, and not by a write of each row as it is read, which was most of what a
 --- run of hits cost.
 local found_keys: mut {string: mut {string}} = {}
+
+--- How many runs of a kind a row outlives unused: an edit then a revert, or a few branch switches, still find it.
+local kept_runs <const> = 8
+
+--- The number of this run of each kind, one past the last row's ([`check_memo.prepare`]).
+local run_of: mut {string: integer} = {}
 
 function check_memo.shared_path(environment?: {string:string}): string?
   local value: string?
@@ -266,10 +275,14 @@ function check_memo.prepare(db: Sqlite.Handle, kind: string, within?: boolean): 
   if not made then
     return false, tostring(made_trouble)
   end
-  local reset, reset_trouble = db:run("UPDATE check_memo SET used = 0 WHERE kind = ?1", { { text = kind } })
-  if not reset then
-    return false, tostring(reset_trouble)
+  -- `used` is the number of the last run that used a row; rows of a tool before runs were numbered hold 0 or 1.
+  local last, last_trouble = db:rows("SELECT coalesce(max(used), 0) FROM check_memo WHERE kind = ?1",
+    { { text = kind } })
+  if last == nil then
+    return false, tostring(last_trouble)
   end
+  local row = last[1]
+  run_of[kind] = (if row ~= nil then row:integer(1) else 0 end) + 1
   found_keys[kind] = {}
   if within == true then return true, "" end
   -- One transaction for a run's lookups and writes: a commit for each of a
@@ -291,8 +304,8 @@ function check_memo.get(db: Sqlite.Handle, kind: string, key: string): string?
     local sibling = if found ~= nil then found[1] else nil end
     if sibling == nil then return nil end
     local taken = sibling:text(1)
-    local _, _ = db:run("INSERT OR REPLACE INTO check_memo (kind, key, value, used) VALUES (?1, ?2, ?3, 1)",
-      { { text = kind }, { text = key }, { text = taken } })
+    local _, _ = db:run("INSERT OR REPLACE INTO check_memo (kind, key, value, used) VALUES (?1, ?2, ?3, ?4)",
+      { { text = kind }, { text = key }, { text = taken }, { integer = run_of[kind] or 1 } })
     owe(kind, key, taken)
     return taken
   end
@@ -305,23 +318,27 @@ function check_memo.get(db: Sqlite.Handle, kind: string, key: string): string?
 end
 
 function check_memo.put(db: Sqlite.Handle, kind: string, key: string, value: string)
-  local _, _ = db:run("INSERT OR REPLACE INTO check_memo (kind, key, value, used) VALUES (?1, ?2, ?3, 1)",
-    { { text = kind }, { text = key }, { text = value } })
+  local _, _ = db:run("INSERT OR REPLACE INTO check_memo (kind, key, value, used) VALUES (?1, ?2, ?3, ?4)",
+    { { text = kind }, { text = key }, { text = value }, { integer = run_of[kind] or 1 } })
   owe(kind, key, value)
 end
 
 function check_memo.finish(db: Sqlite.Handle, kind: string, now_ns?: integer, partial?: boolean, within?: boolean)
+  local run = run_of[kind] or 1
+  local quoted: mut {string} = {}
+  for i, key in ipairs(found_keys[kind] or {}) do
+    quoted[i] = '"' .. (key:gsub('[%c"\\]', function(c: string): string
+      return string.format("\\u%04x", c:byte()!)
+    end)) .. '"'
+  end
+  local _, _ = db:run("UPDATE check_memo SET used = ?3 WHERE kind = ?1 AND key IN (SELECT value FROM json_each(?2))",
+    { { text = kind }, { text = "[" .. table.concat(quoted, ",") .. "]" }, { integer = run } })
   if partial ~= true then
-    local quoted: mut {string} = {}
-    for i, key in ipairs(found_keys[kind] or {}) do
-      quoted[i] = '"' .. (key:gsub('[%c"\\]', function(c: string): string
-        return string.format("\\u%04x", c:byte()!)
-      end)) .. '"'
-    end
-    local _, _ = db:run("DELETE FROM check_memo WHERE kind = ?1 AND used = 0 AND key NOT IN " ..
-        "(SELECT value FROM json_each(?2))", { { text = kind }, { text = "[" .. table.concat(quoted, ",") .. "]" } })
+    local _, _ = db:run("DELETE FROM check_memo WHERE kind = ?1 AND used <= ?2",
+      { { text = kind }, { integer = run - kept_runs } })
   end
   found_keys[kind] = nil
+  run_of[kind] = nil
   if within ~= true then
     local _, _ = db:run("COMMIT")
   end
