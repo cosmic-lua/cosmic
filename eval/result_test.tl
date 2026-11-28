@@ -4,7 +4,7 @@
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Result = require("result")
-local Git = require("cosmic.git")
+local Fake = require("cosmic.fake")
 
 local function line(value: {string: Json.Value}): string
   return (assert(Json.encode(value)))
@@ -113,23 +113,14 @@ local function test_the_encoding_is_json_in_the_readmes_order()
   assert(clean:find('"contamination": []', 1, true), "nothing flagged is an empty list, not {}")
 end
 
-local function make_repo(root: string): string
-  assert(Fs.mkdirs(root .. "/.git/objects"))
-  assert(Fs.mkdirs(root .. "/.git/refs/heads"))
-  assert(Fs.write(root .. "/.git/HEAD", "ref: refs/heads/main\n"))
-  assert(Fs.write(root .. "/.git/config", "[core]\n\trepositoryformatversion = 0\n\tbare = false\n"))
-  assert(Fs.write(root .. "/a.txt", "one\n"))
-  local who: Git.Person = { name = "Test", email = "test@example.com", time = 1767225900, tz = "+0000" }
-  local repo = assert(Git.open(root))
-  assert(repo:add({ "a.txt" }))
-  return assert(repo:commit({ message = "first", author = who, committer = who }))
-end
-
---- The harness commit is HEAD of the repository, read with no git program; none gives nil.
-local function test_the_harness_commit_is_head_of_the_repository(dir: string)
-  local oid = make_repo(dir .. "/repo")
-  assert(Result.git_head(dir .. "/repo") == oid)
-  assert(Result.git_head(dir .. "/nowhere") == nil)
+--- git is found on the PATH given, not run as a bare name, which
+--- Child.run would not search for.
+local function test_the_harness_commit_comes_from_the_git_on_the_path(dir: string)
+  local probe = assert(Fake.build(dir .. "/fake", Fake.REPLY))
+  assert(Fs.mkdirs(dir .. "/bin"))
+  assert(Fake.reply(probe, dir .. "/bin/git", { ["*"] = { stdout = "0123456789abcdef0123456789abcdef01234567\n" } }))
+  assert(Result.git_head("/anywhere", dir .. "/bin") == "0123456789abcdef0123456789abcdef01234567")
+  assert(Result.git_head("/anywhere", dir .. "/nowhere") == nil)
 end
 
 local function test_a_null_in_a_transcript_list_is_kept_not_dropped()
