@@ -1082,6 +1082,12 @@ local function local_statement(ctx: Ctx, s: Ast.Local)
   local wants: mut {integer: Type} = {}
   for i, t in ipairs(s.types) do
     wants[i] = ctx.lowered.types[t.id] or ctx.invalid
+    local b = s.bindings[i]
+    -- only a local made empty or from a table literal can take `mut ` as its fix: one made from a view needs a copy
+    local value = s.values[i]
+    if b ~= nil and (#s.values == 0 or (value ~= nil and peel(value).kind == "Table")) then
+      ctx.annotated[b.id] = t
+    end
   end
   if #s.values == 0 then
     for i, b in ipairs(s.bindings) do
@@ -1262,7 +1268,7 @@ local function place_of_target(ctx: Ctx, s: Ast.Assign, target: Ast.Exp, at: int
           report(ctx, "view_written", target, owner .. " is a view " .. tq(ctx, base) .. ", so " .. subject(ctx, target) ..
               " cannot be assigned",
             "declare " .. owner .. " `mut " .. show(ctx, base) .. "` where it is made or received" .. read_out(ctx, target, base),
-            { show(ctx, base) })
+            { show(ctx, base) }, nil, Writes.view_rewrite(ctx, target.object))
         else
           -- The values say whether the write may leave a hole, which is an `array_hole` beside this error: see below.
           pending[#pending + 1] = { target = target, at = at, owner = owner, base = base, view = true, integral = integral }
@@ -1282,7 +1288,7 @@ local function place_of_target(ctx: Ctx, s: Ast.Assign, target: Ast.Exp, at: int
         report(ctx, "view_written", target, owner .. " is a view " .. tq(ctx, base) .. ", so " .. subject(ctx, target) ..
             " cannot be assigned",
           "declare " .. owner .. " `mut " .. show(ctx, base) .. "` where it is made or received" .. read_out(ctx, target, base),
-          { show(ctx, base) })
+          { show(ctx, base) }, nil, Writes.view_rewrite(ctx, target.object))
       end
       return base.value, true
     elseif (base.tag == "named") and (base.decl.kind == "record" or base.decl.kind == "class") then
@@ -1403,13 +1409,14 @@ local function check_assignment(ctx: Ctx, s: Ast.Assign): Values?
     if p.view then
       local owner, base = p.owner, p.base
       local destination = "`mut " .. show(ctx, base) .. "`"
+      local plain = destination
       local element = if base.tag == "array" then base.element else nil end
       if element ~= nil and not Writes.leaves_no_hole(ctx, vals, p) then
         destination = "`mut {integer: " .. show(ctx, element) .. "}` (a map: this write may leave a hole in an array)"
       end
       report(ctx, "view_written", p.target, owner .. " is a view " .. tq(ctx, base) .. ", so " .. subject(ctx, p.target) ..
           " cannot be assigned", "declare " .. owner .. " " .. destination .. " where it is made or received" .. read_out(ctx, p.target, base),
-        { show(ctx, base) })
+        { show(ctx, base) }, nil, if destination == plain then Writes.view_rewrite(ctx, p.target.object) else nil end)
     end
     if not Writes.leaves_no_hole(ctx, vals, p) then
       Writes.report_hole(ctx, vals, p)
@@ -2667,7 +2674,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
       return false
     end, function(_node: Ast.Node, _spelled: string, _found: LoadOrder.Found) end),
     literals = {}, spreads = {}, tags = {}, declared = {}, union_fields = {}, spine = {},
-    ternaries = {}, right_types = {}, spare = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, string_subs = {}, assigning = {}, quiet = 0, proving = 0, closers = 0, callee_module = "", member_module = "", moves = {},
+    ternaries = {}, right_types = {}, spare = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, string_subs = {}, annotated = {}, assigning = {}, quiet = 0, proving = 0, closers = 0, callee_module = "", member_module = "", moves = {},
     loops = {}, ranges = {}, map_reads = {}, keys = {}, edges = {}, guards = {}, ties = {}, coroutine_reads = {}, top = tops, module_table = module_table(input, lowered), initialized = {}, given = {}, handed = false, reads = {}, unfixed = {}, narrowed = {}, inert = {}, runs = {}, inferred = {}, boundaries = {}, types = {}, callees = {}, consts = {}, unread_schemas = {}, unfilled = {}, unfilled_n = 0, call_columns = {}, row_lists = {}, row_columns = {}, starts = {}, library = {}, typed = typed ~= false, warnings = {},
     unite = function(a: Type, b: Type): Type
       return store:union({ a, b })
