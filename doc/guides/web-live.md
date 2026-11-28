@@ -243,7 +243,9 @@ argv[#argv + 1] = "test"
 local said = assert(Child.run(argv,
   { env = env, fds = relaunch.fds, cwd = tmp, stdout = "capture", stderr = "capture",
     timeout_ns = Clock.seconds(120) }))
-print(((said.stderr or "") .. (said.stdout or "")):match("test: %d+ tests? passed"))
+local out = (said.stderr or "") .. (said.stdout or "")
+-- The whole run where it did not pass, so a failure says which test and why.
+print(out:match("test: %d+ tests? passed") or out)
 ```
 
 ```output
