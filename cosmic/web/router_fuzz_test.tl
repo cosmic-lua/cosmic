@@ -49,10 +49,9 @@ local router = Web.router({
 local KINDS <const>: {string:boolean} = { match = true, not_found = true, not_allowed = true, options = true,
   redirect = true, bad_path = true, bad_host = true }
 
-local function test_canonical_never_raises_and_is_idempotent(tmp: string)
-  Fuzz.run({
+local function fuzz_canonical_never_raises_and_is_idempotent(): Fuzz.Target
+  return Fuzz.target({
     name = "web canonical path",
-    dir = tmp,
     gen = gen_path,
     requires = { "canonical", "refused", "changed" },
     shares = { canonical = 0.2, refused = 0.03 },
@@ -89,10 +88,9 @@ local function test_canonical_never_raises_and_is_idempotent(tmp: string)
   })
 end
 
-local function test_lookup_is_total_and_redirects_stay_local(tmp: string)
-  Fuzz.run({
+local function fuzz_lookup_is_total_and_redirects_stay_local(): Fuzz.Target
+  return Fuzz.target({
     name = "web router lookup",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       return Fuzz.pack({ Fuzz.pick(src, { "GET", "HEAD", "POST", "OPTIONS", "PUT" }), gen_path(src) })
     end,
@@ -133,13 +131,12 @@ local function test_lookup_is_total_and_redirects_stay_local(tmp: string)
   })
 end
 
-local function test_the_app_answers_any_path_with_a_sane_status(tmp: string)
+local function fuzz_the_app_answers_any_path_with_a_sane_status(): Fuzz.Target
   local app = Web.app{ routes = {
     Web.get("/items/:id", ok), Web.get("/docs/", ok), Web.mount("/api", { Web.get("/x", ok) }),
   }, sink = { line = function(_self: Web.Sink, _text: string) end } }
-  Fuzz.run({
+  return Fuzz.target({
     name = "web app path",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       if src:int(0, 2) == 0 then
         return Fuzz.pick(src, { "/items/7", "/docs/", "/api/x", "/items/a%20b" })
@@ -198,7 +195,7 @@ local function reescaped(path: string, salt: integer): string
   return table.concat(out)
 end
 
-local function test_a_path_and_its_reescaped_spelling_reach_the_same_outcome(tmp: string)
+local function fuzz_a_path_and_its_reescaped_spelling_reach_the_same_outcome(): Fuzz.Target
   local seen: mut {string} = {}
   local function recording(inner: Web.Handler): Web.Handler
     return function(req: Web.Request): Web.Response
@@ -229,9 +226,8 @@ local function test_a_path_and_its_reescaped_spelling_reach_the_same_outcome(tmp
     local res = app.handle(raw)
     return ("%d|%s|%s"):format(res.status, Web.header(res, "Location") or "-", table.concat(seen, ";"))
   end
-  Fuzz.run({
+  return Fuzz.target({
     name = "web reescaped path",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       return Fuzz.pack({ gen_path(src), tostring(src:int(0, 3)) })
     end,

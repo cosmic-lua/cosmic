@@ -66,10 +66,9 @@ local function gen_compressed(src: Fuzz.Source): string
   return Fuzz.pack({ "read", length_prefix(claims) .. packed:sub(src:int(1, #packed + 1)) })
 end
 
-local function test_uncompress_is_total_and_round_trips(tmp: string)
-  Fuzz.run({
+local function fuzz_uncompress_is_total_and_round_trips(): Fuzz.Target
+  return Fuzz.target({
     name = "sqlite uncompress total",
-    dir = tmp,
     gen = gen_compressed,
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
@@ -95,10 +94,9 @@ local PATTERN_TOKENS <const> = { "a", "b", ".", "*", "+", "?", "|", "(", ")", "[
   "\\", "\\d", "\\w", "\\s", "\\b", "{", "}", "{2}", "{1,3}", "{,", "-", "[^", "\xc3\xa9", "\0",
   "\xff" }
 
-local function test_regexp_is_total(tmp: string)
-  Fuzz.run({
+local function fuzz_regexp_is_total(): Fuzz.Target
+  return Fuzz.target({
     name = "sqlite regexp total",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       local parts: mut {string} = {}
       while Fuzz.more(src, #parts, 16) do parts[#parts + 1] = Fuzz.pick(src, PATTERN_TOKENS) end
@@ -130,10 +128,9 @@ local NUMBERS <const> = { "0", "-0", "1.5", "-2", "1e10", "1E-400", "12345678901
 --- NULL: a decimal reads back as itself and compares equal to itself,
 --- and adding or multiplying two returns a value or fails its statement.
 --- A NULL is `""` here, and a statement's failure is nil.
-local function test_decimal_is_total_and_canonical(tmp: string)
-  Fuzz.run({
+local function fuzz_decimal_is_total_and_canonical(): Fuzz.Target
+  return Fuzz.target({
     name = "sqlite decimal total",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       return Fuzz.pack({ Fuzz.mutate(src, Fuzz.pick(src, NUMBERS), 2),
         Fuzz.mutate(src, Fuzz.pick(src, NUMBERS), 2) })
@@ -186,10 +183,9 @@ local function uuid_text(src: Fuzz.Source): string
   return text
 end
 
-local function test_text_decoders_are_total_and_round_trip(tmp: string)
-  Fuzz.run({
+local function fuzz_text_decoders_are_total_and_round_trip(): Fuzz.Target
+  return Fuzz.target({
     name = "sqlite base64 base85 uuid total",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       local alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=-{}! \n#~"
       local chars: mut {string} = {}
@@ -236,10 +232,9 @@ end
 --- hold goes back to the same bytes, through `ieee754_to_blob`, through its
 --- integer and through `ieee754(M, E)`; `ieee754(M, E)` returns a real for
 --- any integers but the least M, and `ieee754_inc` a real or NULL.
-local function test_ieee754_is_total_and_round_trips(tmp: string)
-  Fuzz.run({
+local function fuzz_ieee754_is_total_and_round_trips(): Fuzz.Target
+  return Fuzz.target({
     name = "sqlite ieee754 total",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       local eight: mut {string} = {}
       for i = 1, 8 do eight[i] = string.char(src:int(0, 255)) end
@@ -343,10 +338,9 @@ end
 --- returns a value, returns what `CAST` does, and a well-formed decimal
 --- converts; `tointeger` returns an integer literal an integer holds as
 --- itself, and NULL for anything else.
-local function test_totype_reads_text_exactly(tmp: string)
-  Fuzz.run({
+local function fuzz_totype_reads_text_exactly(): Fuzz.Target
+  return Fuzz.target({
     name = "sqlite totype text",
-    dir = tmp,
     gen = gen_number,
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
@@ -397,10 +391,9 @@ local function test_totype_reads_text_exactly(tmp: string)
   })
 end
 
-local function test_uint_orders_consistently(tmp: string)
-  Fuzz.run({
+local function fuzz_uint_orders_consistently(): Fuzz.Target
+  return Fuzz.target({
     name = "sqlite uint collation order",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       local alphabet = "0000123456789abcXYZ-+. \xc3\xa9\xff"
       local function word(): string
@@ -458,13 +451,12 @@ local DAMAGES <const> = { "depth", "child", "bytes", "length", "parent", "rowid"
 --- as well as its queries: querying, checking and writing the tree each
 --- succeed or fail their statement, in bounded time, and never take the
 --- process down.
-local function test_rtree_survives_damaged_trees(tmp: string)
+local function fuzz_rtree_survives_damaged_trees(tmp: string): Fuzz.Target
   local Clock = require("cosmic.clock")
   local Fs = require("cosmic.fs")
   local path = tmp .. "/rtree.db"
-  Fuzz.run({
+  return Fuzz.target({
     name = "sqlite rtree damaged trees",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       return Fuzz.pack({ tostring(Fuzz.pick(src, { 1, 40, 600, 3000 })), Fuzz.pick(src, DAMAGES),
         tostring(src:int(0, 1 << 30)), Fuzz.bytes(src, 24) })
@@ -621,10 +613,9 @@ end
 
 --- A list bound for carray() reads back as the same elements in order,
 --- each of its kind's storage class.
-local function test_carray_reads_back_a_bound_list(tmp: string)
-  Fuzz.run({
+local function fuzz_carray_reads_back_a_bound_list(): Fuzz.Target
+  return Fuzz.target({
     name = "sqlite carray round trip",
-    dir = tmp,
     gen = gen_list,
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)

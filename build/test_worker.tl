@@ -2504,6 +2504,15 @@ function worker.run(argv: {string}): integer
         Assertions.reset()
         -- What the hold calls: the body, and then, in a bench run, the loop that times it.
         local body: function(...: any): (any...) = fn
+        -- A fuzz property (`fuzz_*`) returns the [`Fuzz.Target`] that [`Fuzz.run_target`] checks at FUZZ_ITERS
+        -- inputs: a plain run's few, or `--fuzz-deep`'s many. Its file made the target with cosmic.fuzz, so the
+        -- module is of the test's closure.
+        if chosen:sub(1, 5) == "fuzz_" then
+          body = function(...: any): (any...)
+            local fuzzing = require("cosmic.fuzz")
+            fuzzing.run_target(fn(tmp), tmp)
+          end
+        end
         local under_hold = function(...: any): (any...)
           return held(body, (...))
         end

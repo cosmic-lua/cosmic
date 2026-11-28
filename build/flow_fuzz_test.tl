@@ -82,10 +82,9 @@ local function format_holds(input: string): boolean, string
   return true, ""
 end
 
-local function test_format_refuses_or_lays_out_a_fixed_point(tmp: string)
-  Fuzz.run({
+local function fuzz_format_refuses_or_lays_out_a_fixed_point(): Fuzz.Target
+  return Fuzz.target({
     name = "flow format",
-    dir = tmp,
     gen = gen_text,
     check = format_holds,
     requires = { "laid out", "changed", "refused" },
@@ -122,10 +121,9 @@ local function gen_teal(src: Fuzz.Source, depth: integer): Json.Value
   return Json.array(items)
 end
 
-local function test_write_makes_a_laid_out_text_of_its_value(tmp: string)
-  Fuzz.run({
+local function fuzz_write_makes_a_laid_out_text_of_its_value(): Fuzz.Target
+  return Fuzz.target({
     name = "flow write",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       return (assert(Json.encode(gen_teal(src, 3))))
     end,

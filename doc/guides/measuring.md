@@ -70,7 +70,7 @@ prints the twenty slowest, in milliseconds:
 path	test	ms
 lang.check_test	test_a_chain_of_any_length_is_checked_without_recursion	1140
 lang.check_test	test_each_case_has_its_error_with_place_message_and_fix	899
-lang.check_flow_fuzz_test	test_a_program_over_locals_the_flow_takes_does_not_fail_at_a_narrowed_read	801
+lang.check_flow_fuzz_test	fuzz_a_program_over_locals_the_flow_takes_does_not_fail_at_a_narrowed_read	801
 ```
 
 Sum by module to find the module that costs the most:

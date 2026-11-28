@@ -54,10 +54,9 @@ local message <const> = "the message that was signed"
 --- A key, the signature under it and the message, as one input.
 local signed <const> = Sign.ed25519_public(seed) .. Sign.ed25519(seed, message) .. message
 
-local function test_what_a_seed_signs_verifies(tmp: string)
-  Fuzz.run({
+local function fuzz_what_a_seed_signs_verifies(): Fuzz.Target
+  return Fuzz.target({
     name = "sign then verify",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       local drawn: mut {string} = {}
       for i = 1, 32 do drawn[i] = string.char(src:int(0, 255)) end
@@ -80,10 +79,9 @@ local function test_what_a_seed_signs_verifies(tmp: string)
   })
 end
 
-local function test_verify_is_total_and_takes_only_what_was_signed(tmp: string)
-  Fuzz.run({
+local function fuzz_verify_is_total_and_takes_only_what_was_signed(): Fuzz.Target
+  return Fuzz.target({
     name = "verify a changed key, signature or message",
-    dir = tmp,
     requires = { "changed", "short" },
     gen = function(src: Fuzz.Source): string
       if src:int(0, 7) == 0 then return Fuzz.bytes(src, 200) end

@@ -211,10 +211,9 @@ local function total(data: string): boolean, string
   return true, ""
 end
 
-local function test_reading_tzif_is_total(tmp: string)
-  Fuzz.run({
+local function fuzz_reading_tzif_is_total(): Fuzz.Target
+  return Fuzz.target({
     name = "tzif read total",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       local kind = src:int(0, 7)
       if kind == 0 then return Fuzz.bytes(src, 80) end
@@ -274,10 +273,9 @@ local function reads_back(input: string): boolean, string
   return true, ""
 end
 
-local function test_a_written_file_reads_back_as_drawn(tmp: string)
-  Fuzz.run({
+local function fuzz_a_written_file_reads_back_as_drawn(): Fuzz.Target
+  return Fuzz.target({
     name = "tzif reads back",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       local drawn = draw(src)
       local times: mut {string} = {}
