@@ -449,7 +449,10 @@ local function cosmic(...: string): Child.Result
 end
 -- The test summary where there is one, else how the verb exited.
 local function outcome(said: Child.Result, verb: string)
-  print((said.stdout or ""):match(verb .. ": %d+ tests? passed") or verb .. " exited " .. tostring(said.code))
+  local summary = (said.stdout or ""):match(verb .. ": %d+ tests? passed")
+  -- Where it failed, what it said, so that a failure says which and why.
+  local told = if said.code == 0 then "" else ":\n" .. (said.stderr or "") .. (said.stdout or "") end
+  print(summary or verb .. " exited " .. tostring(said.code) .. told)
 end
 
 outcome(cosmic("fix"), "fix")
