@@ -7,6 +7,7 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local _ = require("build.standalone")
+local _json = require("cosmic.json") -- in the closure: the programs the tests run bind `Json` to it
 local Clock = require("cosmic.clock")
 
 --- The program itself, which its tests start to run a file `--standalone`
