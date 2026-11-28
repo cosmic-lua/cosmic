@@ -861,6 +861,9 @@ local function item_at(items: {flow.Item}, position: integer): flow.Item
   return (assert(items[position], "a position is within the items"))
 end
 
+--- Passes of the diff search `paired` allows at most, which bounds its time on two long arrays that share little.
+local MAX_PASSES <const> = 4000
+
 --- Pairs the members of `old` with the values of `new` as a diff does.
 --- Members equal in both anchor the pairing: the common start and end
 --- first, then the longest common runs in order. Between two anchors, a
@@ -928,7 +931,10 @@ local function paired(old: {flow.Item}, new: {any}): {integer: flow.Item}
     end
     return table.concat(text)
   end
-  for _, hunk in ipairs(Diff.lines(lines_of(a, lo, hi_a), lines_of(b, lo, hi_b), { context = 0 })) do
+  -- The search may take as many passes as the middles have members, up to `MAX_PASSES`: it then finds the fewest
+  -- changes unless the middles share almost nothing and are very long, where a valid pairing is enough.
+  local passes = math.max(1, math.min(hi_a + hi_b - 2 * lo + 2, MAX_PASSES))
+  for _, hunk in ipairs(Diff.lines(lines_of(a, lo, hi_a), lines_of(b, lo, hi_b), { context = 0, cost = passes })) do
     local first_old = lo - 1 + (if hunk.old_count == 0 then hunk.old_start + 1 else hunk.old_start end)
     local first_new = lo - 1 + (if hunk.new_count == 0 then hunk.new_start + 1 else hunk.new_start end)
     anchor(first_old - i)

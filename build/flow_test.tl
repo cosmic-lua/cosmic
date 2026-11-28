@@ -372,3 +372,21 @@ local function test_update_pairs_a_changed_step_by_what_names_it()
     "",
   }, "\n"), flow.render(doc))
 end
+
+--- A long array that moves a third of its members to the end keeps the comment of each member that stays: the diff
+--- search is not cut short at its default cost.
+local function test_update_keeps_comments_across_many_changes()
+  local Json = require("cosmic.json")
+  local count, moved = 1200, 400
+  local lines: mut {string} = { "[" }
+  for i = 1, count do lines[#lines + 1] = "  \"m" .. tostring(i) .. "\", # c" .. tostring(i) end
+  lines[#lines + 1] = "]"
+  lines[#lines + 1] = ""
+  local rotated: mut {Json.Value} = {}
+  for i = 1, count do rotated[i] = "m" .. tostring((i + moved - 1) % count + 1) end
+  local doc = assert(flow.parse(table.concat(lines, "\n")))
+  doc.root = flow.update(doc.root, Json.array(rotated))
+  local seen = 0
+  for _ in flow.render(doc):gmatch("# c%d+") do seen = seen + 1 end
+  assert(seen == count - moved, tostring(seen) .. " of " .. tostring(count - moved) .. " comments stay")
+end
