@@ -5,16 +5,26 @@
 --- example, the agent with code mode and the release before it.
 ---
 ---     eval/agent --tool NAME=PATH [--tool NAME=PATH ...] --fixture DIR --out DIR
----         [--offer NAME=TOOL,...] [--effort [NAME=]LEVEL] [--tasks T,...|all] [--reps N] [--model M]
----         [--timeout S]
+---         [--effort [NAME=]LEVEL] [--drop [NAME=]BULLET,...] [--tasks T,...|all] [--reps N] [--model M]
+---         [--timeout S] [--round ID] [--db FILE] [--arm NAME] [--jobs N]
+---         [--against FILE [--against-round ID] [--against-as NEW=OLD ...]]
 ---
+--- Every run is committed, once graded, to a SQLite database (<out>/runs.db, or `--db`): the source of truth, from which
+--- the report and results.json are written, and which `--against` reads (see eval/runs.tl). A round is named by
+--- `--round`, the name of --out where not given, and goes on where it ended: the same command skips each run the
+--- database holds, so a round that its session did not outlive loses the run it was in. Each tool is copied to
+--- <out>/<tool>/tool/cosmic when its first run starts, and the round runs that copy, so a rebuild of the tree under the
+--- tool does not change the arm; a tool whose binary is not the one the round noted is refused. `--arm NAME` runs only
+--- that tool's runs (with every `--tool` still given, as the report names them), and `--jobs N` runs up to N tools at
+--- once, each in a process of its own. <out>/round.log tells what each process did.
 --- `--control NAME` names a tool whose binary another tool repeats: the report puts each other tool's passes, cost and
 --- refusals against the controls' spread, so a difference inside one binary's noise reads as noise. A task marked
 --- `held` is one the run text and the checker were not changed from: the report totals the tuned and the held-out
 --- tasks apart, so a change that helps only the tasks it was made from shows. Each refusal cause names how many
 --- tasks had it; one task alone is likely a fit to that task.
---- `--offer NAME=run,read` runs the agent of the tool NAME with `--tools run,read`, for a binary from before run became
---- the agent's one tool (a newer one refuses `--tools`). `--effort NAME=low` runs the agent of the tool NAME
+--- `--drop NAME=Host.sed,Json.read` runs the tool NAME with those bullets left out of the run text
+--- (COSMIC_RUN_TEXT_DROP, which cosmic/agent/tools.tl reads): a bullet starts with the text, and the round tells
+--- of a prefix that started none. `--effort NAME=low` runs the agent of the tool NAME
 --- with `--effort low`, and `--effort low` every tool not named so: one binary under two names compares two efforts.
 --- Where none is given, the agent takes its own default.
 --- The fixture is a tree the tasks read, such as this repository at a commit
@@ -34,13 +44,16 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
+local Time = require("cosmic.time")
 local ArtifactRow = require("artifact_row")
 local Causes = require("causes")
 local Report = require("report")
 local ReportData = require("report_data")
+local Runs = require("runs")
 local Sqlite = require("cosmic.sqlite")
 
 local record Agent
@@ -108,8 +121,8 @@ local record Agent
   record Tool
     name: string
     path: string
-    --- The tools its agent offers (`--tools`), as `--offer NAME=LIST` names them; nil for the agent's default.
-    tools?: string
+    --- The run text bullets left out of its run tool (`--drop`), as COSMIC_RUN_TEXT_DROP takes them; nil for none.
+    drop?: string
     --- How hard its agent thinks (`--effort`); nil for the agent's default.
     effort?: string
     --- True to let its agent's snippets run programs (`--commands`), in the agent's sandbox, with the tool itself
@@ -130,8 +143,21 @@ local record Agent
     --- True to leave AGENTS.md and CLAUDE.md out of each copy of the fixture (the truth's too), so the agent has
     --- only what the binary tells it; the report says so.
     without_agents_md?: boolean
-    --- The results.json of an earlier round, whose refusal causes the report sets beside this round's; nil for none.
+    --- The earlier round whose refusal causes the report sets beside this round's: a runs database, or the
+    --- results.json of a round from before there was one; nil for none.
     against?: string
+    --- The round of the `against` database to read; nil for its newest.
+    against_round?: string
+    --- The names the earlier round gave its tools, by the names they have here (`--against-as NEW=OLD`).
+    against_as?: {string: string}
+    --- The round's name in the database (`--round`), as given; nil for the name of `out`.
+    round?: string
+    --- The database of the rounds (`--db`); nil for runs.db in `out`.
+    db?: string
+    --- The names of the only tools whose runs this process makes (`--arm`); nil for every tool.
+    arms?: {string}
+    --- How many tools run at once, each in a process of its own (`--jobs`); nil for one process.
+    jobs?: integer
     --- The tools that repeat one base tool's binary, named by `--control`: the report puts every other tool's
     --- totals against their spread, so a difference inside the noise of one binary reads as one.
     controls?: {string}
@@ -140,15 +166,8 @@ local record Agent
     testdata?: string
   end
 
-  --- What an earlier round's results.json says of one tool: the refused snippets and their causes ("TAG: name",
-  --- as [`Spent`]'s) and layers, each summed over the tool's runs.
-  record Earlier
-    mut refused: integer
-    --- The runs that kept causes.
-    mut runs: integer
-    causes: mut {string: integer}
-    layers: mut {string: integer}
-  end
+  --- What an earlier round says of one tool ([`Runs.Earlier`]).
+  type Earlier = Runs.Earlier
 
   --- A finished command: its exit status (124 for a timeout), and its standard output and error.
   record Output
@@ -159,54 +178,11 @@ local record Agent
     seconds?: number
   end
 
-  --- What one run spent, from its session in sessions.db.
-  record Spent
-    requests: integer
-    input: integer
-    output: integer
-    cache_read: integer
-    cache_write: integer
-    cost: number
-    seconds: number
-    tools: integer
-    runs: integer
-    --- How many run calls the checker refused, and how often each of its codes was named in them.
-    refused: integer
-    codes: {string: integer}
-    --- How often each root cause ("TAG: name", from [`Causes.of`]) was named in a refused snippet, once a snippet.
-    causes: {string: integer}
-    --- How many refused snippets each layer ("lang", "stdlib", "prompt", "untagged") was a cause in, once a snippet.
-    layers: {string: integer}
-    --- Each name the model tried that does not exist ("NAME (CODE)", from [`Causes.guess`]), once a run.
-    guesses: {string: integer}
-    --- How many run snippets repeated the one before them to the letter.
-    resends: integer
-    --- How many run snippets sorted (`table.sort` or `version_sort`).
-    sorts: integer
-    --- How many snippets of run named each Host helper, by its name (`bash` for Host.bash, a command no other
-    --- helper served): the use a helper is kept or pruned by.
-    helpers: {string: integer}
-    --- What the session's first request read from the cache: the prefix it shared with another session.
-    first_read: integer
-  end
+  --- What one run spent, from its session in sessions.db ([`Runs.Spent`]).
+  type Spent = Runs.Spent
 
-  --- One run's result.
-  record Result
-    tool: string
-    task: string
-    rep: integer
-    --- "pass", "fail", "unfit" (the truth was empty on the fixture) or "broken" (the agent ended with an error
-    --- before its first request: the harness or the setup failed, and the model was not tried).
-    grade: string
-    --- The first line of the standard error of a broken run; nil for any other.
-    why?: string
-    --- Why the round ended with this run, on the last result of one that did not run to its end.
-    mut stopped?: string
-    --- nil where no session was found for the run.
-    spent?: Spent
-    --- How long the agent ran, by the wall clock, tools and all.
-    wall: number
-  end
+  --- One run's result ([`Runs.Result`]).
+  type Result = Runs.Result
 
   --- What the evals do to the world. Tests give a fake.
   record System
@@ -225,6 +201,21 @@ local record Agent
     serve: function(argv: {string}, cwd: string, ready: string, seconds: integer): (string, function()) | (nil, string)
     --- Writes the tool `from` at `to`, executable, as one built from the tree at `root` (its real path).
     retarget: function(from: string, to: string, root: string)
+  end
+
+  --- What a round keeps of its runs, where it keeps them: the result a run already has, which a round that goes on
+  --- does not run again, and a call that takes each result as it is graded. Tests give none.
+  record Store
+    known: function(tool: string, task: string, rep: integer): Agent.Result?
+    record: function(tool: Agent.Tool, result: Agent.Result)
+  end
+
+  --- What [`Agent.freeze`] made of a tool: the tool as the round runs it, its arm for the database, and what to tell.
+  record Frozen
+    tool: Tool
+    arm: Runs.Arm
+    --- Said where the copy kept is not the binary now at the tool's path, or where the tool is no binary to copy.
+    note?: string
   end
 
   --- Every task, in the order a report lists them.
@@ -855,6 +846,28 @@ Agent.tasks = {
     check = "$tool --standalone --check dirs.tl > /dev/null 2>&1 && $tool --standalone dirs.tl cosmic",
   },
   {
+    name = "write-json",
+    prompt = "Write dirsjson.tl in this directory: a cosmic program (Teal, checked) that takes a directory as its first " ..
+      "argument and prints one line of JSON: an array with an object for each directory directly inside it, in order " ..
+      "of path, each with `name` (the path as the argument and the name joined by `/`, such as `cosmic/web`) and " ..
+      "`files` (how many .tl files lie under that directory, at any depth, as a number). Compact: no spaces, the keys " ..
+      "of an object sorted (`files` first). Such as `[{\"files\":40,\"name\":\"cosmic/web\"}]`. It must pass " ..
+      "`cosmic --standalone --check dirsjson.tl`.",
+    truth = [==[printf '['; sep=''; for d in $(find cosmic -mindepth 1 -maxdepth 1 -type d | sort); do printf '%s{"files":%s,"name":"%s"}' "$sep" "$(find $d -name '*.tl' | wc -l)" "$d"; sep=','; done; printf ']\n']==],
+    check = "$tool --standalone --check dirsjson.tl > /dev/null 2>&1 && $tool --standalone dirsjson.tl cosmic",
+  },
+  {
+    name = "write-csv",
+    prompt = "Write guides.tl in this directory: a cosmic program (Teal, checked) that takes a directory as its first " ..
+      "argument and prints CSV: the header `file,lines,title`, then a row for each .md file directly inside it, in order " ..
+      "of path. `file` is the path as the argument and the name joined by `/`, `lines` is the number of lines of the " ..
+      "file, and `title` is its first line without the leading `# `. A title that holds a comma or a double quote is " ..
+      "written in double quotes with each double quote in it doubled (RFC 4180); any other title is written as it is. " ..
+      "It must pass `cosmic --standalone --check guides.tl`.",
+    truth = [==[echo 'file,lines,title'; for f in $(ls doc/guides/*.md | sort); do t=$(head -1 "$f" | sed 's/^# *//'); case "$t" in *[,\"]*) t="\"$(printf '%s' "$t" | sed 's/"/""/g')\"";; esac; echo "$f,$(wc -l < "$f" | tr -d ' '),$t"; done]==],
+    check = "$tool --standalone --check guides.tl > /dev/null 2>&1 && $tool --standalone guides.tl doc/guides",
+  },
+  {
     name = "fix-bug",
     prompt = "Ranges.merge in test/plant/ranges.tl has a bug: ranges that touch or share an end must join (`1-3` and " ..
       "`4-6` cover 1 to 6 with no gap, and `1-3` and `3-5` overlap), but it leaves them apart. Fix the bug and " ..
@@ -1050,8 +1063,9 @@ if (cd mini && $tool test > /dev/null 2>&1); then echo pass; else echo fail; fi]
 }
 
 local USAGE <const> = "usage: eval/agent --tool NAME=PATH [--tool NAME=PATH ...] --fixture DIR --out DIR " ..
-  "[--offer NAME=TOOL,...] [--effort [NAME=]LEVEL] [--tasks T,...|all] [--reps N] [--model M] [--timeout S] " ..
-  "[--no-agents-md] [--against RESULTS.json] [--control NAME ...] [--commands NAME ...] [--testdata DIR]"
+  "[--effort [NAME=]LEVEL] [--drop [NAME=]BULLET,...] [--tasks T,...|all] [--reps N] [--model M] [--timeout S] " ..
+  "[--round ID] [--db FILE] [--arm NAME ...] [--jobs N] [--no-agents-md] [--against RUNS.db|RESULTS.json " ..
+  "[--against-round ID] [--against-as NEW=OLD ...]] [--control NAME ...] [--commands NAME ...] [--testdata DIR]"
 
 local EFFORTS <const>: {string: boolean} = { low = true, medium = true, high = true, xhigh = true, max = true }
 
@@ -1063,13 +1077,20 @@ end
 --- Reads the command line. `--reps` is 2, `--model` sonnet, `--timeout` 1200 and `--tasks` all unless given.
 function Agent.parse(argv: {string}): Agent.Options?, string
   local tools: mut {Agent.Tool} = {}
-  local offers: mut {string: string} = {}
+  local drops: mut {string: string} = {}
+  local drop: string? = nil
   local efforts: mut {string: string} = {}
   local effort: string? = nil
   local fixture, out, model = "", "", "sonnet"
   local reps, timeout = 2, 1200
   local without_agents_md = false
   local against: string? = nil
+  local against_round: string? = nil
+  local against_as: mut {string: string} = {}
+  local round: string? = nil
+  local db: string? = nil
+  local arms: mut {string} = {}
+  local jobs: integer? = nil
   local controls: mut {string} = {}
   local commands: mut {string: boolean} = {}
   local testdata: string? = nil
@@ -1095,17 +1116,49 @@ function Agent.parse(argv: {string}): Agent.Options?, string
         if t.name == name then return nil, "two tools named " .. name end
       end
       tools[#tools + 1] = { name = name, path = path }
-    elseif word == "--offer" then
+    elseif word == "--drop" then
       local name, list = value:match("^([%w_-]+)=(.+)$")
-      if name == nil or list == nil then
-        return nil, "--offer takes NAME=TOOL,TOOL,...: " .. value
+      local wanted = list or value
+      if wanted == "" then
+        return nil, "--drop takes BULLET,BULLET,... or NAME=BULLET,...: " .. value
       end
+      if name == nil then
+        drop = wanted
+      else
+        local found = false
+        for _, t in ipairs(tools) do
+          if t.name == name then found = true end
+        end
+        if not found then return nil, "--drop " .. name .. ": name a --tool given before it" end
+        drops[name] = wanted
+      end
+    elseif word == "--arm" then
       local found = false
       for _, t in ipairs(tools) do
-        if t.name == name then found = true end
+        if t.name == value then found = true end
       end
-      if not found then return nil, "--offer " .. name .. ": name a --tool given before it" end
-      offers[name] = list
+      if not found then return nil, "--arm " .. value .. ": name a --tool given before it" end
+      arms[#arms + 1] = value
+    elseif word == "--round" then
+      if not value:match("^[%w_.-]+$") then
+        return nil, "--round takes letters, digits and _.-: " .. value
+      end
+      round = value
+    elseif word == "--db" then
+      if value:sub(1, 1) ~= "/" then return nil, "--db takes an absolute path: " .. value end
+      db = value
+    elseif word == "--jobs" then
+      local n = positive(value)
+      if n == nil then return nil, "--jobs takes a positive integer: " .. value end
+      jobs = n
+    elseif word == "--against-round" then
+      against_round = value
+    elseif word == "--against-as" then
+      local now, then_ = value:match("^([%w_-]+)=([%w_-]+)$")
+      if now == nil or then_ == nil then
+        return nil, "--against-as takes NEW=OLD, a tool's name here and in the earlier round: " .. value
+      end
+      against_as[now] = then_
     elseif word == "--effort" then
       local name, level = value:match("^([%w_-]+)=(.+)$")
       local wanted = level or value
@@ -1187,14 +1240,26 @@ function Agent.parse(argv: {string}): Agent.Options?, string
       return nil, "task " .. t.name .. " works in eval/testdata/" .. t.fixture .. ": give --testdata (eval/agent does)"
     end
   end
+  for name, _ in pairs(against_as) do
+    local found = false
+    for _, t in ipairs(tools) do
+      if t.name == name then found = true end
+    end
+    if not found then return nil, "--against-as " .. name .. ": name a --tool" end
+  end
+  if (against_round ~= nil or next(against_as) ~= nil) and against == nil then
+    return nil, "--against-round and --against-as need --against"
+  end
   local offering: mut {Agent.Tool} = {}
   for _, t in ipairs(tools) do
-    offering[#offering + 1] = { name = t.name, path = t.path, tools = offers[t.name], effort = efforts[t.name] or effort,
+    offering[#offering + 1] = { name = t.name, path = t.path, drop = drops[t.name] or drop, effort = efforts[t.name] or effort,
       commands = if commands[t.name] == true then true else nil end }
   end
   return { tools = offering, fixture = fixture, out = out, tasks = tasks, reps = reps, model = model,
     timeout = timeout, without_agents_md = if without_agents_md then true else nil end, against = against,
-    controls = if #controls > 0 then controls else nil end, testdata = testdata }, ""
+    controls = if #controls > 0 then controls else nil end, testdata = testdata, against_round = against_round,
+    against_as = if next(against_as) ~= nil then against_as else nil end, round = round, db = db,
+    arms = if #arms > 0 then arms else nil end, jobs = jobs }, ""
 end
 
 --- `text`'s lines, each without its trailing blanks, and with no blank lines at its end: what grading compares.
@@ -1261,7 +1326,7 @@ end
 --- first request, when no run before it made one, is graded "broken" and ends the round (the last result says why
 --- in `stopped`), since every run after it would meet what it met.
 function Agent.execute(options: Agent.Options, system: Agent.System, key: string, base: {string: string},
-                       write: function(string, string)): {Agent.Result}
+                       write: function(string, string), store?: Agent.Store): {Agent.Result}
   -- Every directory the evals make, each removed once it is used, and all that are left where a step raises.
   local made: mut {string} = {}
   local function sweep()
@@ -1308,7 +1373,11 @@ function Agent.execute(options: Agent.Options, system: Agent.System, key: string
   local ran, got = pcall(function(): {Agent.Result}
     local results: mut {Agent.Result} = {}
     local truths: mut {string: string} = {}
-    for _, task in ipairs(options.tasks) do
+    -- What a right answer to `task` leaves, computed on the first run that is graded: a round that goes on, whose
+    -- runs the store holds, makes none.
+    local function truth_of(task: Agent.Task): string
+      local known = truths[task.name]
+      if known ~= nil then return known end
       local pristine = own.fresh("truth-" .. task.name .. "-")
       copied(pristine, task)
       local script = prefix(task) .. task.truth
@@ -1325,9 +1394,13 @@ function Agent.execute(options: Agent.Options, system: Agent.System, key: string
       local truth = own.run({ "bash", "-c", script }, pristine, nil, 60)
       truths[task.name] = Agent.lines_of(truth.stdout)
       sweep()
+      return truths[task.name] or ""
     end
+    local only: mut {string: boolean} = {}
+    for _, name in ipairs(options.arms or {}) do only[name] = true end
     for _, tool in ipairs(options.tools) do
       if halted ~= nil then break end
+      if options.arms ~= nil and only[tool.name] ~= true then continue end
       local data, home = options.out .. "/" .. tool.name .. "/data", options.out .. "/" .. tool.name .. "/home"
       own.run({ "mkdir", "-p", data, home }, "/", nil, 60)
       local bin: string? = nil
@@ -1345,6 +1418,14 @@ function Agent.execute(options: Agent.Options, system: Agent.System, key: string
         if halted ~= nil then break end
         for rep = 1, options.reps do
           if halted ~= nil then break end
+          local done = (if store ~= nil then store.known(tool.name, task.name, rep) else nil end)
+          if done ~= nil then
+            -- A run the store holds: it counts as one made, so the first run of this process need not reach a request.
+            if done.grade ~= "broken" then reached = true end
+            results[#results + 1] = done
+            continue
+          end
+          local truth = truth_of(task)
           local marker = "bench-" .. tool.name .. "-" .. task.name .. "-"
           local work = own.fresh(marker)
           copied(work, task)
@@ -1379,10 +1460,12 @@ function Agent.execute(options: Agent.Options, system: Agent.System, key: string
             argv[#argv + 1] = effort
           end
           if tool.commands == true then argv[#argv + 1] = "--commands" end
-          local offered = tool.tools
-          if offered ~= nil then
-            argv[#argv + 1] = "--tools"
-            argv[#argv + 1] = offered
+          local dropped = tool.drop
+          -- Only what the arm asks for: a variable of the caller's shell must not leak into a control.
+          if dropped ~= nil then
+            run_env["COSMIC_RUN_TEXT_DROP"] = dropped
+          else
+            run_env["COSMIC_RUN_TEXT_DROP"] = nil
           end
           local servers = task.servers
           if servers ~= nil then
@@ -1427,7 +1510,6 @@ function Agent.execute(options: Agent.Options, system: Agent.System, key: string
           end)
           stop()
           if not ran then error(why, 0) end
-          local truth = truths[task.name] or ""
           local left = Agent.lines_of(own.run({ "bash", "-c", "tool=" .. quoted(tool.path) .. "; files=" ..
               quoted((options.testdata or "") .. "/files/" .. task.name) .. "; " .. task.check }, work, nil, 60).stdout)
           local grade = "fail"
@@ -1449,8 +1531,10 @@ function Agent.execute(options: Agent.Options, system: Agent.System, key: string
           write(options.out .. "/" .. tool.name .. "/" .. task.name .. "-" .. tostring(rep) .. ".txt",
             "grade: " .. grade .. "\nexit: " .. tostring(asked.code) .. "\n--- left\n" .. left .. "\n--- truth\n" ..
               truth .. "\n--- words\n" .. asked.stdout .. "\n--- stderr\n" .. asked.stderr .. "\n")
-          results[#results + 1] = { tool = tool.name, task = task.name, rep = rep, grade = grade, why = broke,
+          local result: Agent.Result = { tool = tool.name, task = task.name, rep = rep, grade = grade, why = broke,
             spent = spent, wall = asked.seconds or 0 }
+          results[#results + 1] = result
+          if store ~= nil then store.record(tool, result) end
           sweep()
         end
       end
@@ -1505,6 +1589,28 @@ function Agent.earlier(text: string): ({string: Agent.Earlier}) | (nil, string)
     return nil, "it has no refusal causes: run that round again with this eval/agent"
   end
   return found
+end
+
+--- `earlier` with each tool the names of `renames` (NEW=OLD, `--against-as`) says it had under the name it has now.
+function Agent.renamed(earlier: {string: Agent.Earlier}, renames: {string: string}?): {string: Agent.Earlier}
+  local wanted: mut {string: string} = {}
+  for now, then_ in pairs(renames or {}) do wanted[then_] = now end
+  local out: mut {string: Agent.Earlier} = {}
+  for name, e in pairs(earlier) do out[wanted[name] or name] = e end
+  return out
+end
+
+--- What to say where `earlier` names none of `options`' tools, as the report's comparison would then show nothing and
+--- say nothing of why; nil where at least one matches.
+function Agent.unmatched(options: Agent.Options, earlier: {string: Agent.Earlier}): string?
+  for _, tool in ipairs(options.tools) do
+    if earlier[tool.name] ~= nil then return nil end
+  end
+  local names: mut {string} = {}
+  for name in pairs(earlier) do names[#names + 1] = name end
+  table.sort(names)
+  return "it has no tool named like a tool of this round, so nothing is compared; its tools are " ..
+    (if #names > 0 then table.concat(names, ", ") else "none" end) .. ": name them with --against-as NEW=OLD."
 end
 
 --- The first line of `text` that is not blank, cut to 200 bytes; nil for none.
@@ -1621,6 +1727,11 @@ function Agent.report(options: Agent.Options, results: {Agent.Result}, earlier?:
   for _, tool in ipairs(options.tools) do
     local effort = tool.effort
     if effort ~= nil then set[#set + 1] = tool.name .. " " .. effort end
+  end
+  local dropped: mut {string} = {}
+  for _, tool in ipairs(options.tools) do
+    local bullets = tool.drop
+    if bullets ~= nil then dropped[#dropped + 1] = tool.name .. ": " .. bullets end
   end
   -- Each tool over every task: what a comparison reads first.
   local totals: mut {ReportData.Total} = {}
@@ -1864,7 +1975,8 @@ function Agent.report(options: Agent.Options, results: {Agent.Result}, earlier?:
   end
   return Report.render({ model = options.model, reps = options.reps, fixture = options.fixture,
     effort = if #set > 0 then table.concat(set, ", ") else nil end, totals = totals, sets = sets, bands = bands,
-    tasks = tasks,
+    tasks = tasks, drop = if #dropped > 0 then table.concat(dropped, "; ") else nil end,
+    against_note = if earlier ~= nil then Agent.unmatched(options, earlier) else nil end,
     agents_md = if options.without_agents_md == true then "AGENTS.md and CLAUDE.md left out of the fixture" else nil end,
     causes = causes, guesses = guesses })
 end
@@ -1948,42 +2060,66 @@ local function real(out: string): Agent.System
   return { run = run, fresh = fresh, discard = discard, spent = spent, put = put, serve = serve, retarget = retarget }
 end
 
---- Runs the evals `argv` asks for: 0 when every graded run passed, 1 when one did not, 2 for a bad command line.
-function Agent.main(argv: {string}): integer
-  local options, why = Agent.parse(argv)
-  if options == nil then
-    local _, _ = Fs.put(Fs.stderr, "eval/agent: " .. why .. "\n")
-    return 2
+--- Copies the binary of `tool` to <out>/<name>/tool/cosmic, where there is no copy yet, and gives the round that copy
+--- to run: a rebuild of the tree it came from, while the round runs, changes no arm. Where the copy is there (the round goes
+--- on), it is kept, and `note` says if the tool's path now holds another binary. A script (`bin/cosmic` is one) cannot be
+--- copied out of its tree, and runs as it is. The arm names the binary by its sha256.
+function Agent.freeze(tool: Agent.Tool, out: string): (Agent.Frozen) | (nil, string)
+  local source = tool.path
+  if source:find("/", 1, true) == nil then
+    local found, _ = Proc.find(source)
+    if found == nil then return nil, "no " .. source .. " on PATH for the tool " .. tool.name end
+    source = found
   end
-  local key = Env.get("ANTHROPIC_API_KEY") or Env.get("HARNESS_ANTHROPIC_API_KEY") or ""
-  if key == "" then
-    local _, _ = Fs.put(Fs.stderr, "eval/agent: set ANTHROPIC_API_KEY or HARNESS_ANTHROPIC_API_KEY\n")
-    return 2
-  end
-  local earlier: {string: Agent.Earlier}? = nil
-  local against = options.against
-  if against ~= nil then
-    local text, read_why = Fs.read(against)
-    if text == nil then
-      local _, _ = Fs.put(Fs.stderr, "eval/agent: --against " .. against .. ": " .. tostring(read_why) .. "\n")
-      return 2
+  local bytes, read_why = Fs.read(source)
+  if bytes == nil then return nil, "tool " .. tool.name .. ": " .. tostring(read_why) end
+  local dir = out .. "/" .. tool.name .. "/tool"
+  local copy = dir .. "/cosmic"
+  local path = copy
+  local note: string? = nil
+  local have = false
+  local status, _ = Fs.status(copy)
+  if status ~= nil then have = status.exists end
+  if bytes:sub(1, 2) == "#!" then
+    path = source
+    note = "tool " .. tool.name .. " is a script, which runs from where it is: a change to its tree reaches the round"
+  elseif not have then
+    local made, made_why = Fs.mkdirs(dir)
+    if made == nil then return nil, dir .. ": " .. tostring(made_why) end
+    -- Written under another name and renamed, so a copy found later is whole.
+    local partial = copy .. ".partial"
+    local wrote, wrote_why = Fs.write(partial, bytes)
+    if wrote == nil then return nil, partial .. ": " .. tostring(wrote_why) end
+    -- rwxr-xr-x
+    local chmoded, chmod_why = Fs.chmod(partial, 493)
+    if chmoded == nil then return nil, partial .. ": " .. tostring(chmod_why) end
+    local moved, moved_why = Fs.rename(partial, copy)
+    if moved == nil then return nil, copy .. ": " .. tostring(moved_why) end
+  else
+    local was, _ = Hash.hex_file("sha256", copy)
+    local now, _ = Hash.hex_file("sha256", source)
+    if was ~= now then
+      note = "tool " .. tool.name .. ": " .. tool.path .. " is not the binary this round began with, which it goes on with (" ..
+        copy .. ")"
     end
-    local before, bad = Agent.earlier(text)
-    if before == nil then
-      local _, _ = Fs.put(Fs.stderr, "eval/agent: --against " .. against .. ": " .. bad .. "\n")
-      return 2
-    end
-    earlier = before
   end
-  assert(Fs.mkdirs(options.out))
-  local results = Agent.execute(options, real(options.out), key, Env.all(), function(path: string, text: string)
-    assert(Fs.write(path, text))
-    -- A line as each run ends, so a long round shows it moves.
-    print((text:match("^grade: (%S+)") or "?") .. "  " .. path)
-  end)
-  assert(Fs.write(options.out .. "/report.md", Agent.report(options, results, earlier) .. "\n"))
+  local sha, sha_why = Hash.hex_file("sha256", path)
+  if sha == nil then return nil, path .. ": " .. tostring(sha_why) end
+  return { tool = { name = tool.name, path = path, drop = tool.drop, effort = tool.effort, commands = tool.commands },
+    arm = { name = tool.name, sha = sha, path = tool.path, effort = tool.effort, drop = tool.drop, commands = tool.commands },
+    note = note }
+end
+
+--- `counts` as a JSON object.
+local function counts_of(counts: {string: integer}): {string: Json.Value}
+  local object: mut {string: Json.Value} = {}
+  for key, k in pairs(counts) do object[key] = k end
+  return object
+end
+
+--- The line of each run of `results` for results.json, which tools that read it by tool name still read.
+local function rows_of(results: {Agent.Result}): {Json.Value}
   local rows: mut {Json.Value} = {}
-  local failed = false
   for _, r in ipairs(results) do
     local row: mut {string: Json.Value} = { tool = r.tool, task = r.task, rep = r.rep, grade = r.grade, wall = r.wall }
     local s = r.spent
@@ -1992,36 +2128,243 @@ function Agent.main(argv: {string}): integer
       row["cache_read"], row["cache_write"] = s.cache_read, s.cache_write
       row["seconds"], row["tools"], row["runs"] = s.seconds, s.tools, s.runs
       row["refused"], row["first_read"] = s.refused, s.first_read
-      local codes: mut {string: Json.Value} = {}
-      for code, k in pairs(s.codes) do codes[code] = k end
-      row["codes"] = codes
-      local causes: mut {string: Json.Value} = {}
-      for cause, k in pairs(s.causes) do causes[cause] = k end
-      row["causes"] = causes
-      local layers: mut {string: Json.Value} = {}
-      for tag, k in pairs(s.layers) do layers[tag] = k end
-      row["layers"] = layers
-      local guesses: mut {string: Json.Value} = {}
-      for name, k in pairs(s.guesses) do guesses[name] = k end
-      row["guesses"] = guesses
-      local helpers: mut {string: Json.Value} = {}
-      for name, k in pairs(s.helpers) do helpers[name] = k end
-      row["helpers"] = helpers
+      row["codes"], row["causes"], row["layers"] = counts_of(s.codes), counts_of(s.causes), counts_of(s.layers)
+      row["guesses"], row["helpers"] = counts_of(s.guesses), counts_of(s.helpers)
     end
-    rows[#rows + 1] = row
     local broke = r.why
     if broke ~= nil then row["why"] = broke end
-    failed = failed or r.grade == "fail" or r.grade == "broken"
+    rows[#rows + 1] = row
   end
-  assert(Fs.write(options.out .. "/results.json", assert(Json.encode(Json.array(rows))) .. "\n"))
-  print(options.out .. "/report.md")
-  local last = results[#results]
-  local stopped = last and last.stopped
+  return rows
+end
+
+--- The runs of `all` that are of a tool and a task of `options`, and a rep it asks for.
+local function wanted(options: Agent.Options, all: {Agent.Result}): {Agent.Result}
+  local tools: mut {string: boolean} = {}
+  for _, t in ipairs(options.tools) do tools[t.name] = true end
+  local tasks: mut {string: boolean} = {}
+  for _, t in ipairs(options.tasks) do tasks[t.name] = true end
+  local kept: mut {Agent.Result} = {}
+  for _, r in ipairs(all) do
+    if tools[r.tool] == true and tasks[r.task] == true and r.rep <= options.reps then
+      kept[#kept + 1] = r
+    end
+  end
+  return kept
+end
+
+--- Runs the arms `names` of the round, each in a process of its own, at most `jobs` at a time: this program again, given
+--- `argv` and `--arm`. Each shares the database. Nil and why where one cannot start; a process that fails
+--- is told of, and the round goes on with the others.
+local function in_processes(argv: {string}, names: {string}, jobs: integer, log: function(string)): (true) | (nil, string)
+  local again, again_why = Proc.relaunch()
+  if again == nil then
+    return nil, "--jobs: this program cannot start again: " .. tostring(again_why)
+  end
+  local env: mut {string: string} = {}
+  for k, v in pairs(Env.all()) do env[k] = v end
+  for k, v in pairs(again.env) do env[k] = v end
+  local running: mut {string: Child.Handle} = {}
+  local waiting: mut {string} = {}
+  for _, name in ipairs(names) do waiting[#waiting + 1] = name end
+  local function count(): integer
+    local n = 0
+    for _, _ in pairs(running) do n = n + 1 end
+    return n
+  end
+  local failed: mut {string} = {}
+  while #waiting > 0 or count() > 0 do
+    while #waiting > 0 and count() < jobs do
+      local name = table.remove(waiting, 1) or ""
+      local words: mut {string} = {}
+      for _, w in ipairs(again.argv) do words[#words + 1] = w end
+      local script = again.script
+      if script ~= nil then words[#words + 1] = script end
+      for _, w in ipairs(argv) do words[#words + 1] = w end
+      words[#words + 1] = "--arm"
+      words[#words + 1] = name
+      local handle, why = Child.start(words, { cwd = again.cwd, env = env, fds = again.fds, stdin = "null",
+        stdout = "inherit", stderr = "inherit", timeout_ns = Child.FOREVER })
+      if handle == nil then
+        for _, h in pairs(running) do local _, _ = h:close() end
+        return nil, "arm " .. name! .. " did not start: " .. tostring(why)
+      end
+      log("arm " .. name! .. " started in its own process")
+      running[name] = handle
+    end
+    for name, handle in pairs(running) do
+      local done, _ = handle:try_wait()
+      if done ~= nil and done.finished then
+        local res = done.result
+        local code = (if res ~= nil then res.code else nil end)
+        log("arm " .. name .. " ended with exit " .. tostring(code))
+        running[name] = nil
+        if code ~= 0 and code ~= 1 then
+          failed[#failed + 1] = name .. " (exit " .. tostring(code) .. ")"
+        end
+      end
+    end
+    local _, _ = Clock.sleep(200000000)
+  end
+  if #failed > 0 then
+    return nil, "the process of an arm ended with an error: " .. table.concat(failed, ", ")
+  end
+  return true
+end
+
+--- Runs the evals `argv` asks for: 0 when every graded run passed, 1 when one did not, 2 for a bad command line.
+function Agent.main(argv: {string}): integer
+  local options, why = Agent.parse(argv)
+  if options == nil then
+    local _, _ = Fs.put(Fs.stderr, "eval/agent: " .. why .. "\n")
+    return 2
+  end
+  local function complain(text: string): integer
+    local _, _ = Fs.put(Fs.stderr, "eval/agent: " .. text .. "\n")
+    return 2
+  end
+  local key = Env.get("ANTHROPIC_API_KEY") or Env.get("HARNESS_ANTHROPIC_API_KEY") or ""
+  if key == "" then return complain("set ANTHROPIC_API_KEY or HARNESS_ANTHROPIC_API_KEY") end
+  local out = options.out
+  assert(Fs.mkdirs(out))
+  local round = options.round or out:match("([^/]+)/*$") or "round"
+  -- A line for each step, from each process: what a round that ended without a word was doing.
+  local function log(line: string)
+    local stamp = Time.format_rfc3339(Clock.now_ns(), nil, { digits = 0 })
+    local _, _ = Fs.append(out .. "/round.log", stamp .. " " .. round .. " " .. line .. "\n")
+  end
+  local earlier: {string: Agent.Earlier}? = nil
+  local against = options.against
+  if against ~= nil then
+    local before: {string: Agent.Earlier}? = nil
+    if against:sub(-3) == ".db" then
+      local adb, open_why = Sqlite.open(against)
+      if adb == nil then return complain("--against " .. against .. ": " .. tostring(open_why)) end
+      local which = options.against_round or Runs.latest(adb, round)
+      if which == nil then
+        return complain("--against " .. against .. ": it holds no other round")
+      end
+      local found, bad = Runs.earlier(adb, which)
+      local _, _ = adb:close()
+      if found == nil then return complain("--against " .. against .. ": " .. bad) end
+      before = found
+    else
+      local text, read_why = Fs.read(against)
+      if text == nil then return complain("--against " .. against .. ": " .. tostring(read_why)) end
+      local found, bad = Agent.earlier(text)
+      if found == nil then return complain("--against " .. against .. ": " .. bad) end
+      before = found
+    end
+    earlier = Agent.renamed(before, options.against_as)
+    local note = Agent.unmatched(options, earlier)
+    if note ~= nil then
+      local _, _ = Fs.put(Fs.stderr, "eval/agent: --against " .. against .. ": " .. note .. "\n")
+    end
+  end
+  local db, db_why = Runs.open(options.db or out .. "/runs.db")
+  if db == nil then return complain(db_why) end
+  -- The arms this process runs, each as the binary it keeps.
+  local only: mut {string: boolean} = {}
+  for _, name in ipairs(options.arms or {}) do only[name] = true end
+  local running: mut {Agent.Tool} = {}
+  local arms: mut {Runs.Arm} = {}
+  local by_name: mut {string: Runs.Arm} = {}
+  local selected: mut {string} = {}
+  for _, tool in ipairs(options.tools) do
+    if options.arms == nil or only[tool.name] == true then
+      local frozen, freeze_why = Agent.freeze(tool, out)
+      if frozen == nil then return complain(freeze_why) end
+      running[#running + 1] = frozen.tool
+      arms[#arms + 1] = frozen.arm
+      by_name[tool.name] = frozen.arm
+      selected[#selected + 1] = tool.name
+      local note = frozen.note
+      if note ~= nil then
+        log(note)
+        local _, _ = Fs.put(Fs.stderr, "eval/agent: " .. note .. "\n")
+      end
+    else
+      running[#running + 1] = tool
+    end
+  end
+  local began, began_why = Runs.begin(db, { id = round, model = options.model, reps = options.reps,
+    fixture = options.fixture }, arms)
+  if began == nil then return complain(began_why) end
+  if options.arms == nil then
+    local reopened, reopened_why = Runs.reopen(db, round)
+    if reopened == nil then return complain(reopened_why) end
+  end
+  log("begun: arms " .. table.concat(selected, ", ") .. "; reps " .. tostring(options.reps) .. "; db " ..
+      (options.db or out .. "/runs.db"))
+  local jobs = options.jobs or 1
+  local stopped: string? = nil
+  if jobs > 1 and options.arms == nil and #selected > 1 then
+    local started, start_why = in_processes(argv, selected, jobs, log)
+    if started == nil then return complain(start_why) end
+  else
+    local store: Agent.Store = {
+      known = function(tool: string, task: string, rep: integer): Agent.Result?
+        local held = Runs.known(db, round, tool, task, rep)
+        -- A run that did not reach the model is made again: its cause was the harness's, which may be mended.
+        if held ~= nil and held.grade == "broken" then return nil end
+        return held
+      end,
+      record = function(tool: Agent.Tool, result: Agent.Result)
+        local arm = by_name[tool.name]
+        assert(arm ~= nil, "no arm " .. tool.name)
+        assert(Runs.put(db, round, arm, options.model, result))
+      end,
+    }
+    local run_options: Agent.Options = { tools = running, fixture = options.fixture, out = out, tasks = options.tasks,
+      reps = options.reps, model = options.model, timeout = options.timeout,
+      without_agents_md = options.without_agents_md, against = options.against, controls = options.controls,
+      testdata = options.testdata, arms = options.arms }
+    local results = Agent.execute(run_options, real(out), key, Env.all(), function(path: string, text: string)
+      assert(Fs.write(path, text))
+      local grade = text:match("^grade: (%S+)") or "?"
+      -- A line as each run ends, so a long round shows it moves.
+      print(grade .. "  " .. path)
+      log(grade .. " " .. path)
+    end, store)
+    local last = results[#results]
+    stopped = last and last.stopped
+    local _, _ = Runs.finish(db, round, stopped)
+    if stopped ~= nil then log("stopped: " .. stopped) end
+  end
+  if options.arms ~= nil then
+    -- Part of a round: the report waits for a call that names every arm.
+    log("arms " .. table.concat(selected, ", ") .. " done")
+    local _, _ = db:close()
+    if stopped ~= nil then
+      local _, _ = Fs.put(Fs.stderr, "eval/agent: stopped: " .. stopped .. "\n")
+      return 1
+    end
+    return 0
+  end
+  local all, all_why = Runs.results(db, round)
+  if all == nil then return complain(all_why) end
+  local results = wanted(options, all)
+  stopped = stopped or Runs.stopped(db, round)
+  local _, _ = Runs.finish(db, round, nil)
+  local _, _ = db:close()
+  local expected = #options.tools * #options.tasks * options.reps
+  local missing = expected - #results
+  assert(Fs.write(out .. "/report.md", Agent.report(options, results, earlier) .. "\n"))
+  assert(Fs.write(out .. "/results.json", assert(Json.encode(Json.array(rows_of(results)))) .. "\n"))
+  print(out .. "/report.md")
+  log("report written: " .. tostring(#results) .. " runs")
   if stopped ~= nil then
     local _, _ = Fs.put(Fs.stderr, "eval/agent: stopped: " .. stopped .. "\n")
     return 1
   end
-  if failed then return 1 end
+  if missing > 0 then
+    local _, _ = Fs.put(Fs.stderr, "eval/agent: " .. tostring(missing) .. " of " .. tostring(expected) ..
+        " runs are not in the database: run the same command again to go on\n")
+    return 1
+  end
+  for _, r in ipairs(results) do
+    if r.grade == "fail" or r.grade == "broken" then return 1 end
+  end
   return 0
 end
 

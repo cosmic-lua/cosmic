@@ -5,6 +5,10 @@ Model {{.model}}; runs of each task with each tool: {{.reps}}; fixture {{.fixtur
 
 {{with .effort}}Effort: {{.}}; the agent's default for the rest.
 
+{{end}}{{with .drop}}Run text bullets left out: {{.}}.
+
+{{end}}{{with .against_note}}Against the earlier round: {{.}}
+
 {{end}}{{with .agents_md}}Fixture: {{.}}.
 
 {{end}}## all tasks
