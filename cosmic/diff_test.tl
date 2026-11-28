@@ -1,3 +1,4 @@
+local Bench = require("cosmic.bench")
 local Diff = require("cosmic.diff")
 
 --- How many random texts each property draws.
@@ -229,4 +230,302 @@ end
 
 local function test_crlf_against_lf_is_a_change()
   assert(Diff.unified(Diff.lines("a\r\n", "a\n")) == "--- a\n+++ b\n@@ -1 +1 @@\n-a\r\n+a\n")
+end
+
+--- `n` lines of code-like text: some `end`, some blank, the rest unique.
+local function code(draw: function(integer): integer, n: integer): {string}
+  local out: mut {string} = {}
+  for i = 1, n do
+    local r = draw(100)
+    if r <= 15 then
+      out[#out + 1] = "end"
+    elseif r <= 25 then
+      out[#out + 1] = ""
+    else
+      out[#out + 1] = "  local v" .. tostring(draw(1000000)) .. " = f(" .. tostring(draw(100)) .. ", \"" .. tostring(i) ..
+        "\")"
+    end
+  end
+  return out
+end
+
+--- `lines` with about `permille` in a thousand of them removed, changed or given a line before.
+local function edited(draw: function(integer): integer, lines: {string}, permille: integer): {string}
+  local out: mut {string} = {}
+  for _, line in ipairs(lines) do
+    local r = draw(1000)
+    if r <= permille / 3 then
+      -- removed
+    elseif r <= permille * 2 / 3 then
+      out[#out + 1] = line .. " -- x"
+    elseif r <= permille then
+      out[#out + 1] = "  new line " .. tostring(draw(1000000000))
+      out[#out + 1] = line
+    else
+      out[#out + 1] = line
+    end
+  end
+  return out
+end
+
+--- Times [`Diff.unified`] of [`Diff.lines`] on `old` and `new`, at the bytes of both.
+local function time_diff(b: Bench.B, old: string, new: string)
+  b.bytes = #old + #new
+  b.reset()
+  for _ = 1, b.n do local _ = Diff.unified(Diff.lines(old, new)) end
+end
+
+--- `n` code-like lines, and the same with about `permille` in a thousand of them edited.
+local function edited_pair(n: integer, permille: integer): string, string
+  local draw = drawer(2026)
+  local old = code(draw, n)
+  return table.concat(old, "\n") .. "\n", table.concat(edited(draw, old, permille), "\n") .. "\n"
+end
+
+--- Bench: 2000 lines, 2 percent of them edited.
+local function bench_2k_lines(b: Bench.B)
+  local old, new = edited_pair(2000, 20)
+  time_diff(b, old, new)
+end
+
+--- Bench: 20000 lines, 1 percent of them edited.
+local function bench_20k_lines(b: Bench.B)
+  local old, new = edited_pair(20000, 10)
+  time_diff(b, old, new)
+end
+
+--- Bench: 200000 lines, half a percent of them edited.
+local function bench_200k_lines(b: Bench.B)
+  local old, new = edited_pair(200000, 5)
+  time_diff(b, old, new)
+end
+
+--- Bench: two unrelated texts of 20000 lines, where the cost bound stops the search.
+local function bench_20k_unrelated_lines(b: Bench.B)
+  local draw = drawer(2026)
+  time_diff(b, table.concat(code(draw, 20000), "\n") .. "\n", table.concat(code(draw, 20000), "\n") .. "\n")
+end
+
+--- Times [`Diff.apply`] of the hunks from `old` to `new` on `old`, at the bytes of `old`.
+local function time_apply(b: Bench.B, old: string, new: string)
+  local hunks = Diff.lines(old, new)
+  b.bytes = #old
+  b.reset()
+  for _ = 1, b.n do assert(Diff.apply(old, hunks).text ~= nil) end
+end
+
+--- Bench: apply the edits of 2000 lines, 2 percent of them edited.
+local function bench_apply_2k_lines(b: Bench.B)
+  local old, new = edited_pair(2000, 20)
+  time_apply(b, old, new)
+end
+
+--- Bench: apply the edits of 20000 lines, 1 percent of them edited.
+local function bench_apply_20k_lines(b: Bench.B)
+  local old, new = edited_pair(20000, 10)
+  time_apply(b, old, new)
+end
+
+--- Bench: apply the edits of 200000 lines, half a percent of them edited.
+local function bench_apply_200k_lines(b: Bench.B)
+  local old, new = edited_pair(200000, 5)
+  time_apply(b, old, new)
+end
+
+local function test_parse_reads_back_what_unified_writes()
+  local draw = drawer(21)
+  for _ = 1, CASES do
+    local old, new = text_of(draw, 40, 6), text_of(draw, 40, 6)
+    local text = Diff.unified(Diff.lines(old, new), { old_name = "a/f", new_name = "b/f" })
+    local files = assert(Diff.parse(text, { strip = 1 }))
+    if text == "" then
+      assert(#files == 0)
+    else
+      assert(#files == 1)
+      local f = assert(files[1])
+      assert(f.old_name == "f" and f.new_name == "f" and f.kind == "modify")
+      assert(Diff.unified(f.hunks, { old_name = "a/f", new_name = "b/f" }) == text)
+    end
+  end
+end
+
+local function test_parse_reads_git_headers()
+  local text = table.concat({
+    "From abc Mon Sep 17 00:00:00 2001",
+    "Subject: a message that is skipped",
+    "",
+    "diff --git a/new.txt b/new.txt",
+    "new file mode 100644",
+    "index 0000000..e69de29",
+    "--- /dev/null",
+    "+++ b/new.txt",
+    "@@ -0,0 +1,2 @@",
+    "+one",
+    "+two",
+    "diff --git a/gone.txt b/gone.txt",
+    "deleted file mode 100755",
+    "--- a/gone.txt",
+    "+++ /dev/null",
+    "@@ -1 +0,0 @@",
+    "-bye",
+    "diff --git a/x b/y",
+    "similarity index 100%",
+    "rename from x",
+    "rename to y",
+    "diff --git a/run.sh b/run.sh",
+    "old mode 100644",
+    "new mode 100755",
+    "",
+  }, "\n")
+  local files = assert(Diff.parse(text, { strip = 1 }))
+  assert(#files == 4)
+  local created, deleted, renamed, moded = assert(files[1]), assert(files[2]), assert(files[3]), assert(files[4])
+  assert(created.kind == "create" and created.old_name == nil and created.new_name == "new.txt")
+  assert(created.new_mode == "100644" and #created.hunks == 1)
+  assert(assert(created.hunks[1]).new_count == 2)
+  assert(deleted.kind == "delete" and deleted.new_name == nil and deleted.old_mode == "100755")
+  assert(renamed.kind == "rename" and renamed.old_name == "x" and renamed.new_name == "y" and #renamed.hunks == 0)
+  assert(moded.kind == "modify" and moded.old_mode == "100644" and moded.new_mode == "100755")
+end
+
+local function test_parse_refuses_what_it_cannot_read()
+  local function why(text: string): string
+    local files, failure = Diff.parse(text)
+    assert(files == nil)
+    return tostring(failure)
+  end
+  assert(why("--- a\n+++ b\n@@ -1,2 +1,2 @@\n a\n"):find("ends before its counts", 1, true) ~= nil)
+  assert(why("--- a\n+++ b\n@@ -1 +1 @@\n-a\n-b\n+c\n"):find("more lines than its counts", 1, true) ~= nil)
+  assert(why("--- a\n+++ b\n@@ nonsense @@\n"):find("hunk header", 1, true) ~= nil)
+  assert(why("@@ -1 +1 @@\n-a\n+b\n"):find("before any file", 1, true) ~= nil)
+  assert(why("diff --git a/x b/x\nBinary files a/x and b/x differ\n"):find("binary", 1, true) ~= nil)
+  assert(why("--- \"a\\tb\"\n+++ \"b\"\n@@ -1 +1 @@\n-a\n+b\n"):find("quoted", 1, true) ~= nil)
+  local _, failure = Diff.parse("--- a\n+++ b\n@@ -1,2 +1,2 @@\n a\n")
+  assert(failure ~= nil and failure.line == 3)
+end
+
+local function test_apply_makes_the_new_text_and_reverse_makes_the_old()
+  local draw = drawer(33)
+  for _ = 1, CASES do
+    local old, new = text_of(draw, 60, 8), text_of(draw, 60, 8)
+    local hunks = Diff.lines(old, new, { context = draw(4) - 1 })
+    local forward = Diff.apply(old, hunks)
+    assert(forward.text == new and #forward.rejects == 0)
+    for _, p in ipairs(forward.placed) do assert(p.offset == 0 and p.fuzz == 0) end
+    assert(Diff.apply(new, hunks, { reverse = true }).text == old)
+    assert(Diff.apply(new, Diff.reverse(hunks)).text == old)
+  end
+end
+
+local function test_apply_finds_a_hunk_that_moved()
+  local old = "a\nb\nc\nd\ne\nf\ng\n"
+  local hunks = Diff.lines(old, "a\nb\nc\nD\ne\nf\ng\n", { context = 2 })
+  local moved = "x\ny\nz\n" .. old
+  local result = Diff.apply(moved, hunks)
+  assert(result.text == "x\ny\nz\na\nb\nc\nD\ne\nf\ng\n")
+  assert(assert(result.placed[1]).offset == 3)
+  local earlier = Diff.apply("b\nc\nd\ne\nf\ng\n", hunks)
+  assert(earlier.text == "b\nc\nD\ne\nf\ng\n")
+  assert(assert(earlier.placed[1]).offset == -1)
+end
+
+local function test_apply_uses_fuzz_only_when_allowed()
+  local hunks = Diff.lines("a\nb\nc\nd\ne\n", "a\nb\nC\nd\ne\n", { context = 2 })
+  local drifted = "A\nb\nc\nd\nE\n"
+  local strict = Diff.apply(drifted, hunks)
+  assert(strict.text == nil and #strict.rejects == 1)
+  assert(assert(strict.rejects[1]).index == 1 and #assert(strict.rejects[1]).hunk.lines > 0)
+  local loose = Diff.apply(drifted, hunks, { fuzz = 1 })
+  assert(loose.text == "A\nb\nC\nd\nE\n")
+  assert(assert(loose.placed[1]).fuzz == 1)
+  assert(Diff.apply("A\nB\nc\nD\nE\n", hunks, { fuzz = 1 }).text == nil)
+  assert(Diff.apply("A\nB\nc\nD\nE\n", hunks, { fuzz = 2 }).text == "A\nB\nC\nD\nE\n")
+end
+
+local function test_a_file_changes_whole_or_not_at_all()
+  local old = "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n"
+  local new = "1\nTWO\n3\n4\n5\n6\n7\n8\n9\n10\nELEVEN\n12\n"
+  local hunks = Diff.lines(old, new, { context = 1 })
+  assert(#hunks == 2)
+  local result = Diff.apply("1\n2\n3\n4\n5\n6\n7\n8\n9\n10\nchanged\n12\n", hunks)
+  assert(result.text == nil)
+  assert(#result.placed == 1 and assert(result.placed[1]).index == 1)
+  assert(#result.rejects == 1 and assert(result.rejects[1]).index == 2)
+  assert(result.rejects[1].message:find("hunk 2", 1, true) ~= nil)
+end
+
+local function test_apply_keeps_a_missing_final_newline_exact()
+  local hunks = Diff.lines("a\nb", "a\nB")
+  assert(Diff.apply("a\nb", hunks).text == "a\nB")
+  assert(Diff.apply("a\nb\n", hunks).text == nil, "the old text ends in a newline the patch lacks")
+end
+
+local function test_apply_to_and_from_an_empty_text()
+  local made = Diff.lines("", "a\nb\n")
+  assert(Diff.apply("", made).text == "a\nb\n")
+  assert(Diff.apply("a\nb\n", made, { reverse = true }).text == "")
+end
+
+local function test_a_parsed_patch_applies()
+  local old = "one\ntwo\nthree\nfour\n"
+  local new = "one\n2\nthree\nfour\nfive\n"
+  local text = Diff.unified(Diff.lines(old, new), { old_name = "a/f", new_name = "b/f" })
+  local files = assert(Diff.parse(text, { strip = 1 }))
+  assert(Diff.apply(old, assert(files[1]).hunks).text == new)
+end
+
+local function test_bad_apply_options_raise()
+  local ok, why = pcall(function(): Diff.Applied
+    return Diff.apply("a\n", {}, { fuzz = -1 })
+  end)
+  assert(not ok and tostring(why):find("fuzz is -1", 1, true) ~= nil)
+  local ok2, why2 = pcall(function(): {Diff.Entry}
+    return assert(Diff.parse("", { strip = -1 }))
+  end)
+  assert(not ok2 and tostring(why2):find("strip is -1", 1, true) ~= nil)
+end
+
+local function test_a_hunk_at_an_end_of_the_text_stays_there()
+  local start = Diff.lines("a\nc1\nc2\nc3\n", "A\nc1\nc2\nc3\n")
+  assert(Diff.apply("x\ny\na\nc1\nc2\nc3\n", start).text == nil, "a change on the first line is not found later")
+  assert(Diff.apply("a\nc1\nc2\nc3\n", start).text == "A\nc1\nc2\nc3\n")
+  local finish = Diff.lines("c1\nc2\nc3\nz\n", "c1\nc2\nc3\n")
+  assert(Diff.apply("c1\nc2\nc3\nz\nM\nc1\nc2\nc3\nz\nQ\n", finish).text == nil, "nor is a change on the last line")
+  assert(Diff.apply("M\nc1\nc2\nc3\nz\n", finish).text == "M\nc1\nc2\nc3\n")
+end
+
+local function test_parse_keeps_rename_paths_with_strip()
+  local files = assert(Diff.parse("diff --git a/src/x b/src/y\nrename from src/x\nrename to src/y\n", { strip = 1 }))
+  local f = assert(files[1])
+  assert(f.kind == "rename" and f.old_name == "src/x" and f.new_name == "src/y")
+end
+
+local function test_parse_refuses_lines_past_the_counts()
+  local _, failure = Diff.parse("--- a\n+++ b\n@@ -1,2 +1,2 @@\n a\n-b\n+B\n c\n")
+  assert(failure ~= nil and failure.line == 7)
+  -- A mail signature follows the patch.
+  local signed = assert(Diff.parse("--- a\n+++ b\n@@ -1 +1 @@\n-a\n+b\n-- \n2.40.0\n"))
+  assert(#signed == 1)
+  local two = assert(Diff.parse("--- a\n+++ b\n@@ -1 +1 @@\n-a\n+b\n--- c\n+++ d\n@@ -1 +1 @@\n-c\n+d\n"))
+  assert(#two == 2)
+end
+
+local function test_parse_names_an_empty_create_and_delete_once()
+  local made = assert(Diff.parse("diff --git a/e b/e\nnew file mode 100644\nindex 0000000..e69de29\n"))
+  assert(assert(made[1]).kind == "create" and assert(made[1]).old_name == nil and assert(made[1]).new_name == "b/e")
+  local gone = assert(Diff.parse("diff --git a/e b/e\ndeleted file mode 100644\n"))
+  assert(assert(gone[1]).kind == "delete" and assert(gone[1]).new_name == nil and assert(gone[1]).old_name == "a/e")
+end
+
+local function test_parse_reads_a_patch_with_crlf_line_ends()
+  local text = "--- a/f\r\n+++ b/f\r\n@@ -1 +1 @@\r\n-x\r\n+y\r\n"
+  local files = assert(Diff.parse(text, { strip = 1 }))
+  local f = assert(files[1])
+  assert(f.old_name == "f" and f.new_name == "f")
+  assert(assert(assert(f.hunks[1]).lines[1]).text == "x\r", "a hunk line keeps its carriage return")
+end
+
+local function test_a_quoted_word_in_a_message_is_not_a_file_name()
+  local files = assert(Diff.parse("diff --git a/x b/y\nrename from x\nthe \"fix\" is here\nrename to y\n"))
+  assert(#files == 1)
 end

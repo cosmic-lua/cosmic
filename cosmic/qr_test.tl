@@ -8,6 +8,7 @@ local Fs = require("cosmic.fs")
 local Fixture = require("build.qr_fixture")
 local Qr = require("cosmic.qr")
 local Test = require("cosmic.test")
+local Bench = require("cosmic.bench")
 
 Test.policy{ grants = { { path = "testdata/qr/vectors.txt", letters = "r" },
   { path = "testdata/qr/segments.txt", letters = "r" } } }
@@ -592,4 +593,23 @@ local function test_what_is_no_code_is_refused_with_why()
       assert(Qr.rows(code, 0)[y])[x] == true
   end))
   assert(blank == nil and blank_why.message == "qr: the format information is unreadable", tostring(blank_why))
+end
+
+--- Benches. A URL encoded to a code, then to an SVG and to text.
+local BENCH_URL <const> = "https://example.com/a/path?with=a&query=string&and=more-than-a-few-characters"
+
+local function bench_encode_url(b: Bench.B)
+  for _ = 1, b.n do local _ = Qr.encode(BENCH_URL)! end
+end
+
+local function bench_svg_url(b: Bench.B)
+  local code = Qr.encode(BENCH_URL)!
+  b.reset()
+  for _ = 1, b.n do local _ = Qr.svg(code) end
+end
+
+local function bench_text_url(b: Bench.B)
+  local code = Qr.encode(BENCH_URL)!
+  b.reset()
+  for _ = 1, b.n do local _ = Qr.text(code) end
 end

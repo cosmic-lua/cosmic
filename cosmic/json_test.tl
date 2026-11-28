@@ -7,6 +7,7 @@ local Array = require("cosmic.array")
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
 local Test = require("cosmic.test")
+local Bench = require("cosmic.bench")
 
 -- TODO: once a test can build a value its type refuses without a cast, the casts left here go: a marked array with a string key, an array with an element at 1 << 40, `max_depth = 1.5`, a map holding `print`, and [`Json.null`] indexed as a table (json_path_test.tl keeps one: the step 1.5 in Json.Steps).
 
@@ -1484,4 +1485,158 @@ local function test_diff_compares_nan_and_infinities_without_failing()
   -- A subtree with a NaN in it is reported whole, at its own place.
   differences = Json.diff({ a = { b = nan } }, { a = "x" })
   assert(paths(differences) == "/a" and nth(differences, 1).got == "x")
+end
+
+--- Benches. One small object, an array of 1000 records, and a tweet-shaped object of 41 members.
+local SMALL <const> = '{"id":42,"name":"cosmic","tags":["lua","teal"],"ok":true,"score":3.5,"owner":{"login":"x"}}'
+
+--- The array of 1000 records the encode and decode benches share.
+local function records(): Json.Value
+  local out: mut {Json.Value} = {}
+  for i = 1, 1000 do
+    out[i] = { id = i, name = "user" .. tostring(i), email = "u" .. tostring(i) .. "@example.com",
+      active = i % 2 == 0, score = i / 7, tags = Json.array({ "a", "b", "c" }) }
+  end
+  return Json.array(out)
+end
+
+--- Plain Lua tables of the same shape, built with no JSON call: the floor for the record benches.
+local function bench_lua_build_1000_records(b: Bench.B)
+  for _ = 1, b.n do
+    local out: mut {Json.Value} = {}
+    for i = 1, 1000 do
+      out[i] = { id = i, name = "user", email = "u@example.com", active = true, score = 1.5, tags = { "a", "b", "c" } }
+    end
+  end
+end
+
+local function bench_decode_small(b: Bench.B)
+  b.bytes = #SMALL
+  for _ = 1, b.n do local _ = decoded(SMALL) end
+end
+
+local function bench_decode_1000_records(b: Bench.B)
+  local text = assert(Json.encode(records()))
+  b.bytes = #text
+  b.reset()
+  for _ = 1, b.n do local _ = decoded(text) end
+end
+
+local function bench_encode_1000_records(b: Bench.B)
+  local value = records()
+  b.reset()
+  for _ = 1, b.n do assert(Json.encode(value)) end
+end
+
+local function bench_encode_small(b: Bench.B)
+  local value = decoded(SMALL)!
+  b.reset()
+  for _ = 1, b.n do assert(Json.encode(value)) end
+end
+
+--- An object of 41 members whose member `user` is one of 41 too, as a tweet is: each step of a Json.get
+--- classifies the table it steps into.
+local function tweet(): Json.Value
+  local parts: mut {string} = {}
+  for i = 1, 40 do parts[i] = ('"field%d":%d'):format(i, i) end
+  local wide = "{" .. table.concat(parts, ",")
+  return decoded(wide .. ',"user":' .. wide .. ',"screen_name":"cosmic"}}')!
+end
+
+--- A plain table of 41 members, not decoded, so it carries no layout mark.
+local function tweet_user(): {string: Json.Value}
+  local user: mut {string: Json.Value} = { screen_name = "cosmic" }
+  for i = 1, 40 do user["field" .. tostring(i)] = i end
+  return user
+end
+
+local function bench_get_2_steps_41_keys(b: Bench.B)
+  local value = tweet()
+  b.reset()
+  for _ = 1, b.n do
+    local got, why = Json.get(value, { "user", "screen_name" })
+    if got ~= "cosmic" then error(tostring(why)) end
+  end
+end
+
+local function bench_layout_41_keys(b: Bench.B)
+  local user = tweet_user()
+  b.reset()
+  for _ = 1, b.n do assert(Json.layout(user) == "object") end
+end
+
+local function bench_members_41_keys(b: Bench.B)
+  local user = tweet_user()
+  b.reset()
+  for _ = 1, b.n do assert(#Json.members(user).keys == 41) end
+end
+
+--- A decoded record of 41 members, each an object, and a nested `user`, as a tweet is: walked, laid out and diffed.
+local function tweet_record_text(): string
+  local parts: mut {string} = {}
+  for i = 1, 40 do parts[#parts + 1] = ('"k%d":{"a":%d,"b":"x"}'):format(i, i) end
+  return "{" .. table.concat(parts, ",") .. ',"user":{"id":1,"name":"n","x":2,"y":3,"z":4,"w":5,"tags":["a","b","c"]}}'
+end
+
+--- Times Json.get of `path` in the tweet record.
+local function getting(b: Bench.B, path: Json.Steps)
+  local value = decoded(tweet_record_text())!
+  b.reset()
+  for _ = 1, b.n do
+    local v, why = Json.get(value, path)
+    if v == nil then error(tostring(why)) end
+  end
+end
+
+local function bench_get_shallow(b: Bench.B) getting(b, { "k7" }) end
+local function bench_get_user_name(b: Bench.B) getting(b, { "user", "name" }) end
+local function bench_get_user_tags_3(b: Bench.B) getting(b, { "user", "tags", 3 }) end
+
+local function bench_members_41_keys_decoded(b: Bench.B)
+  local members_of = assert(Json.to_object(decoded(tweet_record_text())!))
+  b.reset()
+  for _ = 1, b.n do local _ = Json.members(members_of) end
+end
+
+local function bench_layout_41_keys_decoded(b: Bench.B)
+  local members_of = assert(Json.to_object(decoded(tweet_record_text())!))
+  b.reset()
+  for _ = 1, b.n do local _ = Json.layout(members_of) end
+end
+
+local function bench_diff_equal_41_keys(b: Bench.B)
+  local text = tweet_record_text()
+  local one, other = decoded(text)!, decoded(text)!
+  b.reset()
+  for _ = 1, b.n do local _ = Json.diff(one, other) end
+end
+
+local function bench_decode_only_2_fields(b: Bench.B)
+  local text = tweet_record_text()
+  local opts: Json.DecodeOptions = { only = { { "user", "name" }, { "k7", "a" } } }
+  b.bytes = #text
+  for _ = 1, b.n do local _ = decoded(text, opts) end
+end
+
+--- A table of 1000 rows as JSON text.
+local function table_text(): string
+  local rows: mut {string} = {}
+  for i = 1, 1000 do
+    rows[i] = ('{"id":%d,"name":"user%d","score":%d.5,"at":{"x":%d,"y":%d},"tags":["a","b"]}'):format(i, i, i, i, -i)
+  end
+  return "[" .. table.concat(rows, ",") .. "]"
+end
+
+local function bench_format_expanded_1000_rows(b: Bench.B)
+  local text = table_text()
+  b.bytes = #text
+  b.reset()
+  for _ = 1, b.n do local _ = Json.format(text, { layout = "expanded" })! end
+end
+
+local function bench_format_fractured_1000_rows(b: Bench.B)
+  local text = table_text()
+  b.bytes = #text
+  b.reset()
+  for _ = 1, b.n do local _ = Json.format(text, { layout = "fractured" })! end
 end

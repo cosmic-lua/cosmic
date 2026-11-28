@@ -60,6 +60,7 @@ local AgentEdit = require("cosmic.agent.edit")
 local AgentFetch = require("cosmic.agent.fetch")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
+local Csv = require("cosmic.csv")
 local Failure = require("cosmic.failure")
 local type Doc = require("cosmic.doc")
 local Fs = require("cosmic.fs")
@@ -69,6 +70,7 @@ local Json = require("cosmic.json")
 local McpModule = require("cosmic.agent.mcp_module")
 local Sqlite = require("cosmic.sqlite")
 local String = require("cosmic.string")
+local Template = require("cosmic.template")
 
 local record Host
   --- A row of [`Host.history`]: each column's name and its cell. An integer or a real is a number, NULL is
@@ -589,11 +591,50 @@ function Host.edit(path: string, edits: {Host.Replacement}): integer
   return made
 end
 
---- Checks the Teal file `path` as `cosmic fix` checks a file of its tree, and raises with the checker's lines where it
---- does not pass, so that what follows in the snippet runs only for a file that passes. It reads the modules a snippet
---- may require, and tells the lines of each module of a tree it requires too; it runs no code. Raises too where it
---- cannot be read, or where no checker is here (outside cosmic agent's worker).
+--- true where `text` is JSON values a line each, as [`Json.decode_lines`] reads them; else nil and why.
+local function json_lines(text: string): (true) | (nil, Failure)
+  local _, why = Json.decode_lines(text)
+  if why ~= nil then return nil, why end
+  return true
+end
+
+--- What reads a data file's text, by its type in lower case: true, or nil and why, as its module reads it.
+local data_checks: {string: function(text: string): (true) | (nil, Failure)} = {
+  json = function(text: string): (true) | (nil, Failure) return Json.check(text) end,
+  jsonl = json_lines,
+  ndjson = json_lines,
+  csv = function(text: string): (true) | (nil, Failure)
+    local _, why = Csv.table(text)
+    if why ~= nil then return nil, why end
+    return true
+  end,
+  tsv = function(text: string): (true) | (nil, Failure)
+    local _, why = Csv.table(text, { delimiter = "\t" })
+    if why ~= nil then return nil, why end
+    return true
+  end,
+}
+
+--- Checks the file `path` you wrote by its type, its extension in any case, and raises with what is wrong where it
+--- does not pass, so that what follows in the snippet runs only for a file that passes; it runs no code. A `.tl` file
+--- is checked as `cosmic fix` checks a file of its tree: it reads the modules a snippet may require, and tells the
+--- checker's lines for each module of a tree it requires too. `.json` is one value ([`Json.check`]); `.jsonl` and
+--- `.ndjson` a value a line ([`Json.decode_lines`]); `.csv` and `.tsv` records each as wide as the header
+--- ([`Csv.table`]), where a header alone or no text passes. Each of those raises with the one reason its module gives.
+--- Any other type is refused before it is read; it raises too where the file cannot be read, or for `.tl` where no
+--- checker is here (outside cosmic agent's worker).
 function Host.check(path: string)
+  local kind = (path:match("%.([%w]+)$") or ""):lower()
+  if kind ~= "tl" then
+    local read = data_checks[kind]
+    if read == nil then
+      error("host: check: " .. path .. ": no check for this type; it checks .tl, .json, .jsonl, .ndjson, .csv " ..
+          "and .tsv files", 2)
+    end
+    local _, why = read(Host.read(path))
+    if why ~= nil then error("host: check: " .. path .. " does not pass: " .. tostring(why), 2) end
+    return
+  end
   local text = Host.read(path)
   local check = checks
   if check == nil then
@@ -859,10 +900,14 @@ function Host.store(key: string, value?: Json.Value)
 end
 
 --- Ends the turn with `text` as the reply to the user, once the snippet has run to its end: no request asks the model
---- for one, so a snippet that has what the user asked for saves a turn. A snippet that raises gives no answer, and the
---- last answer given is the one. Raises where it fails.
-function Host.answer(text: string)
-  local _, why = Host.call("answer", { text = text })
+--- for one, so a snippet that has what the user asked for saves a turn. `text` is a template, as [`Template.text`]
+--- takes one, filled from `data`: `Host.reply("{{.n}} files, {{.big}} over 1 MB", { n = #files, big = big })`. Given
+--- as a string literal, the build checks its slots against `data` before the snippet runs, and refuses a slot where
+--- there is no data. Text that is no literal is replied as it is where it has no `{{`, and raises where it has one.
+--- A snippet that raises gives no answer, and the last answer given is the one. Raises where it fails. (The agent's
+--- call for it is named `answer`.)
+function Host.reply(text: Template.Source, data?: any)
+  local _, why = Host.call("answer", { text = Template.text(text, data) })
   if why ~= nil then error(tostring(why), 2) end
 end
 

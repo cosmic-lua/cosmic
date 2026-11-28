@@ -13,6 +13,7 @@ local Bigint = require("cosmic.bigint")
 local Codec = require("cosmic.codec")
 local Hash = require("cosmic.hash")
 local Test = require("cosmic.test")
+local Bench = require("cosmic.bench")
 
 Test.policy{ cpu_features = true }
 
@@ -958,4 +959,16 @@ local function test_an_argument_that_is_not_a_string_raises()
   assert(probe(Bigint.pad, 2, 1, 5) == false, "pad takes a number for a string")
   assert(probe(Bigint.pad, 2, 1, true) == false, "pad takes a boolean for a string")
   assert(probe(Bigint.pad, 2, 2, "wide") == false, "pad takes a string for a width")
+end
+
+--- Benches. A 2048-bit modular exponentiation and a 2048-bit product.
+local BENCH_MODULUS <const> = "0x" .. "ff" .. string.rep("ab", 255) .. "f1"
+local BENCH_BASE <const> = "0x" .. string.rep("3c", 256)
+
+local function bench_powmod_2048_bit(timer: Bench.B)
+  for _ = 1, timer.n do local _ = Bigint.powmod(BENCH_BASE, "0x10001", BENCH_MODULUS) end
+end
+
+local function bench_mul_2048_bit(timer: Bench.B)
+  for _ = 1, timer.n do local _ = Bigint.mul(BENCH_BASE, BENCH_MODULUS) end
 end
