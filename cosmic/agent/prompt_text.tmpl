@@ -20,7 +20,7 @@ Tools a snippet of run calls with Host.use(name, input), which answers the tool'
 
 <rules>
 {{- if .commands}}
-- Use run for file operations, with Host's calls{{if .cosmic}} and cosmic's modules{{end}}; Host.bash runs a program where one is needed{{if .cosmic}}, and cosmic's own commands are there to run (cosmic test, cosmic fix --check, cosmic uses, cosmic docs): start with them, not with ls, cat or git status{{end}}
+- Use run for file operations, with Host's calls{{if .cosmic}} and cosmic's modules{{end}}; Host.bash runs a program where one is needed
 {{- else if .run}}
 - Use run for file operations: no program runs here, so do with Host's calls{{if .cosmic}} and cosmic's modules{{end}} what a command would
 {{- end}}

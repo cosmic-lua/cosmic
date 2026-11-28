@@ -1097,6 +1097,20 @@ local function test_brief_lists_a_line_a_function(dir: string)
   assert(db:close())
 end
 
+--- Doc.text answers a page for one function and says why where it has nothing to show.
+local function test_text_answers_a_page_or_says_why(dir: string)
+  local db = built(dir, fs_tree())
+  local page = assert(Doc.text(view({ db }), "Fs.read"))
+  assert(page:find("The whole of a file.", 1, true), page)
+  local none, why = Doc.text(view({ db }), "unheardword")
+  assert(none == nil)
+  assert(tostring(why):find("nothing is found", 1, true) ~= nil, tostring(why))
+  local empty, empty_why = Doc.text(view({ db }), "  ")
+  assert(empty == nil)
+  assert(tostring(empty_why):find("name a module", 1, true) ~= nil, tostring(empty_why))
+  assert(db:close())
+end
+
 --- `--json` prints the entries a lookup finds, as [`Doc.answer`] would
 --- show them, one JSON object per line, qualified names in the order given.
 local function test_records_are_one_json_object_per_entry(dir: string)

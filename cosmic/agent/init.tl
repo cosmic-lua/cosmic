@@ -674,8 +674,7 @@ local function record(s: Agent.Session, call: string, tool: string, input: Tools
   if run == nil or not Tools.for_model(run) then return result.text, "" end
   -- The way to the whole comes first: a model that reads only the top fetches it again where it was served once.
   local shown = "[The whole output is kept as output " .. tostring(output) .. ": read it in run with Host.output(" ..
-    tostring(output) .. "), cut as it is here when printed whole: find, count or write what you need in the snippet.]\n" ..
-    result.text
+    tostring(output) .. ").]\n" .. result.text
   local kept, shown_why = Sessions.shown(db, output, shown)
   if not kept then return nil, shown_why end
   return shown, ""

@@ -855,6 +855,20 @@ function Doc.brief(view: Doc.View, words: {string}): (Doc.Answer) | (nil, Failur
   return { lines = lines, found = #lines > 0, said = String.counted(#lines, "line") }
 end
 
+--- What `cosmic docs` prints for `query` (words), as text: [`Doc.answer`]'s lines joined. Nil and a [`Failure`] that
+--- says what to do where `query` holds no word, nothing is found, or a database cannot be read.
+function Doc.text(view: Doc.View, query: string): (string) | (nil, Failure)
+  local words: mut {string} = {}
+  for word in query:gmatch("%S+") do words[#words + 1] = word end
+  if #words == 0 then
+    return nil, Failure.new("name a module, a function or words to search for")
+  end
+  local answer, answer_why = Doc.answer(view, words)
+  if answer == nil then return nil, answer_why end
+  if not answer.found then return nil, Failure.new("nothing is found for " .. Json.quote(query)) end
+  return table.concat(answer.lines, "\n")
+end
+
 -- Doc.records, its failure in words.
 local function records_text(view: View, words: {string}, stale?: boolean): Answer?, string
   local lines: mut {string} = {}

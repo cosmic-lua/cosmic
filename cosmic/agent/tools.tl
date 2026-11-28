@@ -28,7 +28,7 @@ local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
-local type AgentEdit = require("cosmic.agent.edit")
+local type AgentEdit = require("cosmic.edit")
 local Json = require("cosmic.json")
 local RunText = require("cosmic.agent.run_text")
 local Sandbox = require("cosmic.sandbox")
@@ -723,9 +723,9 @@ local function run(input: Tools.Object, context: Tools.Context): Tools.Result
   local text, cut = run_shown(said, start, ending, total, most or RUN_BYTES)
   if answer["cut"] == true then
     text = "[Output cut: " .. (if written is integer then String.counted(written, "byte") .. " written; " else "" end) ..
-      "its start and end are shown, and the first 16KB and last 48KB kept in sessions.db: find, count or write what you need in the snippet, not print it whole.]\n" .. text
+      "its start and end are shown, and the first 16KB and last 48KB kept in sessions.db.]\n" .. text
   elseif cut then
-    text = "[Output cut: its start and end are shown; the whole is kept in sessions.db: find, count or write what you need in the snippet, not print it whole.]\n" .. text
+    text = "[Output cut: its start and end are shown; the whole is kept in sessions.db.]\n" .. text
   end
   local value = answer["value"]
   if value ~= nil then
