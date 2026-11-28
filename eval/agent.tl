@@ -36,6 +36,8 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Proc = require("cosmic.proc")
+local sys = require("cosmic.sys")
+local ArtifactRow = require("artifact_row")
 local Causes = require("causes")
 local Report = require("report")
 local ReportData = require("report_data")
@@ -50,11 +52,19 @@ local record Agent
     --- A second prompt, asked once the first's turn ended, in the same session (ask goes on with the newest
     --- session in the directory): for a task about what the first turn saw.
     follow_up?: string
-    --- A bash command run in an untouched copy of the fixture: its output is what a right answer leaves.
+    --- A bash command run in an untouched copy of the fixture (after `setup`): its output is what a right answer
+    --- leaves. `$tool` is the path of the first tool, and `$files` that of eval/testdata/files/<task name>, which
+    --- holds what the task's truth and setup need, such as files written out in full.
     truth: string
     --- A bash command run in the run's copy once the agent ended: its output must be the truth's. `$tool` is the
-    --- path of the tool under test, for a task whose answer is a program to run.
+    --- path of the tool under test, for a task whose answer is a program to run, and `$files` as for the truth.
     check: string
+    --- The project of eval/testdata the task works in, such as "shop", in place of `--fixture`: a small cosmic
+    --- project of its own, whose builds and tests take a second, so a check may build it. Nil for `--fixture`.
+    fixture?: string
+    --- A bash command run in each copy before the truth and before the agent: what makes the tree the task starts
+    --- from, such as a change that breaks its build; `$tool` and `$files` as for the truth. Nil for none.
+    setup?: string
     --- The MCP servers the run is given, in one config, where the task needs them. Its truth runs with `$data`
     --- the path of the first one's data: the others are there to be passed over.
     servers?: {Server}
@@ -65,6 +75,11 @@ local record Agent
     --- the report's per-set totals say whether a change helps beyond the tasks it was made from. A task moves to
     --- the tuned set when a change is made from its refusals.
     held?: boolean
+    --- True for a task on cosmic's own tree, `--fixture` a checkout of the tool's own source: each run's copy gets
+    --- the tool in its build directory, its `built_from` row naming the copy ([`ArtifactRow.with`]), so the copy is
+    --- cosmic's own tree to it, as CI's copies of the tree are. A fixture that is not the tool's source makes the tool
+    --- rebuild itself, which takes minutes.
+    own?: boolean
   end
 
   --- A web API of a task: a program started for each run, which serves its data at 127.0.0.1 on a port the
@@ -97,6 +112,9 @@ local record Agent
     tools?: string
     --- How hard its agent thinks (`--effort`); nil for the agent's default.
     effort?: string
+    --- True to let its agent's snippets run programs (`--commands`), in the agent's sandbox, with the tool itself
+    --- first on PATH as `cosmic`, so a snippet may run `cosmic test` or `cosmic fix`.
+    commands?: boolean
   end
 
   --- What the command line asked for.
@@ -117,6 +135,9 @@ local record Agent
     --- The tools that repeat one base tool's binary, named by `--control`: the report puts every other tool's
     --- totals against their spread, so a difference inside the noise of one binary reads as one.
     controls?: {string}
+    --- eval/testdata, which holds the projects of the tasks that name one (`fixture`) and their wanted trees
+    --- (files/<task>); eval/agent gives it. Nil where not given: then such a task is refused.
+    testdata?: string
   end
 
   --- What an earlier round's results.json says of one tool: the refused snippets and their causes ("TAG: name",
@@ -202,6 +223,8 @@ local record Agent
     --- Starts `argv` in `cwd` and waits, for at most `seconds`, until the file `ready` holds a port: the port,
     --- and a call that ends the program. Nil and why where it ended or did not say so in time.
     serve: function(argv: {string}, cwd: string, ready: string, seconds: integer): (string, function()) | (nil, string)
+    --- Writes the tool `from` at `to`, executable, as one built from the tree at `root` (its real path).
+    retarget: function(from: string, to: string, root: string)
   end
 
   --- Every task, in the order a report lists them.
@@ -534,6 +557,39 @@ return function(argv: {string}): integer
 end
 ]==]
 
+--- The shop tasks (eval/testdata/shop): a hash of every .tl file of the tree, names and text, and of what its
+--- program prints; for a check that the tree builds, its tests pass and what it does is kept.
+local SHOP_TL <const> = "find . -name '*.tl' | LC_ALL=C sort | while read -r f; do echo \"$f\"; cat \"$f\"; done | " ..
+  "sha256sum | cut -c1-64"
+local SHOP_BUILDS <const> = "if $tool fix --check . > /dev/null 2>&1; then echo checks; else echo refused; fi; " ..
+  "if $tool test > /dev/null 2>&1; then echo tests; else echo failed; fi"
+local SHOP_RECEIPT <const> = "$tool cmd/receipt/main.tl 2>&1 | sha256sum | cut -c1-64"
+local SHOP_RECEIPT_WAS <const> = "sha256sum < \"$files/../receipt.txt\" | cut -c1-64"
+--- Each mutant of Money.parse that the tests of shop-test-parse must catch, as a sed script.
+local SHOP_MUTANTS <const> = {
+  "/if sign == \"-\" then cents = -cents end/d",
+  "s/math.tointeger(tonumber(frac))! \\* 10/math.tointeger(tonumber(frac))!/",
+  "s/#frac > 2/#frac > 3/",
+  "/text:sub(-1) == \".\"/d",
+}
+
+--- The git tasks: the shop tree as a repository of six commits, made at eval time by cosmic.git, with no git
+--- program (eval/testdata/files/shop-git-commit/shop.tl). Names and dates are fixed, so every copy's commits have
+--- the same oids.
+local GIT_SHOP <const> = "\"$tool\" - < \"$files/../shop-git-commit/shop.tl\""
+--- What the shop-git-commit check reports, from cosmic.git: the last two subjects, what HEAD changed, what is left,
+--- who committed, HEAD's parent, and whether every object HEAD reaches reads.
+local GIT_COMMIT_REPORT <const> = "\"$tool\" - < \"$files/../shop-git-commit/report.tl\""
+
+local function shop_mutants(): string
+  local out: mut {string} = { "kept=$(mktemp)", "cp money.tl \"$kept\"" }
+  for _, m in ipairs(SHOP_MUTANTS) do
+    out[#out + 1] = "sed -i '" .. m .. "' money.tl; if cmp -s money.tl \"$kept\"; then echo unchanged; " ..
+      "elif $tool test > /dev/null 2>&1; then echo missed; else echo caught; fi; cp \"$kept\" money.tl"
+  end
+  return table.concat(out, "; ")
+end
+
 Agent.tasks = {
   {
     name = "largest",
@@ -770,6 +826,7 @@ Agent.tasks = {
   {
     name = "rename-shared",
     held = true,
+    own = true,
     prompt = "In cosmic/, rename the function format of cosmic/web/cookies.tl (`Cookies.format`) to render, " ..
       "everywhere it is defined, called or named as `Cookies.format` in the .tl files, and change nothing else, " ..
       "comment prose too: other functions named format (Csp.format, Json.format, Example.format, string.format) stay.",
@@ -825,6 +882,109 @@ local function test_a_gap_stays()
 end
 EOF
 if (cd mini && $tool test > /dev/null 2>&1); then echo pass; else echo fail; fi]==],
+  },
+  {
+    name = "shop-rename-field",
+    held = true,
+    fixture = "shop",
+    prompt = "Rename the field name of the record Invoice.Line (invoice.tl) to label, everywhere it is declared, " ..
+      "written or read, tests too, and change nothing else: other fields called name (Invoice.Customer.name, " ..
+      "Catalog.Product.name) stay, as do comments. The tree must still build, and its tests pass.",
+    truth = "cp \"$files/invoice.tl\" \"$files/invoice_test.tl\" . && " .. SHOP_TL,
+    check = SHOP_TL,
+  },
+  {
+    name = "shop-uses",
+    held = true,
+    fixture = "shop",
+    prompt = "Write answer.txt: each place in this tree's code that calls Money.format (money.tl), through any name " ..
+      "the module is required as, tests included, as path:line, such as `catalog.tl:42`, one a line, sorted. Leave " ..
+      "out comments and other functions called format.",
+    truth = "cat \"$files/answer.txt\"",
+    check = "sed 's#^\\./##' answer.txt | LC_ALL=C sort -u",
+  },
+  {
+    name = "shop-move-module",
+    held = true,
+    fixture = "shop",
+    prompt = "Move the module money.tl to units/money.tl, and its tests money_test.tl to units/money_test.tl, and " ..
+      "make every file that requires it require it at its new place. Change nothing else. The tree must still build, " ..
+      "its tests pass, and `cosmic cmd/receipt/main.tl` print what it did.",
+    truth = "echo moved; echo 0; " .. SHOP_BUILDS .. "; " .. SHOP_RECEIPT,
+    check = "if [ -f units/money.tl ] && [ -f units/money_test.tl ] && [ ! -e money.tl ] && [ ! -e money_test.tl ]; " ..
+      "then echo moved; else echo 'not moved'; fi; grep -rl --include='*.tl' 'require(\"money\")' . | wc -l; " ..
+      SHOP_BUILDS .. "; " .. SHOP_RECEIPT,
+  },
+  {
+    name = "shop-signature",
+    held = true,
+    fixture = "shop",
+    prompt = "Give Money.format (money.tl) a second parameter, `symbol: string`, written after any minus sign and " ..
+      "before the number: `Money.format(Money.of(-310), \"$\")` is `-$3.10`. Make every caller pass \"$\", and " ..
+      "change the tests to match. Change nothing else. The tree must still build, and its tests pass.",
+    truth = "echo 1; echo '-$3.10'; " .. SHOP_BUILDS .. "; sha256sum < \"$files/receipt.txt\" | cut -c1-64",
+    check = "grep -c '^function Money.format(a: Money.Amount, symbol: string): string$' money.tl; " ..
+      "$tool -e 'local M = require(\"money\") print(M.format(M.of(-310), \"$\"))' 2>&1; " .. SHOP_BUILDS .. "; " ..
+      SHOP_RECEIPT,
+  },
+  {
+    name = "shop-make-build",
+    held = true,
+    fixture = "shop",
+    setup = "cp \"$files/money.tl\" money.tl && sed -i " ..
+      "'s/^function Invoice.total(inv: Invoice): Cash.Amount$/function Invoice.total(inv: Invoice): integer/; " ..
+      "s/^  return sum$/  return sum.cents/' invoice.tl",
+    prompt = "This tree does not build: Money.parse (money.tl) now answers why it refused a text, and " ..
+      "Invoice.total (invoice.tl) now answers whole cents. Keep both changes, money.tl as it is and Invoice.total's " ..
+      "declaration too, and change the rest so that the tree builds again, its tests pass and " ..
+      "`cosmic cmd/receipt/main.tl` prints what it did before.",
+    truth = "sha256sum < money.tl | cut -c1-64; grep -c '^function Invoice.total(inv: Invoice): integer$' invoice.tl; " ..
+      "echo checks; echo tests; " .. SHOP_RECEIPT_WAS,
+    check = "sha256sum < money.tl | cut -c1-64; grep -c '^function Invoice.total(inv: Invoice): integer$' invoice.tl; " ..
+      SHOP_BUILDS .. "; " .. SHOP_RECEIPT,
+  },
+  {
+    name = "shop-test-parse",
+    held = true,
+    fixture = "shop",
+    prompt = "Money.parse (money.tl) has no tests. Add tests of it to money_test.tl, and change no other file: " ..
+      "they must pass, and fail where parse is wrong. It reads `12.34`, `7`, `0.5` and `-3.10` (as -310 cents), " ..
+      "and answers nil for `1.234`, `12,00`, `7.` and `abc`.",
+    truth = "find . -name '*.tl' ! -name money_test.tl | LC_ALL=C sort | while read -r f; do echo \"$f\"; cat \"$f\"; " ..
+      "done | sha256sum | cut -c1-64; echo passes; echo caught; echo caught; echo caught; echo caught",
+    check = "find . -name '*.tl' ! -name money_test.tl | LC_ALL=C sort | while read -r f; do echo \"$f\"; cat \"$f\"; " ..
+      "done | sha256sum | cut -c1-64; if $tool test > /dev/null 2>&1; then echo passes; else echo fails; fi; " ..
+      shop_mutants(),
+  },
+  {
+    name = "shop-dead",
+    held = true,
+    fixture = "shop",
+    prompt = "Write answer.txt: each function a module of this tree declares that no other file calls or names, " ..
+      "tests left out (they do not count as callers), so it could be local or dropped. Write each as Module.name, " ..
+      "such as `Text.center`, one a line, sorted.",
+    truth = "cat \"$files/answer.txt\"",
+    check = "LC_ALL=C sort -u answer.txt",
+  },
+  {
+    name = "shop-git-commit",
+    fixture = "shop",
+    setup = GIT_SHOP .. " && sed -i 's/the odd space after it/the odd space after it, trimmed first/' text.tl && " ..
+      "echo '-- Columns are padded.' >> report.tl && echo 'call the printer' > notes.txt",
+    prompt = "This tree is a git repository. Commit the change to text.tl alone, with the message " ..
+      "`text: note the trim rule`, on top of the current branch. Leave the change to report.tl and the file " ..
+      "notes.txt as they are, not committed.",
+    truth = "\"$tool\" - < \"$files/truth.tl\" && " .. GIT_COMMIT_REPORT,
+    check = GIT_COMMIT_REPORT,
+  },
+  {
+    name = "shop-git-history",
+    fixture = "shop",
+    setup = GIT_SHOP,
+    prompt = "This tree is a git repository. Write answer.txt: the subject (first line of the message) of each " ..
+      "commit on the current branch that changed money.tl, newest first, one a line.",
+    truth = "\"$tool\" - < \"$files/truth.tl\"",
+    check = "cat answer.txt",
   },
   {
     name = "fix-rle",
@@ -891,7 +1051,7 @@ if (cd mini && $tool test > /dev/null 2>&1); then echo pass; else echo fail; fi]
 
 local USAGE <const> = "usage: eval/agent --tool NAME=PATH [--tool NAME=PATH ...] --fixture DIR --out DIR " ..
   "[--offer NAME=TOOL,...] [--effort [NAME=]LEVEL] [--tasks T,...|all] [--reps N] [--model M] [--timeout S] " ..
-  "[--no-agents-md] [--against RESULTS.json] [--control NAME ...]"
+  "[--no-agents-md] [--against RESULTS.json] [--control NAME ...] [--commands NAME ...] [--testdata DIR]"
 
 local EFFORTS <const>: {string: boolean} = { low = true, medium = true, high = true, xhigh = true, max = true }
 
@@ -911,6 +1071,8 @@ function Agent.parse(argv: {string}): Agent.Options?, string
   local without_agents_md = false
   local against: string? = nil
   local controls: mut {string} = {}
+  local commands: mut {string: boolean} = {}
+  local testdata: string? = nil
   local tasks: mut {Agent.Task} = {}
   for _, t in ipairs(Agent.tasks) do tasks[#tasks + 1] = t end
   local i = 1
@@ -967,6 +1129,16 @@ function Agent.parse(argv: {string}): Agent.Options?, string
       end
       if not found then return nil, "--control " .. value .. ": name a --tool given before it" end
       controls[#controls + 1] = value
+    elseif word == "--commands" then
+      local found = false
+      for _, t in ipairs(tools) do
+        if t.name == value then found = true end
+      end
+      if not found then return nil, "--commands " .. value .. ": name a --tool given before it" end
+      commands[value] = true
+    elseif word == "--testdata" then
+      if value:sub(1, 1) ~= "/" then return nil, "--testdata takes an absolute path: " .. value end
+      testdata = value
     elseif word == "--against" then
       if value:sub(1, 1) ~= "/" then return nil, "--against takes an absolute path: " .. value end
       against = value
@@ -1010,12 +1182,19 @@ function Agent.parse(argv: {string}): Agent.Options?, string
     return nil, "--fixture and --out take absolute paths: " .. (if fixture:sub(1, 1) ~= "/" then fixture else out end)
   end
   if #tasks == 0 then return nil, "--tasks names no task" end
+  for _, t in ipairs(tasks) do
+    if t.fixture ~= nil and testdata == nil then
+      return nil, "task " .. t.name .. " works in eval/testdata/" .. t.fixture .. ": give --testdata (eval/agent does)"
+    end
+  end
   local offering: mut {Agent.Tool} = {}
   for _, t in ipairs(tools) do
-    offering[#offering + 1] = { name = t.name, path = t.path, tools = offers[t.name], effort = efforts[t.name] or effort }
+    offering[#offering + 1] = { name = t.name, path = t.path, tools = offers[t.name], effort = efforts[t.name] or effort,
+      commands = if commands[t.name] == true then true else nil end }
   end
   return { tools = offering, fixture = fixture, out = out, tasks = tasks, reps = reps, model = model,
-    timeout = timeout, without_agents_md = if without_agents_md then true else nil end, against = against, controls = if #controls > 0 then controls else nil end }, ""
+    timeout = timeout, without_agents_md = if without_agents_md then true else nil end, against = against,
+    controls = if #controls > 0 then controls else nil end, testdata = testdata }, ""
 end
 
 --- `text`'s lines, each without its trailing blanks, and with no blank lines at its end: what grading compares.
@@ -1026,10 +1205,15 @@ function Agent.lines_of(text: string): string
   return table.concat(out, "\n")
 end
 
---- The environment a run of `tool` gets: `base`, with `key` and its own data directory and home.
-local function env_of(base: {string: string}, key: string, data: string, home: string): {string: string}
+--- The environment a run of `tool` gets: `base`, with `key` and its own data directory and home, and `bin` first on
+--- PATH where it is given.
+local function env_of(base: {string: string}, key: string, data: string, home: string, bin: string?): {string: string}
   local e: mut {string: string} = {}
   for k, v in pairs(base) do e[k] = v end
+  if bin ~= nil then
+    local path = e["PATH"]
+    e["PATH"] = if path ~= nil and path ~= "" then bin .. ":" .. path else bin end
+  end
   e["ANTHROPIC_API_KEY"] = key
   e["HARNESS_ANTHROPIC_API_KEY"] = nil
   e["XDG_DATA_HOME"] = data
@@ -1095,12 +1279,27 @@ function Agent.execute(options: Agent.Options, system: Agent.System, key: string
     spent = system.spent,
     put = system.put,
     serve = system.serve,
+    retarget = system.retarget,
   }
-  -- A copy of the fixture at `dest`, with the files that instruct an agent left out when the evals say so.
-  local function copied(dest: string)
-    own.run({ "cp", "-a", options.fixture .. "/.", dest }, "/", nil, 600)
+  -- A copy of the task's fixture at `dest`, with the files that instruct an agent left out when the evals say so,
+  -- and the task's setup run in it.
+  local first_tool = options.tools[1]
+  -- What a task's truth and setup are run with: `$tool` and `$files`.
+  local function prefix(task: Agent.Task): string
+    return "tool=" .. quoted(first_tool and first_tool.path or "cosmic") .. "; files=" ..
+      quoted((options.testdata or "") .. "/files/" .. task.name) .. "; "
+  end
+  local function copied(dest: string, task: Agent.Task)
+    local project = task.fixture
+    local from = if project ~= nil then (options.testdata or "") .. "/" .. project else options.fixture end
+    own.run({ "cp", "-a", from .. "/.", dest }, "/", nil, 600)
     if options.without_agents_md == true then
       own.run({ "rm", "-f", dest .. "/AGENTS.md", dest .. "/CLAUDE.md" }, "/", nil, 60)
+    end
+    local setup = task.setup
+    if setup ~= nil then
+      local set = own.run({ "bash", "-c", prefix(task) .. setup }, dest, nil, 60)
+      assert(set.code == 0, "the setup of " .. task.name .. " failed: " .. set.stderr)
     end
   end
   -- Why the round stopped before its end: the first run ended before its first request, so the rest would too.
@@ -1111,8 +1310,8 @@ function Agent.execute(options: Agent.Options, system: Agent.System, key: string
     local truths: mut {string: string} = {}
     for _, task in ipairs(options.tasks) do
       local pristine = own.fresh("truth-" .. task.name .. "-")
-      copied(pristine)
-      local script = task.truth
+      copied(pristine, task)
+      local script = prefix(task) .. task.truth
       local first = task.servers and task.servers[1]
       local site = task.site
       local served: string? = if first ~= nil then first.data elseif site ~= nil then site.data else nil end
@@ -1131,20 +1330,55 @@ function Agent.execute(options: Agent.Options, system: Agent.System, key: string
       if halted ~= nil then break end
       local data, home = options.out .. "/" .. tool.name .. "/data", options.out .. "/" .. tool.name .. "/home"
       own.run({ "mkdir", "-p", data, home }, "/", nil, 60)
-      local env = env_of(base, key, data, home)
+      local bin: string? = nil
+      if tool.commands == true then
+        -- The tool first on PATH as `cosmic`, in a directory of its own: the sandbox grants each directory of PATH,
+        -- and one named bin would bring the directory that holds it, the tool's data too.
+        local dir = options.out .. "/" .. tool.name .. "/path"
+        local placed = own.run({ "bash", "-c", 'mkdir -p "$1" && cp "$(command -v "$0")" "$1/cosmic" && ' ..
+            'chmod -R a+rX "$1"', tool.path, dir }, "/", nil, 60)
+        assert(placed.code == 0, "the tool of " .. tool.name .. " was not put on PATH: " .. placed.stderr)
+        bin = dir
+      end
+      local env = env_of(base, key, data, home, bin)
       for _, task in ipairs(options.tasks) do
         if halted ~= nil then break end
         for rep = 1, options.reps do
           if halted ~= nil then break end
           local marker = "bench-" .. tool.name .. "-" .. task.name .. "-"
           local work = own.fresh(marker)
-          copied(work)
-          local argv: mut {string} = { tool.path, "agent", "ask", "--model", options.model }
+          copied(work, task)
+          -- Each run's own build home and temporary directory, as a test's worker has them in its scratch
+          -- directory (build/test_sandbox.tl): no run reads what another built.
+          local scratch = own.fresh("scratch-" .. marker)
+          -- Searchable by every user, its tmp as /tmp is: where the agent is root, its sandboxed programs run as a user
+          -- of their own, which is granted files beneath it.
+          local laid = own.run({ "bash", "-c", 'mkdir -p "$0/build" "$0/tmp" && chmod 755 "$0" "$0/build" && ' ..
+              'chmod 1777 "$0/tmp"', scratch }, "/", nil, 60)
+          assert(laid.code == 0, "the scratch directory of a run was not laid out: " .. laid.stderr)
+          local run_env: mut {string: string} = {}
+          for k, v in pairs(env) do run_env[k] = v end
+          run_env["COSMIC_BUILD_HOME"] = scratch .. "/build"
+          run_env["TMPDIR"] = scratch .. "/tmp"
+          local program = tool.path
+          if task.own == true then
+            local found = own.run({ tool.path, "--standalone", work .. "/build/paths.tl", work }, work, run_env, 60)
+            local directory = Agent.first_line(found.stdout)
+            assert(found.code == 0 and directory ~= nil,
+              "the build directory of " .. task.name .. "'s copy was not named: " .. found.stderr)
+            program = directory .. "/bin/cosmic"
+            own.retarget(tool.path, program, work)
+            -- The sandbox grants a deep `bin` on PATH as its parent (cosmic/agent/policy.tl): this copy's own build
+            -- directory, which its commands build into all the same.
+            if bin ~= nil then run_env["PATH"] = directory .. "/bin:" .. (run_env["PATH"] or "") end
+          end
+          local argv: mut {string} = { program, "agent", "ask", "--model", options.model }
           local effort = tool.effort
           if effort ~= nil then
             argv[#argv + 1] = "--effort"
             argv[#argv + 1] = effort
           end
+          if tool.commands == true then argv[#argv + 1] = "--commands" end
           local offered = tool.tools
           if offered ~= nil then
             argv[#argv + 1] = "--tools"
@@ -1183,10 +1417,10 @@ function Agent.execute(options: Agent.Options, system: Agent.System, key: string
           local asked: Agent.Output = { code = 127, stdout = "", stderr = unserved or "" }
           local ran, why = pcall(function()
             if unserved ~= nil then return end
-            asked = own.run(argv, work, env, options.timeout)
+            asked = own.run(argv, work, run_env, options.timeout)
             if follow_up == nil or asked.code ~= 0 then return end
             again[#again + 1] = follow_up
-            local next_asked = own.run(again, work, env, options.timeout)
+            local next_asked = own.run(again, work, run_env, options.timeout)
             asked = { code = next_asked.code, stdout = asked.stdout .. "\n--- follow-up\n" .. next_asked.stdout,
               stderr = asked.stderr .. "\n--- follow-up\n" .. next_asked.stderr,
               seconds = (asked.seconds or 0) + (next_asked.seconds or 0) }
@@ -1194,7 +1428,8 @@ function Agent.execute(options: Agent.Options, system: Agent.System, key: string
           stop()
           if not ran then error(why, 0) end
           local truth = truths[task.name] or ""
-          local left = Agent.lines_of(own.run({ "bash", "-c", "tool=" .. quoted(tool.path) .. "; " .. task.check }, work, nil, 60).stdout)
+          local left = Agent.lines_of(own.run({ "bash", "-c", "tool=" .. quoted(tool.path) .. "; files=" ..
+              quoted((options.testdata or "") .. "/files/" .. task.name) .. "; " .. task.check }, work, nil, 60).stdout)
           local grade = "fail"
           if truth == "" then grade = "unfit" elseif left == truth then grade = "pass" end
           local spent = own.spent(tool.name, work:match("[^/]+$") or marker)
@@ -1696,7 +1931,21 @@ local function real(out: string): Agent.System
     stop()
     return nil, "it did not serve in " .. tostring(seconds) .. " s"
   end
-  return { run = run, fresh = fresh, discard = discard, spent = spent, put = put, serve = serve }
+  local function retarget(from: string, to: string, root: string)
+    local parent = to:match("^(.*)/[^/]*$")
+    if parent ~= nil and parent ~= "" then assert(Fs.mkdirs(parent)) end
+    local real_root = assert(sys.realpath(root))
+    -- A tool named bare, as `--tool t=cosmic` names it, is the one on PATH, as [`real`]'s `run` finds it.
+    local source = from
+    if from:find("/", 1, true) == nil then
+      local found, _ = Proc.find(from)
+      source = found or from
+    end
+    assert(Fs.write(to, ArtifactRow.with(assert(Fs.read(source)), to .. ".retarget.db", real_root)))
+    -- rwxr-xr-x
+    assert(Fs.chmod(to, 493))
+  end
+  return { run = run, fresh = fresh, discard = discard, spent = spent, put = put, serve = serve, retarget = retarget }
 end
 
 --- Runs the evals `argv` asks for: 0 when every graded run passed, 1 when one did not, 2 for a bad command line.

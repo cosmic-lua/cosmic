@@ -182,4 +182,46 @@ function tree_tests.test_clones(root: string, threshold?: integer): {string}
   return out
 end
 
+--- The programs a test, bench or eval may look for with [`Proc.find`] without declaring them: the ones [`bin/cosmic`] and
+--- the tests' own shells already need.
+local BASELINE_PROGRAMS: {string: boolean} = { sh = true, cat = true, env = true }
+
+--- Files that look for a program they do not declare, by `<file> <program>`, each with what holds it.
+local PROGRAM_EXEMPT: {string: string} = {
+  ["build/fix/ignored_tool_test.tl git"] = "todo build-ignored-tool-test-no-git: build its repository from committed testdata",
+  ["ci/cosmic_ci/fuzz_test.tl setsid"] = "fails on Linux, skips on macOS, which has none (find_setsid)",
+}
+
+--- Each `Proc.find("<program>")` of a `*_test.tl`, `bench/` or `eval/` file under `root` that names a program neither in
+--- the baseline (`sh`, `cat`, `env`), nor declared as `"program:<name>"` in the same file, nor exempt, as `<file>:<line>:
+--- looks for <program> ...`. A test that needs a program declares `requires = { "program:<name>" }` so a leg that
+--- promises it fails when it is absent; a bench or eval has no such declaration and runs no program at all.
+function tree_tests.undeclared_programs(root: string): {string}
+  local sources, trouble = sources_of(root)
+  if sources == nil then
+    return { "reading the sources: " .. trouble }
+  end
+  local out: mut {string} = {}
+  for _, entry in ipairs(sources) do
+    local file, text = entry[1], entry[2]
+    local watched = file ~= nil and (file:match("_test%.tl$") ~= nil or file:match("^bench/") ~= nil or
+      file:match("^eval/") ~= nil)
+    if watched and text ~= nil and text:find("Proc.find(", 1, true) ~= nil then
+      local line_number = 0
+      for line in (text .. "\n"):gmatch("([^\n]*)\n") do
+        line_number = line_number + 1
+        for program in line:gmatch('Proc%.find%("([^"]+)"%)') do
+          if BASELINE_PROGRAMS[program] == nil and text:find('"program:' .. program .. '"', 1, true) == nil and
+              PROGRAM_EXEMPT[tostring(file) .. " " .. program] == nil then
+            out[#out + 1] = tostring(file) .. ":" .. tostring(line_number) .. ": looks for `" .. program ..
+              "` without declaring it: add `requires = { \"program:" .. program .. "\" }` to the test's policy " ..
+              "and promise it in ci/cosmic_ci/capabilities.json, or commit the testdata it would produce"
+          end
+        end
+      end
+    end
+  end
+  return out
+end
+
 return tree_tests
