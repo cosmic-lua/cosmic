@@ -153,11 +153,11 @@ function Example.zone()
   assert(Time.format_rfc3339(later, ny) == "2026-03-08T03:30:00-04:00")
 end
 
---- The host's own zone: the carried one `TZ`, /etc/localtime or /etc/timezone names.
+--- A zone from a `TZ` string. Without the option, [`Time.local_zone`] reads the
+--- host's own: `TZ`, then /etc/localtime or /etc/timezone, which differ by host.
 function Example.local_zone()
-  local here, why = Time.local_zone()
-  assert(here ~= nil, why)
-  print(here.name, Time.format_rfc3339(Clock.now_ns(), here, { digits = 0 }))
+  local here = assert(Time.local_zone({ tz = "UTC0" }))
+  print(here.name, Time.format_rfc3339(1800000000 * 1000000000, here, { digits = 0 }))
   -- A TZ string with its own rules, Sydney's: daylight saving time from
   -- the first Sunday of October to the first of April, across the new year.
   local sydney = assert(Time.local_zone({ tz = "AEST-10AEDT,M10.1.0,M4.1.0/3" }))
