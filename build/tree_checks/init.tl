@@ -468,7 +468,7 @@ function tree_checks.whole(given: tree_checks.Whole): tree_checks.Found
     findings[#findings + 1] = "markers: " .. line
   end
   -- The markers only fall: each file's are held to its merge base with main.
-  local held = CeilingsBase.check(root, Env.all(), CeilingsBase.live_git(), marks.counts)
+  local held = CeilingsBase.check(root, Env.all(), CeilingsBase.live(root), marks.counts)
   for _, line in ipairs(held.lines) do
     findings[#findings + 1] = "ceilings: " .. line
   end

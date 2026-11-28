@@ -25,7 +25,9 @@
 
 local AgentMcp = require("cosmic.agent.mcp")
 local Clock = require("cosmic.clock")
+local Env = require("cosmic.env")
 local Failure = require("cosmic.failure")
+local Fs = require("cosmic.fs")
 local type AgentEdit = require("cosmic.agent.edit")
 local Json = require("cosmic.json")
 local RunText = require("cosmic.agent.run_text")
@@ -38,6 +40,14 @@ local Worker = require("cosmic.agent.worker")
 local record Tools
   --- A JSON object.
   type Object = {string: Json.Value}
+
+  --- A text less its dropped bullets, and the prefixes that started none ([`Tools.without_bullets`]).
+  record Dropped
+    --- The text with the bullets taken out.
+    text: string
+    --- Each prefix that started no bullet.
+    lost: {string}
+  end
 
   --- Who may call a tool: the model, code (a snippet of run, by [`Host.use`]), or both.
   enum Callers
@@ -761,6 +771,44 @@ local KEPT_TABLES <const> = "Tables: sessions (id, cwd, started (Unix time), mod
   "FTS5 over outputs.text (rowid = outputs.id): outputs_fts MATCH '\"some text\"' (3 characters or more), " ..
   "snippet(outputs_fts, 0, '>>', '<<', '...', 64), ORDER BY rank. ?1 is this session's id."
 
+--- `text` without each bullet line (`- `) that starts with one of the comma-apart prefixes of `spec`, such as
+--- `Host.sed,Json.read`, and the prefixes no bullet started with (a [`Tools.Dropped`]). An ablation of the run text for the evals
+--- (eval/agent --drop sets COSMIC_RUN_TEXT_DROP): the bullet is gone at render time, with no template edit.
+function Tools.without_bullets(text: string, spec: string): Tools.Dropped
+  local prefixes: mut {string} = {}
+  for prefix in spec:gmatch("[^,]+") do prefixes[#prefixes + 1] = prefix end
+  local seen: mut {string: boolean} = {}
+  local kept: mut {string} = {}
+  for line in (text .. "\n"):gmatch("(.-)\n") do
+    local dropped = false
+    for _, prefix in ipairs(prefixes) do
+      if line:sub(1, 2 + #prefix) == "- " .. prefix then
+        dropped = true
+        seen[prefix] = true
+      end
+    end
+    if not dropped then kept[#kept + 1] = line end
+  end
+  local lost: mut {string} = {}
+  for _, prefix in ipairs(prefixes) do
+    if seen[prefix] == nil then lost[#lost + 1] = prefix end
+  end
+  return { text = table.concat(kept, "\n"), lost = lost }
+end
+
+--- The description of the run tool: its template, less the bullets COSMIC_RUN_TEXT_DROP names, which only the evals
+--- set (a prefix that starts no bullet is said on standard error, so a typo is not read as an ablation).
+local function run_description(): string
+  local text = RunText.render({ kb = RUN_BYTES // 1024, tables = KEPT_TABLES })
+  local spec = Env.get("COSMIC_RUN_TEXT_DROP")
+  if spec == nil or spec == "" then return text end
+  local dropped = Tools.without_bullets(text, spec)
+  for _, prefix in ipairs(dropped.lost) do
+    local _, _ = Fs.put(Fs.stderr, "COSMIC_RUN_TEXT_DROP: no bullet of the run text starts with " .. prefix .. "\n")
+  end
+  return dropped.text
+end
+
 --- Every tool, in the order the system prompt lists them.
 local ALL <const>: {Tools.Tool} = {
   {
@@ -769,7 +817,7 @@ local ALL <const>: {Tools.Tool} = {
     guidelines = { "Each tool's output is kept in sessions.db: read a cut one with Host.output(id), " ..
         "or find what was seen before with Host.history, rather than running a command or fetching again." },
     -- The words are the text template run_text.tmpl (cosmic.template).
-    description = RunText.render({ kb = RUN_BYTES // 1024, tables = KEPT_TABLES }),
+    description = run_description(),
     schema = schema({
       code = string_field("The cosmic program, as the body of a file"),
       timeout = integer_field("Seconds, " .. tostring(RUN_SECONDS) .. " by default, 0 for none; past it the " ..

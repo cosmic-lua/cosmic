@@ -74,9 +74,14 @@ body and what it keeps of the call.
    `--rounds` rounds (20, at least 6), and [`Bench.compare`] pairs the
    rounds into a ratio, a 95% band and a verdict. `--binary` names the
    new side, this program by default.
-7. **One results store** (later): a bench's timings go in the same
-   records as test times, keyed by the binary, so `--against` can compare
-   stored runs, and a run keeps a history of each bench.
+7. **One results store.** A bench run keeps its timings in `results.db`
+   in the build directory ([`build.results`]), keyed by the binary's
+   sha256: `rounds`, `arms` and `bench_runs`, a row for each timed batch,
+   and `--against` keeps both sides, so a run keeps a history of each
+   bench. It is not `build.db`: that is a cache, which a change of its
+   schema makes again from nothing, and history must outlive it. The
+   agent evals keep their rounds in tables of the same shape
+   (eval/runs.tl), with what only an eval has in tables of its own.
 
 The layout a module follows, then: `<module>.tl`; `<module>_test.tl` for
 its `test_*`, `bench_*` and `fuzz_*`; `<module>_<topic>_test.tl` where one
@@ -114,6 +119,7 @@ say); `<module>_example.tl` for what the docs show.
 - Comparing two binaries needs both to have `cosmic test --bench`.
 
 [`Bench.compare`]: ../../cosmic/bench.tl
+[`build.results`]: ../../build/results.tl
 [`build/test_against.tl`]: ../../build/test_against.tl
 [`cosmic.bench`]: ../../cosmic/bench.tl
 [`Fuzz.inputs`]: ../../cosmic/fuzz.tl

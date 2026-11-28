@@ -9,6 +9,9 @@
 #
 #   eval/agent --tool NAME=PATH [--tool NAME=PATH ...] --fixture DIR --out DIR
 #              [--tasks T,...|all] [--reps N] [--model M] [--timeout S]
+#              [--round ID] [--db PATH] [--jobs N] [--arm NAME] [--drop [NAME=]BULLETS]
+#              [--against DB_OR_JSON [--against-round ID] [--against-as NEW=OLD]]
+# Every run is a row of <out>/runs.db; the same command run again goes on where the round stopped.
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)

@@ -6,7 +6,8 @@
 ---
 --- Each round runs one `cosmic test --bench --json` child of each side, the two alternating which goes first, and
 --- keeps each bench's fastest batch of the child as the round's sample; [`Bench.compare`] pairs the rounds. Each
---- side sizes its own batches. The old binary must know `--bench`.
+--- side sizes its own batches. The old binary must know `--bench`. The rounds are kept in the checkout's results
+--- store ([`build.results`]): a round of two arms, "old" and "new", each round's sample a row.
 local Bench = require("cosmic.bench")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
@@ -15,7 +16,9 @@ local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Proc = require("cosmic.proc")
 local logger = require("build.logger")
+local paths = require("build.paths")
 local plural = require("build.plural")
+local results = require("build.results")
 local log = logger.log
 
 local record test_against
@@ -269,6 +272,36 @@ local function compare(ask: test_against.Ask, copy: Copy, old: Side, new: Side)
   end
 end
 
+--- The samples of side `s`, a row for each round of each bench, named as the checkout names it.
+local function samples_of(copy: Copy, s: Side): {results.Sample}
+  local names: mut {string} = {}
+  for name in pairs(s.samples) do names[#names + 1] = name end
+  table.sort(names)
+  local out: mut {results.Sample} = {}
+  for _, name in ipairs(names) do
+    for rep, ns in ipairs(assert(s.samples[name])) do
+      out[#out + 1] = { bench = shown(copy, name), rep = rep, ns_per_op = ns, n = s.sizes[name] or 1,
+        bytes = s.bytes[name] or 0 }
+    end
+  end
+  return out
+end
+
+--- Keeps the compared rounds in the checkout's results store, or raises why it could not.
+local function keep(ask: test_against.Ask, copy: Copy, old: Side, new: Side, started_ns: integer)
+  local dir, dir_trouble = paths.prepare(ask.root)
+  if dir == nil then error("test: --against: results: " .. dir_trouble, 0) end
+  local path = results.path(dir)
+  local db, open_trouble = results.open(path)
+  if db == nil then error("test: --against: " .. open_trouble, 0) end
+  local id, trouble = results.keep_bench(db, { started_ns = started_ns, arms = {
+    { name = "old", path = old.binary, samples = samples_of(copy, old) },
+    { name = "new", path = new.binary, samples = samples_of(copy, new) } } })
+  local _, _ = db:close()
+  if id == nil then error("test: --against: " .. trouble, 0) end
+  log:say("test: --against: kept round " .. id .. " in " .. path)
+end
+
 --- Runs the compare `ask` asks for and returns the exit code: 0 when both sides timed every bench, 2 for a
 --- command line it refuses, 1 when a side failed.
 function test_against.run(ask: test_against.Ask): integer
@@ -316,7 +349,9 @@ function test_against.run(ask: test_against.Ask): integer
   local ok, err = pcall(function()
     local new = side("new", new_binary, new_argv, new_env, new_fds, tmp, ask.root, copy)
     local old = side("old", old_path, { old_path }, {}, {}, tmp, ask.root, copy)
+    local started_ns = Clock.now_ns()
     compare(ask, copy, old, new)
+    keep(ask, copy, old, new, started_ns)
   end)
   local removed, left = Fs.remove_tree(tmp)
   if not removed then

@@ -1946,7 +1946,7 @@ local function hold_named_markers(root: string, files: {string}, findings: mut {
     end
   end
   if next(counts) == nil then return end
-  local held = CeilingsBase.check(root, env, CeilingsBase.live_git(), counts)
+  local held = CeilingsBase.check(root, env, CeilingsBase.live(root), counts)
   for _, line in ipairs(held.lines) do
     findings[#findings + 1] = "ceilings: " .. line
   end
@@ -2340,7 +2340,7 @@ local function whole_key(ctx: Fix): string?
   if standing == nil or not standing.own then return nil end
   local tool, _ = Proc.executable()
   if tool == nil then return nil end
-  local git = ignored.answer(root) .. "\n" .. CeilingsBase.inputs(root, environment, CeilingsBase.live_git())
+  local git = ignored.answer(root) .. "\n" .. CeilingsBase.inputs(root, environment, CeilingsBase.live(root))
   local key, _ = Verdict.key({ root = root, argv = ctx.argv, environment = environment, tool = tool, git = git })
   return key
 end
