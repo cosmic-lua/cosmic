@@ -80,6 +80,12 @@ to the bytes one operation reads for a rate in GB/s.
 - A bench beside a `fuzz_*` property can time the module on the inputs
   the property is checked on: [`Fuzz.inputs`] returns its corpus and
   the first `n` inputs a run draws, from the same seed.
+- Each bench run keeps its timings in `results.db` in the build
+  directory ([`build.results`]): a round, its arms (each binary, by the
+  sha256 of its bytes) and a row of `bench_runs` for each timed batch.
+  `--against` keeps a round of two arms, "old" and "new". The store is
+  history, kept apart from `build.db`, which a schema change makes
+  again. The agent evals keep their rounds in tables of the same shape.
 
 doc/decisions/0002-one-companion-one-runner.md says why a bench is a
 function of a test file.
@@ -544,6 +550,7 @@ What a test declares to be given more than the pure store:
 
 What a module that reads other modules' text declares: it requires the marker
 of what it reads, and every test importing it is given that, keyed by it.
+[`build.results`]: ../build/results.tl
 [`build.reads.pipeline`], [`build.reads.analyzer`], [`build.reads.receivers`] and
 [`build.reads.links`] ([`build.code_walk`]) name a walk of sources, and a test
 importing the module is given the sources that walk reaches. [`build.reads.all`]
