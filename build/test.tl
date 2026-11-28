@@ -160,6 +160,7 @@ local hashing = require("build.digest")
 local host_names = require("build.host_names")
 local host_requires = require("build.host_requires")
 local worker = require("build.test_worker")
+local results = require("build.results")
 local test_against = require("build.test_against")
 local test_key = require("build.test_key")
 local type State = require("build.test_state")
@@ -4013,9 +4014,12 @@ end
 
 --- A bench run's result, on stdout, in the order of the benches' names: a line of each bench's fastest and median
 --- ns per operation ([`Bench.line`]), or with `--json` a JSON object of each on a line of its own ([`Bench.record`]).
-local function say_timings(ctx: Run)
+--- Each timed batch is kept in the results store ([`build.results`]) as a round of one arm, "this": what failed
+--- to keep it, or "".
+local function say_timings(ctx: Run): string
   local ask, timings = ctx.bench, assert(ctx.rec).timings
-  if ask == nil or timings == nil then return end
+  if ask == nil or timings == nil then return "" end
+  local kept: mut {results.Sample} = {}
   local names: mut {string} = {}
   local width = 0
   for name in pairs(timings) do
@@ -4030,10 +4034,26 @@ local function say_timings(ctx: Run)
     for i, ns in ipairs(timed.batches) do samples[i] = ns / timed.n end
     local timing = Bench.timing(name, timed.n, samples, timed.bytes)
     lines[#lines + 1] = if ask.json then Bench.record(timing) else Bench.line(timing, width) end
+    for rep, ns in ipairs(samples) do
+      kept[#kept + 1] = { bench = name, rep = rep, ns_per_op = ns, n = timed.n, bytes = timed.bytes }
+    end
   end
   if #lines > 0 then
     local _, _ = Fs.put(Fs.stdout, table.concat(lines, "\n") .. "\n")
   end
+  local handle = ctx.handle
+  if #kept == 0 or handle == nil then return "" end
+  local binary, binary_trouble = Proc.executable()
+  if binary == nil then return "results: this cosmic's path: " .. tostring(binary_trouble) end
+  local path = results.path(handle.dir)
+  local db, open_trouble = results.open(path)
+  if db == nil then return open_trouble end
+  local id, keep_trouble = results.keep_bench(db, { started_ns = ctx.run_at_ns,
+    arms = { { name = "this", path = binary, samples = kept } } })
+  local _, _ = db:close()
+  if id == nil then return keep_trouble end
+  log:say("test: bench: kept round " .. id .. " in " .. path)
+  return ""
 end
 
 --- The run's summary said, last on stdout, with the skips, failures and
@@ -4043,7 +4063,8 @@ local function report(ctx: Run): integer
   local failures, errors = assert(ctx.failures), assert(ctx.errors)
   local total, started = assert(ctx.total), assert(ctx.started)
   local refused = assert(ctx.refusals)
-  say_timings(ctx)
+  local unkept = say_timings(ctx)
+  if unkept ~= "" then errors[#errors + 1] = unkept end
   if #failures == 0 and #errors == 0 and #refused == 0 then
     if total == 0 then
       log:say("test: nothing to run: a test is a top-level `local function " ..
