@@ -77,6 +77,9 @@ to the bytes one operation reads for a rate in GB/s.
   so a bench that writes files starts each batch from nothing.
 - A helper whose name starts with `bench_` is taken as a bench; name it
   otherwise (`sample_repo`, not `bench_repo`).
+- A bench beside a `fuzz_*` property can time the module on the inputs
+  the property is checked on: [`Fuzz.inputs`] returns its corpus and
+  the first `n` inputs a run draws, from the same seed.
 
 doc/decisions/0002-one-companion-one-runner.md says why a bench is a
 function of a test file.
@@ -1037,6 +1040,9 @@ the full contract.
 - Once a failure is fixed, keep its input in
   `testdata/fuzz/<property>/` as the report says. `run` checks that
   corpus before it draws.
+- [`Fuzz.inputs`] gives another body of the file a property's inputs:
+  its corpus, in name order, then the first `n` inputs a run draws. A
+  bench uses them, so a kept failure is a bench input as well as a test.
 
 ## a change to the checker's verdicts
 
@@ -1487,6 +1493,7 @@ Other rules:
 [`Fake.place`]: ../cosmic/fake/init.tl
 [`Fake.reply`]: ../cosmic/fake/init.tl
 [`Fs.mkdtemp`]: ../cosmic/fs.tl
+[`Fuzz.inputs`]: ../cosmic/fuzz.tl
 [`Fuzz.label`]: ../cosmic/fuzz.tl
 [`Fuzz.more`]: ../cosmic/fuzz.tl
 [`Fuzz.run`]: ../cosmic/fuzz.tl
