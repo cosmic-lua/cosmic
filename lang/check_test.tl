@@ -234,11 +234,10 @@ local CASES <const>: {Case} = {
       "or discard them on purpose: `local _, _ = f()`",
   },
   {
-    code = "alternatives_as_value",
+    -- The first value alone of lists told apart by a nil first value is optional: the failure is dropped.
+    code = "nil_not_allowed",
     source = "local f: function(): (integer) | (nil, string) = function() return 1 end\nlocal x = f() + 1\n",
-    msg = "`f()` answers one of 2 lists of values, which is no value",
-    fix = "bind its values and test the first (`local v, why = f()`), take the value with `f()!`, which raises where it " ..
-      "fails, or match the call: `match f() do | ... end`",
+    msg = "`f()` is `integer?`, so it may be nil", fix = "take the value with `local v = f()!`",
   },
   {
     -- `pcall(f)!` would raise what `pcall` caught: `!` is not offered for it.
@@ -3017,13 +3016,13 @@ local function test_a_range_as_long_as_its_string_or_not_literal_is_not_a_dead_t
 end
 
 local function test_a_json_value_refusal_names_what_to_take_instead()
-  local source = "local function decode(t: string): (integer) | (nil, string) return 1 end\n" ..
+  local source = "local function decode(t: string): (true, integer) | (false, string) return true, 1 end\n" ..
     "local Json = { decode = decode }\nlocal text = \"{}\"\nlocal v = Json.decode(text) + 1\nprint(v)\n"
   local fix = error_of(source, "alternatives_as_value").fix
   assert(has(fix, "`Json.decode_object(text)!`") and has(fix, "`Json.read_object(path)!`") and
       has(fix, "`Json.string_of(v)`") and has(fix, "`Shape.decode_into(text, spec)`"), fix)
   -- another call is told none of it
-  assert(not has(error_of("local f: function(): (integer) | (nil, string) = function() return 1 end\nlocal x = f() + 1\n",
+  assert(not has(error_of("local f: function(): (true, integer) | (false, string) = function() return true, 1 end\nlocal x = f() + 1\n",
     "alternatives_as_value").fix, "Json"))
 end
 

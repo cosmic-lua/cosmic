@@ -1006,6 +1006,13 @@ the locals ends this narrowing.
   failure. Any other shape is refused (`alternatives_as_value`). So
   where the value may be `false` (`(boolean) | (nil, E)`), test it
   against `nil`.
+- Where Lua keeps the first value alone (one name, `local text =
+  f()`; an operand; an argument before the last), a call whose lists
+  are told apart by a nil first value gives that value as an optional,
+  and the failure is dropped: `local text = Fs.read(path)` is a
+  `string?`, and `assert(f(), "message")` passes the value. A call
+  whose lists are told apart by `false`, as `pcall`'s are, has no such
+  value (`alternatives_as_value`).
 - A call that may return a failure cannot be a statement on its own
   (`failure_ignored`). Bind its results, match it, or discard them on
   purpose with `local _, _ = f()`.
