@@ -529,7 +529,7 @@ local function apply_method(ctx: Ctx, node: Ast.MethodCall, object: Type, expect
       -- An optional method that a test showed is there (`if a.cb ~= nil then a:cb() end`): the place `a.cb` holds the fact.
       local base = path_key(ctx, node.object)
       if base ~= nil then
-        local fact = ctx.flow.facts[base .. "." .. node.name]
+        local fact = Flow.fact(ctx.flow, base .. "." .. node.name)
         if fact ~= nil then
           ft = fact.type
         end
@@ -586,9 +586,9 @@ local function read_name(ctx: Ctx, e: Ast.Name, expected: Type?): Type
           length = Lexer.length(tokens, v.declared) } else nil end)
     ctx.flow = Flow.assigned(ctx.flow, id)
   end
-  if next(ctx.flow.facts) ~= nil then
+  if Flow.has_facts(ctx.flow) then
     local key = path_key(ctx, e)
-    local fact = key ~= nil and ctx.flow.facts[key] or nil -- checked: and_ternary
+    local fact = key ~= nil and Flow.fact(ctx.flow, key) or nil -- checked: and_ternary
     if fact ~= nil then
       Narrowing.note_narrowed(ctx, e, fact.declared, fact.type)
       return fact.type
@@ -643,7 +643,7 @@ local function apply(ctx: Ctx, n: Ast.Exp, t: Type, expected: Type?, wants_lists
     Writes.note_move(ctx, n, base, n.name)
     if ctx.flow.paths > 0 and read.tag ~= "invalid" then
       local key = path_key(ctx, n)
-      local fact = key ~= nil and ctx.flow.facts[key] or nil -- checked: and_ternary
+      local fact = key ~= nil and Flow.fact(ctx.flow, key) or nil -- checked: and_ternary
       if fact ~= nil then
         Narrowing.note_narrowed(ctx, n, fact.declared, fact.type)
         return fact.type, nil
@@ -675,7 +675,7 @@ local function apply(ctx: Ctx, n: Ast.Exp, t: Type, expected: Type?, wants_lists
     if wants_lists then
       return ctx.invalid, alts
     end
-    return first_value(ctx, n, alts), nil
+    return ValueLists.kept_value(ctx, n, alts), nil
   elseif (n.kind == "MethodCall") then
     local saved = ctx.lenient
     ctx.lenient = 0
@@ -686,7 +686,7 @@ local function apply(ctx: Ctx, n: Ast.Exp, t: Type, expected: Type?, wants_lists
     if wants_lists then
       return ctx.invalid, alts
     end
-    return first_value(ctx, n, alts), nil
+    return ValueLists.kept_value(ctx, n, alts), nil
   elseif (n.kind == "IsTest") then
     return Operators.is_test(ctx, n, t), nil
   elseif (n.kind == "Cast") then
@@ -827,7 +827,16 @@ local function check_counts(ctx: Ctx, node: Ast.Node, n: integer, vals: Values, 
   local given = #vals.types
   local open = vals.tail ~= nil or vals.lists ~= nil
   local several, last = vals.lists, vals.last
-  if several ~= nil and last ~= nil and n == 1 then
+  if several ~= nil and last ~= nil and n == 1 and written == 1 then
+    -- One name keeps the first value alone: `string?` from `Fs.read(path)`, or refused where the lists are not told apart.
+    local first = ValueLists.kept_value(ctx, last, several)
+    if first.tag == "invalid" then
+      return false
+    end
+    vals.types[1] = first
+    vals.lists = nil
+    return true
+  elseif several ~= nil and last ~= nil and n == 1 then
     local _ = first_value(ctx, last, several)
     return false
   end
@@ -1113,17 +1122,28 @@ local function local_statement(ctx: Ctx, s: Ast.Local)
       end
     end
   end
-  local lit = if next(wants) == nil then Unfilled.candidate(ctx, s) else nil end
-  if lit ~= nil then
-    local b = assert(s.bindings[1], "one binding")
-    Unfilled.declare(ctx, b.id, lit)
-    declare_local(ctx, b.id, false)
-    return
+  local unfilled: mut {integer: boolean} = {}
+  if next(wants) == nil then
+    for i, b in ipairs(s.bindings) do
+      local lit = Unfilled.candidate(ctx, s, i)
+      if lit ~= nil then
+        Unfilled.declare(ctx, b.id, lit)
+        unfilled[i] = true
+      end
+    end
+    if unfilled[1] == true and #s.bindings == 1 and #s.values == 1 then
+      declare_local(ctx, assert(s.bindings[1], "one binding").id, false)
+      return
+    end
   end
   local reported = #ctx.errors
   local vals = values_of(ctx, s.values, wants, nil)
   local counted = check_counts(ctx, s, n, vals, s.values, "name")
   for i, b in ipairs(s.bindings) do
+    if unfilled[i] == true then
+      declare_local(ctx, b.id, false)
+      continue
+    end
     local t = value_at(ctx, vals, i)
     local want = wants[i]
     local written = s.values[i]
@@ -1506,7 +1526,7 @@ local function assign_statement(ctx: Ctx, s: Ast.Assign)
     end
     if id ~= nil then
       -- The drop is told to a later use only where it took away a test that showed the value was not nil.
-      local fact = ctx.flow.facts[id_key(ctx, id)]
+      local fact = Flow.fact(ctx.flow, id_key(ctx, id))
       local told = (fact ~= nil and not nilable(fact.type)) or ctx.flow.paths > 0 or next(ctx.flow.lens) ~= nil
       local tokens, at = ctx.tokens, base_of(target).first
       ctx.flow = Flow.assign(ctx.flow, id, if told then
@@ -1798,7 +1818,7 @@ local ROUNDS <const> = 6
 --- entry knows nothing has no head to settle.
 local function run_loop(ctx: Ctx, entry: Flow.State, walk: function(head: Flow.State): Flow.State, Flow.State): Flow.State
   local head = entry
-  if next(entry.facts) ~= nil or next(entry.lens) ~= nil or entry.unsets > 0 then
+  if Flow.has_facts(entry) or next(entry.lens) ~= nil or entry.unsets > 0 then
     ctx.quiet = ctx.quiet + 1
     local round = 0
     while true do
@@ -2675,7 +2695,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
     end, function(_node: Ast.Node, _spelled: string, _found: LoadOrder.Found) end),
     literals = {}, spreads = {}, tags = {}, declared = {}, union_fields = {}, spine = {},
     ternaries = {}, right_types = {}, spare = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, string_subs = {}, annotated = {}, assigning = {}, quiet = 0, proving = 0, closers = 0, callee_module = "", member_module = "", moves = {},
-    loops = {}, ranges = {}, map_reads = {}, keys = {}, edges = {}, guards = {}, ties = {}, coroutine_reads = {}, top = tops, module_table = module_table(input, lowered), initialized = {}, given = {}, handed = false, reads = {}, unfixed = {}, narrowed = {}, inert = {}, runs = {}, inferred = {}, boundaries = {}, types = {}, callees = {}, consts = {}, unread_schemas = {}, unfilled = {}, unfilled_n = 0, call_columns = {}, row_lists = {}, row_columns = {}, starts = {}, library = {}, typed = typed ~= false, warnings = {},
+    loops = {}, ranges = {}, map_reads = {}, keys = {}, edges = {}, guards = {}, ties = {}, coroutine_reads = {}, top = tops, module_table = module_table(input, lowered), initialized = {}, given = {}, handed = false, reads = {}, unfixed = {}, narrowed = {}, inert = {}, runs = {}, inferred = {}, boundaries = {}, types = {}, callees = {}, consts = {}, unread_schemas = {}, unfilled = {}, unfilled_literals = {}, unfilled_n = 0, call_columns = {}, row_lists = {}, row_columns = {}, starts = {}, library = {}, typed = typed ~= false, warnings = {},
     unite = function(a: Type, b: Type): Type
       return store:union({ a, b })
     end,

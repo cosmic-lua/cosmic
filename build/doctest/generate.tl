@@ -28,6 +28,8 @@ local record Example
   --- content, in doc order, joined with a blank line between them when
   --- rendered.
   statements: mut {string}
+  --- The doc line each of `statements` starts at, in the same order.
+  starts: mut {integer}
   mut has_output: boolean
   --- The `output` block's own text, exactly as authored; comparison
   --- semantics (right-trimmed, otherwise exact) live in `render`.
@@ -229,6 +231,7 @@ local function to_items(blocks: {Block}): {Item}?, string
       local example: Example = {
         files = pending_files,
         statements = {},
+        starts = {},
         has_output = false,
         output_text = "",
         name = "",
@@ -287,10 +290,12 @@ local function to_items(blocks: {Block}): {Item}?, string
             ": 'teal continue' cannot continue a sh block"
         end
         current.statements[#current.statements + 1] = b.content
+        current.starts[#current.starts + 1] = b.line + 1
       else
         local example: Example = {
           files = pending_files,
           statements = { b.content },
+          starts = { b.line + 1 },
           has_output = false,
           output_text = "",
           name = "",
@@ -368,7 +373,13 @@ local function emit_example(out: mut {string}, file: string, example: Example)
   if example.has_output then
     out[#out + 1] = "  local __doctest_get = __doctest_capture()"
   end
-  for _, statement in ipairs(example.statements) do
+  for i, statement in ipairs(example.statements) do
+    -- Tells [`doctest.relocate`] which doc lines the next lines are, so that an error
+    -- in them names the doc's own line.
+    local count = 0
+    for _ in String.lines(statement) do count = count + 1 end
+    local marker = "  -- doc " .. tostring(example.starts[i]) .. " " .. tostring(count)
+    out[#out + 1] = marker
     emit_indented(out, statement)
   end
   for _, command in ipairs(example.commands or {}) do

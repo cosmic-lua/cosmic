@@ -74,12 +74,22 @@ return {
       ["build.boot"] = [=[
         local helper = require("build.helper")
         return function(root, argv, source)
+          -- LATE names a module this run requires as it runs, not as it loads.
+          local late = require("cosmic.sys").getenv("LATE") or ""
+          -- "raise" requires one and raises, as a boot that fails does.
+          if late == "raise" then
+            require("build.late_a")
+            error("the boot raised here", 0)
+          end
+          if late ~= "" then require("build." .. late) end
           local ok, err = pcall(require, "build.refused")
           if ok then return 3 end
           return tostring(err):find("refused by the generator", 1, true) and 7 or 4
         end
       ]=],
       ["build.helper"] = "return {}",
+      ["build.late_a"] = "return {}",
+      ["build.late_b"] = "return {}",
     }
     return { module = function(name)
       count = count + 1
@@ -118,7 +128,7 @@ end
 
 --- Boots `tree` with `tmp`'s seed; the cache is off unless `cache` names its file.
 local function boot(tmp: string, tree: string, cache?: string, declaration?: string, mid_run?: string,
-                    bootstrap?: string): Booted
+                    bootstrap?: string, late?: string): Booted
   local core = tmp .. "/cosmic-core"
   if not assert(Fs.status(core)).exists then
     local trusted = assert(artifact.trusted_core())
@@ -126,7 +136,7 @@ local function boot(tmp: string, tree: string, cache?: string, declaration?: str
   end
   local ran = assert(Child.run({ core, "--boot", tree, tmp .. "/seed", "status" },
     { env = { COSMIC_BRIDGE_TRACE = "1", COSMIC_BUILD_CACHE = cache or "0", DECL = declaration or "x",
-      MID_RUN = mid_run or "", COSMIC_BOOTSTRAP = bootstrap or "" },
+      MID_RUN = mid_run or "", COSMIC_BOOTSTRAP = bootstrap or "", LATE = late or "" },
       stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60), capture_limit = 1 << 24 }))
   local trace, rest = split_trace(ran.stderr or "")
   return { code = ran.code, stdout = ran.stdout or "", trace = trace, stderr = rest }
@@ -242,6 +252,48 @@ local function warmed(tmp: string, declaration?: string): string
   assert(seen(again):find("stage two: taken from the cache", 1, true) and
       seen(again):find("build.boot loaded: 0 modules compiled", 1, true), seen(again))
   return tree
+end
+
+--- A module build.boot requires as it runs is in the row, as its closure is: the second boot compiles nothing.
+local function test_a_module_loaded_as_build_boot_runs_is_kept_in_the_row(tmp: string)
+  local tree = tree_of(tmp, ENTRY)
+  local cache = tmp .. "/cache.db"
+  local first = boot(tmp, tree, cache, nil, nil, nil, "late_a")
+  assert(first.code == 7, "exit " .. tostring(first.code) .. ": " .. first.stderr)
+  assert(seen(first):find("build.boot ran: [1-9]%d* modules compiled") ~= nil, seen(first))
+  local second = boot(tmp, tree, cache, nil, nil, nil, "late_a")
+  assert(second.code == 7, "exit " .. tostring(second.code) .. ": " .. second.stderr)
+  assert(seen(second):find("build.boot ran: 0 modules compiled", 1, true), seen(second))
+end
+
+--- A row hit that lacks a module the run loads is written again with it, and keeps the modules this run did not load:
+--- boots that each load another module stop compiling once each has run.
+local function test_a_row_hit_that_lacks_a_module_keeps_it_beside_the_rest(tmp: string)
+  local tree = tree_of(tmp, ENTRY)
+  local cache = tmp .. "/cache.db"
+  boot(tmp, tree, cache, nil, nil, nil, "late_a")
+  local other = boot(tmp, tree, cache, nil, nil, nil, "late_b")
+  assert(other.code == 7, "exit " .. tostring(other.code) .. ": " .. other.stderr)
+  assert(seen(other):find("build.boot ran: 1 modules compiled", 1, true), seen(other))
+  for _, late in ipairs({ "late_a", "late_b" }) do
+    local again = boot(tmp, tree, cache, nil, nil, nil, late)
+    assert(again.code == 7, late .. ": exit " .. tostring(again.code) .. ": " .. again.stderr)
+    assert(seen(again):find("build.boot ran: 0 modules compiled", 1, true), late .. ": " .. seen(again))
+  end
+end
+
+--- A boot that raises still writes the row, holding what it loaded before it raised, and its error reaches the caller
+--- as it raised it.
+local function test_a_boot_that_raises_keeps_its_row_and_its_error(tmp: string)
+  local tree = tree_of(tmp, ENTRY)
+  local cache = tmp .. "/cache.db"
+  local raised = boot(tmp, tree, cache, nil, nil, nil, "raise")
+  assert(raised.code ~= 0 and raised.code ~= 7, "exit " .. tostring(raised.code) .. ": " .. raised.stderr)
+  assert(raised.stderr:find("the boot raised here", 1, true), raised.stderr)
+  assert(seen(raised):find("build.boot ran: [1-9]%d* modules compiled") ~= nil, seen(raised))
+  local again = boot(tmp, tree, cache, nil, nil, nil, "late_a")
+  assert(again.code == 7, "exit " .. tostring(again.code) .. ": " .. again.stderr)
+  assert(seen(again):find("build.boot ran: 0 modules compiled", 1, true), seen(again))
 end
 
 local function test_an_edit_of_the_bridge_makes_stage_two_again(tmp: string)

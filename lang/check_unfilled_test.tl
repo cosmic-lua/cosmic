@@ -69,8 +69,19 @@ end
 local function test_a_table_read_before_a_store_has_no_type()
   refused("local a = {}\nprint(#a)\n", "literal_needs_type", "`a` is read before anything is stored in it")
   refused("local a = {}\na.x = 1\n", "literal_needs_type", "`a` is read before anything is stored in it")
-  refused("local a = {}\n", "literal_needs_type", "this literal has no items and no type to make it from")
   refused("local b = {}\nb[1] = nil\n", "literal_needs_type", "the first value stored in this table is `nil`")
+end
+
+local function test_a_table_never_used_is_left_as_it_is()
+  accepted("local seen = {}\nprint(1)\n")
+  accepted("local function f()\n  local unused = {}\nend\nf()\n")
+end
+
+local function test_one_of_several_locals_may_be_unfilled()
+  typed("local total, out = 0, {}\nout[#out + 1] = \"a\"\nprint(total)\n", "out", "mut {string}")
+  typed("local total, out = 0, {}\nout[#out + 1] = \"a\"\nprint(total)\n", "total", "integer")
+  typed("local a, b = {}, {}\na[1] = 1\nb[\"x\"] = true\n", "b", "mut {string: boolean}")
+  refused("local a, b = {}, 2\nprint(#a, b)\n", "literal_needs_type", "`a` is read before anything is stored in it")
 end
 
 local function test_a_passed_table_takes_the_type_the_parameter_wants()

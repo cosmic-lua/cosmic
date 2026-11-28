@@ -306,7 +306,8 @@ function TableLiterals.literal_inferred(ctx: Ctx, e: Ast.Table): Type
   local items = e.items
   local shape = TableLiterals.shape_of(items)
   if shape == "empty" then
-    if ctx.lenient > 0 then
+    -- The literal of an unfilled local takes its type from the first store ([`lang.check.unfilled`]).
+    if ctx.lenient > 0 or ctx.unfilled_literals[e.id] == true then
       return ctx.invalid
     end
     report(ctx, "literal_needs_type", e, "this literal has no items and no type to make it from",

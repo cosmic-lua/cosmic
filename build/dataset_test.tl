@@ -351,7 +351,7 @@ end
 --- `_json`, and read here past them, into the same table.
 local function test_load_text_copies_a_csv_up_to_500_fields()
   for _, width in ipairs({ 500, 501 }) do
-    local header, row = {}, {} -- checked: literal_needs_type*2
+    local header, row = {}, {}
     for column = 1, width do
       header[column] = "c" .. tostring(column)
       row[column] = tostring(column)

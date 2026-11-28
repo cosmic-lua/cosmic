@@ -46,11 +46,9 @@ local logger = require("build.logger")
 local Proc = require("cosmic.proc")
 local progress = require("build.progress")
 local Sqlite = require("cosmic.sqlite")
-local Ast = require("lang.ast")
 local tree_build = require("build.tree_checks.build")
 local tree_checked = require("build.tree_checks.checked")
 local tree_ci = require("build.tree_checks.ci")
-local tree_common = require("build.tree_checks.common")
 local tree_declares = require("build.tree_checks.declares")
 local tree_pipeline = require("build.tree_checks.pipeline")
 local tree_docs = require("build.tree_checks.docs")
@@ -62,22 +60,15 @@ local type Build = build_schema.Build
 local log = logger.log
 
 local record tree_checks
-  --- What [`tree_checks.read_off`] keeps of a file's parse for the plurals check: the plurals found in one text.
+  --- What `cosmic fix` keeps of a file's parse for the plurals check ([`build.fix.read`]): the plurals found in one text.
   type Plurals = tree_docs.Plurals
-
-  --- What the checks of the tree keep of a file's parse ([`tree_checks.knows`]): what it requires and, for a test
-  --- file, its early returns.
-  record Known
-    requires: {string}
-    returns?: {{string}}
-  end
 
   --- What a run of every check of the tree is given ([`tree_checks.whole`]).
   record Whole
     --- The root of cosmic's own tree.
     root: string
     standing: tree_standing.Standing
-    --- The plurals `cosmic fix` found in the files it parsed ([`tree_checks.read_off`]), by path from the root.
+    --- The plurals `cosmic fix` found in the files it parsed ([`build.fix.read`]), by path from the root.
     plurals?: {string: Plurals}
     --- Whether the run leaves the stale markers for the caller to remove, rather than naming them as findings.
     mends: boolean
@@ -176,7 +167,7 @@ local run_copy_bytes <const> = 256 * 1024 * 1024
 ---   docs` shows read; `db` itself when not given
 --- @param help what `cosmic help` prints ([`build.help_source`]' `texts`),
 ---   whose references are checked with the docs'; none when not given
---- @param read the plurals already found in files' texts, as [`tree_checks.read_off`] keeps them
+--- @param read the plurals already found in files' texts, as [`build.fix.read`] keeps them
 --- @param reopen where given, opens `db` and `carried` again for a copy of the process ([`build.compile_fanout`]), which
 ---   cannot use the process's own connections: the checks then run in copies, each its share, and a copy that does not
 ---   end well leaves its checks to the process. The lines are the same either way.
@@ -235,28 +226,6 @@ function tree_checks.run(db: Build, quickstart: string?, extra?: {{string}}, car
     end
   end
   return out
-end
-
---- Keeps what `chunk`, `cosmic fix`'s parse of `source` as the text of `file`, tells the checks of the tree, so that they
---- do not parse the file again: what it requires, a test's early returns, and the plurals of its texts, which it
---- returns (nil for none) for the caller to pass to [`tree_checks.whole`].
---- Keeps what the text `source` of `file` requires, and its early returns, for the checks of the tree later in the run,
---- as [`tree_checks.read_off`] does from a parse: what a memo of that read holds ([`build.fix.read_memo`]).
-function tree_checks.knows(source: string, file: string, requires: {string}, returns?: {{string}})
-  tree_common.knows(source, file, requires, returns)
-end
-
---- What [`tree_checks.read_off`] or [`tree_checks.knows`] kept of the text `source` of `file`, nil where it kept none.
-function tree_checks.known_of(source: string, file: string): tree_checks.Known?
-  local requires, returns = tree_common.known_of(source, file)
-  if requires == nil then return nil end
-  return { requires = requires, returns = returns }
-end
-
-function tree_checks.read_off(file: string, source: string, chunk: Ast.Chunk): tree_checks.Plurals?
-  tree_common.knows_parse(source, file, chunk)
-  while file:sub(1, 2) == "./" do file = file:sub(3) end
-  return tree_docs.plurals_in(file, source, chunk)
 end
 
 --- Whether `path`, a file's path under the root, is a module of the standard library, which the tree's checks hold to

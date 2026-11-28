@@ -55,6 +55,10 @@ local CASES <const>: {Case} = {
     fix = "take the value with `local v = find()!`, or test it first",
   },
   {
+    code = "nil_not_allowed", source = "local x = 1\nx = x + nil\n", at = { line = 2, column = 9 },
+    msg = "`nil` is nil, and `+` takes numbers", fix = "`nil` is always nil, so no test helps",
+  },
+  {
     code = "nil_not_allowed", source = "local s: string = nil\n",
     msg = "nil is given as the value of `s`, where `string` is wanted", fix = "declare what takes it `string?`",
   },
@@ -234,11 +238,10 @@ local CASES <const>: {Case} = {
       "or discard them on purpose: `local _, _ = f()`",
   },
   {
-    code = "alternatives_as_value",
+    -- The first value alone of lists told apart by a nil first value is optional: the failure is dropped.
+    code = "nil_not_allowed",
     source = "local f: function(): (integer) | (nil, string) = function() return 1 end\nlocal x = f() + 1\n",
-    msg = "`f()` answers one of 2 lists of values, which is no value",
-    fix = "bind its values and test the first (`local v, why = f()`), take the value with `f()!`, which raises where it " ..
-      "fails, or match the call: `match f() do | ... end`",
+    msg = "`f()` is `integer?`, so it may be nil", fix = "take the value with `local v = f()!`",
   },
   {
     -- `pcall(f)!` would raise what `pcall` caught: `!` is not offered for it.
@@ -426,7 +429,7 @@ local CASES <const>: {Case} = {
     msg = "the key 1 is written twice in this literal", fix = "remove the second 1, or give the two different keys",
   },
   {
-    code = "literal_needs_type", source = "local t = {}\n", at = { line = 1, column = 11 },
+    code = "literal_needs_type", source = "local n = #{}\nlocal _ = n\n", at = { line = 1, column = 12 },
     msg = "this literal has no items and no type to make it from", fix = "declare the type: `local name: mut {T} = {}`",
   },
   {
@@ -756,6 +759,32 @@ local function test_the_default_of_a_value_a_test_made_non_nil_is_deleted_not_ma
   assert(has(bare.fix, "write the test: `n ~= 0`"), bare.fix)
   local text = first_error("local s = \"a\"\nlocal t = s or \"b\"\n", "condition_type")
   assert(has(text.fix, "delete `or ...`") and not has(text.fix, "~="), text.fix)
+end
+
+--- A probe of a module's table (`Http and nil`, `if Fs then`) always holds: it is taken, and `and` answers the right.
+local function test_a_module_table_is_a_condition_that_always_holds()
+  local module = { ["m.fs"] = "local record Fs\n  x: integer\nend\nreturn Fs\n" }
+  for _, source in ipairs({
+      "local Fs = require(\"m.fs\")\nlocal r = Fs and nil\nlocal s: string = Fs and \"a\"\nif Fs then\n  print(r, s)\nend\n",
+      "local Fs = require(\"m.fs\")\nwhile not Fs do\nend\n",
+  }) do
+    local r = Programs.run(source, module)
+    assert(#r.before == 0 and #r.errors == 0, Programs.codes(r) .. " in\n" .. source)
+  end
+  -- A default of it is still never used, and a function is still no condition.
+  local r = Programs.run("local Fs = require(\"m.fs\")\nlocal t = Fs or 1\nprint(t)\n", module)
+  assert(Programs.codes(r) == "condition_type", Programs.codes(r))
+  local f = first_error("local function g() end\nif g then\nend\n", "condition_type")
+  assert(has(f.fix, "never false"), f.fix)
+end
+
+--- `or` of a boolean and a `true?` (an effect's `(true) | (nil, Failure)`) is a `true?`, and a condition.
+local function test_a_boolean_or_an_optional_true_is_a_condition()
+  local r = Programs.run("local function f(): true?\n  return true\nend\nlocal why: string? = nil\nlocal ok = f()\n" ..
+      "if why == nil or ok then\n  print(1)\nend\n")
+  assert(#r.before == 0 and #r.errors == 0, Programs.codes(r))
+  local maybe = first_error("local function f(b: boolean, c: boolean?): boolean\n  return b or c\nend\n", "or_mix")
+  assert(has(maybe.msg, "`or` of a boolean and another type"), maybe.msg)
 end
 
 local function test_a_needless_default_of_an_index_read_says_what_made_it_never_nil()
@@ -3017,13 +3046,13 @@ local function test_a_range_as_long_as_its_string_or_not_literal_is_not_a_dead_t
 end
 
 local function test_a_json_value_refusal_names_what_to_take_instead()
-  local source = "local function decode(t: string): (integer) | (nil, string) return 1 end\n" ..
+  local source = "local function decode(t: string): (true, integer) | (false, string) return true, 1 end\n" ..
     "local Json = { decode = decode }\nlocal text = \"{}\"\nlocal v = Json.decode(text) + 1\nprint(v)\n"
   local fix = error_of(source, "alternatives_as_value").fix
   assert(has(fix, "`Json.decode_object(text)!`") and has(fix, "`Json.read_object(path)!`") and
       has(fix, "`Json.string_of(v)`") and has(fix, "`Shape.decode_into(text, spec)`"), fix)
   -- another call is told none of it
-  assert(not has(error_of("local f: function(): (integer) | (nil, string) = function() return 1 end\nlocal x = f() + 1\n",
+  assert(not has(error_of("local f: function(): (true, integer) | (false, string) = function() return true, 1 end\nlocal x = f() + 1\n",
     "alternatives_as_value").fix, "Json"))
 end
 

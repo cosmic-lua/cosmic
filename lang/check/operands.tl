@@ -89,7 +89,8 @@ function Operands.bad_operand(ctx: Ctx, node: Ast.Node, t: Type, op: string, tak
           "is bounded by `Ordered` alone, which compares two of its values"
           else "ranges over every type" end) .. ", and " .. quoted(op) .. " takes " .. takes, bound_fix, { name })
   elseif nilable(t) then
-    report(ctx, "nil_not_allowed", node, s .. " is " .. tq(ctx, t) .. ", so it may be nil, and " .. quoted(op) .. " takes " .. takes,
+    local said = if (peel(node).kind == "Nil") then " is nil," else " is " .. tq(ctx, t) .. ", so it may be nil," end
+    report(ctx, "nil_not_allowed", node, s .. said .. " and " .. quoted(op) .. " takes " .. takes,
       nil_fix(ctx, node, t), { show(ctx, t) }, nil, Naming.must(ctx, node))
   else
     report(ctx, "operand_type", node, s .. " is " .. tq(ctx, t) .. ", and " .. quoted(op) .. " takes " .. takes, fix,
@@ -265,7 +266,8 @@ function Operands.only_boolean(ctx: Ctx, t: Type): boolean
   return is_bool(ctx.store:non_nil(t))
 end
 
---- What a condition of type `t` is: "bool", "opt" (a `T?` for a `T` that is not a boolean), or "bad" after the error.
+--- What a condition of type `t` is: "bool", "opt" (a `T?` for a `T` that is not a boolean), "true" (the table of a
+--- module or another declaration, which is always there), or "bad" after the error.
 --- `default` is the `or` whose left `node` is, which asks for a default: a value that is never nil there needs no test, and
 --- no default. `within` is the operator that holds `node`, where that is `and` or `not`: the value of the left of an
 --- `and` is the value of the whole, where `nil` and `false` are told apart, so a `boolean?` there has no rewrite to
@@ -295,6 +297,11 @@ function Operands.condition_kind(ctx: Ctx, node: Ast.Node, t: Type, default?: As
     report(ctx, "any_use", node, s .. " is untrusted data (`any`) and is used as a condition",
       "test its tag (`type(" .. text_of(ctx, node) .. ") == \"string\"`) or validate it, and use the checked value", { "any" })
     return "bad"
+  end
+  -- A probe of a module (`Http and nil`, `if Fs then`) asks whether the module is there, which its name already says:
+  -- the table of a declaration is always there, so the test always holds and hides no mistake.
+  if default == nil and (t.tag == "named") and t.value and peel(node).kind == "Name" then
+    return "true"
   end
   local fix = "remove the condition: " .. s .. " is never false"
   if (t.tag == "var") then

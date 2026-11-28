@@ -236,7 +236,7 @@ local function session_of(set: AgentMcp.Set, name: string): (McpClient.Session) 
   -- Its standard error is read while a call to it is out ([`draining`]), and the child queues it while its stdout is
   -- read; between calls the pipe holds what the server writes, and a server that fills it waits.
   local handle, why = Child.start(argv, { cwd = set.cwd, stdin = "stream", stdout = "stream", stderr = "stream",
-    policy = server.policy, timeout_ns = Child.FOREVER })
+    policy = server.policy, timeout_ns = Child.FOREVER, ends_with_parent = true })
   if handle == nil then
     return nil, Failure.new("starting the MCP server " .. name .. ": " .. tostring(why))
   end

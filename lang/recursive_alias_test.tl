@@ -350,6 +350,15 @@ local function test_a_literal_that_fits_no_arm_is_one_error_that_names_the_arms_
   refuses(HEAD .. "local a = take({ x = { y = { z = take } } })\nlocal _ = a\n", "not_assignable")
 end
 
+local function test_a_local_made_from_a_literal_of_named_items_is_a_value_of_the_alias()
+  -- The record inferred for the literal has its fields and no others, so it is the map of them.
+  takes(HEAD .. "local warm = { id = \"x\", usage = { n = 1 }, tags = { \"a\" } }\nlocal _ = take(warm)\n")
+  takes(HEAD .. "local function f(p: { x: integer }): string\n  return take(p)\nend\nlocal _ = f\n")
+  -- A field that is no value of the alias is still refused, and so is a declared record.
+  refuses(HEAD .. "local warm = { id = \"x\", f = print }\nlocal _ = take(warm)\n", "not_assignable")
+  refuses(HEAD .. "local record P\n  x: integer\nend\nlocal p: P = { x = 1 }\nlocal _ = take(p)\n", "not_assignable")
+end
+
 local function test_a_literal_with_no_items_or_mixed_items_has_no_arm_and_says_how_to_choose()
   local empty = refuses(HEAD .. "local a = take({})\nlocal _ = a\n", "literal_ambiguous")
   assert(empty.msg:find("no items", 1, true) ~= nil, empty.msg)

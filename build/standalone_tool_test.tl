@@ -254,9 +254,17 @@ local function test_a_name_of_a_cosmic_module_needs_no_require(tmp: string)
   assert(wrong.code ~= 0, tostring(wrong.stderr))
   local told = tostring(wrong.stderr)
   assert(told:find("-e:1:20:", 1, true) ~= nil and told:find("-e:1:43:", 1, true) ~= nil and told:find("`Nosuch` is not declared", 1, true) ~= nil, told)
-  -- A file with a `#!` line keeps it first: the refusal stays the one it had.
+  -- A name used as a type alone is bound as well.
+  local typed = run({ "-e", 'local v: Json.Value = 1\nprint(v)' })
+  assert(typed.code == 0 and typed.stdout == "1\n", tostring(typed.stdout) .. tostring(typed.stderr))
+  -- A file with a `#!` line keeps it first, and the names are bound on the line after it, told at the text's places.
   local shebang = tmp .. "/shebang.tl"
-  assert(Fs.write(shebang, '#!/usr/bin/env cosmic\nprint(Nosuch.x, Json.quote("x"))\n'))
+  assert(Fs.write(shebang, '#!/usr/bin/env cosmic\nprint(Json.quote("x"))\n'))
+  local ran = run({ "--standalone", shebang })
+  assert(ran.code == 0 and ran.stdout == '"x"\n', tostring(ran.stdout) .. tostring(ran.stderr))
+  assert(Fs.write(shebang, '#!/usr/bin/env cosmic\nlocal n: integer = Json.quote("x"); print(Nosuch.x)\n'))
   local refused = run({ "--standalone", shebang })
-  assert(refused.code ~= 0 and tostring(refused.stderr):find("`Nosuch` is not declared", 1, true) ~= nil, tostring(refused.stderr))
+  local said = tostring(refused.stderr)
+  assert(refused.code ~= 0 and said:find("`Nosuch` is not declared", 1, true) ~= nil, said)
+  assert(said:find("shebang.tl:2:20:", 1, true) ~= nil and said:find("shebang.tl:2:43:", 1, true) ~= nil, said)
 end

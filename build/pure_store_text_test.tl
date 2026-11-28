@@ -61,5 +61,5 @@ return function(argv: {string}): integer
   return #argv + size
 end
 ]])
-  assert(chunk == nil and trouble:find("(alternatives_as_value)", 1, true) ~= nil, trouble)
+  assert(chunk == nil and trouble:find("`string?`, where `integer` is wanted", 1, true) ~= nil, trouble)
 end

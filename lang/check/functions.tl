@@ -147,7 +147,7 @@ end
 
 --- The type of the place `key` in `f`: what it was narrowed to, else `declared`.
 local function fact_type(f: Flow.State, key: string, declared: Type): Type
-  local fact = f.facts[key]
+  local fact = Flow.fact(f, key)
   if fact ~= nil then
     return fact.type
   end

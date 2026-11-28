@@ -81,7 +81,14 @@ local function test_a_must_takes_the_value_or_raises()
   stands("local ok, why = pcall(function(): integer return parse(\"x\")! end)\n" ..
       "print(ok, tostring(why):find(\"not a number: x\", 1, true) ~= nil)\n", "false\ttrue")
   assert(type_of("local seen = parse(\"4\")!\n", "seen") == "integer")
-  refused("print(parse(\"4\") + 1)\n", "alternatives_as_value")
+  -- the first value alone is optional, so it is tested before it is used
+  refused("print(parse(\"4\") + 1)\n", "nil_not_allowed")
+  assert(type_of("local text = parse(\"4\")\n", "text") == "integer?")
+  stands("local n = parse(\"x\")\nif n == nil then\n  n = parse(\"4\")!\nend\nprint(n + 1)\n", "5")
+  stands("assert(parse(\"4\"), \"not a number\")\nprint(assert(parse(\"4\") and parse(\"5\")))\n", "5")
+  -- lists told apart by `false` keep no value alone
+  refused("local function g(): (true, integer) | (false, string)\n  return true, 1\nend\nlocal v = g()\nprint(v)\n",
+    "alternatives_as_value")
 end
 
 local function test_each_form_of_the_test_narrows()

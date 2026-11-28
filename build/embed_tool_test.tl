@@ -72,6 +72,19 @@ local function rows_of(path: string, sql: string): Sqlite.Rows
   return rows
 end
 
+--- A main that runs its code at the top level and returns nothing is refused at the build, with the shape that works: the
+--- binary would start and say only "the main module is not a function".
+local function test_build_refuses_a_main_that_returns_nothing(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/cmd/loud"))
+  assert(Fs.write(tmp .. "/cmd/loud/main.tl", "print(\"hi\")\n"))
+  local built = invoke.run({ "build", "--host" }, { cwd = tmp,
+    env = { COSMIC_BUILD_CACHE = "0", COSMIC_BUILD_HOME = assert(Env.get("COSMIC_BUILD_HOME")) } })
+  assert(built.code ~= 0, built.stdout .. built.stderr)
+  local said = built.stdout .. built.stderr
+  assert(said:find("cmd/loud/main.tl: a built program calls its main module, and this returns nothing", 1, true), said)
+  assert(said:find("return the function `function(argv: {string}): integer`", 1, true), said)
+end
+
 --- `cosmic build` prints each program it wrote, its bare path on a line of
 --- its own, for a caller to run.
 local function test_build_prints_the_path_of_each_program(tmp: string)

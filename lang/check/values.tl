@@ -85,6 +85,20 @@ function ValueLists.asserted(ctx: Ctx, alts: {Alt}, by_nil?: boolean): Alt?
   return passed
 end
 
+--- The first value of a call that answers `alts`, where Lua keeps that value alone (`local text = Fs.read(path)`, an
+--- argument before the last, an operand): an optional of the first value of the one list whose first value is never nil,
+--- where the first value of each other list is `nil`. So the value of `Fs.read(path)`, which answers `(string)` or
+--- `(nil, Failure)`, is `string?`, and the failure is dropped. Nil where the lists are not so told apart, as `pcall`'s
+--- are (`true` or `false` first).
+function ValueLists.optional_first(ctx: Ctx, alts: {Alt}): Type?
+  local passed = ValueLists.asserted(ctx, alts, true)
+  local first = if passed ~= nil then passed.items[1] else nil end
+  if first == nil then
+    return nil
+  end
+  return ctx.store:optional(first)
+end
+
 --- The one value a call returning `alts` gives where a value is wanted.
 function ValueLists.first_value(ctx: Ctx, node: Ast.Node, alts: {Alt}): Type
   if #alts == 0 then
@@ -120,6 +134,21 @@ function ValueLists.first_value(ctx: Ctx, node: Ast.Node, alts: {Alt}): Type
   report(ctx, "no_value", node, subject(ctx, node) .. " answers nothing, so it has no value here",
     "use the call as a statement, or call a function that answers a value")
   return ctx.invalid
+end
+
+--- The value of a call that answers `alts` where Lua keeps its first value alone: an operand, an argument before the
+--- last, a parenthesized call, the value of one name. Where the lists are told apart by a nil first value
+--- ([`ValueLists.optional_first`]), that is the optional of the value, and the failure is dropped; else as
+--- [`ValueLists.first_value`]. A call at the end of a list of values passes all its values, so it is not kept alone.
+function ValueLists.kept_value(ctx: Ctx, node: Ast.Node, alts: {Alt}): Type
+  if #alts > 1 and Naming.call(ctx, node):find("^x?pcall%(") == nil then
+    local optional = ValueLists.optional_first(ctx, alts)
+    if optional ~= nil then
+      ctx.spare[base_of(node).id] = true
+      return optional
+    end
+  end
+  return ValueLists.first_value(ctx, node, alts)
 end
 
 --- The types of the expressions of `list`, each checked with the type its position expects (`wants[i]`, else

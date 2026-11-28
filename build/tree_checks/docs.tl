@@ -7,9 +7,7 @@ local docs = require("build.docs")
 local Doc = require("cosmic.doc")
 local ErrorRender = require("build.error_render")
 local link_text = require("cosmic.internal.link_text")
-local Ast = require("lang.ast")
 local PluralSites = require("build.plural_sites")
-local SyntaxNode = require("build.syntax_node")
 local symbols = require("cosmic.internal.symbols")
 local String = require("cosmic.string")
 local _ = require("build.reads.all")
@@ -20,13 +18,8 @@ local type Build = build_schema.Build
 local nth = tree_common.nth
 
 local record tree_docs
-  --- What [`plurals`] finds in one text of a file, read off a parse made
-  --- before the checks ran ([`plurals_in`]).
-  record Plurals
-    --- The text the sites were found in.
-    source: string
-    sites: {{string}}
-  end
+  --- What [`plurals`] finds in one text of a file ([`PluralSites.found_in`]).
+  type Plurals = PluralSites.Plurals
 end
 
 --- The name of the record `source` returns, or nil for none: the returned
@@ -782,21 +775,6 @@ plural_exempt["build/patch.tl:matches"] = "runs on the bootstrap release " ..
 plural_exempt["build/zig_fetch.tl:attempts"] = "runs on the bootstrap release " ..
   "(bin/zig), which cannot require build.plural"
 
---- [`PluralSites.of_chunk`] of `source`, parsed as the new checker reads it.
-local function plural_sites(source: string, file: string): {{string}}?, string
-  local chunk, trouble = SyntaxNode.parse(source, file)
-  if chunk == nil then return nil, trouble end
-  return PluralSites.of_chunk(chunk), ""
-end
-
---- Whether the plural check reads `file`, a path from the tree's root: a Teal source under `build/`, `cmd/`, `cosmic/` or
---- `ci/cosmic_ci/` that is no test or declaration file.
-local function plural_file(file: string): boolean
-  return file:match("%.tl$") ~= nil and file:match("_test%.tl$") == nil and file:match("%.d%.tl$") == nil and
-    (file:match("^build/") ~= nil or file:match("^cmd/") ~= nil or file:match("^cosmic/") ~= nil or
-      file:match("^ci/cosmic_ci/") ~= nil)
-end
-
 --- The lines [`plurals`] says of `sources` (`{file, source}` pairs), and the `<file>:<noun>` keys found, which an exemption in
 --- `excused` matches; `read` as [`plurals`] takes it.
 local function plural_lines(sources: {{string}}, excused: {string: string}, read?: {string: tree_docs.Plurals}):
@@ -814,7 +792,7 @@ local function plural_lines(sources: {{string}}, excused: {string: string}, read
     elseif kept ~= nil and kept.source == source_text then
       sites = kept.sites
     else
-      sites, parse_trouble = plural_sites(source_text, file_name)
+      sites, parse_trouble = PluralSites.of_source(source_text, file_name)
     end
     if sites == nil then
       out[#out + 1] = (file_name or "?") .. ": cannot read it to check its plurals: " .. (parse_trouble or "")
@@ -836,17 +814,6 @@ local function plural_lines(sources: {{string}}, excused: {string: string}, read
   return out, found
 end
 
---- What [`plurals`] finds in `source`, the text of `file` (its path from the tree's root), read off `chunk`, the
---- caller's parse of it, or parsed here, so that the checks need not parse it again; nil for a file they do not read,
---- and for one that cannot be read, which [`plurals`] then says.
-function tree_docs.plurals_in(file: string, source: string, chunk?: Ast.Chunk): tree_docs.Plurals?
-  if not plural_file(file) then return nil end
-  if chunk ~= nil then return { source = source, sites = PluralSites.of_chunk(chunk) } end
-  local sites, _ = plural_sites(source, file)
-  if sites == nil then return nil end
-  return { source = source, sites = sites }
-end
-
 --- Every place in the Teal sources under `build/`, `cmd/` and
 --- `cosmic/` of `db` (a test's excepted), and in `extra` (`{file,
 --- source}` pairs, [`build.tree_checks.ci.ci_sources`]'s), that puts a literal plural noun
@@ -865,7 +832,7 @@ end
 --- (`name .. " needs"`) is passed over, and a count spelled by a name
 --- in front of a plural that is right for it (a count that cannot be 1)
 --- goes in `plural_exempt` with the reason.
---- @param read what [`plurals_in`] found before the checks, by file: a
+--- @param read what [`PluralSites.found_in`] found before the checks, by file: a
 ---   file whose text is the one read there is not parsed again
 function tree_docs.plurals(db: Build, extra?: {{string}}, excused?: {string: string},
                            read?: {string: tree_docs.Plurals}): {string}
@@ -900,7 +867,7 @@ function tree_docs.plurals_of(sources: {{string}}, excused?: {string: string}): 
   local read: mut {{string}} = {}
   for _, row in ipairs(sources) do
     local file = row[1]
-    if file ~= nil and plural_file(file) then read[#read + 1] = row end
+    if file ~= nil and PluralSites.read_by_check(file) then read[#read + 1] = row end
   end
   local out, _ = plural_lines(read, excused or plural_exempt)
   return out
