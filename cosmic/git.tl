@@ -174,8 +174,30 @@ local record Git
     head_ref: function(Repo): (string | false) | (nil, Failure)
     --- Commits newest first by committer time, as `git log` lists them.
     log: function(Repo, opts?: LogOptions): ({Commit}) | (nil, Failure)
+    --- The oid of a best common ancestor of the commits `a` and `b` name (each
+    --- as `rev` reads it), as `git merge-base a b` names one: false when they
+    --- share none. Where several are equally good (criss-cross merges) it is
+    --- the one newest by committer time. A shallow clone's cut-off commits
+    --- have no parents here, as in `log`.
+    merge_base: function(Repo, a: string, b: string): (string | false) | (nil, Failure)
+    --- Whether the repository is a shallow clone, as
+    --- `git rev-parse --is-shallow-repository`.
+    is_shallow: function(Repo): boolean
+    --- Every file under the tree of the commit `rev` names, by path from the
+    --- top: a [`TreeEntry`] whose `name` is the whole path (`a/b.txt`) and whose
+    --- `mode` is that of a blob (`100644`, `100755`), a link (`120000`) or a
+    --- submodule (`160000`); trees are entered, not listed.
+    files: function(Repo, rev: string): ({string:TreeEntry}) | (nil, Failure)
     --- What `git status -uall` reports.
     status: function(Repo): (Status) | (nil, Failure)
+    --- The untracked paths the worktree's own `.gitignore` files ignore, as
+    --- `git ls-files --others --ignored --exclude-per-directory=.gitignore
+    --- --directory` lists them: files by their path from the top, and
+    --- directories, which are listed whole and not entered, as `dir/`.
+    --- No `info/exclude`, `core.excludesFile` or global rule is read, and a
+    --- nested repository is not entered; the configuration's `core.ignorecase`
+    --- is read as everywhere in this module. Sorted.
+    ignored: function(Repo): ({string}) | (nil, Failure)
     --- Stages files as `git add` does: each path, from the top of the
     --- worktree, is a file or a symbolic link to record, or a path no
     --- longer there to record as deleted. A directory is refused.
@@ -1877,6 +1899,82 @@ local class Repository is Git.Repo
     return out
   end
 
+  function merge_base(self, a: string, b: string): (string | false) | (nil, Failure)
+    local ra, ta = self:rev(a)
+    if ra == nil then return nil, ta end
+    local rb, tb = self:rev(b)
+    if rb == nil then return nil, tb end
+    local pa, pta = self:peel(ra)
+    if pa == nil then return nil, pta end
+    local pb, ptb = self:peel(rb)
+    if pb == nil then return nil, ptb end
+    if pa == pb then return pa end
+    local shallow = self:shallow_set()
+    -- Each commit carries the sides it was reached from (1: a, 2: b); the newest commit that both sides reach is the base.
+    local flags: mut {string:integer} = { [pa] = 1, [pb] = 2 }
+    local known: mut {string:Git.Commit} = {}
+    local queued: mut {string:boolean} = {}
+    local queue: mut {Git.Commit} = {}
+    local function enqueue(oid: string): (true) | (nil, Failure)
+      local c = known[oid]
+      if c == nil then
+        local read, trouble = self:commit_info(oid)
+        if read == nil then return nil, trouble end
+        known[oid] = read
+        c = read
+      end
+      local i = #queue + 1
+      while i > 1 and queue[i - 1]!.committer.time < c.committer.time do i = i - 1 end
+      table.insert(queue, i, c)
+      queued[oid] = true
+      return true
+    end
+    local started, strouble = enqueue(pa)
+    if started == nil then return nil, strouble end
+    local also, atrouble = enqueue(pb)
+    if also == nil then return nil, atrouble end
+    while #queue > 0 do
+      local c = table.remove(queue, 1)!
+      queued[c.oid] = nil
+      local f = flags[c.oid] or 0
+      if f == 3 then return c.oid end
+      if shallow[c.oid] == nil then
+        for _, parent in ipairs(c.parents) do
+          local had = flags[parent] or 0
+          if had | f ~= had then
+            flags[parent] = had | f
+            if queued[parent] == nil then
+              local ok, etrouble = enqueue(parent)
+              if ok == nil then return nil, etrouble end
+            end
+          end
+        end
+      end
+    end
+    return false
+  end
+
+  function is_shallow(self): boolean
+    return next(self:shallow_set()) ~= nil
+  end
+
+  function files(self, spec: string): ({string:Git.TreeEntry}) | (nil, Failure)
+    local oid, trouble = self:rev(spec)
+    if oid == nil then return nil, trouble end
+    local peeled, ptrouble = self:peel(oid)
+    if peeled == nil then return nil, ptrouble end
+    local commit, ctrouble = self:commit_info(peeled)
+    if commit == nil then return nil, ctrouble end
+    local found: mut {string:Recorded} = {}
+    local ok, ftrouble = self:flatten(commit.tree, "", found)
+    if not ok then return nil, ftrouble end
+    local out: mut {string:Git.TreeEntry} = {}
+    for path, recorded in pairs(found) do
+      out[path] = { mode = mode_text(recorded.mode), name = path, oid = Codec.hex(recorded.oid) }
+    end
+    return out
+  end
+
   ----------------------------------------------------------------
   -- trees, the index and the worktree
   ----------------------------------------------------------------
@@ -2262,6 +2360,76 @@ local class Repository is Git.Repo
     return found
   end
 
+  function ignored(self): ({string}) | (nil, Failure)
+    local index, itrouble = read_index(self:index_path())
+    if index == nil then return nil, itrouble end
+    local tracked: mut {string:boolean} = {}
+    local tracked_dirs: mut {string:boolean} = {}
+    local gitlinks: mut {string:boolean} = {}
+    for _, e in ipairs(index.entries) do
+      tracked[e.path] = true
+      if e.mode == 0xE000 then gitlinks[e.path] = true end
+      local at = 0
+      while true do
+        local slash = e.path:find("/", at + 1, true)
+        if slash == nil then break end
+        tracked_dirs[e.path:sub(1, slash - 1)] = true
+        at = slash
+      end
+    end
+    local fold = config_bool(self.config, "core.ignorecase", false)
+    local found: mut {string} = {}
+    local function walk(dir: string, inherited: {IgnoreRule}): (true) | (nil, Failure)
+      local full = if dir == "" then self.worktree else self.worktree .. "/" .. dir:sub(1, -2) end
+      local rules = inherited
+      local ignore_st, _ = sys.lstat(full .. "/.gitignore")
+      local own: string? = nil
+      if ignore_st ~= nil and ignore_st.kind == "file" then
+        local text, _ = Fs.read(full .. "/.gitignore")
+        own = text
+      end
+      if own ~= nil then
+        local more: mut {IgnoreRule} = {}
+        for _, r in ipairs(inherited) do more[#more + 1] = r end
+        parse_ignore(own, dir, more)
+        rules = more
+      end
+      local kinds, _, lerrno = sys.readdir(full)
+      if kinds == nil then
+        if dir == "" then return nil, Failure.system(lerrno, full) end
+        return true
+      end
+      local names: mut {string} = {}
+      for name in pairs(kinds) do names[#names + 1] = name end
+      table.sort(names)
+      for _, name in ipairs(names) do
+        local path = dir .. name
+        local kind = kinds[name]!
+        if name ~= ".git" then
+          if kind == "dir" then
+            if gitlinks[path] == nil then
+              if tracked_dirs[path] == nil and is_ignored(rules, path, true, fold) then
+                found[#found + 1] = path .. "/"
+              elseif tracked_dirs[path] == nil and holds_repository(full .. "/" .. name) then
+                -- A nested repository is not this one's to read.
+              else
+                local ok, wtrouble = walk(path .. "/", rules)
+                if not ok then return nil, wtrouble end
+              end
+            end
+          elseif tracked[path] == nil and is_ignored(rules, path, false, fold) then
+            found[#found + 1] = path
+          end
+        end
+      end
+      return true
+    end
+    local ok, trouble = walk("", {})
+    if not ok then return nil, trouble end
+    table.sort(found)
+    return found
+  end
+
   --- `path` as an index path: relative to the top of the worktree,
   --- with no `.`, `..` or `.git` part.
   function index_name(self, path: string): (string) | (nil, Failure)
@@ -2604,13 +2772,14 @@ end
 --- repository's own directory, and the worktree is then `path` (git:
 --- the current directory) unless GIT_WORK_TREE names it; GIT_WORK_TREE
 --- alone moves the worktree of the repository found by looking up from
---- `path`; GIT_INDEX_FILE names the index file.
-function Git.open(path?: string): (Git.Repo) | (nil, Failure)
+--- `path`; GIT_INDEX_FILE names the index file. With `plain` true none of
+--- the three is read: the repository is the one found by looking up from `path`.
+function Git.open(path?: string, plain?: boolean): (Git.Repo) | (nil, Failure)
   local start, atrouble = Fs.absolute(path or ".")
   if start == nil then return nil, atrouble end
   local top = start:gsub("/+$", "")
   local gitdir: string
-  local given_dir = Env.get("GIT_DIR")
+  local given_dir = if plain == true then nil else Env.get("GIT_DIR") end
   if given_dir ~= nil and given_dir ~= "" then
     local named, ntrouble = Fs.absolute(given_dir)
     if named == nil then return nil, ntrouble end
@@ -2630,7 +2799,7 @@ function Git.open(path?: string): (Git.Repo) | (nil, Failure)
       top = top:match("^(.*)/[^/]*$") or ""
     end
   end
-  local given_tree = Env.get("GIT_WORK_TREE") or ""
+  local given_tree = if plain == true then "" else Env.get("GIT_WORK_TREE") or "" end
   local env_tree = given_tree ~= ""
   if env_tree then
     local named, ntrouble = Fs.absolute(given_tree)
@@ -2639,7 +2808,7 @@ function Git.open(path?: string): (Git.Repo) | (nil, Failure)
   end
   if top == "" then top = "/" end
   local index_file = gitdir .. "/index"
-  local given_index = Env.get("GIT_INDEX_FILE")
+  local given_index = if plain == true then nil else Env.get("GIT_INDEX_FILE") end
   if given_index ~= nil and given_index ~= "" then
     local named, ntrouble = Fs.absolute(given_index)
     if named == nil then return nil, ntrouble end
