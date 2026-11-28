@@ -28,6 +28,7 @@
 --- Its callers are [`build.tree_checks`], `cosmic compile` ([`build.compile_grammar`]) and the pipeline of the
 --- new checker ([`build.pipeline`]), which the build's own compile calls ([`build.importer`]).
 local Ast = require("lang.ast")
+local TestNames = require("build.test_names")
 local Ceilings = require("build.ceilings")
 local Check = require("lang.check")
 local Clock = require("cosmic.clock")
@@ -451,11 +452,11 @@ local function in_order(list: mut {Driver.Problem}): {Driver.Problem}
   return list
 end
 
---- The top-level `local function test_*` of a module: the offsets of their names, which a test module's runner calls.
+--- The top-level `local function test_*` and `bench_*` of a module ([`build.test_names`]): the offsets of their names, which a test module's runner calls.
 local function test_functions(scoped: Scopes.Scoped, tokens: Lexer.Tokens): {integer: boolean}
   local out: mut {integer: boolean} = {}
   for _, v in ipairs(scoped.list) do
-    if v.kind == "function" and v.top and v.name:sub(1, 5) == "test_" then
+    if v.kind == "function" and v.top and TestNames.called(v.name) then
       local offset = tokens.offset[v.declared]
       if offset ~= nil then
         out[offset] = true

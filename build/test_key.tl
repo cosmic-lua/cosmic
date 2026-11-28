@@ -1197,6 +1197,7 @@ local launch_only: {string:boolean} = {
 --- - COSMIC_TEST_NO_SHARED, COSMIC_TEST_FOREIGN_KERNEL and COSMIC_TEST_BAIL;
 --- - COSMIC_TEST_CHECK_TYPES and COSMIC_TEST_TYPES, which ask for a checked
 ---   run and tell its workers to report one;
+--- - COSMIC_TEST_BENCH, which tells a bench run's workers to time each bench;
 ---
 --- and with the shared verdict cache off (`COSMIC_VERDICT_CACHE=0`) and
 --- the shared compiles too (`COSMIC_BUILD_CACHE=0`).
@@ -1226,6 +1227,8 @@ function test_key.worker_environment(environment: {string:string}): {string:stri
   -- as that run is told.
   out.COSMIC_TEST_CHECK_TYPES = nil -- checked: map_field
   out.COSMIC_TEST_TYPES = nil -- checked: map_field
+  -- Nor what a bench run asks its workers to time: a `cosmic test` a test starts times nothing.
+  out["COSMIC_TEST_BENCH"] = nil
   out.COSMIC_TEST_NOEXEC = nil -- checked: map_field
   out.COSMIC_TEST_PARENT = nil -- checked: map_field
   -- Nor a rebuild lock handed to this run (build.rebuild_lock): what a
@@ -3061,7 +3064,7 @@ function test_key.prepare(rec: Recording, job: Job, forks?: {string}): Prepared
     start = s.started, env = s.env, root = s.root, cwd = s.cwd, module_path = job.m.path,
     name = job.name, scratch = s.inside, own_scratch = job.own_scratch, needs = test_inputs.canonical(job.m.inputs),
     hold = s.hold, store = s.attached, closure = rec.closures[job.m.path], tree = rec.tree_names, -- checked: index_may_be_nil
-    policy = s.policy, runs = s.runs, checks = rec.checks, profile = rec.profile,
+    policy = s.policy, runs = s.runs, checks = rec.checks, profile = rec.profile, bench = rec.bench,
     program = if plan ~= nil then plan.program else nil end,
   })
   return { command = command, trouble = "", refused = false, unavailable = nil, relay = relay }

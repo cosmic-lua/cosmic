@@ -1,9 +1,12 @@
 --- `cosmic test [options] [selector...]`: builds the tree in the
 --- working directory, then runs every test it defines. A test is one
---- of three things (`cosmic docs cosmic.layout` says where each lives):
+--- of four things (`cosmic docs cosmic.layout` says where each lives):
 ---
 --- - a top-level `local function test_*` of a `<name>_test.tl` file,
 ---   which fails when it raises an error, so `assert` is enough;
+--- - a top-level `local function bench_*(b: Bench.B)` of the same file,
+---   a bench, which a plain run calls once with `b.n` 1 and `--bench`
+---   times ([`cosmic.bench`]);
 --- - a function of the record named `Example` that a
 ---   `<name>_example.tl` file returns, which `cosmic docs` also shows
 ---   under every symbol it calls;
@@ -99,6 +102,7 @@ local command: Flags.Command = {
     { line = "", about = "run every test of the tree" },
     { line = "tally_test.tl", about = "run one file's tests" },
     { line = "tally_test.tl:test_words", about = "run one test" },
+    { line = "--bench tally_test.tl", about = "time one file's benches" },
   },
   spec = {
     ["--all"] = { about = "run every test, whatever verdict stands for it (COSMIC_TEST_ALL=1); " ..
@@ -106,6 +110,14 @@ local command: Flags.Command = {
     ["--profile"] = { value = "dir", about = "run every test it selects, whatever verdict stands, each worker " ..
         "writing a profile into this directory, made if missing (a relative one is the tree root's); " ..
         "`cosmic profile <dir>` reads them" },
+    ["--bench"] = { about = "time each bench it selects (a top-level `local function bench_*(b: Bench.B)` of a " ..
+        "*_test.tl file, which a plain run calls once), whatever verdict stands, one at a time, and print its " ..
+        "fastest and median ns per operation on stdout (cosmic docs cosmic.bench)" },
+    ["--rounds"] = { value = "n", integer = { min = 1, max = 1000 }, about = "with --bench: the batches timed of " ..
+        "each bench (default 5)" },
+    ["--target-ms"] = { value = "ms", integer = { min = 1, max = 60000 }, about = "with --bench: the least " ..
+        "length of one batch; its n doubles until a batch takes it (default 50)" },
+    ["--json"] = { about = "with --bench: print one JSON object per bench, a line each, in place of the table" },
     ["--show-output"] = { about = "also list what a passing test printed, beneath it; a test " ..
         "that stands is not run and prints nothing (--all runs it)" },
     ["--no-shared"] = { about = "stand on no verdict another checkout reached; what " ..
