@@ -492,8 +492,8 @@ local TOOLING <const>: {string: boolean} = {
 --- [`Host.docs`] of the module names. A plain string, to print: where the docs cannot be read, it says why. `index`
 --- stands in for the docs' index ([`Doc.index`]), for a test.
 function Host.modules(index?: {Doc.Summary}): string
+  local Docs = require("cosmic.doc")
   if index == nil then
-    local Docs = require("cosmic.doc")
     local Store = require("cosmic.store")
     -- The binary's own database alone, the last searched: a project's own would make the list differ by the project.
     local databases = Store.databases()
@@ -505,25 +505,7 @@ function Host.modules(index?: {Doc.Summary}): string
     if read == nil then return "host: modules: " .. tostring(index_why) end
     index = read
   end
-  local out: mut {string} = {}
-  for _, summary in ipairs(index) do
-    local name = summary.module:match("^cosmic%.([%w_]+)$")
-    if name ~= nil and TOOLING[name] == nil then
-      local about = summary.text:gsub("%s+", " "):gsub("^ ", "")
-      -- The first clause past its first few words, and at most 60 bytes: each line is read on every request, and
-      -- Host.docs has the rest.
-      local stop = about:find("[.:;] ", 25)
-      local dash = about:find(" %-%- ", 25)
-      if dash ~= nil and (stop == nil or dash < stop) then stop = dash end
-      if stop ~= nil then about = about:sub(1, stop - 1) end
-      about = about:gsub("%.$", "")
-      if #about > 60 then
-        about = String.cut(about, 58):gsub("%s%S*$", ""):gsub("[%s,;:(]+$", "") .. "..."
-      end
-      out[#out + 1] = "cosmic." .. name .. (if about ~= "" then ": " .. about else "" end)
-    end
-  end
-  return table.concat(out, "\n")
+  return Docs.library(index, TOOLING)
 end
 
 --- What `cosmic docs` prints of `query`, from this binary's docs: a module (`"cosmic.fs"`), a function
