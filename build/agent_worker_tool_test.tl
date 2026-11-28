@@ -163,11 +163,25 @@ local function test_the_run_tool_shows_what_a_snippet_printed_returned_and_was_r
   local rewritten = tools_run("run", { code = "local n = 2\nprint(\"n=\" .. n)\n" }, context)
   assert(not rewritten.is_error and rewritten.text == "[The snippet ran once, with these rewrites, which keep " ..
       "what it meant; what it did is done, so do not run it again:\nrun.tl:2:15: concat_type: `n` -> `tostring(n)`]\nn=2\n", rewritten.text)
-  local answered = tools_run("run", { code = "print(1)\nHost.answer(\"one line\")\n" }, context)
+  local answered = tools_run("run", { code = "print(1)\nHost.reply(\"one line\")\n" }, context)
   assert(not answered.is_error and answered.answer == "one line" and answered.text == "1\n", answered.text)
-  local blank = tools_run("run", { code = "Host.answer(\"  \")\n" }, { cwd = dir, worker = w })
+  local templated = tools_run("run", { code = "local n = 3\nHost.reply(\"{{.n}} files\", { n = n })\n" }, context)
+  assert(not templated.is_error and templated.answer == "3 files", templated.text)
+  local wrapped = tools_run("run", { code = "Host.reply(Template.text(\"{{.n}} files\", { n = 3 }))\n" }, context)
+  assert(not wrapped.is_error and wrapped.answer == "3 files", wrapped.text)
+  local typo = tools_run("run", { code = "Host.reply(\"{{.m}} files\", { n = 3 })\n" }, context)
+  assert(typo.is_error and typo.answer == nil and typo.text:find("field_unknown", 1, true) ~= nil, typo.text)
+  -- A literal with a slot and no data is refused before the snippet runs.
+  local alone = tools_run("run", { code = "print(1)\nHost.reply(\"{{.n}} files\")\n" }, context)
+  assert(alone.is_error and alone.answer == nil and alone.text:find("1\n", 1, true) == nil, alone.text)
+  local nonliteral = tools_run("run", { code = "local t = \"{{.n}} files\"\nHost.reply(t, { n = 3 })\n" }, context)
+  assert(nonliteral.is_error and nonliteral.answer == nil, nonliteral.text)
+  -- Text that is no literal and has no slot is replied as it is.
+  local plain = tools_run("run", { code = "local t = \"3 files\"\nHost.reply(t)\n" }, context)
+  assert(not plain.is_error and plain.answer == "3 files", plain.text)
+  local blank = tools_run("run", { code = "Host.reply(\"  \")\n" }, { cwd = dir, worker = w })
   assert(blank.is_error and blank.answer == nil and blank.text:find("blank", 1, true) ~= nil, blank.text)
-  local raised_after = tools_run("run", { code = "Host.answer(\"no\")\nerror(\"boom\")\n" },
+  local raised_after = tools_run("run", { code = "Host.reply(\"no\")\nerror(\"boom\")\n" },
     { cwd = dir, worker = w })
   assert(raised_after.is_error and raised_after.answer == nil, raised_after.text)
   local partly = tools_run("run", { code = "local n = 2\nprint(\"n=\" .. n)\nlocal s: string = n\n" }, context)
