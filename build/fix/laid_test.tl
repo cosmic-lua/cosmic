@@ -82,15 +82,18 @@ local function test_the_salt_is_the_same_for_the_same_code_and_the_closure_is_th
   assert(assert(first).salt == second.salt, "the salt of one code moved")
 end
 
+--- What the last 8 whole runs did not use goes (build/check_memo_test.tl); what one of them used stays.
 local function test_a_whole_run_drops_what_it_did_not_use()
   local db = assert(Sqlite.memory())
   local first = assert(laid.begin(db, "salt"))
   laid.format(first, "a = 1\n", "a.tl")
   laid.format(first, "b = 1\n", "b.tl")
   laid.finish(first, true)
-  local second = assert(laid.begin(db, "salt"))
-  assert(held(second, "tl", "a = 1\n"))
-  laid.finish(second, true)
+  for _ = 1, 8 do
+    local run = assert(laid.begin(db, "salt"))
+    assert(held(run, "tl", "a = 1\n"))
+    laid.finish(run, true)
+  end
   local third = assert(laid.begin(db, "salt"))
   assert(held(third, "tl", "a = 1\n"))
   assert(not held(third, "tl", "b = 1\n"), "an answer no run used was kept")

@@ -23,7 +23,6 @@ local record CiProject
   record Started
     names: mut {string}
     handles: mut {Child.Handle}
-    started: integer
     --- A check that could not start, in words: a finding.
     refused: mut {string}
   end
@@ -68,7 +67,7 @@ end
 --- Starts both checks of `root .. "/ci"`; `checking` passes `--check` to this tool's `fix`, which otherwise mends.
 function CiProject.start(root: string, checking: boolean): CiProject.Started
   local ci = root .. "/ci"
-  local started: CiProject.Started = { names = {}, handles = {}, started = Clock.monotonic_ns(), refused = {} }
+  local started: CiProject.Started = { names = {}, handles = {}, refused = {} }
   local function launch(name: string, argv: {string}, env: {string:string})
     -- In this process's group, so the interrupt that ends the run ends them too.
     local handle, why = Child.start(argv, { cwd = ci, env = env, stdout = "capture", stderr = "capture",
@@ -148,8 +147,11 @@ local function mended(text: string): {string}
 end
 
 --- Waits for the checks `started` and answers a finding for each that failed, and the lines that say what passed: the
---- files of `ci/` a mending run fixed, then the line that says both checks passed.
+--- files of `ci/` a mending run fixed, then the line that says both checks passed and how long the run waited for them
+--- here. That wait is what they cost the run: they ran beside the tree's checks, and a time from their start would be
+--- mostly those (95 s and more on runs where `ci/` alone takes 2 s).
 function CiProject.finish(started: CiProject.Started): {string}, {string}
+  local waiting = Clock.monotonic_ns()
   local findings: mut {string} = {}
   local passed: mut {string} = {}
   for _, line in ipairs(started.refused) do findings[#findings + 1] = line end
@@ -172,7 +174,7 @@ function CiProject.finish(started: CiProject.Started): {string}, {string}
     end
   end
   passed[#passed + 1] = "fix: ci/ checked as a project of its own, with this tool and on the pinned release, " ..
-    "done " .. clock.took(started.started) .. " after they started"
+    "beside the tree's checks: the run waited " .. clock.took(waiting) .. " for them after its own"
   return findings, passed
 end
 

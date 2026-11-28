@@ -50,7 +50,18 @@ local function test_a_key_moves_with_the_salt_the_dialect_and_the_bytes()
   assert(base ~= check_memo.key("salt", "tl", "byte"))
 end
 
-local function test_a_run_keeps_the_rows_it_used_and_drops_the_rest()
+--- A whole run of `kind` in `db` that uses only `keys`.
+local function run_using(db: Sqlite.Handle, kind: string, keys: {string})
+  assert(check_memo.prepare(db, kind))
+  for _, key in ipairs(keys) do
+    assert(check_memo.get(db, kind, key) ~= nil, key)
+  end
+  check_memo.finish(db, kind)
+end
+
+--- A row the last 8 runs of its kind did not use goes, so an edit and a revert (a probe, a bisect, a branch switch
+--- and back) find the rows they had, and the table does not grow with each edit.
+local function test_a_row_outlives_eight_runs_that_do_not_use_it()
   local db = assert(Sqlite.memory())
   assert(check_memo.prepare(db, "k"))
   check_memo.put(db, "k", "one", "1")
@@ -58,12 +69,13 @@ local function test_a_run_keeps_the_rows_it_used_and_drops_the_rest()
   check_memo.put(db, "other", "one", "x")
   assert(check_memo.get(db, "k", "one") == "1" and check_memo.get(db, "k", "none") == nil)
   check_memo.finish(db, "k")
-  assert(check_memo.get(db, "k", "two") == "2")
-  -- A second run that uses only `one`: `two` goes.
-  assert(check_memo.prepare(db, "k"))
-  assert(check_memo.get(db, "k", "one") == "1")
-  check_memo.finish(db, "k")
-  assert(check_memo.get(db, "k", "two") == nil and check_memo.get(db, "other", "one") == "x")
+  -- Seven runs that use only `one`: `two` is still there for a revert to find.
+  for _ = 1, 7 do run_using(db, "k", { "one" }) end
+  run_using(db, "k", { "one", "two" })
+  -- Eight more without it: it goes, and the row of another kind stays.
+  for _ = 1, 8 do run_using(db, "k", { "one" }) end
+  assert(check_memo.get(db, "k", "two") == nil and check_memo.get(db, "k", "one") == "1")
+  assert(check_memo.get(db, "other", "one") == "x")
   assert(db:close())
 end
 
@@ -75,9 +87,7 @@ local function test_a_used_key_of_any_bytes_is_kept()
   check_memo.put(db, "k", odd, "1")
   check_memo.put(db, "k", "plain", "2")
   check_memo.finish(db, "k")
-  assert(check_memo.prepare(db, "k"))
-  assert(check_memo.get(db, "k", odd) == "1")
-  check_memo.finish(db, "k")
+  for _ = 1, 8 do run_using(db, "k", { odd }) end
   assert(check_memo.get(db, "k", odd) == "1", "a used key with odd bytes was dropped")
   assert(check_memo.get(db, "k", "plain") == nil, "an unused key was kept")
   assert(db:close())
@@ -90,9 +100,11 @@ local function test_a_partial_run_drops_no_row()
   check_memo.put(db, "k", "one", "1")
   check_memo.put(db, "k", "two", "2")
   check_memo.finish(db, "k")
-  assert(check_memo.prepare(db, "k"))
-  assert(check_memo.get(db, "k", "one") == "1")
-  check_memo.finish(db, "k", nil, true)
+  for _ = 1, 9 do
+    assert(check_memo.prepare(db, "k"))
+    assert(check_memo.get(db, "k", "one") == "1")
+    check_memo.finish(db, "k", nil, true)
+  end
   assert(check_memo.get(db, "k", "two") == "2", "a partial run dropped a row it did not use")
   assert(db:close())
 end

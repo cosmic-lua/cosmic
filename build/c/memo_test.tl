@@ -96,6 +96,7 @@ local function test_a_header_changed_since_the_memo_is_checked_afresh(tmp: strin
   -- And the first text again gives the first result again.
   assert(Fs.write(tmp .. "/h.h", broken))
   assert(table.concat(rules_found(tmp, store), ",") == table.concat(first, ","))
-  -- A run over every file keeps what it used and drops the rest, so the memo does not grow with each edit.
-  assert(kept(store) == 1, "the outcome of the text no run used was kept: " .. tostring(kept(store)))
+  -- A row the last 8 runs did not use goes (build/check_memo_test.tl), so the outcome of the fixed text, which the
+  -- last run did not use, is still kept for a revert to find.
+  assert(kept(store) == 2, "the outcomes of the last runs were not both kept: " .. tostring(kept(store)))
 end
