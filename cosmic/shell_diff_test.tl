@@ -1,6 +1,6 @@
 --- cosmic.shell's calls return what the commands they are named after print: wc -l, grep -n -F, sed s///g,
 --- LC_ALL=C sort, uniq -c and find -type f. What the system's commands printed on fixtures drawn at random is
---- recorded in testdata/shell_diff/cases.json (`bin/cosmic bench/shell_record.tl` makes it again), and the tests
+--- recorded in testdata/shell_diff/cases.json (`bin/cosmic testdata/shell_diff/record.tl` makes it again), and the tests
 --- replay it, so no program runs. The fixtures keep to what both read alike: no `\r` (Shell.grep and Shell.lines
 --- drop one before a newline), no NUL, and needles of letters, so sed's regular expression is plain text.
 local Fs = require("cosmic.fs")

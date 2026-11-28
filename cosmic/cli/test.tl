@@ -103,6 +103,7 @@ local command: Flags.Command = {
     { line = "tally_test.tl", about = "run one file's tests" },
     { line = "tally_test.tl:test_words", about = "run one test" },
     { line = "--bench tally_test.tl", about = "time one file's benches" },
+    { line = "--bench --against ~/old/cosmic tally_test.tl", about = "compare one file's benches with an old cosmic" },
   },
   spec = {
     ["--all"] = { about = "run every test, whatever verdict stands for it (COSMIC_TEST_ALL=1); " ..
@@ -118,6 +119,10 @@ local command: Flags.Command = {
     ["--target-ms"] = { value = "ms", integer = { min = 1, max = 60000 }, about = "with --bench: the least " ..
         "length of one batch; its n doubles until a batch takes it (default 50)" },
     ["--json"] = { about = "with --bench: print one JSON object per bench, a line each, in place of the table" },
+    ["--against"] = { value = "binary", about = "with --bench: time each bench on this old cosmic and on this " ..
+        "one, alternating, each running its own copy of the chosen test files outside the checkout, and say of " ..
+        "each whether the new is faster, slower or the same (20 rounds unless --rounds says, at least 6)" },
+    ["--binary"] = { value = "binary", about = "with --against: the new side's cosmic (default: this one)" },
     ["--show-output"] = { about = "also list what a passing test printed, beneath it; a test " ..
         "that stands is not run and prints nothing (--all runs it)" },
     ["--no-shared"] = { about = "stand on no verdict another checkout reached; what " ..

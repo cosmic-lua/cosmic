@@ -2,6 +2,7 @@ local Html = require("cosmic.html")
 local Svg = require("cosmic.svg")
 local Test = require("cosmic.test")
 local Xml = require("cosmic.xml")
+local Bench = require("cosmic.bench")
 
 local function test_a_number_is_written_in_the_fewest_digits_that_read_back()
   assert(Svg.num(3) == "3" and Svg.num(-0.5) == "-0.5" and Svg.num(1200.0) == "1200")
@@ -72,4 +73,13 @@ local function test_a_picture_is_a_document_an_xml_parser_reads_back()
   assert(Xml.text(said) == "a & b")
   local own = Svg.svg(10, 10, { viewBox = "0 0 1 1" })
   assert(Svg.render(own):find('viewBox="0 0 1 1"', 1, true) ~= nil)
+end
+
+--- Bench: a chart of 500 bars, built.
+local function bench_build_500_rects(b: Bench.B)
+  for _ = 1, b.n do
+    local bars: mut {Svg.Node} = {}
+    for i = 1, 500 do bars[i] = Svg.rect(i * 2, 0, 1, i % 50, { fill = "#369" }) end
+    local _ = Svg.svg(1000, 100, {}, Svg.all(bars))
+  end
 end
