@@ -1,7 +1,9 @@
 --- The modules of a tree on disk that a chunk of `cosmic -e` or a snippet of cosmic agent may require, as a file at the
 --- tree's root requires them: `require("summarize")` reads `summarize.tl` (or `summarize/init.tl`) under the root, and
 --- the checker checks it with the chunk ([`Pipeline.Options.nearby`]). A `cosmic.*` name, and any module the binary
---- carries (in cosmic's own checkout, `build.*` and `lang.*` too), is the binary's, never a tree's.
+--- carries (in cosmic's own checkout, `build.*` and `lang.*` too), is the binary's, never a tree's: a snippet runs one
+--- copy of each. [`Host.check`] reads the tree's file of a module the binary carries, and in the tree the tool was
+--- built from of a `cosmic.*` module too, as `cosmic fix` does ([`Nearby.file`]).
 ---
 ---     local found: {string: Pipeline.Nearby} = {}
 ---     local provide = Nearby.provider({ "." }, found)

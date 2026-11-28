@@ -24,6 +24,10 @@ local record standard_text
   --- standard library's, each as [`standard_text.of`] reads a standard-library module. `cosmic -e` takes them so, since it
   --- is the tool's one-liner; nothing else does.
   own: function(name: string): Standard?
+
+  --- The source the binary was built from for the standard-library module `name`, never its stub: what a snippet runs,
+  --- to tell it from a tree's file of it; nil for a name the binary does not carry, or whose source a store withholds.
+  source: function(name: string): string?
 end
 
 local function read(name: string): standard_text.Standard?
@@ -51,6 +55,14 @@ function standard_text.of(name: string): standard_text.Standard?
     return nil
   end
   return read(name)
+end
+
+function standard_text.source(name: string): string?
+  if name ~= "cosmic" and name:sub(1, 7) ~= "cosmic." then
+    return nil
+  end
+  local source, _ = Store.source(name)
+  return source
 end
 
 function standard_text.own(name: string): standard_text.Standard?

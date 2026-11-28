@@ -317,6 +317,20 @@ local function test_rebuild_failed_does_not_boot_while_the_compiler_stands(tmp: 
   assert(ran == nil, "a failure of the tree's own booted")
 end
 
+--- A file run the tree's own error stops says how to run the file without the tree; a verb's does not.
+local function test_rebuild_failed_of_a_file_run_names_standalone(tmp: string)
+  local root = tree_with_zig(tmp, 0)
+  local code, all = complaints(function(): string
+    return tostring(reboot.rebuild_failed(root, { "scratch.tl" }, "a type error in the tree", false, {}))
+  end)
+  assert(code == "3", code)
+  assert(all:find("`cosmic --standalone scratch.tl`", 1, true), all)
+  local _, verb = complaints(function(): string
+    return tostring(reboot.rebuild_failed(root, { "test" }, "a type error in the tree", false, {}))
+  end)
+  assert(not verb:find("standalone", 1, true), verb)
+end
+
 --- COSMIC_AUTO_BOOT=0 refuses, exit 3, in place of the boot.
 local function test_rebuild_failed_refuses_when_told_not_to_boot(tmp: string)
   local root = tree_with_zig(tmp, 0)

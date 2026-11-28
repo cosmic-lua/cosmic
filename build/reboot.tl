@@ -910,6 +910,12 @@ function reboot.rebuild_failed(root: string, argv: {string},
                                environment?: {string:string}): integer
   if not moved then
     log:complain(trouble)
+    local file = argv[1]
+    if file ~= nil and file:sub(-3) == ".tl" then
+      -- A script that needs none of the tree's modules can still run, on the tool's copy of the stdlib, if asked.
+      log:complain("a file that requires only cosmic.* modules runs without the tree as `cosmic --standalone " ..
+          file .. "`, on this tool's copy of the standard library, which may not be the tree's")
+    end
     return 3
   end
   if not reboot.auto_boot(environment) then
