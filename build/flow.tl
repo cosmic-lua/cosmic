@@ -30,6 +30,7 @@
 --- bytes. `from` builds a tree from Teal values alone, and `value` reads
 --- one back.
 
+local Diff = require("cosmic.diff")
 local Json = require("cosmic.json")
 local String = require("cosmic.string")
 
@@ -860,12 +861,8 @@ local function item_at(items: {flow.Item}, position: integer): flow.Item
   return (assert(items[position], "a position is within the items"))
 end
 
---- The longest common run from `(i, j)` on, as `paired` laid it in `lcs`: every
---- row and cell it reads is laid before the read.
-local function run_from(lcs: {integer: {integer: integer}}, i: integer, j: integer): integer
-  local row = assert(lcs[i], "the table holds every row it reads")
-  return (assert(row[j], "the table holds every cell it reads"))
-end
+--- Passes of the diff search `paired` allows at most, which bounds its time on two long arrays that share little.
+local MAX_PASSES <const> = 1000
 
 --- Pairs the members of `old` with the values of `new` as a diff does.
 --- Members equal in both anchor the pairing: the common start and end
@@ -896,22 +893,6 @@ local function paired(old: {flow.Item}, new: {any}): {integer: flow.Item}
     out[hi_b] = item_at(old, hi_a)
     hi_a, hi_b = hi_a - 1, hi_b - 1
   end
-  -- The table of longest common runs from each (i, j) to the middle's end, for i and j from `lo` up to one past it:
-  -- laid from the end back, and keyed by position, since `lo` is not 1.
-  local lcs: mut {integer: {integer: integer}} = {}
-  for i = hi_a + 1, lo, -1 do
-    local row: mut {integer: integer} = {}
-    lcs[i] = row
-    for j = hi_b + 1, lo, -1 do
-      if i > hi_a or j > hi_b then
-        row[j] = 0
-      elseif a[i] == b[j] then
-        row[j] = run_from(lcs, i + 1, j + 1) + 1
-      else
-        row[j] = math.max(run_from(lcs, i + 1, j), assert(row[j + 1]))
-      end
-    end
-  end
   local function between(i1: integer, i2: integer, j1: integer, j2: integer)
     if i2 - i1 == j2 - j1 then
       for k = 0, i2 - i1 - 1 do out[j1 + k] = item_at(old, i1 + k) end
@@ -931,20 +912,35 @@ local function paired(old: {flow.Item}, new: {any}): {integer: flow.Item}
       end
     end
   end
+  -- The members the middles hold in common, as [`Diff.lines`] finds them: a run of them between two changes
+  -- anchors the pairing, and what lies between two anchors is paired by `between`.
   local i, j = lo, lo
   local gi, gj = lo, lo
-  while i <= hi_a and j <= hi_b do
-    if a[i] == b[j] then
-      between(gi, i, gj, j)
-      out[j] = item_at(old, i)
-      i, j = i + 1, j + 1
-      gi, gj = i, j
-    elseif run_from(lcs, i + 1, j) >= run_from(lcs, i, j + 1) then
-      i = i + 1
-    else
-      j = j + 1
-    end
+  local function anchor(count: integer)
+    if count <= 0 then return end
+    between(gi, i, gj, j)
+    for k = 0, count - 1 do out[j + k] = item_at(old, i + k) end
+    i, j = i + count, j + count
+    gi, gj = i, j
   end
+  local function lines_of(items: {string}, from: integer, to: integer): string
+    local text: mut {string} = {}
+    for k = from, to do
+      local item = assert(items[k], "a position is within the items")
+      text[#text + 1] = item .. "\n"
+    end
+    return table.concat(text)
+  end
+  -- The search may take as many passes as the middles have members, up to `MAX_PASSES`: it then finds the fewest
+  -- changes unless the middles share almost nothing and are very long, where a valid pairing is enough.
+  local passes = math.max(1, math.min(hi_a + hi_b - 2 * lo + 2, MAX_PASSES))
+  for _, hunk in ipairs(Diff.lines(lines_of(a, lo, hi_a), lines_of(b, lo, hi_b), { context = 0, cost = passes })) do
+    local first_old = lo - 1 + (if hunk.old_count == 0 then hunk.old_start + 1 else hunk.old_start end)
+    local first_new = lo - 1 + (if hunk.new_count == 0 then hunk.new_start + 1 else hunk.new_start end)
+    anchor(first_old - i)
+    i, j = first_old + hunk.old_count, first_new + hunk.new_count
+  end
+  anchor(hi_a + 1 - i)
   between(gi, hi_a + 1, gj, hi_b + 1)
   return out
 end

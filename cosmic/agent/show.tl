@@ -18,6 +18,7 @@
 
 local type Agent = require("cosmic.agent")
 local type AgentEdit = require("cosmic.agent.edit")
+local Diff = require("cosmic.diff")
 local Json = require("cosmic.json")
 local String = require("cosmic.string")
 local Tools = require("cosmic.agent.tools")
@@ -99,32 +100,19 @@ local function fenced(err: function(line: string), info: string, lines: {string}
 end
 
 --- What an edit changes, as diff lines: the lines of `old` and `new`
---- that differ, after the lines both begin and end with, `-` for those
---- it takes out and `+` for those it puts in, with one line of context on
---- each side.
+--- that differ (as [`Diff.lines`] finds them), `-` for those it takes out
+--- and `+` for those it puts in, with one line of context on each side. Two
+--- changes apart by more than the context are told apart by an `@@` line.
 ---
 ---     for _, l in ipairs(Show.diff("a\nb\nc", "a\nB\nc")) do print(l) end -- " a", "-b", "+B", " c"
 function Show.diff(old: string, new: string): {string}
-  local a, b = lines_of(old), lines_of(new)
-  local head = 0
-  while head < #a and head < #b and a[head + 1] == b[head + 1] do head = head + 1 end
-  local tail = 0
-  while tail < #a - head and tail < #b - head and a[#a - tail] == b[#b - tail] do
-    tail = tail + 1
-  end
   local out: mut {string} = {}
-  for i, line in ipairs(a) do
-    if i == head then
-      out[#out + 1] = " " .. line
-    elseif i > head and i <= #a - tail then
-      out[#out + 1] = "-" .. line
+  for n, hunk in ipairs(Diff.lines(old:gsub("\n$", ""), new:gsub("\n$", ""), { context = 1 })) do
+    if n > 1 then out[#out + 1] = "@@" end
+    for _, line in ipairs(hunk.lines) do
+      local mark = if line.op == "add" then "+" elseif line.op == "del" then "-" else " " end
+      out[#out + 1] = mark .. line.text
     end
-  end
-  for i, line in ipairs(b) do
-    if i > head and i <= #b - tail then out[#out + 1] = "+" .. line end
-  end
-  for i, line in ipairs(a) do
-    if tail > 0 and i == #a - tail + 1 then out[#out + 1] = " " .. line end
   end
   return out
 end
