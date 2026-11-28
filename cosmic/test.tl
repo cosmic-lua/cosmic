@@ -696,12 +696,27 @@ function Test.raises(fn: function(), says?: string): string
   return message
 end
 
---- How many lines of the diff [`Test.equal`] shows.
+--- How many lines of the diff [`Test.equal`] shows, and how many bytes of each.
 local EQUAL_DIFF_LINES <const> = 60
+local EQUAL_LINE_BYTES <const> = 200
+
+--- `line` for a person to read: a control character (a `\r` that makes two lines look alike) is spelt out, and a
+--- line over [`EQUAL_LINE_BYTES`] is cut with a note of how much it lost.
+local function shown_line(line: string): string
+  local plain = line:gsub("%c", function(c: string): string
+    if c == "\r" then return "\\r" end
+    if c == "\t" then return "\\t" end
+    return string.format("\\x%02x", c:byte()!)
+  end)
+  if #plain <= EQUAL_LINE_BYTES then return plain end
+  return plain:sub(1, EQUAL_LINE_BYTES) .. " ... [line cut here, bytes lost: " .. tostring(#plain - EQUAL_LINE_BYTES) .. "]"
+end
 
 --- Checks that the text `got` is the text `want`, and when it is not fails the test with the change as a unified diff
---- (`--- want`, `+++ got`) of the lines, cut after 60 lines with a count of the rest, instead of only saying that
---- the texts differ. `what` names the thing compared and heads the message. The call counts as a call to `assert`.
+--- (`--- want`, `+++ got`) of the lines instead of only saying that the texts differ. The diff is cut after 60 lines
+--- with a count of the rest, each line after 200 bytes, and a control character is spelt out (`\r`, `\t`, `\x1b`).
+--- `what` names the thing compared and heads the message, `text` if none or empty. The call counts as a call to
+--- `assert`.
 ---
 ---     Test.equal("a\nb\n", rendered, "the rendered table")
 --- @param want the text the test expects
@@ -718,12 +733,13 @@ function Test.equal(want: string, got: string, what?: string)
   local shown: mut {string} = {}
   for i, line in ipairs(lines) do
     if i > EQUAL_DIFF_LINES then break end
-    shown[#shown + 1] = line
+    shown[#shown + 1] = shown_line(line)
   end
   if #lines > EQUAL_DIFF_LINES then
     shown[#shown + 1] = "... " .. tostring(#lines - EQUAL_DIFF_LINES) .. " more diff lines"
   end
-  assert(false, "test: " .. (what or "text") .. " differs from what was expected:\n" .. table.concat(shown, "\n"))
+  local name = if what == nil or what == "" then "text" else what end
+  assert(false, "test: " .. name .. " differs from what was expected (got against want):\n" .. table.concat(shown, "\n"))
 end
 
 Test.runtime_environment = {

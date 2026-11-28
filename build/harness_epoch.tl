@@ -77,6 +77,8 @@ harness_epoch.library = {
     "project's build directory by",
   ["cosmic.coverage"] = "the worker starts and stops the coverage a test's lines are " ..
     "counted by, whose session a test that imports it shares",
+  ["cosmic.diff"] = "cosmic.test's `equal` shows the change between two texts through its `lines` and " ..
+    "`unified`, where a test fails; it requires only cosmic.failure",
   ["cosmic.env"] = "the worker's environment, which its key holds, is read and built " ..
     "through it",
   ["cosmic.failure"] = "cosmic.fs answers its failures as one (`Fs.read` and the rest), " ..
