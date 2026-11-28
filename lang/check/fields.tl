@@ -334,7 +334,7 @@ function Fields.member_read(ctx: Ctx, node: Ast.Node, t: Type, name: string): Ty
     return ctx.invalid
   end
   report(ctx, "not_indexable", node, subject(ctx, node) .. " reads a field of " .. tq(ctx, t) .. ", which has none",
-    "read a field of a record, class or interface", { show(ctx, t) })
+    "read a field of a record, class or interface (`p.name` where `p: {name: string}`), or index a map with `m[key]`", { show(ctx, t) })
   return ctx.invalid
 end
 

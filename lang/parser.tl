@@ -530,6 +530,7 @@ end
 --- Consumes `want`, the closer of the construct `desc` that opened at the
 --- token `open`, or reports it missing and names the opener and its line.
 local function close(want: string, open: integer, desc: string): boolean
+  local example = if desc == "`if` expression" then "; an `if` expression is written `if c then a else b end`" else "" end
   if S.text == want then
     advance()
     return true
@@ -541,13 +542,13 @@ local function close(want: string, open: integer, desc: string): boolean
     report("unclosed", at,
       "expected `" .. want .. "` to close the " .. desc .. " on line " .. open_line .. " before the " .. shown(at) .. -- checked: nil_not_allowed
         " on line " .. at_line .. ", which begins no deeper than it", -- checked: nil_not_allowed
-      "write `" .. want .. "` where the " .. desc .. " on line " .. open_line .. " ends, before line " .. at_line, open) -- checked: nil_not_allowed*2
+      "write `" .. want .. "` where the " .. desc .. " on line " .. open_line .. " ends, before line " .. at_line .. example, open) -- checked: nil_not_allowed*2
     return false
   end
   report("unclosed", S.pos,
     "expected `" .. want .. "` to close the " .. desc .. " on line " .. open_line .. ", found " .. shown(S.pos), -- checked: nil_not_allowed
     "write `" .. want .. "` where the " .. desc .. " on line " .. open_line .. " ends, or delete its `" .. S.texts[open] .. -- checked: nil_not_allowed*2
-      "`", open)
+      "`" .. example, open)
   return false
 end
 

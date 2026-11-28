@@ -467,7 +467,7 @@ function Calls.prepare(ctx: Ctx, args: {Ast.Exp}, wants: {integer: Type}?, asser
       report(ctx, "alternatives_as_value", last, subject(ctx, last) .. " answers one of " .. tostring(#several) ..
           " lists of values, and " .. said,
         "bind its values and test the one that tells the lists apart (`local " .. Naming.bound(several) .. " = " .. call ..
-          "`), or match the call: `match " .. call .. " do | ... end`")
+          "`), or match the call: `match " .. call .. " do | ... end`" .. Naming.json_hint(call))
       -- The argument is reported: it stands as no type, so no overload is refused for lacking it.
       prep.known[written + 1] = ctx.invalid
       prep.count = written + 1
