@@ -99,12 +99,15 @@ end
 local DDL <const> = [[
 CREATE TABLE IF NOT EXISTS rounds (
   id TEXT PRIMARY KEY,
-  started INTEGER NOT NULL,
-  finished INTEGER,
+  started_ns INTEGER NOT NULL,
+  finished_ns INTEGER,
+  stopped TEXT
+);
+CREATE TABLE IF NOT EXISTS eval_rounds (
+  round TEXT PRIMARY KEY REFERENCES rounds (id),
   model TEXT NOT NULL,
   reps INTEGER NOT NULL,
-  fixture TEXT NOT NULL,
-  stopped TEXT
+  fixture TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS arms (
   round TEXT NOT NULL REFERENCES rounds (id),
@@ -113,7 +116,7 @@ CREATE TABLE IF NOT EXISTS arms (
   path TEXT NOT NULL,
   effort TEXT,
   drop_bullets TEXT,
-  commands INTEGER NOT NULL,
+  commands INTEGER,
   PRIMARY KEY (round, name)
 );
 CREATE TABLE IF NOT EXISTS runs (
@@ -195,11 +198,14 @@ end
 --- binary is not the one noted is refused, with why: its runs would not be of one binary. All or none.
 function Runs.begin(db: Runs.Store, round: Runs.Round, arms: {Runs.Arm}): (true) | (nil, string)
   local ok, why = db:transact(function(): (true) | (nil, Failure)
-    local noted, noted_why = db:run("INSERT OR IGNORE INTO rounds (id, started, model, reps, fixture) VALUES (?1, ?2, ?3, ?4, ?5)",
-      { { text = round.id }, { integer = Clock.now_ns() // 1000000000 }, { text = round.model },
-        { integer = round.reps }, { text = round.fixture } })
+    local noted, noted_why = db:run("INSERT OR IGNORE INTO rounds (id, started_ns) VALUES (?1, ?2)",
+      { { text = round.id }, { integer = Clock.now_ns() } })
     if not noted then return nil, noted_why end
-    local held, held_why = db:rows("SELECT model, reps FROM rounds WHERE id = ?1", { { text = round.id } })
+    local evals, evals_why = db:run("INSERT OR IGNORE INTO eval_rounds (round, model, reps, fixture) " ..
+        "VALUES (?1, ?2, ?3, ?4)", { { text = round.id }, { text = round.model }, { integer = round.reps },
+          { text = round.fixture } })
+    if not evals then return nil, evals_why end
+    local held, held_why = db:rows("SELECT model, reps FROM eval_rounds WHERE round = ?1", { { text = round.id } })
     if held == nil then return nil, held_why end
     local was = held[1]
     if was ~= nil and (was:text(1) ~= round.model or was:integer(2) ~= round.reps) then
@@ -222,7 +228,7 @@ function Runs.begin(db: Runs.Store, round: Runs.Round, arms: {Runs.Arm}): (true)
         return nil, Failure.new("arm " .. arm.name .. " of round " .. round.id .. " ran binary " .. row:text(1) ..
             ", and --tool now names " .. arm.sha .. ": go on with the same binary, or begin another round")
       elseif maybe_text(row, 2) ~= arm.effort or maybe_text(row, 3) ~= arm.drop or
-          (row:integer(4) == 1) ~= (arm.commands == true) then
+          (not row:is_null(4) and row:integer(4) == 1) ~= (arm.commands == true) then
         return nil, Failure.new("arm " .. arm.name .. " of round " .. round.id .. " ran with another --effort, " ..
             "--drop or --commands than now: go on with the same, or begin another round")
       end
@@ -236,7 +242,7 @@ end
 --- Notes that `round` goes on: it has not ended, and its last reason to stop is no longer one. The call that starts a
 --- round's arms makes it, once, before they run: an arm that began later would clear what another noted.
 function Runs.reopen(db: Runs.Store, round: string): (true) | (nil, string)
-  local ok, why = db:run("UPDATE rounds SET finished = NULL, stopped = NULL WHERE id = ?1", { { text = round } })
+  local ok, why = db:run("UPDATE rounds SET finished_ns = NULL, stopped = NULL WHERE id = ?1", { { text = round } })
   if not ok then return nil, tostring(why) end
   return true
 end
@@ -313,7 +319,7 @@ end
 
 --- The round noted last, but `except`: the one `--against` reads where none is named, which is not the round that reads.
 function Runs.latest(db: Runs.Store, except: string?): string?
-  local found, _ = db:rows("SELECT id FROM rounds WHERE id IS NOT ?1 AND EXISTS (SELECT 1 FROM runs WHERE runs.round = rounds.id) ORDER BY started DESC, rowid DESC LIMIT 1",
+  local found, _ = db:rows("SELECT id FROM rounds WHERE id IS NOT ?1 AND EXISTS (SELECT 1 FROM runs WHERE runs.round = rounds.id) ORDER BY started_ns DESC, rowid DESC LIMIT 1",
     { text_or_null(except) })
   local row = found and found[1]
   if row == nil then return nil end
@@ -352,8 +358,8 @@ end
 
 --- Notes that `round` ended, and why where it ended before its last run; a reason noted stays until the round goes on.
 function Runs.finish(db: Runs.Store, round: string, stopped: string?): (true) | (nil, string)
-  local ok, why = db:run("UPDATE rounds SET finished = ?2, stopped = coalesce(?3, stopped) WHERE id = ?1",
-    { { text = round }, { integer = Clock.now_ns() // 1000000000 }, text_or_null(stopped) })
+  local ok, why = db:run("UPDATE rounds SET finished_ns = ?2, stopped = coalesce(?3, stopped) WHERE id = ?1",
+    { { text = round }, { integer = Clock.now_ns() }, text_or_null(stopped) })
   if not ok then return nil, tostring(why) end
   return true
 end
