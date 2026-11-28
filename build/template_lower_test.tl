@@ -97,14 +97,23 @@ local function test_a_quoted_literal_whose_lines_are_not_the_templates_keeps_the
   assert(told:find("t.tl:4:20: ", 1, true) ~= nil, told)
 end
 
+local function test_a_template_module_bound_inside_a_function_is_lowered_there()
+  local made = checked('local function f(): string\n  local Template = require("cosmic.template")\n' ..
+      '  return Template.text("{{.a}}!", { a = "x" })\nend\nreturn f()\n')
+  local got = run(made)
+  assert(got == "x!", tostring(got))
+end
+
 local function test_a_function_takes_a_template_where_its_first_parameter_is_declared_a_source()
   local text = 'local T = require("cosmic.template")\nlocal M = {}\n' ..
     'function M.say(text: T.Source, data?: any) end\n' ..
     'function M.plain(text: string, data?: any) end\n' ..
-    'function M.more(text: T.Source, data?: any, n?: integer) end\nreturn M\n'
+    'function M.more(text: T.Source, data?: any, n?: integer) end\n' ..
+    'function M.needs(text: T.Source, data: any) end\nreturn M\n'
   local chunk = Parser.parse(Lexer.lex(text, "m.tl"), "m.tl", "tl").chunk
   local takers = TemplateLower.takers("m", chunk)
-  assert(takers["say"] == true and takers["plain"] == nil and takers["more"] == nil)
+  assert(takers["say"] == true and takers["plain"] == nil and takers["more"] == nil and
+      takers["needs"] == nil)
   -- The module of templates names its own record.
   local own = 'local record Template type Source = string end\n' ..
     'function Template.text(src: Template.Source, data?: any): string return "" end\nreturn Template\n'

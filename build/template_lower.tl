@@ -38,8 +38,9 @@ local function required(e: Ast.Exp): string?
 end
 
 --- The fields of `module`, whose tree is `chunk`, that are functions that take a template: each a top-level
---- `function M.f(p: T.Source, data...)`, where `T` is bound to `require("cosmic.template")` (or is the module's own
---- record, in [`cosmic.template`]), with two parameters.
+--- `function M.f(p: T.Source, data?: any)`, where `T` is bound to `require("cosmic.template")` (or is the module's own
+--- record, in [`cosmic.template`]). The data is optional and of any type, since a lowered call gives the function the
+--- template filled and no data.
 function Lower.takers(module: string, chunk: Ast.Chunk): {string: boolean}
   local out: mut {string: boolean} = {}
   local templates: mut {string: boolean} = {}
@@ -50,9 +51,10 @@ function Lower.takers(module: string, chunk: Ast.Chunk): {string: boolean}
         if v ~= nil and required(v) == TEMPLATE then templates[b.name] = true end
       end
     elseif s.kind == "Function" and #s.path == 2 and #s.fn.params == 2 then
-      local first = s.fn.params[1]
-      local ty = first.type
-      if ty ~= nil and ty.kind == "TypeName" and #ty.path == 2 and ty.path[2] == "Source" then
+      local first, second = s.fn.params[1], s.fn.params[2]
+      local ty, data = first.type, second.type
+      local any = data ~= nil and data.kind == "TypeName" and #data.path == 1 and data.path[1] == "any"
+      if second.optional and any and ty ~= nil and ty.kind == "TypeName" and #ty.path == 2 and ty.path[2] == "Source" then
         local t = ty.path[1]
         if templates[t] == true or (module == TEMPLATE and t == s.path[1].text) then
           out[s.path[2].text] = true
@@ -100,32 +102,39 @@ end
 function Lower.lower(text: string, name: string, chunk: Ast.Chunk, takes: SourceParse.Takes): SourceParse.Lowered?
   -- A call of a string literal to a field of a name bound to a `require`, or of a `require` itself, by the names: what
   -- is looked at before the scopes are built, which most modules need not.
-  local requires: mut {string: string} = {}
-  for _, s in ipairs(chunk.body.stats) do
-    if s.kind == "Local" then
-      for i, b in ipairs(s.bindings) do
-        local v = s.values[i]
+  -- A local anywhere in the module that is bound to a `require` may hold a module whose function takes a template.
+  local requires: mut {string: mut {string}} = {}
+  walk(chunk, function(node: Ast.Node)
+    if node.kind == "Local" then
+      for i, b in ipairs(node.bindings) do
+        local v = node.values[i]
         local module = if v ~= nil then required(v) else nil end
-        if module ~= nil then requires[b.name] = module end
+        if module ~= nil then
+          local held: mut {string} = requires[b.name] or {}
+          requires[b.name] = held
+          held[#held + 1] = module
+        end
       end
     end
-  end
-  --- The module a call's callee object names, by its text alone: nil where it names none.
-  local function named(object: Ast.Exp): string?
+  end)
+  --- Whether a call's callee object may name a module with `field` that takes a template, by its text alone.
+  local function may_take(object: Ast.Exp, field: string): boolean
     if object.kind == "Name" then
-      return requires[object.text]
+      for _, module in ipairs(requires[object.text] or {}) do
+        if takes(module, field) then return true end
+      end
     elseif object.kind == "Paren" then
-      return required(object.inner)
+      local module = required(object.inner)
+      return module ~= nil and takes(module, field)
     end
-    return nil
+    return false
   end
   local found = false
   walk(chunk, function(node: Ast.Node)
     if found or not (node.kind == "Call") then return end
     local callee, literal = node.callee, node.args[1]
     if callee.kind == "Field" and (#node.args == 1 or #node.args == 2) and literal ~= nil and literal.kind == "String" then
-      local module = named(callee.object)
-      if module ~= nil and takes(module, callee.name) then found = true end
+      found = may_take(callee.object, callee.name)
     end
   end)
   if not found then return nil end

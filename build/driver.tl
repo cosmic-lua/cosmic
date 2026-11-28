@@ -530,8 +530,14 @@ function Driver.new(options: Driver.Options): Driver.Build
   --- `source` read, with the functions that take a template of the modules it requires, and its own kept.
   local function read_of(source: Driver.Source, written?: string): Read
     reading[source.module] = true
+    for _, name in ipairs(source.aliases) do
+      reading[name] = true
+    end
     local read = read_source(source, written, takes)
     reading[source.module] = nil
+    for _, name in ipairs(source.aliases) do
+      reading[name] = nil
+    end
     takers[source.module] = read.takers
     for _, name in ipairs(source.aliases) do
       takers[name] = read.takers
