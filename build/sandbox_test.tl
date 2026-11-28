@@ -420,7 +420,7 @@ local POLICY <const> = Shape.record_of("cosmic.sandbox.Policy")
 --- until it has a flag and a line here.
 local samples <const>: {string:{string}} = {
   profile = { "--system" }, grants = { "--read", "x" }, isolate = { "--isolate", "proc" },
-  loopback = { "--loopback", "127.0.0.2" }, env = { "--env", "X" },
+  loopback = { "--loopback", "127.0.0.2" }, at_most = { "--cap", "r:.git" }, env = { "--env", "X" },
   set_env = { "--set-env", "X=1" }, tmp = { "--tmp" },
   open_files = { "--open-files", "5" }, file_bytes = { "--file-bytes", "5" },
   cpu_seconds = { "--cpu-seconds", "5" }, processes = { "--processes", "5" },
@@ -473,6 +473,7 @@ local function grant_holds(words: {string}, name: string): boolean
   local policy = assert(ran.opts.policy)
   if name == "profile" then return #Sandbox.profiles(policy) > 0 end
   if name == "env" then return #Sandbox.env(policy) > 0 end
+  if name == "at_most" then return #Sandbox.caps(policy) > 0 end
   return #Sandbox.loopback(policy) > 0
 end
 

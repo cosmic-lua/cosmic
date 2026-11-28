@@ -195,6 +195,10 @@ local function held_to(given: Sandbox.Policy, runs: boolean, program?: string,
           if Fs.within(run, real or reach) then over = true end
         end
       end
+      -- A cap over the program holds it to no `w`, whatever the grant gives.
+      for _, cap in ipairs(Sandbox.caps(merged)) do
+        if Fs.within(run, cap.at_most) then over = false end
+      end
       if over then
         -- A snippet that could write the program could run what it wrote.
         return nil, Failure.new("worker: " .. run .. " lies where a snippet may write (" .. grant.path ..
@@ -204,6 +208,10 @@ local function held_to(given: Sandbox.Policy, runs: boolean, program?: string,
     if letters ~= "" then
       grants[#grants + 1] = { path = grant.path, letters = letters, from = grant.from }
     end
+  end
+  -- What the policy reads alone beneath a writable grant (.git) stays so.
+  for _, cap in ipairs(Sandbox.caps(merged)) do
+    grants[#grants + 1] = { at_most = cap.at_most, letters = cap.letters }
   end
   for _, promise in ipairs(promises) do grants[#grants + 1] = { calls = promise } end
   for _, target in ipairs(Sandbox.connects(merged)) do

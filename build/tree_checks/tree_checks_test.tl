@@ -1405,23 +1405,28 @@ local function test_a_comment_in_a_module_misses_its_own_answer_and_no_other_fil
   assert(memo:close())
 end
 
---- Each file whose code or declarations decide what the check finds is in the memo's salt: a change to any of
---- them misses.
+--- Each declaration file that decides what the check finds is in the memo's salt by its text: a change to any of
+--- them misses. The code that checks goes in by the tool's bytecode of it ([`check_memo.salt`]), so the tree's text of
+--- a module the tool holds moves nothing.
 local function test_a_change_to_the_code_or_the_declarations_the_declaration_check_reads_misses_the_memo(dir: string)
   local root = dir .. "/declaresalt"
-  local salted: {string} = { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl", "lang/truthy.tl",
-    "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/prelude.d.tl", "lang/stdlib.d.tl",
-    "build/check_memo.tl", "build/tree_checks/checked.tl", "build/tree_checks/common.tl" }
+  local salted: {string} = { "lang/prelude.d.tl", "lang/stdlib.d.tl", "core/syscalls.h", "core/process.h",
+    "core/socket.h" }
   assert(Fs.mkdirs(root .. "/build"))
-  assert(Fs.mkdirs(root .. "/build/tree_checks"))
-  assert(Fs.mkdirs(root .. "/lang/check"))
+  assert(Fs.mkdirs(root .. "/core"))
+  assert(Fs.mkdirs(root .. "/lang"))
   for _, path in ipairs(salted) do
     assert(Fs.write(root .. "/" .. path, "-- one\n"))
   end
+  assert(Fs.write(root .. "/lang/ast.tl", "-- one\n"))
   assert(Fs.write(root .. "/build/bad.tl", source("local x: {number: integer}", "return x")))
   local memo = assert(Sqlite.memory())
   local plain = table.concat(tree_checked.declared(root, memo), "\n")
   assert(plain:find("(float_key)", 1, true), plain)
+  assert(memo:run("UPDATE check_memo SET value = ?1", { { text = "N\nE\tkey_type\t7\t9\tplanted\tdo it" } }))
+  assert(Fs.write(root .. "/lang/ast.tl", "-- two\n"))
+  local held = table.concat(tree_checked.declared(root, memo), "\n")
+  assert(held:find("planted", 1, true), "the tree's text of a module the tool holds moved the key: " .. held)
   for _, path in ipairs(salted) do
     assert(memo:run("UPDATE check_memo SET value = ?1", { { text = "N\nE\tkey_type\t7\t9\tplanted\tdo it" } }))
     local hit = table.concat(tree_checked.declared(root, memo), "\n")
@@ -1507,15 +1512,15 @@ local function test_a_memo_answers_the_body_check_until_a_module_a_file_requires
   assert(memo:close())
 end
 
---- Each file whose code or declarations decide what the check finds is in the memo's salt.
+--- Each declaration file that decides what the check finds is in the memo's salt by its text; the code that checks
+--- goes in by the tool's bytecode of it, as the declaration check's does.
 local function test_a_change_to_the_code_or_the_declarations_the_body_check_reads_misses_the_memo(dir: string)
   local root = dir .. "/checksalt"
-  local salted: {string} = { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl", "lang/truthy.tl",
-    "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/check/init.tl", "lang/check/context.tl", "lang/check_codes.tl",
-    "lang/prelude.d.tl", "lang/stdlib.d.tl", "build/check_memo.tl", "build/tree_checks/checked.tl", "build/tree_checks/common.tl" }
+  local salted: {string} = { "lang/prelude.d.tl", "lang/stdlib.d.tl", "core/syscalls.h", "core/process.h",
+    "core/socket.h" }
   assert(Fs.mkdirs(root .. "/build"))
-  assert(Fs.mkdirs(root .. "/build/tree_checks"))
-  assert(Fs.mkdirs(root .. "/lang/check"))
+  assert(Fs.mkdirs(root .. "/core"))
+  assert(Fs.mkdirs(root .. "/lang"))
   for _, path in ipairs(salted) do
     assert(Fs.write(root .. "/" .. path, "-- one\n"))
   end
@@ -1535,7 +1540,7 @@ local function test_a_change_to_the_code_or_the_declarations_the_body_check_read
 end
 
 --- A file that has not changed is not scoped again: its findings come from the memo. A change to
---- the file, the declarations or the code that scopes it is a miss.
+--- the file or the declarations is a miss; the code that scopes it is keyed by the tool's bytecode of it.
 local function test_a_memo_answers_the_scope_check_for_a_file_that_has_not_changed(dir: string)
   local root = dir .. "/scopememo"
   assert(Fs.mkdirs(root .. "/build"))
@@ -1554,8 +1559,8 @@ local function test_a_memo_answers_the_scope_check_for_a_file_that_has_not_chang
   assert(memo:run("UPDATE check_memo SET value = ?1", { { text = planted } }))
   local hit = table.concat(tree_checked.scoped(root, memo), "\n")
   assert(hit:find("build/bad.tl:7:9: planted (shadows): do it", 1, true) ~= nil and not hit:find("unknown_variable", 1, true), hit)
-  -- The code that scopes changed: the salt moves, the file is scoped again.
-  assert(Fs.write(root .. "/lang/scopes.tl", "-- two\n"))
+  -- The declarations changed: the salt moves, the file is scoped again.
+  assert(Fs.write(root .. "/lang/stdlib.d.tl", source("global print: integer", "global other: integer")))
   assert(table.concat(tree_checked.scoped(root, memo), "\n") == plain)
   assert(memo:close())
 end

@@ -2,13 +2,10 @@
 --- the markers hold, kept in a memo by the sources each file reaches.
 
 local Fs = require("cosmic.fs")
-local type work_schema = require("build.work_schema")
-local type Database = work_schema.Database
 local Proc = require("cosmic.proc")
 local fanout = require("build.compile_fanout")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
-local store_lookups = require("build.store_lookups")
 local check_memo = require("build.check_memo")
 local Ast = require("lang.ast")
 local Check = require("lang.check")
@@ -20,7 +17,6 @@ local Declarations = require("lang.declarations")
 local Driver = require("build.driver")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
-local PipelineCheck = require("build.pipeline_check")
 local ShapeKey = require("build.shape_key")
 local Scopes = require("lang.scopes")
 local ScopesCover = require("lang.scopes_cover")
@@ -38,6 +34,13 @@ local told_marks = tree_common.told_marks
 local required_modules = tree_common.required_modules
 
 local record tree_checked
+  --- A file of the tree as [`tree_checked.lowered`] gives it: its path, its module, its dialect and its key.
+  record Lowered
+    file: string
+    module: string
+    dialect: Ast.Dialect
+    key: string
+  end
 end
 
 --- What scoping one file found.
@@ -138,8 +141,8 @@ function tree_checked.share_checks(): boolean, string
   local core = Hash.hex_sha256(head)
   local coded: Coded = { code = nil, trouble = "" }
   Store.alone(function()
-    coded.code, coded.trouble = check_memo.code_of({ requires = store_lookups.requires, bytecode = store_lookups.bytecode,
-      holds = store_lookups.holds, core = core })
+    coded.code, coded.trouble = check_memo.code_of({ requires = check_memo.tool.requires, bytecode = check_memo.tool.bytecode,
+      holds = check_memo.tool.holds, source = check_memo.tool.source, core = core })
   end)
   local code = coded.code
   if code == nil then
@@ -166,7 +169,7 @@ function tree_checked.scoped(root: string, memo?: Sqlite.Handle, marking?: Ceili
   local salt = check_memo.salt(root, { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl",
     "lang/scopes_cover.tl", "lang/truthy.tl", "lang/prelude.d.tl", "lang/stdlib.d.tl",
     "build/check_memo.tl", "build/driver.tl", "build/tree_checks/checked.tl", "build/tree_checks/common.tl", "build/tree_program.tl" },
-    "scoped 4")
+    "scoped 5")
   if memo ~= nil then
     local _, _ = check_memo.prepare(memo, "scoped")
   end
@@ -273,7 +276,7 @@ end
 --- The salt of the digests of [`ShapeKey`], from the code that makes them.
 local function shaping_of(root: string, memo: Sqlite.Handle?): Shaping
   return { memo = memo, salt = check_memo.salt(root, { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "build/shape_key.tl", "build/check_memo.tl" },
-    "shape 2") }
+    "shape 3") }
 end
 
 --- The files of `files` that a lowering covers, each with the key its result is kept under: `salt`, its dialect and
@@ -627,7 +630,7 @@ function tree_checked.declared(root: string, memo?: Sqlite.Handle, marking?: Cei
   local salt = check_memo.salt(root, { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl",
     "lang/truthy.tl", "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/prelude.d.tl", "lang/stdlib.d.tl", "build/check_memo.tl", "build/driver.tl",
     "build/tree_checks/checked.tl", "build/tree_checks/common.tl", "build/tree_program.tl", "build/gen_syscalls.tl", "core/syscalls.h",
-    "core/process.h", "core/socket.h" }, "declared 6")
+    "core/process.h", "core/socket.h" }, "declared 7")
   local written, written_why = TreeProgram.derived_of(root)
   if written == nil then
     return { "reading the derived sources: " .. written_why }
@@ -676,7 +679,7 @@ function tree_checked.checked(root: string, memo?: Sqlite.Handle, phases?: {stri
     "lang/truthy.tl", "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/check/",
     "lang/flow.tl", "lang/check_codes.tl", "lang/warnings.tl", "lang/prelude.d.tl", "lang/stdlib.d.tl", "build/check_memo.tl", "build/driver.tl", "build/tree_checks/checked.tl", "build/tree_checks/common.tl", "build/tree_program.tl",
     "build/syntax_shape_specs.tl", "build/syntax_record_calls.tl", "build/syntax_protobuf_specs.tl", "build/syntax_record_splices.tl", "build/gen_syscalls.tl", "core/syscalls.h", "core/process.h",
-    "core/socket.h" }, "checked 6")
+    "core/socket.h" }, "checked 7")
   local written, written_why = TreeProgram.derived_of(root)
   if written == nil then
     return { "reading the derived sources: " .. written_why }
@@ -714,32 +717,26 @@ function tree_checked.checked(root: string, memo?: Sqlite.Handle, phases?: {stri
   return out
 end
 
---- Whether the build's own pipeline ([`build.pipeline`]) holds each module of the tree as the checks of the tree do, and
---- names the modules it refuses for more than a count ([`build.pipeline_check`] has the rules). `memo` keeps the result for
---- a module under the key `checked` keeps its own.
-function tree_checked.pipeline(root: string, build_db: Database, memo?: Sqlite.Handle):
-    {string}
-  local files, trouble = sources_of(root)
-  if files == nil then
-    return { "reading the sources: " .. trouble }
+--- Each file of the tree at `root` the build's own pipeline is held to ([`build.tree_checks.pipeline`]), keyed under
+--- the salt of `files` and `version` ([`check_memo.salt`]) and the sources each file reaches, as `checked` keys its own.
+--- Nil and why where the sources cannot be read.
+function tree_checked.lowered(root: string, files: {string}, version: string, memo?: Sqlite.Handle):
+    {tree_checked.Lowered}?, string
+  local sources, trouble = sources_of(root)
+  if sources == nil then
+    return nil, "reading the sources: " .. trouble
   end
   local written, written_why = TreeProgram.derived_of(root)
   if written == nil then
-    return { "reading the derived sources: " .. written_why }
+    return nil, "reading the derived sources: " .. written_why
   end
-  local salt = check_memo.salt(root, { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl",
-    "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/check/", "lang/flow.tl",
-    "lang/check_codes.tl", "lang/warnings.tl", "lang/prelude.d.tl", "lang/stdlib.d.tl",
-    "build/check_memo.tl", "build/driver.tl", "build/tree_checks/checked.tl", "build/tree_checks/common.tl", "build/tree_program.tl",
-    "build/syntax_shape_specs.tl", "build/syntax_record_calls.tl", "build/syntax_protobuf_specs.tl", "build/syntax_record_splices.tl", "build/pipeline.tl", "build/pipeline_check.tl",
-    "build/gen_syscalls.tl", "build/compile_grammar.tl", "build/main_locals.tl", "build/lua_tail.tl", "lang/codegen.tl", "lang/truthy.tl", "lang/fact_wraps.tl",
-    "lang/boundaries.tl", "lang/boundary_checks.tl",
-    "core/syscalls.h", "core/process.h", "core/socket.h" }, "pipeline 4")
-  local tree = tree_of(files, salt, TreeProgram.bindings_of(root), written, shaping_of(root, memo))
-  return PipelineCheck.compare(root, build_db, memo, #tree.rows, function(index: integer): PipelineCheck.Row
-    local row = assert(tree.rows[index])
-    return { file = row.file, module = row.module, dialect = row.dialect, key = row.key }
-  end, tree_checked.declared(root, memo), tree_checked.checked(root, memo))
+  local salt = check_memo.salt(root, files, version)
+  local tree = tree_of(sources, salt, TreeProgram.bindings_of(root), written, shaping_of(root, memo))
+  local out: mut {tree_checked.Lowered} = {}
+  for _, row in ipairs(tree.rows) do
+    out[#out + 1] = { file = row.file, module = row.module, dialect = row.dialect, key = row.key }
+  end
+  return out, ""
 end
 
 --- What [`tree_checked.markers`] found: the lines that refuse, and the markers each file holds of each code, which the ratchet
@@ -791,7 +788,7 @@ function tree_checked.untyped(root: string, memo?: Sqlite.Handle, marking?: Ceil
     "lang/check_codes.tl", "lang/warnings.tl", "lang/prelude.d.tl", "lang/stdlib.d.tl",
     "build/check_memo.tl", "build/driver.tl", "build/syntax_node.tl", "build/syntax_report.tl",
     "build/syntax_receivers.tl", "build/syntax_contracts.tl", "build/contract_rules.tl", "build/tree_checks/checked.tl", "build/tree_checks/common.tl",
-    "build/tree_program.tl", "build/gen_syscalls.tl", "core/syscalls.h", "core/process.h", "core/socket.h" }, "untyped 2")
+    "build/tree_program.tl", "build/gen_syscalls.tl", "core/syscalls.h", "core/process.h", "core/socket.h" }, "untyped 3")
   local tree = tree_of(files, salt, TreeProgram.bindings_of(root), written, shaping_of(root, memo), only)
   if memo ~= nil then
     local _, _ = check_memo.prepare(memo, "untyped")

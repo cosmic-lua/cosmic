@@ -53,6 +53,28 @@ local function test_directory_profile_is_recursive_and_parameterized()
   assert(not out.text:find("/private/data", 1, true), out.text)
 end
 
+--- A cap is a deny after every allow, so the last rule to match takes
+--- back beneath it what a grant above gives; without x it denies exec too.
+local function test_a_cap_denies_after_the_allows()
+  local out = compile({ grants = { { path = "w", letters = "rwxc" }, { at_most = "w/.git", letters = "r" } } },
+    { w = { path = "/w", directory = true }, ["w/.git"] = { path = "/w/.git", directory = true } })
+  assert(out.text == BASE .. [[(allow file-read* file-map-executable (subpath (param "PATH_1")))
+(allow file-write-data (subpath (param "PATH_1")))
+(allow process-exec file-map-executable (subpath (param "PATH_1")))
+(allow file-write-create file-write-unlink (subpath (param "PATH_1")))
+(deny file-write* (subpath (param "CAP_1")))
+(deny process-exec (subpath (param "CAP_1")))
+]], out.text)
+  assert(out.parameters["CAP_1"] == "/w/.git" and out.parameters["PATH_1"] == "/w")
+  local rx = compile({ grants = { { path = "w", letters = "rwxc" }, { at_most = "w/bin", letters = "rx" } } },
+    { w = { path = "/w", directory = true }, ["w/bin"] = { path = "/w/bin", directory = true } })
+  assert(rx.text:find('(deny file-write* (subpath (param "CAP_1")))', 1, true) ~= nil, rx.text)
+  assert(rx.text:find("(deny process-exec", 1, true) == nil, rx.text)
+  local _, why = Seatbelt.compile({ grants = { { path = "w", letters = "rwc" }, { at_most = "w/.git", letters = "r" } } },
+    { paths = { w = { path = "/w", directory = true } } })
+  assert(why ~= nil and why.message:find("has no resolved host path", 1, true) ~= nil, tostring(why))
+end
+
 --- ROOT, `tmp`, the terminal and each grant are a parameter; a start takes at most
 --- SEATBELT_PARAMETER_MAX.
 local function test_more_parameters_than_a_start_takes_are_refused()

@@ -249,6 +249,13 @@ local function table_of(parsed: Flags.Parsed): PolicyFields?, string
     end
     grants[#grants + 1] = { path = path, letters = letters }
   end
+  for _, text in ipairs(list("--cap")) do
+    local letters, path = text:match("^([^:]*):(.+)$")
+    if letters == nil or path == nil then
+      return nil, "--cap takes LETTERS:PATH, as r:.git, not " .. text
+    end
+    grants[#grants + 1] = { at_most = path, letters = letters }
+  end
   for _, call in ipairs(list("--promise")) do
     grants[#grants + 1] = { calls = call }
   end
@@ -723,6 +730,11 @@ local function explained(argv: {string}, opts: Child.Options): string?, string
   lines[#lines + 1] = "root: " .. (if layers.root then "its own (isolate file)" else "the host's" end)
   lines[#lines + 1] = "relay: " .. listing(layers.relay)
   lines[#lines + 1] = "loopback: " .. listing(layers.loopback)
+  local caps: mut {string} = {}
+  for _, cap in ipairs(Sandbox.caps(opts.policy or {})) do
+    caps[#caps + 1] = cap.letters .. ":" .. cap.at_most
+  end
+  lines[#lines + 1] = "caps: " .. listing(caps)
   local names: mut {string} = {}
   for name in pairs(layers.rlimits) do names[#names + 1] = name end
   table.sort(names)

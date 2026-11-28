@@ -143,7 +143,8 @@ local function test_encode_decode_encode_is_the_identity()
   local policies: {Sandbox.Policy} = {
     {},
     { setup = { tmp = true } },
-    { grants = { { path = "a b", letters = "rwxcu", from = "/h" }, { path = "/x\u{e9}", letters = "c" }, { calls = "nest" }, { calls = "fattr" }, { calls = "jit" }, { calls = "fork" }, { connect = "h:1" }, { connect = "*:*" }, { loopback = "127.9.9.9" }, { env = "A" }, { env = "B" } },
+    { grants = { { path = "a b", letters = "rwxcu", from = "/h" }, { path = "/x\u{e9}", letters = "c" }, { calls = "nest" }, { calls = "fattr" }, { calls = "jit" }, { calls = "fork" }, { connect = "h:1" }, { connect = "*:*" }, { loopback = "127.9.9.9" }, { env = "A" }, { env = "B" },
+      { at_most = "a b/.git", letters = "r" }, { at_most = "/x\u{e9}", letters = "rx" } },
       isolate = { "file", "proc" },
       setup = { set_env = { K = "v", E = "" }, tmp = true }, limits = { open_files = 3, file_bytes = 0, cpu_seconds = 1, processes = 2 } },
     { setup = { set_env_digests = { X = string.rep("a", 64) } } },
