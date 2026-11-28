@@ -32,9 +32,16 @@ local function test_the_command_line_names_tools_a_fixture_and_tasks()
   local some = options({ "--tool", "t=/c", "--fixture", "/f", "--out", "/o", "--tasks", "todos,rename",
     "--reps", "3", "--model", "opus" })
   assert(#some.tasks == 2 and some.tasks[2].name == "rename" and some.reps == 3 and some.model == "opus")
-  local offered = options({ "--tool", "a=/c", "--tool", "b=/c", "--offer", "b=run,read", "--fixture", "/f", "--out", "/o" })
-  assert(assert(offered.tools[1]).tools == nil and assert(offered.tools[2]).tools == "run,read")
-  assert(Agent.parse({ "--offer", "a=run", "--tool", "a=/c", "--fixture", "/f", "--out", "/o" }) == nil)
+  -- --offer is gone: it is an unknown option now.
+  assert(Agent.parse({ "--tool", "a=/c", "--offer", "a=run", "--fixture", "/f", "--out", "/o", "--testdata", "/td" }) == nil)
+  local dropped = options({ "--tool", "a=/c", "--tool", "b=/c", "--drop", "b=Host.sed,`..`", "--fixture", "/f",
+    "--out", "/o" })
+  assert(assert(dropped.tools[1]).drop == nil and assert(dropped.tools[2]).drop == "Host.sed,`..`")
+  local all_dropped = options({ "--tool", "a=/c", "--tool", "b=/c", "--drop", "Host.sed", "--fixture", "/f", "--out", "/o" })
+  assert(assert(all_dropped.tools[1]).drop == "Host.sed" and assert(all_dropped.tools[2]).drop == "Host.sed")
+  local more = options({ "--tool", "a=/c", "--tool", "b=/c", "--arm", "b", "--round", "r1", "--db", "/x/runs.db",
+    "--jobs", "2", "--against", "/x/old.db", "--against-round", "r0", "--against-as", "a=old", "--fixture", "/f", "--out", "/o" })
+  assert(more.round == "r1" and more.db == "/x/runs.db" and more.jobs == 2 and more.against_round == "r0")
   local efforts = options({ "--tool", "a=/c", "--tool", "b=/c", "--tool", "c=/c", "--effort", "b=low", "--effort",
     "high", "--fixture", "/f", "--out", "/o" })
   assert(assert(efforts.tools[1]).effort == "high" and assert(efforts.tools[2]).effort == "low" and
@@ -1009,4 +1016,59 @@ local function test_a_run_on_cosmics_own_tree_runs_the_tool_retargeted_to_its_co
     assert(not has(without.asked[i]!, "--commands"), table.concat(without.asked[i]!, " "))
     assert(without.envs[i]!["PATH"] == "/bin", without.envs[i]!["PATH"])
   end
+end
+
+--- A round that goes on runs only what its store does not know: where it knows every run, nothing starts.
+local function test_a_round_that_goes_on_skips_the_runs_its_store_knows()
+  local o = options({ "--tool", "a=/a", "--tool", "b=/b", "--fixture", "/f", "--out", "/o", "--tasks", "todos",
+    "--reps", "2", "--arm", "b" })
+  local started = 0
+  local system: Agent.System = {
+    retarget = function(_: string, _: string, _: string) error("no retarget") end,
+    fresh = function(_: string): string
+      started = started + 1
+      return "/tmp/x"
+    end,
+    discard = function(_: string) end,
+    run = function(argv: {string}, _: string, _: {string: string}?, _: integer): Agent.Output
+      -- The directories of an arm are made whatever is known.
+      if argv[1] ~= "mkdir" then started = started + 1 end
+      return { code = 0, stdout = "", stderr = "" }
+    end,
+    spent = function(_: string, _: string): Agent.Spent? return nil end,
+    put = function(_: string, _: string) end,
+    serve = function(_: {string}, _: string, _: string, _: integer): (string, function()) | (nil, string)
+      error("no site")
+    end,
+  }
+  local recorded = 0
+  local store: Agent.Store = {
+    known = function(tool: string, task: string, rep: integer): Agent.Result?
+      return { tool = tool, task = task, rep = rep, grade = "pass", wall = 1 }
+    end,
+    record = function(_: Agent.Tool, _: Agent.Result) recorded = recorded + 1 end,
+  }
+  local results = Agent.execute(o, system, "k", { PATH = "/bin" }, function(_: string, _: string)
+  end, store)
+  assert(started == 0 and recorded == 0, tostring(started))
+  -- Only the arm asked for is run, and the runs found are its results.
+  assert(#results == 2 and results[1].tool == "b" and results[2].rep == 2)
+end
+
+local function test_an_earlier_round_is_matched_by_the_names_given_and_said_when_none_match()
+  local o = options({ "--tool", "new=/a", "--fixture", "/f", "--out", "/o" })
+  local e: Agent.Earlier = { refused = 1, runs = 1, causes = {}, layers = {} }
+  local earlier: {string: Agent.Earlier} = { old = e }
+  local why = assert(Agent.unmatched(o, earlier))
+  assert(why:find("--against-as NEW=OLD", 1, true) ~= nil and why:find("old", 1, true) ~= nil, why)
+  local renamed = Agent.renamed(earlier, { new = "old" })
+  assert(renamed["new"] == e and renamed["old"] == nil)
+  assert(Agent.unmatched(o, renamed) == nil)
+end
+
+local function test_a_report_says_the_bullets_left_out_of_a_tool()
+  local o: Agent.Options = { tools = { { name = "a", path = "/a", drop = "Host.sed" }, { name = "b", path = "/b" } },
+    fixture = "/f", out = "/o", tasks = {}, reps = 1, model = "m", timeout = 1 }
+  local report = Agent.report(o, {})
+  assert(report:find("Run text bullets left out: a: Host.sed.\n", 1, true) ~= nil, report)
 end

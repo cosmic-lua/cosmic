@@ -489,6 +489,21 @@ eval/agent --tool base=/opt/evaltools/cosmic --fixture /tmp/evfix --out /tmp/ev/
   --tasks json-legs,write-dirs --reps 6 --no-agents-md
 ```
 
+Every run is also a row of `<out>/runs.db` (SQLite; `--db PATH` puts it elsewhere): its round, arm, task, rep,
+model, grade, requests, tokens, cost, refusal codes, causes and layers, and the sha256 of the binary that ran it. The
+database is the source of truth: report.md and results.json are built from it. A round has an id (`--round ID`;
+the name of `--out` where not given), so the same command, run again, goes on where the round stopped: it skips each
+run the database holds, and runs again each run that was "broken". Each arm's binary is copied to
+`<out>/<arm>/tool/cosmic` when the round begins, so a rebuild of the tree under the round does not change an arm, and
+a round refuses an arm whose binary is not the one it began with. `<out>/round.log` says what each step did.
+
+`--jobs N` runs N arms at once, each in a process of its own (`--arm NAME` runs one arm alone and writes only the
+database, for a round spread over calls). `--drop BULLETS` (or `--drop NAME=BULLETS`) leaves bullets out of the run
+text of an arm, by their first words, such as `--drop Host.sed,Host.sort` (COSMIC_RUN_TEXT_DROP): the ablation of a
+bullet is a round that differs from another in this flag alone. `--against FILE` (a runs.db or a results.json) sets the report against an earlier
+round, from a runs.db (the newest other round in it, or `--against-round ID`) or a results.json; `--against-as NEW=OLD`
+names the arm of that round an arm here is set against, and the report says when no arm matches.
+
 Give `--out` a directory in /tmp, then copy report.md and results.json where they should stay: on a network mount
 (such as the project's) every run ends with "cache leaf has a different owner". A run that ends with an error before
 its first request is graded "broken", not "fail", with the first line of its error in the report. When no run before
