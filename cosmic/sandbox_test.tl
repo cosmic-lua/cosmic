@@ -66,6 +66,57 @@ local function test_merge_joins_the_letters_of_a_path_in_order()
   assert(Array.at(Sandbox.paths(out), 2).path == "/b" and Array.at(Sandbox.paths(out), 2).letters == "rcu")
 end
 
+local function test_merge_cuts_the_grants_at_a_cap_and_beneath_it()
+  local out = PolicyMerge.merged(
+    { grants = { { path = "/w", letters = "rwxc" }, { path = "/w/.git", letters = "rw" },
+      { path = "/w/.git/hooks", letters = "rwx" }, { path = "/w/.git/objects", letters = "w" } } },
+    { grants = { { at_most = "/w/.git", letters = "rx" }, { at_most = "/w/.git/", letters = "r" } } })
+  local paths = Sandbox.paths(out)
+  -- The cap of two policies on one path is what both leave; a grant left nothing is gone.
+  assert(#paths == 3, tostring(#paths))
+  assert(Array.at(paths, 1).path == "/w" and Array.at(paths, 1).letters == "rwxc")
+  assert(Array.at(paths, 2).path == "/w/.git" and Array.at(paths, 2).letters == "r")
+  assert(Array.at(paths, 3).path == "/w/.git/hooks" and Array.at(paths, 3).letters == "r")
+  local caps = Sandbox.caps(out)
+  assert(#caps == 1 and Array.at(caps, 1).at_most == "/w/.git" and Array.at(caps, 1).letters == "r")
+end
+
+local function test_allows_names_the_cap_that_cut_a_letter()
+  local merged = PolicyMerge.merged({ grants = { { path = "/w", letters = "rwc" }, { at_most = "/w/.git", letters = "r" } } })
+  assert(Sandbox.allows(merged, "/w/a", "w"))
+  assert(Sandbox.allows(merged, "/w/.git/config", "r"))
+  local ok, why = Sandbox.allows(merged, "/w/.git/config", "w")
+  assert(not ok and why:find("the cap of /w/.git leaves no w", 1, true) ~= nil, why)
+  assert(not Sandbox.allows(merged, "/w/.git", "c"))
+  assert(Sandbox.allows(merged, "/w/.gitignore", "w"))
+end
+
+local function test_live_caps_are_the_caps_a_grant_above_gives_more_than()
+  local merged = PolicyMerge.merged({ grants = { { path = ".", letters = "rwxc" }, { path = "/r", letters = "r" },
+    { at_most = ".git", letters = "r" }, { at_most = "/r/x", letters = "r" }, { at_most = "/w/.git", letters = "rx" },
+    { at_most = "/elsewhere", letters = "r" } } })
+  local live = Sandbox.live_caps(merged)
+  assert(#live == 1, tostring(#live))
+  assert(Array.at(live, 1).cap.at_most == ".git" and Array.at(live, 1).over == "wxc" and Array.at(live, 1).under.path == ".")
+  -- Named beneath a base, a relative cap meets an absolute grant and the other way round.
+  local mixed = PolicyMerge.merged({ grants = { { path = "/w", letters = "rwxc" }, { at_most = ".git", letters = "rx" } } })
+  local held = Sandbox.live_caps(mixed, "/w")
+  assert(#held == 1 and Array.at(held, 1).over == "wc" and Array.at(held, 1).under.path == "/w")
+  assert(#Sandbox.live_caps(mixed) == 0)
+end
+
+local function test_check_refuses_a_cap_that_leaves_more_than_r_or_rx()
+  for _, bad in ipairs({ "rw", "x", "", "rxc" }) do
+    local ok, why = Sandbox.check({ grants = { { at_most = ".git", letters = bad } } })
+    assert(not ok and tostring(why):find("letters", 1, true) ~= nil, bad .. ": " .. tostring(why))
+  end
+  local up, up_why = Sandbox.check({ grants = { { at_most = "a/../b", letters = "r" } } })
+  assert(not up and tostring(up_why):find("..", 1, true) ~= nil, tostring(up_why))
+  assert(not Sandbox.check({ grants = { { at_most = "", letters = "r" } } }))
+  assert(not Sandbox.check({ grants = { { at_most = "xr", letters = "xr" } } }, true))
+  assert(Sandbox.check({ grants = { { at_most = "xr", letters = "xr" } } }))
+end
+
 local function test_merge_keeps_a_path_with_another_host_path_apart()
   local out = PolicyMerge.merged({ grants = {
     { path = "/a", letters = "r", from = "/x" }, { path = "/a", letters = "w" },
@@ -592,6 +643,15 @@ local function test_restrict_refuses_a_database_before_it_holds_anything(tmp: st
   assert(tostring(why):find("database", 1, true) and tostring(why):find("Child.start", 1, true), why)
 end
 
+--- Landlock only adds rights, so a running process cannot hold a cap a grant above gives more than.
+local function test_restrict_refuses_a_live_cap_on_linux(tmp: string)
+  if Sandbox.on_macos() then Test.skip("Seatbelt holds a cap by its denies") end
+  local base = assert(Fs.absolute(tmp))
+  assert(Fs.mkdirs(base .. "/.git"))
+  local ok, why = Sandbox.restrict({ grants = { { path = base, letters = "rwc" }, { at_most = base .. "/.git", letters = "r" } } })
+  assert(not ok and tostring(why):find("isolate \"file\"", 1, true) ~= nil, tostring(why))
+end
+
 local function test_intersect_keeps_the_deeper_path_with_the_letters_of_both()
   local a: Sandbox.Policy = { grants = { { path = "/srv", letters = "rwx" } } }
   local b: Sandbox.Policy = { grants = { { path = "/srv/data", letters = "rc" }, { path = "/etc", letters = "r" } } }
@@ -713,6 +773,20 @@ end
 local function permitted(policy: Sandbox.Policy, path: string, action: string, cwd?: string): boolean
   local real, _ = Sandbox.permits(policy, path, action, cwd)
   return real ~= nil
+end
+
+--- A cap takes back beneath it what a grant above gives, named absolutely or from `cwd`.
+local function test_permits_holds_a_cap(tmp: string)
+  local base = assert(Fs.absolute(tmp))
+  assert(Fs.mkdirs(base .. "/.git"))
+  assert(Fs.write(base .. "/.git/config", "x"))
+  for _, cap in ipairs({ base .. "/.git", ".git" }) do
+    local p: Sandbox.Policy = { grants = { { path = base, letters = "rwxc" }, { at_most = cap, letters = "r" } } }
+    assert(permitted(p, base .. "/.git/config", "read", base) and permitted(p, base .. "/a", "create", base), cap)
+    local _, why = Sandbox.permits(p, base .. "/.git/config", "write", base)
+    assert(tostring(why):find("the cap of " .. base .. "/.git leaves no w", 1, true) ~= nil, tostring(why))
+    assert(not permitted(p, base .. "/.git/hooks", "create", base) and not permitted(p, base .. "/.git/config", "run", base))
+  end
 end
 
 --- Each action asks one letter: `c` of the directory that holds the name,

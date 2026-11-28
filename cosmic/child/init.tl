@@ -141,6 +141,7 @@ local this_program = Hold.this_program
 local ungranted = Hold.ungranted
 local unix_unheld = Hold.unix_unheld
 local unmet = Hold.unmet
+local held_caps = Hold.held_caps
 local with_grants = Hold.with_grants
 
 local record Result
@@ -2631,6 +2632,11 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
     local here, here_trouble = sys.realpath(opts.cwd or ".")
     if here == nil then return nil, "sandbox: cwd " .. (opts.cwd or ".") .. ": " .. here_trouble end
     base = here
+  end
+  if #Rules.caps(merged) > 0 then
+    local capped, cap_trouble = held_caps(merged, opts.cwd, file)
+    if capped == nil then return nil, "sandbox: " .. cap_trouble end
+    merged = capped
   end
   -- Where this process is root its program runs as a user of its own.
   -- A policy that makes no namespace -- no isolation, no network of its

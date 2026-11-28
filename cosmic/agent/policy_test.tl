@@ -13,7 +13,7 @@ local Test = require("cosmic.test")
 --- Whether `p` lets the agent's tools do each of `letters` at `path`, as
 --- [`Sandbox.permits`] returns: r reads, w writes, c creates.
 local function allows(p: Sandbox.Policy, path: string, letters: string): boolean, string
-  local actions: {string: string} = { r = "read", w = "write", c = "create" }
+  local actions: {string: string} = { r = "read", w = "write", c = "create", x = "run" }
   for letter in letters:gmatch(".") do
     local real, why = Sandbox.permits(p, path, assert(actions[letter]))
     if real == nil then return false, tostring(why) end
@@ -145,9 +145,13 @@ local function test_a_worktree_reaches_its_repository()
   local rel = worktree("rel", "gitdir: ../" .. Fs.basename(repo) .. "/.git/worktrees/rel\n")
   for _, at in ipairs({ tree, rel }) do
     local w = assert(Policy.of(at, { mode = "write", network = false, grants = {} }))
-    assert(allows(w, common .. "/HEAD", "rwc"), at)
-    assert(allows(w, common .. "/objects/ab/cd", "wc"), at)
-    assert(allows(w, common .. "/worktrees/wt/index", "rwc"), at)
+    -- Read alone, as a plain checkout's .git is; the agent writes there for Host.git.
+    assert(allows(w, common .. "/HEAD", "r") and not allows(w, common .. "/HEAD", "w"), at)
+    assert(not allows(w, common .. "/objects/ab/cd", "c"), at)
+    assert(allows(w, common .. "/worktrees/wt/index", "r"), at)
+    assert(not allows(w, at .. "/.git", "w") and allows(w, at .. "/new.txt", "rwc"), at)
+    local held = assert(Policy.session(w, { keeps = {}, reads = {}, connect = {}, env = {}, servers = {} }))
+    assert(allows(held, common .. "/objects/ab/cd", "rwc") and allows(held, at .. "/.git", "rw"), at)
     -- The repository's own checkout is not the worktree's.
     assert(not allows(w, repo .. "/tracked.txt", "r"), at)
     local r = assert(Policy.of(at, { mode = "read", network = false, grants = {} }))
@@ -191,7 +195,28 @@ local function test_a_worktree_reaches_its_repository()
   local plain = scratch()
   assert(Fs.mkdirs(plain .. "/.git"))
   local p = assert(Policy.of(plain, { mode = "write", network = false, grants = {} }))
-  assert(allows(p, plain .. "/.git/HEAD", "w") and not allows(p, common .. "/HEAD", "r"))
+  assert(allows(p, plain .. "/.git/HEAD", "r") and not allows(p, plain .. "/.git/HEAD", "w"))
+  assert(not allows(p, plain .. "/.git/hooks/pre-commit", "c") and not allows(p, common .. "/HEAD", "r"))
+  assert(allows(p, plain .. "/a.txt", "rwc"))
+end
+
+--- The program that runs the agent is read and run: what holds it in the working directory is capped to rx, so a
+--- snippet cannot change what the next run runs; one outside every grant is granted rx.
+local function test_the_agents_own_program_is_read_and_run()
+  local dir, beside = scratch(), scratch()
+  assert(Fs.mkdirs(dir .. "/bin"))
+  assert(Fs.write(dir .. "/bin/cosmic", "x"))
+  assert(Fs.write(beside .. "/cosmic", "x"))
+  local inside = assert(Policy.of(dir, { mode = "write", network = false, grants = {}, executable = dir .. "/bin/cosmic" }))
+  assert(allows(inside, dir .. "/bin/cosmic", "rx") and not allows(inside, dir .. "/bin/cosmic", "w"))
+  assert(not allows(inside, dir .. "/bin/other", "c") and allows(inside, dir .. "/src.tl", "rwc"))
+  -- The agent's own process writes the capped .git, and still runs its program: no grant of its own
+  -- for the program's cap leaves bin noexec there.
+  local held = assert(Policy.session(inside, { keeps = {}, reads = {}, connect = {}, env = {}, servers = {} }))
+  assert(allows(held, dir .. "/bin/cosmic", "rx"))
+  local outside = assert(Policy.of(dir, { mode = "write", network = false, grants = {}, executable = beside .. "/cosmic" }))
+  assert(allows(outside, beside .. "/cosmic", "rx") and not allows(outside, beside .. "/cosmic", "w"))
+  assert(not allows(outside, beside .. "/other", "r"))
 end
 
 --- A grant that reaches what is kept out, or holds it, is refused: no tool may change the sessions or the MCP config.
