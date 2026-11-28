@@ -94,7 +94,7 @@ end
 
 --- The type of `place` in `f`: what it was narrowed to, else what it was declared with.
 function Places.current(f: Flow.State, place: Place): Type
-  local fact = f.facts[place.key]
+  local fact = Flow.fact(f, place.key)
   if fact ~= nil then
     return fact.type
   end
