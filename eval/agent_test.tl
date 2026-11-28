@@ -83,10 +83,10 @@ local function test_runs_are_graded_against_the_truth_of_an_untouched_copy()
     run = function(argv: {string}, cwd: string, env: {string: string}?, _: integer): Agent.Output
       local first, script = argv[1] or "", argv[3] or ""
       if first == "bash" then
-        if script:find("TODO", 1, true) ~= nil then
+        if script:find(" - todos <", 1, true) ~= nil then
           return { code = 0, stdout = "x.tl:1\n", stderr = "" }
         end
-        if script:find("MAX_LINES", 1, true) ~= nil then
+        if script:find(" - rename <", 1, true) ~= nil then
           return { code = 1, stdout = "", stderr = "" }
         end
         -- A check: the good tool left the truth, the bad one something else.
@@ -308,7 +308,7 @@ local function test_a_task_of_a_server_gives_each_run_the_server(tmp: string)
       left[dir] = nil
     end,
     run = function(argv: {string}, _: string, _: {string: string}?, _: integer): Agent.Output
-      if argv[1] == "bash" and (argv[3] or ""):find("^data='/tmp/data%-mcp%-low%-%d+/data%.tsv'; tool='/c'; files='/td/files/mcp%-low'; awk") ~= nil then
+      if argv[1] == "bash" and (argv[3] or ""):find("^data='/tmp/data%-mcp%-low%-%d+/data%.tsv'; tool='/c'; files='/td/files/mcp%-low'; shared='/td/files/truth'; \"%$tool\" %- mcp%-low") ~= nil then
         truths = truths + 1
         return { code = 0, stdout = "i0001 0\n", stderr = "" }
       end
@@ -452,7 +452,7 @@ local function test_a_task_of_a_site_gives_each_run_the_site()
       left[dir] = nil
     end,
     run = function(argv: {string}, _: string, _: {string: string}?, _: integer): Agent.Output
-      if argv[1] == "bash" and (argv[3] or ""):find("^data='/tmp/data%-web%-low%-%d+/data%.tsv'; tool='/c'; files='/td/files/web%-low'; awk") ~= nil then
+      if argv[1] == "bash" and (argv[3] or ""):find("^data='/tmp/data%-web%-low%-%d+/data%.tsv'; tool='/c'; files='/td/files/web%-low'; shared='/td/files/truth'; \"%$tool\" %- web%-low") ~= nil then
         truths = truths + 1
         return { code = 0, stdout = "i0001 0\n", stderr = "" }
       end
@@ -684,7 +684,7 @@ local function test_a_run_that_ends_before_its_first_request_is_broken_and_ends_
         asked = asked + 1
         return { code = 2, stdout = "", stderr = "\nsandbox: $.profiles[0]: there is no profile \"cosmic\"\nmore\n" }
       end
-      if argv[1] == "bash" and (argv[3] or ""):find("TODO", 1, true) ~= nil then
+      if argv[1] == "bash" and (argv[3] or ""):find(" - todos <", 1, true) ~= nil then
         return { code = 0, stdout = "x.tl:1\n", stderr = "" }
       end
       return { code = 0, stdout = "", stderr = "" }
@@ -727,7 +727,7 @@ local function test_a_run_that_ends_before_its_first_request_is_broken_and_ends_
         end
         return { code = 1, stdout = "", stderr = "timed out" }
       end
-      if argv[1] == "bash" and (argv[3] or ""):find("TODO", 1, true) ~= nil then
+      if argv[1] == "bash" and (argv[3] or ""):find(" - todos <", 1, true) ~= nil then
         return { code = 0, stdout = "x.tl:1\n", stderr = "" }
       end
       return { code = 0, stdout = "", stderr = "" }
@@ -795,7 +795,7 @@ local function test_a_timeout_before_the_first_request_is_a_failure_and_goes_on(
         asked = asked + 1
         return { code = 124, stdout = "", stderr = "" }
       end
-      if argv[1] == "bash" and (argv[3] or ""):find("TODO", 1, true) ~= nil then
+      if argv[1] == "bash" and (argv[3] or ""):find(" - todos <", 1, true) ~= nil then
         return { code = 0, stdout = "x.tl:1\n", stderr = "" }
       end
       return { code = 0, stdout = "", stderr = "" }
@@ -899,7 +899,7 @@ local function test_a_task_of_a_testdata_project_copies_it_and_runs_its_setup()
   local _ = Agent.execute(o, system, "k", { PATH = "/bin" }, function(_: string, _: string) end)
   assert(#copies == 3 and copies[1] == "cp -a /td/shop/. /tmp/truth-shop-make-build-1", table.concat(copies, "; "))
   assert(#setups == 3 and setups[1]:find("^/tmp/truth%-shop%-make%-build%-1: tool='/c'; " ..
-      "files='/td/files/shop%-make%-build'; cp ") ~= nil, setups[1])
+      "files='/td/files/shop%-make%-build'; shared='/td/files/truth'; cp ") ~= nil, setups[1])
   assert(#placed == 1 and placed[1] == "/c /o/t/path", table.concat(placed, "; "))
   local function has(argv: {string}, word: string): boolean
     for _, w in ipairs(argv) do

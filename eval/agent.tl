@@ -54,7 +54,9 @@ local record Agent
     follow_up?: string
     --- A bash command run in an untouched copy of the fixture (after `setup`): its output is what a right answer
     --- leaves. `$tool` is the path of the first tool, and `$files` that of eval/testdata/files/<task name>, which
-    --- holds what the task's truth and setup need, such as files written out in full.
+    --- holds what the task's truth and setup need, such as files written out in full. `$shared` is that of
+    --- eval/testdata/files/truth, whose truth.tl answers the tasks that count, list or hash the tree: a
+    --- cosmic program, run as `"$tool" - NAME ["$data"] < "$shared/truth.tl"`, not a pipeline of shell tools.
     truth: string
     --- A bash command run in the run's copy once the agent ended: its output must be the truth's. `$tool` is the
     --- path of the tool under test, for a task whose answer is a program to run, and `$files` as for the truth.
@@ -595,15 +597,14 @@ Agent.tasks = {
     name = "largest",
     prompt = "Write to answer.txt the five largest .tl files under cosmic/ by line count, as `wc -l` counts " ..
       "lines: one `count path` per line, such as `412 cosmic/x.tl` (path from this directory), largest first, ties by path.",
-    truth = "find cosmic -name '*.tl' -type f -exec wc -l {} + | grep -v ' total$' | awk '{print $1\" \"$2}' | " ..
-      "sort -k1,1nr -k2,2 | head -5",
+    truth = "\"$tool\" - largest < \"$shared/truth.tl\"",
     check = "cat answer.txt",
   },
   {
     name = "todos",
     prompt = "Write to answer.txt every line of the .tl files under cosmic/ that holds `TODO`, as " ..
       "`path:line`, such as `cosmic/x.tl:12` (path from this directory, line numbered from 1), one a line, sorted by path, then by line.",
-    truth = "grep -rn --include='*.tl' 'TODO' cosmic | cut -d: -f1,2 | sort -t: -k1,1 -k2,2n",
+    truth = "\"$tool\" - todos < \"$shared/truth.tl\"",
     check = "cat answer.txt",
   },
   {
@@ -611,17 +612,14 @@ Agent.tasks = {
     prompt = "For each .tl file under cosmic/agent/ whose name does not end in _test.tl, count the distinct " ..
       "modules it names in `require(\"cosmic.<...>\")`. Write to answer.txt the three with the most, as " ..
       "`count path`, such as `7 cosmic/agent/x.tl`, one a line, most first, ties by path.",
-    truth = "for f in $(find cosmic/agent -name '*.tl' ! -name '*_test.tl'); do " ..
-      "echo \"$(grep -o 'require(\"cosmic\\.[^\"]*\")' \"$f\" | sort -u | wc -l) $f\"; done | " ..
-      "sort -k1,1nr -k2,2 | head -3",
+    truth = "\"$tool\" - requires < \"$shared/truth.tl\"",
     check = "cat answer.txt",
   },
   {
     name = "tests",
     prompt = "For every file under cosmic/agent/ whose name ends in _test.tl, count the lines that start " ..
       "`local function test_`. Write to answer.txt one `path count` per line, such as `cosmic/agent/x_test.tl 9`, most first, ties by path.",
-    truth = "for f in $(find cosmic/agent -name '*_test.tl'); do " ..
-      "echo \"$f $(grep -c '^local function test_' \"$f\")\"; done | sort -k2,2nr -k1,1",
+    truth = "\"$tool\" - tests < \"$shared/truth.tl\"",
     check = "cat answer.txt",
   },
   {
@@ -629,7 +627,7 @@ Agent.tasks = {
     prompt = "In the .tl files under cosmic/agent/ whose names do not end in _test.tl, find each line that " ..
       "starts `local function <name>(` where the line just before it does not start with `---`. Write to " ..
       "answer.txt one `path:line name` per line, such as `cosmic/agent/x.tl:40 helper`, sorted by path, then by line.",
-    truth = [==[find cosmic/agent -name '*.tl' ! -name '*_test.tl' | sort | xargs awk 'FNR==1{prev=""} /^local function [A-Za-z_][A-Za-z0-9_]*\(/ { if (prev !~ /^---/) { n=$3; sub(/\(.*/,"",n); print FILENAME":"FNR" "n } } {prev=$0}' | sort -t: -k1,1 -k2,2n]==],
+    truth = "\"$tool\" - undocumented < \"$shared/truth.tl\"",
     check = "cat answer.txt",
   },
   {
@@ -637,7 +635,7 @@ Agent.tasks = {
     prompt = "For each .tl file directly in cosmic/ (not in a subdirectory, and not ending in _test.tl), say " ..
       "cosmic/<x>.tl, count the other .tl files anywhere under cosmic/ that hold the text `require(\"cosmic.<x>\")`. " ..
       "Write to answer.txt the ten with the most, as `count cosmic.<x>`, such as `31 cosmic.x`, most first, ties by name.",
-    truth = [==[for f in $(find cosmic -maxdepth 1 -name '*.tl' ! -name '*_test.tl'); do m=$(basename "$f" .tl); n=$(grep -rlF --include='*.tl' "require(\"cosmic.$m\")" cosmic | grep -vx "$f" | wc -l); echo "$n cosmic.$m"; done | sort -k1,1nr -k2,2 | head -10]==],
+    truth = "\"$tool\" - fan-in < \"$shared/truth.tl\"",
     check = "cat answer.txt",
   },
   {
@@ -647,15 +645,14 @@ Agent.tasks = {
       "cosmic/agent/tools.tl). Write to answer.txt each module's line count, as `wc -l` counts, as " ..
       "`count module`, the module's whole name as init.tl writes it (`120 cosmic.agent.tools`), most first, " ..
       "ties by name.",
-    truth = [==[for m in $(grep -o 'require("cosmic\.[^"]*")' cosmic/agent/init.tl | sed 's/require("//; s/")//' | sort -u); do p=cosmic/$(echo "${m#cosmic.}" | tr . /); if [ -f "$p.tl" ]; then f=$p.tl; else f=$p/init.tl; fi; echo "$(wc -l < "$f") $m"; done | sort -k1,1nr -k2,2]==],
+    truth = "\"$tool\" - two-hop < \"$shared/truth.tl\"",
     check = "cat answer.txt",
   },
   {
     name = "rename-many",
     prompt = "Rename the constant MAX_BYTES to BYTES_MOST in every .tl file under cosmic/ that has it, " ..
       "everywhere it appears as a whole word, and change nothing else.",
-    truth = "files=$(grep -rlw --include='*.tl' 'MAX_BYTES' cosmic | sort); [ -n \"$files\" ] && " ..
-      "for f in $files; do echo \"$f\"; sed 's/\\<MAX_BYTES\\>/BYTES_MOST/g' \"$f\"; done | sha256sum | cut -c1-64",
+    truth = "\"$tool\" - rename-many < \"$shared/truth.tl\"",
     check = "for f in $(grep -rlw --include='*.tl' 'BYTES_MOST' cosmic | sort); do echo \"$f\"; cat \"$f\"; done | " ..
       "sha256sum | cut -c1-64",
   },
@@ -665,38 +662,35 @@ Agent.tasks = {
       "for each .tl file under cosmic/, `lines` as `wc -l` counts them and `dir` the path's directory " ..
       "(cosmic, or cosmic/x/y). Then, with SQL on it, write to answer.txt one `dir count lines` per line, the files " ..
       "and lines of each dir, such as `cosmic/x 4 812`: the ten dirs of the most lines, most first, ties by dir.",
-    truth = "echo 'SQLite format 3'; find cosmic -name '*.tl' -type f -exec wc -l {} + | grep -v ' total$' | " ..
-      "awk '{d=$2; sub(/\\/[^\\/]*$/, \"\", d); c[d]++; l[d] += $1} END {for (d in c) print d\" \"c[d]\" \"l[d]}' | " ..
-      "sort -k3,3nr -k1,1 | head -10",
+    truth = "\"$tool\" - sqlite < \"$shared/truth.tl\"",
     check = "head -c 15 files.db; echo; cat answer.txt",
   },
   {
     name = "hashes",
     prompt = "Write to answer.txt the SHA-256 of each .md file directly in doc/guides/ (not in a subdirectory), " ..
       "as `sha256sum` prints it (`<hex>  doc/guides/x.md`), one a line, sorted by path.",
-    truth = "for f in $(find doc/guides -maxdepth 1 -name '*.md' -type f | sort); do sha256sum \"$f\"; done",
+    truth = "\"$tool\" - hashes < \"$shared/truth.tl\"",
     check = "cat answer.txt",
   },
   {
     name = "rename",
     prompt = "In cosmic/agent/tools.tl, rename the constant MAX_LINES to MOST_LINES everywhere it appears, " ..
       "and change nothing else.",
-    truth = "n=$(grep -o 'MAX_LINES' cosmic/agent/tools.tl | wc -l); [ \"$n\" -gt 0 ] && " ..
-      "{ sed 's/MAX_LINES/MOST_LINES/g' cosmic/agent/tools.tl | sha256sum | cut -c1-64; }",
+    truth = "\"$tool\" - rename < \"$shared/truth.tl\"",
     check = "sha256sum cosmic/agent/tools.tl | cut -c1-64",
   },
   {
     name = "imports",
     prompt = "Across the .tl files under cosmic/agent/, count each `require(\"cosmic.<...>\")` text, every time it " ..
       "appears. Write to answer.txt the five modules named most, as `count cosmic.<...>`, such as `12 cosmic.x`, most first, ties by name.",
-    truth = [==[grep -rho --include='*.tl' 'require("cosmic\.[^"]*")' cosmic/agent | sed 's/require("//; s/")//' | sort | uniq -c | awk '{print $1" "$2}' | sort -k1,1nr -k2,2 | head -5]==],
+    truth = "\"$tool\" - imports < \"$shared/truth.tl\"",
     check = "cat answer.txt",
   },
   {
     name = "header",
     prompt = "cosmic/agent/tools.tl starts with a block of lines that each start `---`. Replace that whole block, " ..
       "its first line too, with the one line `--- The tools of cosmic agent.` and change nothing else.",
-    truth = [==[head -1 cosmic/agent/tools.tl | grep -q '^---' && awk 'h && /^---/ {next} h {print "--- The tools of cosmic agent."; h=0} {print}' h=1 cosmic/agent/tools.tl | sha256sum | cut -c1-64]==],
+    truth = "\"$tool\" - header < \"$shared/truth.tl\"",
     check = "sha256sum cosmic/agent/tools.tl | cut -c1-64",
   },
   {
@@ -704,7 +698,7 @@ Agent.tasks = {
     prompt = "The inventory MCP server lists items and tells each one's category, price in cents and stock. " ..
       "Write to answer.txt, for each category, the sum over its items of price_cents times stock, as " ..
       "`sum category`, such as `123456 shoes`, one a line, largest first, ties by category.",
-    truth = "awk -F'\\t' '{s[$3] += $4 * $5} END {for (c in s) print s[c]\" \"c}' \"$data\" | sort -k1,1nr -k2,2",
+    truth = "\"$tool\" - mcp-value \"$data\" < \"$shared/truth.tl\"",
     check = "cat answer.txt",
     servers = { { name = "inventory", source = INVENTORY_SERVER, data = inventory() } },
   },
@@ -712,7 +706,7 @@ Agent.tasks = {
     name = "mcp-low",
     prompt = "Write to answer.txt each item of the inventory MCP server whose stock is below 3, as `id stock`, such as `i9999 2`, " ..
       "one a line, sorted by id.",
-    truth = "awk -F'\\t' '$5 < 3 {print $1\" \"$5}' \"$data\" | sort",
+    truth = "\"$tool\" - mcp-low \"$data\" < \"$shared/truth.tl\"",
     check = "cat answer.txt",
     servers = { { name = "inventory", source = INVENTORY_SERVER, data = inventory() } },
   },
@@ -720,7 +714,7 @@ Agent.tasks = {
     name = "mcp-many-low",
     prompt = "Write to answer.txt each item of the warehouse whose stock is below 3, as `id stock`, such as `i9999 2`, one a line, " ..
       "sorted by id.",
-    truth = "awk -F'\\t' '$5 < 3 {print $1\" \"$5}' \"$data\" | sort",
+    truth = "\"$tool\" - mcp-many-low \"$data\" < \"$shared/truth.tl\"",
     check = "cat answer.txt",
     servers = many_servers(),
   },
@@ -728,7 +722,7 @@ Agent.tasks = {
     name = "mcp-many-value",
     prompt = "Write to answer.txt, for each category of the warehouse's items, the sum over its items of price " ..
       "in cents times stock, as `sum category`, such as `123456 shoes`, one a line, largest first, ties by category.",
-    truth = "awk -F'\\t' '{s[$3] += $4 * $5} END {for (c in s) print s[c]\" \"c}' \"$data\" | sort -k1,1nr -k2,2",
+    truth = "\"$tool\" - mcp-many-value \"$data\" < \"$shared/truth.tl\"",
     check = "cat answer.txt",
     servers = many_servers(),
   },
@@ -737,7 +731,7 @@ Agent.tasks = {
     prompt = "The inventory web API at {url} answers GET /items?page=N, from page 1, with JSON: `items`, each " ..
       "with id, name, category, price_cents and stock, and `next`, the page after it, which the last page has " ..
       "not. Write to answer.txt each item whose stock is below 3, as `id stock`, such as `i9999 2`, one a line, sorted by id.",
-    truth = "awk -F'\\t' '$5 < 3 {print $1\" \"$5}' \"$data\" | sort",
+    truth = "\"$tool\" - web-low \"$data\" < \"$shared/truth.tl\"",
     check = "cat answer.txt",
     site = { source = INVENTORY_SITE, data = inventory() },
   },
@@ -746,7 +740,7 @@ Agent.tasks = {
     prompt = "The web API at {url} serves the sales as CSV at GET /sales.csv, with a header row " ..
       "`region,customer,amount_cents`. Write to answer.txt, for each customer, the sum of its amount_cents, as " ..
       "`sum customer`, the name as it reads unquoted, such as `5000 Zephyr Goods`, one a line, largest first, ties by customer in byte order.",
-    truth = "awk -F'\\t' '{s[$2] += $3} END {for (c in s) print s[c]\" \"c}' \"$data\" | LC_ALL=C sort -k1,1nr -k2",
+    truth = "\"$tool\" - web-csv \"$data\" < \"$shared/truth.tl\"",
     check = "cat answer.txt",
     site = { source = SALES_SITE, data = sales() },
   },
@@ -756,7 +750,7 @@ Agent.tasks = {
       "`HH:MM:SS LEVEL component message`. Print the log.",
     follow_up = "Write to answer.txt, for each component, how many lines of that log have level ERROR, as " ..
       "`count component`, such as `3 mailer`, one a line, most first, ties by component.",
-    truth = "awk '$2 == \"ERROR\" {n[$3]++} END {for (c in n) print n[c]\" \"c}' \"$data\" | sort -k1,1nr -k2,2",
+    truth = "\"$tool\" - earlier-log \"$data\" < \"$shared/truth.tl\"",
     check = "cat answer.txt",
     site = { source = LOG_SITE, data = event_log() },
   },
@@ -765,7 +759,7 @@ Agent.tasks = {
     prompt = "In cosmic/compress.tl, before each line that starts `local function <name>(`, such as " ..
       "`local function helper(`, where the line just before it does not start with `---`, insert the line `--- TODO: say what this does.`, and change " ..
       "nothing else.",
-    truth = [==[n=$(awk '/^local function [A-Za-z_][A-Za-z0-9_]*\(/ && prev !~ /^---/ {n++} {prev=$0} END {print n+0}' cosmic/compress.tl); [ "$n" -gt 0 ] && awk '/^local function [A-Za-z_][A-Za-z0-9_]*\(/ && prev !~ /^---/ {print "--- TODO: say what this does."} {print; prev=$0}' cosmic/compress.tl | sha256sum | cut -c1-64]==],
+    truth = "\"$tool\" - docedit < \"$shared/truth.tl\"",
     check = "sha256sum cosmic/compress.tl | cut -c1-64",
   },
   {
@@ -773,7 +767,7 @@ Agent.tasks = {
     held = true,
     prompt = "ci/cosmic_ci/capabilities.json has a `legs` object of arrays of strings. For each leg, count its " ..
       "strings that start `program:`. Write to answer.txt one `count leg` per line, such as `7 linux-x`, most first, ties by name.",
-    truth = [==[jq -r '.legs | to_entries[] | "\([.value[] | select(startswith("program:"))] | length) \(.key)"' ci/cosmic_ci/capabilities.json | sort -k1,1nr -k2,2]==],
+    truth = "\"$tool\" - json-legs < \"$shared/truth.tl\"",
     check = "cat answer.txt",
   },
   {
@@ -781,16 +775,14 @@ Agent.tasks = {
     held = true,
     prompt = "Write to answer.txt every line of the non-test .tl files directly in cosmic/agent/ that holds " ..
       "`error(`, as `path:line`, such as `cosmic/agent/x.tl:12` (line numbered from 1), one a line, sorted by path, then by line.",
-    truth = "for f in $(find cosmic/agent -maxdepth 1 -name '*.tl' ! -name '*_test.tl' | sort); do " ..
-      "grep -n 'error(' \"$f\" | cut -d: -f1 | sed \"s|^|$f:|\"; done | sort -t: -k1,1 -k2,2n",
+    truth = "\"$tool\" - error-lines < \"$shared/truth.tl\"",
     check = "cat answer.txt",
   },
   {
     name = "append-many",
     held = true,
     prompt = "Add the line `-- end` at the end of each non-test .tl file directly in cosmic/agent/, and change nothing else.",
-    truth = "for f in $(find cosmic/agent -maxdepth 1 -name '*.tl' ! -name '*_test.tl' | sort); do " ..
-      "echo \"$f\"; cat \"$f\"; echo '-- end'; done | sha256sum | cut -c1-64",
+    truth = "\"$tool\" - append-many < \"$shared/truth.tl\"",
     check = "for f in $(find cosmic/agent -maxdepth 1 -name '*.tl' ! -name '*_test.tl' | sort); do " ..
       "echo \"$f\"; cat \"$f\"; done | sha256sum | cut -c1-64",
   },
@@ -800,7 +792,7 @@ Agent.tasks = {
     prompt = "Take each distinct module cosmic/agent/host.tl names as `require(\"cosmic.<...>\")`. For each, count the " ..
       "_test.tl files directly in cosmic/agent/ that hold the text `require(\"<the module>\")`. Write to answer.txt " ..
       "`count module` for each module with a count of 1 or more, such as `3 cosmic.x`, most first, ties by name.",
-    truth = [==[for m in $(grep -o 'require("cosmic\.[^"]*")' cosmic/agent/host.tl | sed 's/require("//; s/")//' | sort -u); do n=$(grep -lF "require(\"$m\")" cosmic/agent/*_test.tl 2>/dev/null | wc -l); [ "$n" -ge 1 ] && echo "$n $m"; done | sort -k1,1nr -k2,2]==],
+    truth = "\"$tool\" - tested-modules < \"$shared/truth.tl\"",
     check = "cat answer.txt",
   },
   {
@@ -809,7 +801,7 @@ Agent.tasks = {
     prompt = "ci/darwin-tests.txt lists test modules, one a line, with comment lines that start `#` and blank " ..
       "lines. For each first path component of the listed paths (`cosmic` in `cosmic/x_test.tl`), count its listed " ..
       "paths. Write to answer.txt `count dir` per line, such as `4 cosmic`, most first, ties by name.",
-    truth = "grep -v '^#' ci/darwin-tests.txt | grep -v '^[[:space:]]*$' | awk -F/ '{n[$1]++} END {for (d in n) print n[d]\" \"d}' | sort -k1,1nr -k2,2",
+    truth = "\"$tool\" - darwin-dirs < \"$shared/truth.tl\"",
     check = "cat answer.txt",
   },
   {
@@ -818,9 +810,7 @@ Agent.tasks = {
     prompt = "For each non-test .tl file directly in cosmic/agent/, find the length in bytes of its longest line. " ..
       "Write to answer.txt the five files with the longest, as `length path`, such as `140 cosmic/agent/x.tl`, " ..
       "longest first, ties by path.",
-    truth = "for f in $(find cosmic/agent -maxdepth 1 -name '*.tl' ! -name '*_test.tl'); do " ..
-      "echo \"$(LC_ALL=C awk '{ if (length($0) > m) m = length($0) } END { print m + 0 }' \"$f\") $f\"; done | " ..
-      "sort -k1,1nr -k2,2 | head -5",
+    truth = "\"$tool\" - longest-lines < \"$shared/truth.tl\"",
     check = "cat answer.txt",
   },
   {
@@ -830,9 +820,7 @@ Agent.tasks = {
     prompt = "In cosmic/, rename the function format of cosmic/web/cookies.tl (`Cookies.format`) to render, " ..
       "everywhere it is defined, called or named as `Cookies.format` in the .tl files, and change nothing else, " ..
       "comment prose too: other functions named format (Csp.format, Json.format, Example.format, string.format) stay.",
-    truth = "n=$(grep -rl --include='*.tl' 'Cookies\\.format' cosmic | wc -l); [ \"$n\" -gt 0 ] && " ..
-      "{ for f in $(find cosmic -name '*.tl' | sort); do echo \"$f\"; sed 's/Cookies\\.format\\>/Cookies.render/g' \"$f\"; done | " ..
-      "sha256sum | cut -c1-64; }",
+    truth = "\"$tool\" - rename-shared < \"$shared/truth.tl\"",
     check = "for f in $(find cosmic -name '*.tl' | sort); do echo \"$f\"; cat \"$f\"; done | sha256sum | cut -c1-64",
   },
   {
@@ -840,8 +828,7 @@ Agent.tasks = {
     prompt = "Write top.tl in this directory: a cosmic program (Teal, checked) that takes the path of a text file as " ..
       "its first argument and prints the five most frequent words, a word being a run of the letters a to z once " ..
       "lowercased, as `count word`, such as `12 the`, most first, ties by word. It must pass `cosmic --standalone --check top.tl`.",
-    truth = "cat doc/guides/*.md | tr 'A-Z' 'a-z' | grep -oE '[a-z]+' | sort | uniq -c | awk '{print $1\" \"$2}' | " ..
-      "sort -k1,1nr -k2,2 | head -5",
+    truth = "\"$tool\" - write-wordfreq < \"$shared/truth.tl\"",
     check = "cat doc/guides/*.md > all.txt; $tool --standalone --check top.tl > /dev/null 2>&1 && $tool --standalone top.tl all.txt",
   },
   {
@@ -850,8 +837,7 @@ Agent.tasks = {
       "argument and prints, for each directory directly inside it, how many .tl files lie under that directory (at any " ..
       "depth), as `count path` with the path as the argument and the name joined by `/` (`cosmic/web`), such as " ..
       "`40 cosmic/web`, most first, ties by path. It must pass `cosmic --standalone --check dirs.tl`.",
-    truth = "for d in $(find cosmic -mindepth 1 -maxdepth 1 -type d | sort); do echo \"$(find $d -name '*.tl' | wc -l) $d\"; done | " ..
-      "sort -k1,1nr -k2,2",
+    truth = "\"$tool\" - write-dirs < \"$shared/truth.tl\"",
     check = "$tool --standalone --check dirs.tl > /dev/null 2>&1 && $tool --standalone dirs.tl cosmic",
   },
   {
@@ -1284,10 +1270,11 @@ function Agent.execute(options: Agent.Options, system: Agent.System, key: string
   -- A copy of the task's fixture at `dest`, with the files that instruct an agent left out when the evals say so,
   -- and the task's setup run in it.
   local first_tool = options.tools[1]
-  -- What a task's truth and setup are run with: `$tool` and `$files`.
+  -- What a task's truth and setup are run with: `$tool`, `$files` and `$shared`.
   local function prefix(task: Agent.Task): string
     return "tool=" .. quoted(first_tool and first_tool.path or "cosmic") .. "; files=" ..
-      quoted((options.testdata or "") .. "/files/" .. task.name) .. "; "
+      quoted((options.testdata or "") .. "/files/" .. task.name) .. "; shared=" ..
+      quoted((options.testdata or "") .. "/files/truth") .. "; "
   end
   local function copied(dest: string, task: Agent.Task)
     local project = task.fixture
