@@ -71,6 +71,11 @@ local record CeilingsBase
   --- Holds the markers the tree at `root` `held` to the markers of the files at the base `env` names, or that `source`
   --- finds: a file may hold no more markers of a code than it did there.
   check: function(root: string, env: {string:string}, source: Source, held?: Held): Verdict
+
+  --- What `check` asks `source` of the tree at `root` to find its base, and what it hears, as one text; a fetch is not
+  --- asked but said to be. All else `check` reads is the files on disk and those of the base, which the base's commit
+  --- names, so two trees with the same files and the same text are held alike ([`build.fix.verdict`]).
+  inputs: function(root: string, env: {string:string}, source: Source): string
 end
 
 --- How long the fetch of one commit may take.
@@ -459,6 +464,67 @@ function CeilingsBase.check(root: string, env: {string:string}, source: Ceilings
     end
   end
   return { lines = lines, note = "held to the markers of " .. base:sub(1, 12) }
+end
+
+--- A [`CeilingsBase.Source`] that asks `inner` and writes each question and its answer to `heard`.
+local class Recorded is CeilingsBase.Source
+  inner: CeilingsBase.Source
+  heard: mut {string}
+
+  function say(self, line: string)
+    self.heard[#self.heard + 1] = line
+  end
+
+  function checkout(self): boolean
+    local found = self.inner:checkout()
+    self:say("checkout\0" .. tostring(found))
+    return found
+  end
+
+  function merge_base(self, a: string, b: string): string?
+    local found = self.inner:merge_base(a, b)
+    self:say("merge_base " .. a .. " " .. b .. "\0" .. (found or "none"))
+    return found
+  end
+
+  function has(self, base: string): boolean
+    local found = self.inner:has(base)
+    self:say("has " .. base .. "\0" .. tostring(found))
+    return found
+  end
+
+  -- A fetch changes the checkout, so it is not asked: the base it would bring is missing, which the answer before it says.
+  function fetch(self, _base: string)
+    self:say("fetch not asked")
+  end
+
+  function shallow(self): boolean
+    local found = self.inner:shallow()
+    self:say("shallow\0" .. tostring(found))
+    return found
+  end
+
+  function ancestor(self, base: string): boolean
+    local found = self.inner:ancestor(base)
+    self:say("ancestor " .. base .. "\0" .. tostring(found))
+    return found
+  end
+
+  -- The files of a base are what its commit names, which the answers before say.
+  function paths(self, base: string): {string: boolean}?
+    return self.inner:paths(base)
+  end
+
+  function blobs(self, base: string, paths: {string}): {string: string}?
+    return self.inner:blobs(base, paths)
+  end
+end
+
+function CeilingsBase.inputs(root: string, env: {string:string}, source: CeilingsBase.Source): string
+  local recorded: Recorded = { inner = source, heard = {} }
+  local verdict = CeilingsBase.check(root, env, recorded, nil)
+  recorded:say("verdict\0" .. verdict.note .. "\0" .. table.concat(verdict.lines, "\0"))
+  return table.concat(recorded.heard, "\n")
 end
 
 return CeilingsBase

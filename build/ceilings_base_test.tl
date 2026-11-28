@@ -301,3 +301,21 @@ local function test_a_code_held_at_the_base_in_another_stage_is_not_told_to_have
       "never added and a count only falls"), verdict.lines[1])
   assert(not has(verdict.lines[1], "no exceptions"), verdict.lines[1])
 end
+
+-- What a verdict on the whole tree keys on ([`build.fix.verdict`]): the questions `check` asks to find its base, never a fetch.
+local function test_the_inputs_hear_what_the_check_asks_to_find_its_base_and_never_fetch(tmp: string)
+  local root = tree_with(tmp)
+  local found = marked_base({})
+  found.base = BASE
+  local heard = CeilingsBase.inputs(root, {}, found)
+  assert(has(heard, BASE), heard)
+  assert(found.reads == 0, "the inputs read no files of the base")
+  local other = marked_base({})
+  other.base = BASE:reverse()
+  assert(CeilingsBase.inputs(root, {}, other) ~= heard, "another base is another text")
+  local lacking = nothing()
+  lacking.inside = true
+  local missing = CeilingsBase.inputs(root, { COSMIC_CEILINGS_BASE = BASE }, lacking)
+  assert(has(missing, "fetch not asked"), missing)
+  assert(lacking.fetched == 0, "the inputs never fetch")
+end

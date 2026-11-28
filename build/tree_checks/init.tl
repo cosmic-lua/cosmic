@@ -52,6 +52,7 @@ local tree_checked = require("build.tree_checks.checked")
 local tree_ci = require("build.tree_checks.ci")
 local tree_common = require("build.tree_checks.common")
 local tree_declares = require("build.tree_checks.declares")
+local tree_pipeline = require("build.tree_checks.pipeline")
 local tree_docs = require("build.tree_checks.docs")
 local tree_readers = require("build.tree_checks.readers")
 local tree_tests = require("build.tree_checks.tests")
@@ -350,11 +351,11 @@ local function sealed_launch_findings(root: string, db: Build): {string}
 end
 
 --- Whether the build's own pipeline holds each module as the checks of the tree do, over the working database's inputs
---- ([`tree_checked.pipeline`]).
+--- ([`build.tree_checks.pipeline`]).
 local function pipeline_findings(root: string, memo: Sqlite.Handle?): {string}
   local build, open_trouble = Sqlite.open(build_paths.resolve(root).working, { schema = work_schema.Database })
   if build == nil then return { tostring(open_trouble) } end
-  local lines = tree_checked.pipeline(root, build, memo)
+  local lines = tree_pipeline.findings(root, build, memo)
   local _, _ = build:close()
   return lines
 end

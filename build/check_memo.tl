@@ -7,7 +7,9 @@
 --- the text the check made of the file. The key is the SHA-256 of a salt, the
 --- dialect and the SHA-256 of the file's bytes, so a changed file, a changed
 --- check and another dialect each miss. The salt is the SHA-256 of the
---- sources of the code that made the result ([`salt`]).
+--- code that made the result ([`salt`]): the bytecode of the modules it names
+--- and of every module they load, and the core whose bindings they call, so no
+--- edit to that code leaves a row.
 ---
 --- A memo is an optimization and never required: a read or write that fails
 --- is a miss, and the check runs. A run is one transaction, from [`prepare`]
@@ -39,12 +41,16 @@
 --- `COSMIC_BUILD_CACHE` moves the compiles, so CI, which moves them, keeps
 --- these apart (ci/cosmic_ci/checks_seal.tl); with it `0`, a run shares no
 --- rows, as a test's worker does not.
+local artifact = require("build.artifact")
 local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local shared_sqlite = require("build.shared_sqlite")
+local store_lookups = require("build.store_lookups")
+local Store = require("cosmic.store")
+local _ = require("build.reads.all")
 local sys = require("cosmic.sys")
 
 local record check_memo
@@ -68,13 +74,16 @@ local record check_memo
   --- and not the source: a tool another compiler wrote from the same source is other code. Nil and why where the tool
   --- cannot say: a module it holds with no bytecode to read, or a query that failed.
   code_of: function(reads: Reads): string?, string
+  --- The running tool as [`check_memo.Reads`] reads it, its `core` "": a caller that names the core sets its own.
+  tool: Reads
 
-  --- How [`check_memo.code_of`] reads a tool: `requires`, `bytecode` and `holds` as [`cosmic.store`]'s functions of
+  --- How [`check_memo.code_of`] and [`check_memo.salt`] read a tool: `requires`, `bytecode`, `holds` and `source` as [`cosmic.store`]'s functions of
   --- those names return, and `core`, what names every byte of the tool that is no module.
   record Reads
     requires: function(name: string): {string}?, string
     bytecode: function(name: string): string?, string
     holds: function(name: string): boolean?, string
+    source: function(name: string): string?, string
     core: string
   end
   --- Shares rows through the file at `path` from here on, made when missing, in place of the default; with nil, shares
@@ -90,10 +99,14 @@ local record check_memo
   end
   --- The key for a file of the given `dialect` and `bytes` under `salt`.
   key: function(salt: string, dialect: string, bytes: string): string
-  --- The SHA-256 of the bytes of `files` (paths under `root`) in order and of
-  --- `version`, the format of what a check keeps; a file that cannot be read
-  --- counts as empty, so a tree without them still has a salt.
-  salt: function(root: string, files: {string}, version: string): string
+  --- The SHA-256 of the code that makes a result and of `version`, the format of what a check keeps. A module of
+  --- `files` (a `.tl` file that is no declaration, or a directory ending in `/` whose files are one module, as
+  --- lang/check/ is) goes in by the bytecode of it and of every module it loads, however far, as the running tool
+  --- holds them; any other file (a declaration, a C header, a module the tool does not hold) by its bytes under
+  --- `root`, where one that cannot be read counts as empty. Where the tool cannot name the code, the salt is one no
+  --- other is, so no row is taken. Every salt holds the running core too (its exact bytes), whose bindings the code
+  --- calls. `reads` reads another tool, for a test ([`check_memo.Reads`]).
+  salt: function(root: string, files: {string}, version: string, reads?: Reads): string
   --- The SHA-256 of the sources of `modules` and of every module they require, however far, as the projection `db`
   --- holds them (its `imports` and each module's `source_hash`), and of `version`: the code that makes a result, by
   --- its import closure rather than by a list of files, which falls short of what the code loads. A module the
@@ -152,10 +165,14 @@ function check_memo.shared_path(environment?: {string:string}): string?
   return dir .. "/checks.db"
 end
 
-function check_memo.code_of(reads: check_memo.Reads): string?, string
+--- The bytecode of `roots` and of every module they require, however far, by `reads`: one part per module, its name
+--- and the SHA-256 of its bytecode, sorted, where a declaration goes in by its text and a binding of the core is `-`.
+--- Nil and why where a module the tool holds has neither bytecode nor text to read, or a query failed.
+local function closure_parts(reads: check_memo.Reads, roots: {string}): {string}?, string
   local seen: mut {string: boolean} = {}
   local names: mut {string} = {}
-  local stack: mut {string} = { "build.fix" }
+  local stack: mut {string} = {}
+  for _, root in ipairs(roots) do stack[#stack + 1] = root end
   while #stack > 0 do
     local name = assert(table.remove(stack))
     if seen[name] ~= true then
@@ -170,17 +187,33 @@ function check_memo.code_of(reads: check_memo.Reads): string?, string
   local parts: mut {string} = {}
   for _, name in ipairs(names) do
     local code, code_trouble = reads.bytecode(name)
-    if code == nil then
+    local part = "-"
+    if code ~= nil then
+      part = Hash.hex_sha256(code)
+    else
       -- A name the tool holds neither a module nor a declaration of is a binding of the core, which `core` holds.
-      -- One it holds with no bytecode to read (a declaration, a module that does not inflate) names no code.
+      -- One it holds with no bytecode is a declaration, of a binding of the core, and goes in by its text; one with
+      -- no text to read either (a module that does not inflate) names no code.
       local held, held_trouble = reads.holds(name)
       if held == nil then return nil, name .. ": " .. held_trouble end
-      if held then return nil, name .. ": " .. code_trouble end
+      if held then
+        local text, _ = reads.source(name)
+        if text == nil then return nil, name .. ": " .. code_trouble end
+        part = "declared " .. Hash.hex_sha256(text)
+      end
     end
-    parts[#parts + 1] = name .. " " .. (if code ~= nil then Hash.hex_sha256(code) else "-" end)
+    parts[#parts + 1] = name .. " " .. part
   end
-  parts[#parts + 1] = "core " .. reads.core
-  return Hash.hex_sha256(table.concat(parts, "\n")), ""
+  return parts, ""
+end
+
+function check_memo.code_of(reads: check_memo.Reads): string?, string
+  local parts, trouble = closure_parts(reads, { "build.fix" })
+  if parts == nil then return nil, trouble end
+  local all: mut {string} = {}
+  for _, part in ipairs(parts) do all[#all + 1] = part end
+  all[#all + 1] = "core " .. reads.core
+  return Hash.hex_sha256(table.concat(all, "\n")), ""
 end
 
 --- Whether the file at `path` is a file of this user's that no one else may write, taken as it is and never through
@@ -341,39 +374,89 @@ function check_memo.key(salt: string, dialect: string, bytes: string): string
   return Hash.hex_sha256(salt .. "\0" .. dialect .. "\0" .. Hash.hex_sha256(bytes))
 end
 
--- TODO: hold a checkout's own rows under [`check_memo.code_of`] too, once an edit to any module `cosmic fix` loads
--- may check the whole tree again (5 to 8 minutes; a listed salt checks again only for the files it names). The lists
--- of files its callers write here are short of what the checks load, by the import closures: lang/generics.tl,
--- lang/literals.tl and lang/load_order.tl are in none of them, and build/ceilings.tl, build/markers.tl and
--- build/checker_declarations.tl in none of the checker's. An edit to one of those leaves the checkout's own stale
--- rows standing, though never a sibling's, which takes only rows made under its own code. A stale `shape` digest
--- among them goes into the key a row of `declared` or `checked` is shared under, whose value is still made from the
--- sources: a sibling takes it only where its own digest of other sources is the same.
+--- The module a file of the tree is, by its path: `lang/check/` and [`lang/check/init.tl`] are [`lang.check`]. Nil for a
+--- file that is no module: a declaration, or a file of another language.
+local function module_of(file: string): string?
+  local path = if file:sub(-1) == "/" then file:sub(1, -2) else file end
+  if file:sub(-1) ~= "/" then
+    if file:match("%.d%.tl$") ~= nil or file:match("%.tl$") == nil then return nil end
+    path = path:sub(1, -4)
+  end
+  path = path:gsub("/init$", "")
+  return (path:gsub("/", "."))
+end
 
---- An entry that ends in `/` names a directory: every `.tl` file under it goes in, by its path and its text, so a
---- module split into the files of a directory (lang/check/) is salted whole however its files are named.
-function check_memo.salt(root: string, files: {string}, version: string): string
+--- [`Store.source`], its failure in words: the text of a declaration the tool holds, which names it in a salt.
+local function store_source(name: string): string?, string
+  local text, why = Store.source(name)
+  if text == nil then return nil, tostring(why) end
+  return text, ""
+end
+
+--- How the running tool is read for a salt: its own lookups. Its `core` is read apart, by [`tool_core`].
+local TOOL <const>: check_memo.Reads = { requires = store_lookups.requires, bytecode = store_lookups.bytecode,
+  holds = store_lookups.holds, source = store_source, core = "" }
+
+--- The digest of the running core's exact bytes, which its bindings are, read once; nil where the tool cannot say.
+local core_read = false
+local core_digest: string? = nil
+local function tool_core(): string?
+  if not core_read then
+    core_read = true
+    local core, _ = artifact.trusted_core()
+    if core ~= nil then core_digest = Hash.hex_sha256(core.bytes) end
+  end
+  return core_digest
+end
+
+--- The digest of the code of each list of modules the running tool was read for in this process, by the modules
+--- joined: the tool does not change while it runs.
+local coded: mut {string: string} = {}
+
+--- How many salts could not name their code, so each is unlike every other.
+local unnamed = 0
+
+function check_memo.salt(root: string, files: {string}, version: string, reads?: check_memo.Reads): string
+  local tool = reads or TOOL
   local parts: mut {string} = {}
+  local modules: mut {string} = {}
   for _, file in ipairs(files) do
-    if file:sub(-1) == "/" then
-      local named: mut {string} = {}
-      local listed, _ = Fs.walk(root .. "/" .. file)
-      if listed ~= nil then
-        for _, inner in ipairs(listed) do
-          if inner:match("%.tl$") ~= nil then named[#named + 1] = inner end
-        end
-      end
-      table.sort(named)
-      for _, inner in ipairs(named) do
-        local text, _ = Fs.read(root .. "/" .. file .. inner)
-        parts[#parts + 1] = Hash.hex_sha256(file .. inner .. "\0" .. (text or ""))
-      end
-      parts[#parts + 1] = "/" .. tostring(#named)
+    local name = module_of(file)
+    local held = false
+    if name ~= nil then
+      local holds, _ = tool.holds(name)
+      held = holds == true
+    end
+    if name ~= nil and held then
+      modules[#modules + 1] = name
     else
       local text, _ = Fs.read(root .. "/" .. file)
-      parts[#parts + 1] = Hash.hex_sha256(text or "")
+      parts[#parts + 1] = file .. "\0" .. Hash.hex_sha256(text or "")
     end
   end
+  table.sort(modules)
+  if #modules > 0 then
+    local joined = table.concat(modules, " ")
+    local digest = if reads == nil then coded[joined] else nil end
+    if digest == nil then
+      local code, _ = closure_parts(tool, modules)
+      if code ~= nil then
+        digest = Hash.hex_sha256(table.concat(code, "\n"))
+        if reads == nil then coded[joined] = digest end
+      else
+        unnamed = unnamed + 1
+        digest = "unnamed " .. tostring(Clock.now_ns()) .. " " .. tostring(unnamed)
+      end
+    end
+    parts[#parts + 1] = "code " .. joined .. " " .. digest
+  end
+  -- Every check's code calls the core's bindings, so the core names the code as the bytecode does.
+  local core = if reads ~= nil then reads.core else tool_core() end
+  if core == nil then
+    unnamed = unnamed + 1
+    core = "unnamed " .. tostring(Clock.now_ns()) .. " " .. tostring(unnamed)
+  end
+  parts[#parts + 1] = "core " .. core
   parts[#parts + 1] = version
   return Hash.hex_sha256(table.concat(parts, "\0"))
 end
@@ -460,5 +543,7 @@ function check_memo.decode(text: string): {{string}}
   end
   return rows
 end
+
+check_memo.tool = TOOL
 
 return check_memo

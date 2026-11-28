@@ -268,6 +268,7 @@ local function test_the_code_a_shared_row_is_held_under_is_the_closure_of_fix_an
         return "the bytecode of " .. name .. (if name == edited then ", edited" else "" end), ""
       end,
       holds = function(name: string): boolean?, string return graph[name] ~= nil, "" end,
+      source = function(_: string): string?, string return nil, "no source" end,
       core = image,
     })
   end
@@ -280,23 +281,61 @@ local function test_the_code_a_shared_row_is_held_under_is_the_closure_of_fix_an
   assert(none == nil and why == "lang.check: its bytecode does not inflate", why)
 end
 
---- A salt entry that ends in `/` takes in every `.tl` file under the directory: an edit to one, a file added and a
---- file renamed (to a name that sorts in the same place, so only its path moves) each move it, and a file of another kind does not.
-local function test_a_directory_in_the_salt_moves_with_each_file_under_it(tmp: string)
+--- A salt names the code of a module by its bytecode and that of each module it loads, however far, as the tool holds
+--- them, and not by the tree's text of it: an edit to a module loaded only through another moves it, and so does a
+--- directory's module (lang/check/), another core and a declaration the tool holds. A declaration of the tree goes in by its bytes, and a tool that cannot name the code gives a
+--- salt no other is.
+local function test_a_salt_moves_with_the_code_each_module_loads(tmp: string)
   local root = tmp .. "/salted"
   assert(Fs.mkdirs(root .. "/lang/check"))
   assert(Fs.write(root .. "/lang/check/init.tl", "-- one\n"))
-  local function salt(): string return check_memo.salt(root, { "lang/check/" }, "v") end
+  assert(Fs.write(root .. "/lang/prelude.d.tl", "-- one\n"))
+  local graph: {string: {string}} = { ["lang.check"] = { "lang.types" }, ["lang.types"] = { "cosmic.fs", "cosmic.sys" },
+    ["cosmic.fs"] = {}, ["cosmic.sys"] = {} }
+  local edited, unread, declared_text = "", "", "the declaration of cosmic.sys"
+  local reads: check_memo.Reads = {
+    requires = function(name: string): {string}?, string return graph[name] or {}, "" end,
+    bytecode = function(name: string): string?, string
+      if graph[name] == nil or name == "cosmic.sys" then
+        return nil, "no module '" .. name .. "' in the binary"
+      end
+      if name == unread then return nil, "its bytecode does not inflate" end
+      return "the bytecode of " .. name .. (if name == edited then ", edited" else "" end), ""
+    end,
+    holds = function(name: string): boolean?, string return graph[name] ~= nil, "" end,
+    source = function(name: string): string?, string
+      if name == "cosmic.sys" then return declared_text, "" end
+      return nil, "no source"
+    end,
+    core = "",
+  }
+  local function salt(): string
+    return check_memo.salt(root, { "lang/check/", "lang/prelude.d.tl" }, "v", reads)
+  end
   local base = salt()
   assert(base == salt())
-  assert(Fs.write(root .. "/lang/check/notes.txt", "not a module\n"))
-  assert(base == salt(), "a file that is no module moved the salt")
   assert(Fs.write(root .. "/lang/check/init.tl", "-- two\n"))
-  local edited = salt()
-  assert(edited ~= base, "an edit to a file under the directory left the salt as it was")
-  assert(Fs.write(root .. "/lang/check/context.tl", "-- one\n"))
-  local added = salt()
-  assert(added ~= edited, "a file added under the directory left the salt as it was")
-  assert(Fs.rename(root .. "/lang/check/context.tl", root .. "/lang/check/core.tl"))
-  assert(salt() ~= added, "a file renamed under the directory left the salt as it was")
+  assert(base == salt(), "the tree's text of a module the tool holds moved the salt")
+  edited = "cosmic.fs"
+  local loaded = salt()
+  assert(loaded ~= base, "an edit to a module loaded through another left the salt as it was")
+  edited = "lang.check"
+  assert(salt() ~= loaded and salt() ~= base, "an edit to the directory's module left the salt as it was")
+  edited = ""
+  assert(salt() == base)
+  local cored: check_memo.Reads = { requires = reads.requires, bytecode = reads.bytecode, holds = reads.holds,
+    source = reads.source, core = "another core" }
+  assert(check_memo.salt(root, { "lang/check/", "lang/prelude.d.tl" }, "v", cored) ~= base,
+    "another core left the salt as it was")
+  declared_text = "the declaration of cosmic.sys, edited"
+  assert(salt() ~= base, "an edit to a declaration the tool holds left the salt as it was")
+  declared_text = "the declaration of cosmic.sys"
+  assert(Fs.write(root .. "/lang/prelude.d.tl", "-- two\n"))
+  local declared = salt()
+  assert(declared ~= base, "an edit to a declaration left the salt as it was")
+  assert(check_memo.salt(root, { "lang/check/", "lang/prelude.d.tl" }, "w", reads) ~= declared,
+    "another version left the salt as it was")
+  unread = "lang.types"
+  local unnamed = salt()
+  assert(unnamed ~= declared and unnamed ~= salt(), "a tool that cannot name the code gave a salt that matches")
 end
