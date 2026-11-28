@@ -7,7 +7,7 @@ local Sessions = require("cosmic.agent.sessions")
 local Test = require("cosmic.test")
 local Tools = require("cosmic.agent.tools")
 
-Test.policy{ env = { "TMPDIR" } }
+Test.policy{ env = { "TMPDIR", "COSMIC_RUN_TEXT_DROP" } }
 
 local keyed = agent_fixture.keyed
 local scratch = agent_fixture.scratch
@@ -42,6 +42,22 @@ local function test_the_run_description_is_its_template_filled()
   assert(tool.description:find("^Run a program in cosmic, ") ~= nil, tool.description)
   -- No line ending after the example's last line, as the words were before the template.
   assert(tool.description:sub(-4) == " end", tool.description)
+end
+
+--- The evals' ablation takes a bullet out of the run text by its start, and says which prefixes started none.
+local function test_a_bullet_is_dropped_from_the_run_text_by_its_prefix()
+  local text = "intro\n- Host.sed(x): a\n- Host.sort(y): b\n- `..` joins\nlast"
+  local got = Tools.without_bullets(text, "Host.sed,`..`,Host.nope")
+  assert(got.text == "intro\n- Host.sort(y): b\nlast", got.text)
+  assert(#got.lost == 1 and got.lost[1] == "Host.nope")
+  local same = Tools.without_bullets(text, "")
+  assert(same.text == text and #same.lost == 0)
+  -- A prefix matches the start of a bullet, not text inside one.
+  assert(Tools.without_bullets(text, "sed").text == text)
+  -- The real text has the bullet COSMIC_RUN_TEXT_DROP would take out.
+  local run = assert(Tools.find(Tools.all(), "run"), "run is a tool")
+  local without = Tools.without_bullets(run.description, "Host.grep(").text
+  assert(run.description:find("\n- Host.grep(", 1, true) ~= nil and without:find("\n- Host.grep(", 1, true) == nil)
 end
 
 local function test_tools_are_values_to_pick_and_make()
