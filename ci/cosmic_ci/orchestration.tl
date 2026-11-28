@@ -1829,6 +1829,24 @@ local function format_check(p: PlatformContext): integer
   return checked(p.operation, "format check", format_command(p.root))
 end
 
+--- The release vendor libraries of every target, built and packed into
+--- `<work>/vendor-libs` (build/vendor_libs.tl's `pack`): a bundle per
+--- target and the vendor-libs.pin naming them, which prerelease.yml
+--- publishes as the release of their key. A full run's x86_64 Linux leg
+--- runs it after `assemble`, which compiled them for every core, so
+--- zig's cache already holds each.
+local function phase_vendor_libs(p: PlatformContext): integer
+  local c = p.operation
+  local root = p.root
+  local built = p.work .. "/vendor-build"
+  local s = checked(c, "vendor library build",
+    { root .. "/bin/zig", "build", "vendor-libs", "--prefix", built })
+  if s ~= 0 then return s end
+  return checked(c, "vendor library bundles",
+    { root .. "/bin/cosmic", "--standalone", root .. "/build/vendor_libs.tl", "pack", root,
+      built .. "/vendor-libs-manifest.tsv", built .. "/vendor-libs", p.work .. "/vendor-libs" })
+end
+
 local function phase_assemble(p: PlatformContext): integer
   local c = p.operation
   local root = p.root
@@ -2361,6 +2379,8 @@ local function platform_impl(phase: string, p: PlatformContext): integer
     return phase_fixtures(p)
   elseif phase == "attest" then
     return phase_attest(p)
+  elseif phase == "vendor-libs" then
+    return phase_vendor_libs(p)
   end
   error("unknown platform phase: " .. phase)
 end

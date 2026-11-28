@@ -52,6 +52,12 @@ local record Prerelease
     --- The UTC day of the commit's committer date, `YYYYMMDD`, which
     --- names the tag; `publish` reads it from the API when nil.
     mut date?: string
+    --- The tag in place of `<date>-<commit>`: `vendor_libs` sets it.
+    mut tag?: string
+    --- Whether the tag may name a commit other than `commit`: a vendor
+    --- libraries' tag names its key, which many commits share, and holds
+    --- the commit that first made it.
+    mut any_commit?: boolean
   end
   --- The release `publish` makes: a draft prerelease.
   record NewRelease
@@ -60,6 +66,12 @@ local record Prerelease
     body: string
     draft: boolean
     prerelease: boolean
+  end
+  --- The key a full run's vendor-libs.pin names, and the assets of its
+  --- release: the pin, then each bundle it names.
+  record VendorAssets
+    key: string
+    names: {string}
   end
   --- The ids of the drafts a page of the releases list holds, and
   --- whether the list's drafts end there.
@@ -388,6 +400,8 @@ end
 --- date, so a rerun of the same commit gives the same tag, then the
 --- commit. There is no semver and no alias that moves.
 local function tag_of(p: Prerelease.Publish): string
+  local tag = p.tag
+  if tag ~= nil then return tag end
   local date = p.date
   assert(date ~= nil, "the tag's date is not read yet")
   return date .. "-" .. p.commit
@@ -523,7 +537,7 @@ local function verify_tag(p: Prerelease.Publish)
     sha, kind = target(annotated.object, tag)
   end
   assert(kind == "commit", tag .. " names no commit")
-  assert(sha == p.commit, tag .. " names another commit")
+  assert(sha == p.commit or p.any_commit == true, tag .. " names another commit")
 end
 
 --- The repository as the API sends it for a GET.
@@ -583,7 +597,10 @@ local function ensure_tag(p: Prerelease.Publish): boolean
     local made, why = GithubApi.request(p.client, "POST", path,
       { ref = "refs/tags/" .. tag, sha = p.commit })
     assert(made ~= nil, why)
-    if made.status < 200 or made.status > 299 then
+    -- Another run of the key made it meanwhile.
+    local raced = p.any_commit == true and made.status == 422 and
+      made.body:find("Reference already exists", 1, true) ~= nil
+    if (made.status < 200 or made.status > 299) and not raced then
       if made.status == 403 and
           made.body:find("Resource not accessible by integration", 1, true) ~= nil and
           workflows_moved(p) then
@@ -770,6 +787,151 @@ function Prerelease.publish(p: Prerelease.Publish): string
   return "prerelease published and verified: " .. tag
 end
 
+--- The pin of the vendor library bundles a full run packed
+--- (build/vendor_libs.tl's `pack`).
+local vendor_pin <const> = "vendor-libs.pin"
+
+--- What `dir`, the bundles a full run's x86_64 Linux leg packed, holds:
+--- its vendor-libs.pin's key, and the pin and each bundle it names. Raises
+--- where the pin is not `pack`'s for this repository's release of that
+--- key, where a bundle's bytes are not the sha256 the pin names, or where
+--- `dir` holds anything else. Nothing here is executed: the bundles are
+--- data, which a boot holds to the sha256 its own pin names.
+function Prerelease.vendor_assets(dir: string, repository: string): Prerelease.VendorAssets
+  local text = read(dir .. "/" .. vendor_pin)
+  local key: string? = nil
+  local names: mut {string} = { vendor_pin }
+  for line in text:gmatch("[^\n]+") do
+    if key == nil then
+      key = line:match("^key ([0-9a-f]+)$")
+      assert(key ~= nil and #key == 64, vendor_pin .. " does not start with `key <sha256>`")
+    else
+      local platform, url, sha256 = line:match("^([%w_%-]+) (%S+) ([0-9a-f]+)$")
+      assert(platform ~= nil and url ~= nil and sha256 ~= nil and #sha256 == 64,
+        vendor_pin .. ": a line is not `<target> <url> <sha256>`: " .. line)
+      local name = "vendor-libs-" .. platform .. ".tar.zst"
+      local want = "https://github.com/" .. repository .. "/releases/download/vendor-libs-" .. key .. "/" .. name
+      assert(url == want, vendor_pin .. " names " .. url .. ", not " .. want)
+      assert(Hash.hex_sha256(read(dir .. "/" .. name)) == sha256, name .. " is not the bytes " .. vendor_pin .. " names")
+      for _, seen in ipairs(names) do
+        assert(seen ~= name, vendor_pin .. " names " .. platform .. " twice")
+      end
+      names[#names + 1] = name
+    end
+  end
+  assert(key ~= nil and #names > 1, vendor_pin .. " names no bundle")
+  local listed = assert(Fs.list(dir))
+  assert(#listed == #names, dir .. " holds " .. Plural.count(#listed, "file") .. ", not the " ..
+      Plural.count(#names, "file") .. " " .. vendor_pin .. " names")
+  table.sort(names)
+  return { key = key, names = names }
+end
+
+--- Publishes the vendor library bundles in `dir` as the release
+--- `vendor-libs-<key>` of the key their pin names, or verifies the one
+--- there: one release per key, made by the first full run that packs it,
+--- which bin/vendor-libs.pin is moved to (build/vendor_libs.tl's `pin`).
+--- It is a prerelease, so it is never the repository's latest release,
+--- and its tag is no `<YYYYMMDD>-<commit>`, so the prereleases' readers
+--- (build/release.tl, seeded boot) pass over it. A release of the key
+--- already published is left as it is: where this run's pin differs,
+--- its bundles were not the same bytes, which a warning annotation says.
+--- A draft left by an interrupted run of the key is resumed by
+--- accepting the assets it holds that are identical to these.
+function Prerelease.publish_vendor_libs(p: Prerelease.Publish, dir: string): string
+  local assets = Prerelease.vendor_assets(dir, p.repository)
+  local tag = "vendor-libs-" .. assets.key
+  p.tag = tag
+  p.any_commit = true
+  local wanted = table.concat(assets.names, " ")
+  -- Two full runs of one key (a daily and a manual run of other commits)
+  -- may each make a draft; GitHub publishes one release of a tag, so the
+  -- published one is taken, else the first draft, and another draft is
+  -- left as it is.
+  local ids = release_ids(p)
+  local chosen: integer? = ids[1]
+  for _, id in ipairs(ids) do
+    if not flag(view(p, id).draft, "draft") then chosen = id end
+  end
+  local release: integer
+  if chosen ~= nil then
+    release = chosen
+    local state = view(p, release)
+    assert(flag(state.prerelease, "prerelease"), tag .. " is no prerelease")
+    if not flag(state.draft, "draft") then
+      local names, asset_ids = assets_of(state)
+      assert(table.concat(names, " ") == wanted, tag .. " holds " .. table.concat(names, ", ") ..
+          ", not " .. table.concat(assets.names, ", "))
+      local destination = fresh(p, "vendor-published")
+      download(p, assert(asset_ids[vendor_pin]), vendor_pin, destination)
+      if read(destination .. "/" .. vendor_pin) ~= read(dir .. "/" .. vendor_pin) then
+        return "::warning::" .. tag .. " is published already, with bundles other than this run's " ..
+          "of the same key: the vendor libraries' compile is not the same bytes each time"
+      end
+      return "vendor libraries already published and verified: " .. tag
+    end
+    -- A draft is resumed by any run of its key: the tag names the key,
+    -- and the commit is whichever first made it.
+    verify_tag(p)
+  else
+    if not ensure_tag(p) then
+      return "::warning::vendor libraries skipped: " .. tag .. ": GitHub refused the tag, " ..
+        "the default branch's workflows having moved past it"
+    end
+    local made: Prerelease.NewRelease = { tag_name = tag, name = tag,
+      body = "The release vendor libraries of every target, for the vendor inputs of key " .. assets.key ..
+        ", compiled at " .. p.commit .. ": bin/vendor-libs.pin names them (build/vendor_libs.tl).\n",
+      draft = true, prerelease = true }
+    local created_text, trouble = GithubApi.object(p.client, "POST",
+      "repos/" .. p.repository .. "/releases", made)
+    assert(created_text ~= nil, trouble)
+    local created, created_trouble = RELEASE_ID:decode_into(created_text)
+    assert(created ~= nil, "the created release: " .. created_trouble)
+    local created_id = created.id
+    assert(created_id is integer, "the created release has no id")
+    release = created_id
+    verify_tag(p)
+  end
+  local state = view(p, release)
+  local upload_url = state.upload_url
+  assert(upload_url is string, tag .. " names no upload URL")
+  local existing: mut {string:boolean} = {}
+  local names, asset_ids = assets_of(state)
+  for _, name in ipairs(names) do
+    local known = false
+    for _, asset in ipairs(assets.names) do known = known or asset == name end
+    assert(known, tag .. " holds an unexpected asset: " .. name)
+    existing[name] = true
+    local destination = fresh(p, "vendor-existing-" .. name)
+    download(p, assert(asset_ids[name]), name, destination)
+    same_bytes(dir .. "/" .. name, destination .. "/" .. name)
+  end
+  for _, name in ipairs(assets.names) do
+    if existing[name] ~= true then
+      local uploaded, trouble = GithubApi.upload(p.client, upload_url, name, read(dir .. "/" .. name),
+        if name == vendor_pin then "text/plain" else "application/octet-stream" end)
+      assert(uploaded, tag .. ": " .. trouble)
+    end
+  end
+  local function verified(what: string)
+    local held, held_ids = assets_of(view(p, release))
+    assert(table.concat(held, " ") == wanted, tag .. " holds " .. table.concat(held, ", "))
+    local destination = fresh(p, "vendor-" .. what)
+    for _, name in ipairs(assets.names) do
+      download(p, assert(held_ids[name]), name, destination)
+      same_bytes(dir .. "/" .. name, destination .. "/" .. name)
+    end
+  end
+  verified("completed")
+  local edited, trouble = GithubApi.object(p.client, "PATCH",
+    "repos/" .. p.repository .. "/releases/" .. tostring(release), { draft = false, prerelease = true })
+  assert(edited ~= nil, trouble)
+  verify_tag(p)
+  verified("published")
+  assert(not flag(view(p, release).draft, "draft"), tag .. " is still a draft")
+  return "vendor libraries published and verified: " .. tag
+end
+
 --- Runs `action`; a failure is named on stderr and exits 1.
 local function command(name: string, argv: {string}, action: function(): string): integer
   local called, answer = pcall(function(): string
@@ -788,6 +950,16 @@ function Prerelease.stage_command(argv: {string}): integer
   return command("prerelease-stage", argv, function(): string
     Prerelease.stage(Prerelease.stage_context(Env.all()))
     return ""
+  end)
+end
+
+--- prerelease-vendor-libs: publishes the bundles in VENDOR_LIBS, as
+--- [`Prerelease.publish_vendor_libs`] does, with the context `publish`
+--- reads.
+function Prerelease.vendor_libs_command(argv: {string}, context?: Prerelease.Publish, dir?: string): integer
+  return command("prerelease-vendor-libs", argv, function(): string
+    local env = Env.all()
+    return Prerelease.publish_vendor_libs(context or Prerelease.publish_context(env), dir or required(env, "VENDOR_LIBS"))
   end)
 end
 

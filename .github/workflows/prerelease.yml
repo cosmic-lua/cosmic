@@ -177,6 +177,44 @@
           },
           run: "cosmic-driver cosmic_ci/driver.tl prerelease-publish",
         },
+        # The vendor library bundles a full run packed (ci.yml's "pack the
+        # vendor library bundles") go to their own release, one per key
+        # (cosmic_ci/prerelease.tl publish_vendor_libs). A run of a commit
+        # from before that step has no such artifact, so the download may
+        # fail, and then the step after it is skipped: the prerelease above
+        # is published either way.
+        {
+          name: "download the vendor library bundles",
+          id: "vendor-libs-download",
+          "continue-on-error": true,
+          uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
+          with: {
+            name: "vendor-libs",
+            path: "${{ runner.temp }}/vendor-libs",
+            "run-id": "${{ needs.sweep.outputs.run_id || github.event.workflow_run.id }}",
+            "github-token": "${{ github.token }}",
+          },
+        },
+        {
+          name: "say the vendor library bundles were not published",
+          if: "steps.vendor-libs-download.outcome == 'failure'",
+          shell: "sh",
+          run: "echo '::warning::no vendor library bundles were published: the run holds no vendor-libs artifact, or its download failed'",
+        },
+        {
+          name: "publish or verify the vendor library bundles",
+          if: "steps.vendor-libs-download.outcome == 'success'",
+          "working-directory": "ci",
+          env: {
+            GH_TOKEN: "${{ github.token }}",
+            REPOSITORY: "${{ github.repository }}",
+            RELEASE: "${{ runner.temp }}/release",
+            SOURCE_COMMIT: "${{ needs.sweep.outputs.head_sha || github.event.workflow_run.head_sha }}",
+            SOURCE_RUN_PREFIX: "${{ github.server_url }}/${{ github.repository }}/actions/runs/",
+            VENDOR_LIBS: "${{ runner.temp }}/vendor-libs",
+          },
+          run: "cosmic-driver cosmic_ci/driver.tl prerelease-vendor-libs",
+        },
       ],
     },
 

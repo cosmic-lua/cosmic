@@ -3,8 +3,10 @@
 --- are compiled from and with nothing else, and the bundles it packs are
 --- the same bytes each time.
 
+local Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
+local Http = require("cosmic.http")
 local Test = require("cosmic.test")
 local VendorLibs = require("build.vendor_libs")
 
@@ -197,4 +199,75 @@ local function test_the_cache_keeps_what_holds_and_mends_what_does_not(tmp: stri
   assert(Fs.write(archive, same_size))
   assert(VendorLibs.fetched(bundle, cache) == dir)
   assert(assert(Fs.read(archive)) == "x86_64-linux-musl sqlite", "bytes that differ were kept")
+end
+
+--- Packing writes the pin beside the bundles, and names them under the
+--- release of the key where no base is given.
+local function test_packing_names_the_release_of_the_key(tmp: string)
+  local root, manifest = tree(tmp)
+  local libs = tmp .. "/libs"
+  for line in VendorLibs.records:gmatch("[^\n]+") do
+    local target = assert(line:match("^([^\t]+)"))
+    assert(Fs.mkdirs(libs .. "/" .. target))
+    for _, library in ipairs(VendorLibs.libraries) do
+      assert(Fs.write(libs .. "/" .. target .. "/libcosmic-" .. library .. ".a", target .. " " .. library))
+    end
+  end
+  local text = assert(VendorLibs.pack(root, manifest, libs, tmp .. "/out"))
+  assert(assert(Fs.read(tmp .. "/out/vendor-libs.pin")) == text)
+  local key = assert(VendorLibs.key(root, manifest))
+  local base = VendorLibs.base(key)
+  assert(base == "https://github.com/cosmic-lua/cosmic/releases/download/vendor-libs-" .. key, base)
+  for target, bundle in pairs(assert(VendorLibs.read_pin(text)).bundles) do
+    assert(bundle.url == base .. "/vendor-libs-" .. target .. ".tar.zst", bundle.url)
+  end
+end
+
+--- `pin` writes bin/vendor-libs.pin from the release of the tree's key
+--- once each bundle it names holds, and writes nothing where no release
+--- holds the key, where its pin names another key, or where a bundle's
+--- bytes are not its sha256's.
+local function test_pinning_takes_the_release_of_the_key_once_it_holds(tmp: string)
+  local root, manifest = tree(tmp)
+  local libs = tmp .. "/libs"
+  for line in VendorLibs.records:gmatch("[^\n]+") do
+    local target = assert(line:match("^([^\t]+)"))
+    assert(Fs.mkdirs(libs .. "/" .. target))
+    for _, library in ipairs(VendorLibs.libraries) do
+      assert(Fs.write(libs .. "/" .. target .. "/libcosmic-" .. library .. ".a", target .. " " .. library))
+    end
+  end
+  local base = "https://example.invalid/release"
+  local release = tmp .. "/release"
+  local text = assert(VendorLibs.pack(root, manifest, libs, release, base))
+  local function download(url: string, path: string, options: Http.DownloadOptions): (true) | (nil, Failure)
+    local name = url:match("^https://example%.invalid/release/(.+)$")
+    if name == nil then return nil, Failure.new(url .. ": no such release") end
+    local bytes, _ = Fs.read(release .. "/" .. name)
+    if bytes == nil then return nil, Failure.new(url .. ": HTTP 404") end
+    local want = options.digests and options.digests["sha256"]
+    if want ~= nil and Hash.hex_sha256(bytes) ~= want then
+      return nil, Failure.new(url .. ": sha256 differs")
+    end
+    assert(Fs.write(path, bytes))
+    return true
+  end
+  local function pinned(cache: string, from: string): string?, string
+    local called, written, why = pcall(VendorLibs.pin, root, manifest, cache, from, download)
+    if not called then return nil, tostring(written) end
+    return written, why
+  end
+  local missing, missing_why = pinned(tmp .. "/cache0", "https://example.invalid/none")
+  local written, why = pinned(tmp .. "/cache1", base)
+  local wrong_key = text:gsub("^key %x+", "key " .. string.rep("c", 64))
+  assert(Fs.write(release .. "/vendor-libs.pin", wrong_key))
+  local stale, stale_why = pinned(tmp .. "/cache2", base)
+  assert(Fs.write(release .. "/vendor-libs.pin", text))
+  assert(Fs.write(release .. "/vendor-libs-aarch64-macos.tar.zst", "other bytes"))
+  local broken, broken_why = pinned(tmp .. "/cache3", base)
+  assert(missing == nil and missing_why:find("no release holds the bundles of key", 1, true) ~= nil, missing_why)
+  assert(written == text, why)
+  assert(assert(Fs.read(root .. "/bin/vendor-libs.pin")) == text)
+  assert(stale == nil and stale_why:find("names key " .. string.rep("c", 64), 1, true) ~= nil, stale_why)
+  assert(broken == nil and broken_why:find("aarch64-macos", 1, true) ~= nil, broken_why)
 end

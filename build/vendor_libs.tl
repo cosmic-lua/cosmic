@@ -4,10 +4,15 @@
 ---
 ---     cosmic --standalone build/vendor_libs.tl ready <root> <manifest>
 ---     cosmic --standalone build/vendor_libs.tl key <root> <manifest>
----     cosmic --standalone build/vendor_libs.tl pack <root> <manifest> <libs> <out> <url base>
+---     cosmic --standalone build/vendor_libs.tl pack <root> <manifest> <libs> <out> [<url base>]
+---     cosmic --standalone build/vendor_libs.tl pin <root> <manifest>
 ---
 --- `<manifest>` is the patched vendor trees' manifest [`build/patch.tl`]
---- prints, which [`bin/zig`] writes and names to zig with `-Dpatched=`.
+--- prints, which [`bin/zig`] writes and names to zig with `-Dpatched=`;
+--- `-` reads it from standard input, so `pin` can be run as
+---
+---     bin/cosmic --standalone build/patch.tl . "$(mktemp -d)" |
+---       bin/cosmic --standalone build/vendor_libs.tl pin . -
 ---
 --- `ready` prints the directory holding the host's archives, where
 --- bin/vendor-libs.pin names a bundle for this tree's vendor inputs and
@@ -19,7 +24,18 @@
 --- `key` prints the key of this tree's vendor inputs. `pack` writes one
 --- bundle per target directory of `<libs>` (the build directory's
 --- `vendor-libs/`, which `bin/zig build vendor-libs` installs) into
---- `<out>`, and prints the pin that names them under `<url base>`.
+--- `<out>`, with the pin that names them under `<url base>` as
+--- `<out>/vendor-libs.pin`, and prints that pin. The base defaults to the
+--- release a full CI run publishes them as, `vendor-libs-<key>`
+--- (ci/cosmic_ci/prerelease.tl): a release of its own, which the
+--- prereleases' readers ([`build/release.tl`]) pass over, made once for
+--- each key.
+---
+--- `pin` writes bin/vendor-libs.pin from the release of this tree's key:
+--- its `vendor-libs.pin`, once every bundle that names is fetched and
+--- held to its sha256. Run it where a pin bump moves ci/cosmic-driver.pin
+--- (doc/contributing.md); where no release holds the key yet, it says so
+--- and writes nothing.
 ---
 --- A bundle stands for the tree's own compile where every input of the
 --- libraries' compiles is the same ([`VendorLibs.key`]): the patched
@@ -37,6 +53,8 @@
 --- ZIG_LIB_DIR), whose objects are not the pinned zig's.
 local Archive = require("cosmic.archive")
 local Env = require("cosmic.env")
+local Failure = require("cosmic.failure")
+local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
@@ -65,7 +83,12 @@ local record VendorLibs
   trees: {string}
   --- The release targets, by `uname` (build.zig's `targets`).
   records: string
-  fetched: function(Bundle, string): string?, string
+  --- How a bundle or a pin is downloaded: Http.download, or a test's
+  --- stand-in for the release.
+  type Download = function(url: string, path: string, options: Http.DownloadOptions): (true) | (nil, Failure)
+  fetched: function(bundle: Bundle, cache: string, download?: Download): string?, string
+  base: function(string): string
+  pin: function(root: string, manifest: string, cache: string, base?: string, download?: Download): string?, string
 end
 
 VendorLibs.libraries = { "sqlite", "sqlite-ext", "yyjson", "simdutf", "expat", "lua", "miniz", "sha1dc",
@@ -79,6 +102,15 @@ VendorLibs.records = "x86_64-linux-musl\tLinux\tx86_64\n" ..
   "aarch64-macos\tDarwin\tarm64\n"
 
 local pin_path <const> = "bin/vendor-libs.pin"
+--- Where the release of a key's bundles is downloaded from.
+local releases <const> = "https://github.com/cosmic-lua/cosmic/releases/download/"
+--- The pin's name in `pack`'s output and among a release's assets.
+local pin_asset <const> = "vendor-libs.pin"
+
+--- The URL base of the release of `key`'s bundles.
+function VendorLibs.base(key: string): string
+  return releases .. "vendor-libs-" .. key
+end
 
 local function say(text: string)
   local _, _ = Fs.put(Fs.stderr, "vendor libs: " .. text .. "\n")
@@ -200,13 +232,13 @@ end
 --- The directory of `bundle`'s archives under `cache`, fetched, held to
 --- its sha256 and unpacked where it is not there yet. Nil and why where
 --- it cannot be had.
-function VendorLibs.fetched(bundle: VendorLibs.Bundle, cache: string): string?, string
+function VendorLibs.fetched(bundle: VendorLibs.Bundle, cache: string, download?: VendorLibs.Download): string?, string
   local path = cache .. "/" .. bundle.sha256 .. ".tar.zst"
   local held, _ = Hash.hex_file("sha256", path)
   if held ~= bundle.sha256 then
     local _, _ = Fs.remove(path)
     say("fetching " .. bundle.url)
-    local ok, trouble = Http.download(bundle.url, path, { timeout_ns = 120 * 1000000000,
+    local ok, trouble = (download or Http.download)(bundle.url, path, { timeout_ns = 120 * 1000000000,
       digests = { sha256 = bundle.sha256 } })
     if not ok then return nil, bundle.url .. ": " .. tostring(trouble) end
   end
@@ -261,9 +293,10 @@ end
 
 --- Writes a bundle for each target directory of `libs` into `out`, and
 --- returns the pin naming them under `base`.
-function VendorLibs.pack(root: string, manifest: string, libs: string, out: string, base: string): string?, string
+function VendorLibs.pack(root: string, manifest: string, libs: string, out: string, given?: string): string?, string
   local key, key_trouble = VendorLibs.key(root, manifest)
   if key == nil then return nil, key_trouble end
+  local base = given or VendorLibs.base(key)
   local found, list_trouble = Fs.list(libs)
   if found == nil then return nil, libs .. ": " .. tostring(list_trouble) end
   -- Exactly the release targets: a stray directory from another build
@@ -304,7 +337,61 @@ function VendorLibs.pack(root: string, manifest: string, libs: string, out: stri
     if not closed then return nil, tostring(close_trouble) end
     lines[#lines + 1] = target .. " " .. base .. "/" .. name .. " " .. assert(Hash.hex_file("sha256", path))
   end
-  return table.concat(lines, "\n") .. "\n", ""
+  local pin = table.concat(lines, "\n") .. "\n"
+  local wrote, write_trouble = Fs.write(out .. "/" .. pin_asset, pin)
+  if not wrote then return nil, tostring(write_trouble) end
+  return pin, ""
+end
+
+--- Writes bin/vendor-libs.pin under `root` from the release of the
+--- tree's key, once each bundle it names is fetched into `cache` and
+--- held to its sha256. Returns what it wrote, or nil and why.
+function VendorLibs.pin(root: string, manifest: string, cache: string, base?: string,
+                        download?: VendorLibs.Download): string?, string
+  local key, key_trouble = VendorLibs.key(root, manifest)
+  if key == nil then return nil, key_trouble end
+  local from = base or VendorLibs.base(key)
+  local made, make_trouble = Fs.mkdirs(cache)
+  if not made then return nil, tostring(make_trouble) end
+  local scratch <close>, scratch_trouble = Fs.scratch(cache)
+  if scratch == nil then return nil, cache .. ": " .. tostring(scratch_trouble) end
+  local fetched_pin = scratch.path .. "/" .. pin_asset
+  local got, got_trouble = (download or Http.download)(from .. "/" .. pin_asset, fetched_pin, { timeout_ns = 30 * 1000000000 })
+  if not got then
+    return nil, "no release holds the bundles of key " .. key .. " yet: " .. from .. "/" .. pin_asset .. ": " ..
+      tostring(got_trouble)
+  end
+  local text, read_trouble = Fs.read(fetched_pin)
+  if text == nil then return nil, tostring(read_trouble) end
+  local pin, pin_trouble = VendorLibs.read_pin(text)
+  if pin == nil then return nil, from .. "/" .. pin_asset .. ": " .. pin_trouble end
+  if pin.key ~= key then
+    return nil, from .. "/" .. pin_asset .. " names key " .. pin.key .. ", not " .. key
+  end
+  local named = 0
+  for _ in pairs(pin.bundles) do named = named + 1 end
+  local targets = 0
+  for _ in VendorLibs.records:gmatch("[^\n]+") do targets = targets + 1 end
+  if named ~= targets then
+    return nil, from .. "/" .. pin_asset .. " does not name one bundle per release target: it names " ..
+      tostring(named) .. " of " .. tostring(targets)
+  end
+  for line in VendorLibs.records:gmatch("[^\n]+") do
+    local target = line:match("^[^\t]+")!
+    local bundle = pin.bundles[target]
+    if bundle == nil then
+      return nil, from .. "/" .. pin_asset .. " names no bundle for " .. target
+    end
+    local url = from .. "/vendor-libs-" .. target .. ".tar.zst"
+    if bundle.url ~= url then
+      return nil, "its bundle for " .. target .. " is at " .. bundle.url .. ", not " .. url
+    end
+    local dir, trouble = VendorLibs.fetched(bundle, cache, download)
+    if dir == nil then return nil, trouble end
+  end
+  local wrote, write_trouble = Fs.write(root .. "/" .. pin_path, text)
+  if not wrote then return nil, tostring(write_trouble) end
+  return text, ""
 end
 
 function VendorLibs.main(argv: {string}): integer
@@ -318,10 +405,11 @@ function VendorLibs.main(argv: {string}): integer
     end
     return 0
   end
-  if (verb == "key" and #argv == 3) or (verb == "pack" and #argv == 6) then
-    local manifest, trouble = Fs.read(argv[3]!)
+  if (verb == "key" and #argv == 3) or (verb == "pin" and #argv == 3) or
+      (verb == "pack" and (#argv == 5 or #argv == 6)) then
+    local manifest, trouble = Flags.read(argv[3]!)
     if manifest == nil then
-      say(argv[3]! .. ": " .. tostring(trouble))
+      say(argv[3]! .. ": " .. trouble)
       return 1
     end
     local text: string?
@@ -329,8 +417,15 @@ function VendorLibs.main(argv: {string}): integer
     if verb == "key" then
       text, why = VendorLibs.key(argv[2]!, manifest)
       if text ~= nil then text = text .. "\n" end
+    elseif verb == "pin" then
+      local cache, cache_trouble = Fs.cache_dir("vendor-libs")
+      if cache == nil then
+        text, why = nil, tostring(cache_trouble)
+      else
+        text, why = VendorLibs.pin(argv[2]!, manifest, cache)
+      end
     else
-      text, why = VendorLibs.pack(argv[2]!, manifest, argv[4]!, argv[5]!, argv[6]!)
+      text, why = VendorLibs.pack(argv[2]!, manifest, argv[4]!, argv[5]!, argv[6])
     end
     if text == nil then
       say(why)
@@ -340,7 +435,7 @@ function VendorLibs.main(argv: {string}): integer
     return 0
   end
   say("usage: build/vendor_libs.tl ready <root> <manifest> | key <root> <manifest> | " ..
-      "pack <root> <manifest> <libs> <out> <url base>")
+      "pack <root> <manifest> <libs> <out> [<url base>] | pin <root> <manifest>")
   return 2
 end
 

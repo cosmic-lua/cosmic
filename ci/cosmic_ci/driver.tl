@@ -154,6 +154,8 @@ local commands: {string:Command} = {
     usage = "", handler = Prerelease.stage_command },
   ["prerelease-publish"] = { about = "publish the staged prerelease, or verify the one there",
     usage = "", handler = Prerelease.publish_command },
+  ["prerelease-vendor-libs"] = { about = "publish the vendor library bundles a full run packed, or verify the release of their key",
+    usage = "", handler = Prerelease.vendor_libs_command },
   ["prerelease-follow"] = { about = "after a run of ci on main, start a full run or retry a failed one, so a prerelease follows main",
     usage = "", handler = PrereleaseFollow.command },
   ["prerelease-sweep"] = { about = "each hour, publish or retry the newest full run follow started, which fires no workflow_run",

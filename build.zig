@@ -983,6 +983,10 @@ pub fn build(b: *std.Build) void {
     // Every target's release vendor libraries, as a prerelease publishes them
     // (build/vendor_libs.tl packs them).
     const vendor_libs = b.step("vendor-libs", "build every target's release vendor libraries into vendor-libs/");
+    // With the manifest of the patched trees they were compiled from, which
+    // their key is read from.
+    const vendor_manifest = b.addWriteFiles().add("vendor-libs-manifest.tsv", trees);
+    vendor_libs.dependOn(&b.addInstallFile(vendor_manifest, "vendor-libs-manifest.tsv").step);
     // A bundle of the host's, unpacked and checked by bin/zig, which the
     // host's release core links in place of compiling them.
     const prebuilt_dir = b.option([]const u8, "vendor-libs", "a directory of the host's prebuilt release vendor libraries; bin/zig passes it");
