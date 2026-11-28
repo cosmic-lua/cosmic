@@ -14,6 +14,7 @@
 --- documentation names its first word as what they stand in for.
 
 local Failure = require("cosmic.failure")
+local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
 local String = require("cosmic.string")
 local link_text = require("cosmic.internal.link_text")
