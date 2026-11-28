@@ -1084,6 +1084,36 @@ local function test_several_qualified_names_are_each_looked_up(dir: string)
     answered(missing))
 end
 
+--- A brief search is a line a function: its signature and first sentence, no page.
+local function test_brief_lists_a_line_a_function(dir: string)
+  local db = built(dir, fs_tree())
+  local brief = assert(Doc.brief(view({ db }), { "read" }))
+  assert(brief.found and #brief.lines == 1, answered(brief))
+  local line = assert(brief.lines[1])
+  assert(line:find("cosmic.fs Fs.read(path: string)", 1, true) == 1, line)
+  assert(line:find(" -- The whole of a file.", 1, true), line)
+  local both = assert(Doc.brief(view({ db }), { "Fs.write", "Fs.read" }))
+  assert(#both.lines == 2, answered(both))
+  assert(assert(both.lines[1]):find("Fs.write", 1, true) ~= nil, answered(both))
+  local none = assert(Doc.brief(view({ db }), { "unheardword" }))
+  assert(not none.found and #none.lines == 0)
+  assert(db:close())
+end
+
+--- Doc.text answers a page for one function and says why where it has nothing to show.
+local function test_text_answers_a_page_or_says_why(dir: string)
+  local db = built(dir, fs_tree())
+  local page = assert(Doc.text(view({ db }), "Fs.read"))
+  assert(page:find("The whole of a file.", 1, true), page)
+  local none, why = Doc.text(view({ db }), "unheardword")
+  assert(none == nil)
+  assert(tostring(why):find("nothing is found", 1, true) ~= nil, tostring(why))
+  local empty, empty_why = Doc.text(view({ db }), "  ")
+  assert(empty == nil)
+  assert(tostring(empty_why):find("name a module", 1, true) ~= nil, tostring(empty_why))
+  assert(db:close())
+end
+
 --- `--json` prints the entries a lookup finds, as [`Doc.answer`] would
 --- show them, one JSON object per line, qualified names in the order given.
 local function test_records_are_one_json_object_per_entry(dir: string)

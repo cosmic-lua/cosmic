@@ -17,7 +17,7 @@
 ---     end
 
 local type Agent = require("cosmic.agent")
-local type AgentEdit = require("cosmic.agent.edit")
+local type AgentEdit = require("cosmic.edit")
 local Diff = require("cosmic.diff")
 local Json = require("cosmic.json")
 local String = require("cosmic.string")

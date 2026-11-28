@@ -64,7 +64,7 @@
 ---
 --- Outside a worker no agent replies, and each call raises so.
 
-local AgentEdit = require("cosmic.agent.edit")
+local Edit = require("cosmic.edit")
 local AgentFetch = require("cosmic.agent.fetch")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
@@ -168,7 +168,7 @@ local record Host
 
   --- A line [`Host.grep`] found ([`Shell.Hit`]).
   --- One replacement of [`Host.edit`]: `old`, which the file holds once, becomes `new`.
-  type Replacement = AgentEdit.Replacement
+  type Replacement = Edit.Replacement
 
   type Hit = Shell.Hit
 
@@ -530,17 +530,16 @@ end
 --- (`"Fs.read"`), or words to search for. A plain string, to print: where nothing is found, or the docs cannot be
 --- read, it says so.
 function Host.docs(query: string): string
-  local words: mut {string} = {}
-  for word in query:gmatch("%S+") do words[#words + 1] = word end
-  if #words == 0 then return "host: docs: name a module, a function or words to search for" end
+  if query:match("%S") == nil then
+    return "host: docs: name a module, a function or words to search for"
+  end
   local Docs = require("cosmic.doc")
   local Store = require("cosmic.store")
   local view, why = Docs.view(Store.databases())
   if view == nil then return "host: docs: " .. tostring(why) end
-  local answer, answer_why = Docs.answer(view, words)
-  if answer == nil then return "host: docs: " .. tostring(answer_why) end
-  if not answer.found then return "host: docs: nothing is found for " .. Json.quote(query) end
-  return table.concat(answer.lines, "\n")
+  local text, text_why = Docs.text(view, query)
+  if text == nil then return "host: docs: " .. tostring(text_why) end
+  return text
 end
 
 -- The helpers below raise where they fail, so a snippet needs no assert: what raises ends the snippet, and the
@@ -604,21 +603,15 @@ local function linked(path: string): string
   return at
 end
 
---- Makes each of `edits` in the file `path`, as the agent's edit tool does ([`cosmic.agent.edit`]): each `old` is in
---- the file once, as it was before any edit, no two overlap, and a file of CRLF line ends keeps them. A link's file is
---- changed, and the link kept. Returns how many it made; raises, naming the edit by its index in `edits` and how to fix
---- it, where one does not match once, or the file cannot be read or written, and then changes nothing.
+--- Makes each of `edits` in the file `path` as [`Edit.file`] does, and tells the session's change list. Returns how many it
+--- made; raises, naming the edit by its index in `edits` and how to fix it, where one does not match once, or the file
+--- cannot be read or written, and then changes nothing.
 ---
 ---     Host.edit("notes.md", { { old = "teh", new = "the" }, { old = "## Todo", new = "## Done" } })
 function Host.edit(path: string, edits: {Host.Replacement}): integer
-  local file = linked(path)
-  refuse_git("edit", path, file)
-  local raw, why = Fs.read(file)
-  if raw == nil then error("host: edit: " .. tostring(why), 2) end
-  local edited, made = AgentEdit.apply(raw, edits, path, "old", 1)
-  if edited == nil then error("host: edit: " .. made, 2) end
-  local ok, write_why = Fs.write(file, edited)
-  if not ok then error("host: edit: " .. tostring(write_why), 2) end
+  refuse_git("edit", path, linked(path))
+  local made, why = Edit.file(path, edits)
+  if made == nil then error("host: edit: " .. tostring(why), 2) end
   local hears = noted
   if hears ~= nil then
     -- A copy, so a list the snippet changes after the call shows what was written.

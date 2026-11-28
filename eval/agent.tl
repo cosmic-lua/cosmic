@@ -16,7 +16,8 @@
 --- <out>/<tool>/tool/cosmic when its first run starts, and the round runs that copy, so a rebuild of the tree under the
 --- tool does not change the arm; a tool whose binary is not the one the round noted is refused. `--arm NAME` runs only
 --- that tool's runs (with every `--tool` still given, as the report names them), and `--jobs N` runs up to N tools at
---- once, each in a process of its own. <out>/round.log tells what each process did.
+--- once, each in a process of its own: by default, as many as there are tools, up to [`Agent.MAX_JOBS`], since a run
+--- waits on the network, not on a core. <out>/round.log tells what each process did.
 --- `--control NAME` names a tool whose binary another tool repeats: the report puts each other tool's passes, cost and
 --- refusals against the controls' spread, so a difference inside one binary's noise reads as noise. A task marked
 --- `held` is one the run text and the checker were not changed from: the report totals the tuned and the held-out
@@ -57,6 +58,8 @@ local Runs = require("runs")
 local Sqlite = require("cosmic.sqlite")
 
 local record Agent
+  --- The most tools a round runs at once where `--jobs` is not given.
+  mut MAX_JOBS: integer
   --- One task: what the agent is asked, and how its work is graded.
   record Task
     name: string
@@ -158,7 +161,7 @@ local record Agent
     db?: string
     --- The names of the only tools whose runs this process makes (`--arm`); nil for every tool.
     arms?: {string}
-    --- How many tools run at once, each in a process of its own (`--jobs`); nil for one process.
+    --- How many tools run at once, each in a process of its own (`--jobs`); nil for [`Agent.default_jobs`] of the tools.
     jobs?: integer
     --- The tools that repeat one base tool's binary, named by `--control`: the report puts every other tool's
     --- totals against their spread, so a difference inside the noise of one binary reads as one.
@@ -1058,6 +1061,14 @@ local EFFORTS <const>: {string: boolean} = { low = true, medium = true, high = t
 local function positive(text: string): integer?
   if not text:match("^[1-9]%d*$") then return nil end
   return math.tointeger(tonumber(text))
+end
+
+Agent.MAX_JOBS = 8
+
+--- How many tools a round of `arms` runs at once where `--jobs` is not given: one process each, up to
+--- [`Agent.MAX_JOBS`]. A run waits on the network, so its core count is no limit.
+function Agent.default_jobs(arms: integer): integer
+  return math.max(1, math.min(arms, Agent.MAX_JOBS))
 end
 
 --- Reads the command line. `--reps` is 2, `--model` sonnet, `--timeout` 1200 and `--tasks` all unless given.
@@ -2283,7 +2294,7 @@ function Agent.main(argv: {string}): integer
   end
   log("begun: arms " .. table.concat(selected, ", ") .. "; reps " .. tostring(options.reps) .. "; db " ..
       (options.db or out .. "/runs.db"))
-  local jobs = options.jobs or 1
+  local jobs = options.jobs or Agent.default_jobs(#selected)
   local stopped: string? = nil
   if jobs > 1 and options.arms == nil and #selected > 1 then
     local started, start_why = in_processes(argv, selected, jobs, log)

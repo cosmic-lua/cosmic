@@ -14,6 +14,7 @@
 --- documentation names its first word as what they stand in for.
 
 local Failure = require("cosmic.failure")
+local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
 local String = require("cosmic.string")
 local link_text = require("cosmic.internal.link_text")
@@ -823,6 +824,66 @@ function Doc.answer(view: Doc.View, words: {string}): (Doc.Answer) | (nil, Failu
   local value, why = answer_text(view, words)
   if value == nil then return nil, Failure.new(why) end
   return value
+end
+
+--- How long the signature on a line of [`Doc.brief`] runs.
+local BRIEF_SIGNATURE <const> = 90
+
+--- How long the note on a line of [`Doc.brief`] runs.
+local BRIEF_NOTE <const> = 100
+
+--- What a search for `words` finds, a line each and no page: `Module.name(signature) -- first sentence`, for each
+--- function the query names or the search relates to, in the order [`Doc.lookup`] gives, leaving out the modules'
+--- tests and examples. For a name that several modules share ("walk"), or a word to search for, which a page of each
+--- would show whole and at length. `found` is false when there is no line; `said` counts them.
+--- Nil and a [`Failure`] when a database cannot be read.
+function Doc.brief(view: Doc.View, words: {string}): (Doc.Answer) | (nil, Failure)
+  -- Several by_name names are each looked up as alone, as [`Doc.answer`] does; other words are one query.
+  local by_name = #words > 1
+  for _, word in ipairs(words) do
+    if word:find(".", 1, true) == nil then by_name = false end
+  end
+  local queries: mut {string} = {}
+  if by_name then
+    for _, word in ipairs(words) do queries[#queries + 1] = word end
+  else
+    queries[1] = table.concat(words, " ")
+  end
+  local found: mut {Types.Entry} = {}
+  for _, query in ipairs(queries) do
+    local part, why = lookup_text(view, query)
+    if part == nil then return nil, Failure.new(why) end
+    for _, entry in ipairs(part) do found[#found + 1] = entry end
+  end
+  local lines: mut {string} = {}
+  local seen: mut {string: boolean} = {}
+  for _, entry in ipairs(found) do
+    local listed = (entry.kind == "function" and entry.signature:sub(1, 15) ~= "local function ") or entry.kind == "module"
+    local module = entry.module
+    if listed and module:sub(-5) ~= "_test" and module:sub(-8) ~= "_example" then
+      local name = if entry.kind == "module" then module else module .. " " .. clipped(entry.signature:gsub("^function ", ""), BRIEF_SIGNATURE) end
+      if seen[name] ~= true then
+        seen[name] = true
+        local note = clipped(first_sentence(entry.text), BRIEF_NOTE)
+        lines[#lines + 1] = name .. (if note ~= "" then " -- " .. note else "" end)
+      end
+    end
+  end
+  return { lines = lines, found = #lines > 0, said = String.counted(#lines, "line") }
+end
+
+--- What `cosmic docs` prints for `query` (words), as text: [`Doc.answer`]'s lines joined. Nil and a [`Failure`] that
+--- says what to do where `query` holds no word, nothing is found, or a database cannot be read.
+function Doc.text(view: Doc.View, query: string): (string) | (nil, Failure)
+  local words: mut {string} = {}
+  for word in query:gmatch("%S+") do words[#words + 1] = word end
+  if #words == 0 then
+    return nil, Failure.new("name a module, a function or words to search for")
+  end
+  local answer, answer_why = Doc.answer(view, words)
+  if answer == nil then return nil, answer_why end
+  if not answer.found then return nil, Failure.new("nothing is found for " .. Json.quote(query)) end
+  return table.concat(answer.lines, "\n")
 end
 
 -- Doc.records, its failure in words.

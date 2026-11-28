@@ -73,6 +73,7 @@ local command: Flags.Command = {
     { line = "read a file", about = "search by words" },
   },
   spec = {
+    ["--brief"] = { about = "print a line a function (its signature and first sentence), not the page" },
     ["--json"] = { about = "print one JSON object per entry found (ndjson), not the page" },
   },
 }
