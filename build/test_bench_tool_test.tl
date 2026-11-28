@@ -5,6 +5,7 @@
 local Fake = require("cosmic.fake")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
+local results = require("build.results")
 local TestSandboxFixture = require("build.test_sandbox_fixture")
 local Test = require("cosmic.test")
 -- Required, so the fake's main is of each test's closure.
@@ -39,6 +40,16 @@ end
   return root
 end
 
+--- The samples of `arm` in the round the output `out` says it kept.
+local function kept(out: string, arm: string): {results.Sample}
+  local id, path = out:match("kept round (bench%-%d+) in ([^\n]+)")
+  assert(id ~= nil and path ~= nil, out)
+  local db = assert(results.open(path))
+  local samples = assert(results.bench_samples(db, id, arm))
+  local _, _ = db:close()
+  return samples
+end
+
 local function run(root: string, args?: {string}): string, integer?
   local ran = TestSandboxFixture.unsandboxed(root, {}, args)
   return ran.text, ran.code
@@ -60,6 +71,9 @@ local function test_a_bench_run_prints_each_bench_line_and_no_test(tmp: string)
   local _, lines = out:gsub("ns/op", "")
   assert(lines == 1, out)
   assert(out:find("tally_test.tl:bench_sum ", 1, true) and out:find(" GB/s", 1, true), out)
+  local samples = kept(out, "this")
+  assert(#samples == 2 and samples[2]!.bench == "tally_test.tl:bench_sum" and samples[2]!.rep == 2, out)
+  assert(samples[1]!.bytes == 8 and samples[1]!.n >= 1 and samples[1]!.ns_per_op > 0, out)
 end
 
 local function test_a_bench_run_with_json_prints_one_object_per_bench(tmp: string)
@@ -135,6 +149,9 @@ local function test_against_compares_each_bench_on_two_binaries(tmp: string)
   assert(out:find("best of 6", 1, true), out)
   local line = assert(out:match("\n(tally_test%.tl:bench_sum [^\n]*)"), out)
   assert(line:find(" 1000000000 ", 1, true) and line:sub(-6) == "faster", line)
+  local old, new = kept(out, "old"), kept(out, "new")
+  assert(#old == 6 and #new == 6 and old[6]!.rep == 6 and old[1]!.bench == "tally_test.tl:bench_sum", out)
+  assert(old[1]!.ns_per_op == 1e9 and new[1]!.ns_per_op < 1e9, out)
 end
 
 local function test_against_with_json_prints_one_comparison_per_bench(tmp: string)
