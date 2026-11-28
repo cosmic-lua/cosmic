@@ -1915,7 +1915,7 @@ local function hold_named_markers(root: string, files: {string}, findings: mut {
     end
   end
   if next(counts) == nil then return end
-  local held = CeilingsBase.check(root, env, CeilingsBase.live_git(), counts)
+  local held = CeilingsBase.check(root, env, CeilingsBase.live(root), counts)
   for _, line in ipairs(held.lines) do
     findings[#findings + 1] = "ceilings: " .. line
   end

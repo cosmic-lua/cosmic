@@ -172,6 +172,33 @@ local function test_commit_is_one_git_accepts(tmp: string)
   assert(repo:rev("HEAD~1")! == oid and repo:head()! == after)
 end
 
+--- `merge_base` names the newest commit two histories share, `is_shallow` reads the `shallow` file, and `files` lists
+--- every file of a commit by its path.
+local function test_merge_base_shallow_and_files(tmp: string)
+  local root = scratch(tmp)
+  local repo = assert(Git.open(root))
+  assert(repo:merge_base("HEAD", "HEAD~2")! == FIRST)
+  assert(repo:merge_base("HEAD~2", "HEAD")! == FIRST)
+  assert(repo:merge_base("HEAD", "HEAD")! == THIRD)
+  -- A branch that left at the second commit, and a commit on main after it.
+  put(root, ".git/refs/heads/side", SECOND .. "\n")
+  put(root, "a.txt", "main moved\n")
+  assert(repo:add({ "a.txt" }))
+  local moved = assert(repo:commit({ message = "moved", author = WHO, committer = WHO }))
+  assert(repo:merge_base("main", "side")! == SECOND)
+  assert(repo:merge_base("side", moved)! == SECOND)
+  assert(not repo:is_shallow())
+  put(root, ".git/shallow", FIRST .. "\n")
+  local cut = assert(Git.open(root))
+  assert(cut:is_shallow())
+  local files = assert(repo:files("HEAD~3"))
+  assert(files["a.txt"]!.oid == FIRST_A and files["a.txt"]!.mode == "100644" and files["a.txt"]!.name == "a.txt")
+  local now = assert(repo:files("HEAD"))
+  assert(now["dir/b.txt"] ~= nil and now["dir-x/c.txt"] ~= nil and now["dir"] == nil)
+  local refused, _ = repo:merge_base("HEAD", "no-such-branch")
+  assert(refused == nil)
+end
+
 --- The first commit of an unborn branch has no parent and an initial
 --- reflog line.
 local function test_first_commit_of_an_empty_repository(tmp: string)

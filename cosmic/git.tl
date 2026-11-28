@@ -174,6 +174,20 @@ local record Git
     head_ref: function(Repo): (string | false) | (nil, Failure)
     --- Commits newest first by committer time, as `git log` lists them.
     log: function(Repo, opts?: LogOptions): ({Commit}) | (nil, Failure)
+    --- The oid of a best common ancestor of the commits `a` and `b` name (each
+    --- as `rev` reads it), as `git merge-base a b` names one: false when they
+    --- share none. Where several are equally good (criss-cross merges) it is
+    --- the one newest by committer time. A shallow clone's cut-off commits
+    --- have no parents here, as in `log`.
+    merge_base: function(Repo, a: string, b: string): (string | false) | (nil, Failure)
+    --- Whether the repository is a shallow clone, as
+    --- `git rev-parse --is-shallow-repository`.
+    is_shallow: function(Repo): boolean
+    --- Every file under the tree of the commit `rev` names, by path from the
+    --- top: a [`TreeEntry`] whose `name` is the whole path (`a/b.txt`) and whose
+    --- `mode` is that of a blob (`100644`, `100755`), a link (`120000`) or a
+    --- submodule (`160000`); trees are entered, not listed.
+    files: function(Repo, rev: string): ({string:TreeEntry}) | (nil, Failure)
     --- What `git status -uall` reports.
     status: function(Repo): (Status) | (nil, Failure)
     --- The untracked paths the worktree's own `.gitignore` files ignore, as
@@ -1857,6 +1871,82 @@ local class Repository is Git.Repo
           end
         end
       end
+    end
+    return out
+  end
+
+  function merge_base(self, a: string, b: string): (string | false) | (nil, Failure)
+    local ra, ta = self:rev(a)
+    if ra == nil then return nil, ta end
+    local rb, tb = self:rev(b)
+    if rb == nil then return nil, tb end
+    local pa, pta = self:peel(ra)
+    if pa == nil then return nil, pta end
+    local pb, ptb = self:peel(rb)
+    if pb == nil then return nil, ptb end
+    if pa == pb then return pa end
+    local shallow = self:shallow_set()
+    -- Each commit carries the sides it was reached from (1: a, 2: b); the newest commit that both sides reach is the base.
+    local flags: mut {string:integer} = { [pa] = 1, [pb] = 2 }
+    local known: mut {string:Git.Commit} = {}
+    local queued: mut {string:boolean} = {}
+    local queue: mut {Git.Commit} = {}
+    local function enqueue(oid: string): (true) | (nil, Failure)
+      local c = known[oid]
+      if c == nil then
+        local read, trouble = self:commit_info(oid)
+        if read == nil then return nil, trouble end
+        known[oid] = read
+        c = read
+      end
+      local i = #queue + 1
+      while i > 1 and queue[i - 1]!.committer.time < c.committer.time do i = i - 1 end
+      table.insert(queue, i, c)
+      queued[oid] = true
+      return true
+    end
+    local started, strouble = enqueue(pa)
+    if started == nil then return nil, strouble end
+    local also, atrouble = enqueue(pb)
+    if also == nil then return nil, atrouble end
+    while #queue > 0 do
+      local c = table.remove(queue, 1)!
+      queued[c.oid] = nil
+      local f = flags[c.oid] or 0
+      if f == 3 then return c.oid end
+      if shallow[c.oid] == nil then
+        for _, parent in ipairs(c.parents) do
+          local had = flags[parent] or 0
+          if had | f ~= had then
+            flags[parent] = had | f
+            if queued[parent] == nil then
+              local ok, etrouble = enqueue(parent)
+              if ok == nil then return nil, etrouble end
+            end
+          end
+        end
+      end
+    end
+    return false
+  end
+
+  function is_shallow(self): boolean
+    return next(self:shallow_set()) ~= nil
+  end
+
+  function files(self, spec: string): ({string:Git.TreeEntry}) | (nil, Failure)
+    local oid, trouble = self:rev(spec)
+    if oid == nil then return nil, trouble end
+    local peeled, ptrouble = self:peel(oid)
+    if peeled == nil then return nil, ptrouble end
+    local commit, ctrouble = self:commit_info(peeled)
+    if commit == nil then return nil, ctrouble end
+    local found: mut {string:Recorded} = {}
+    local ok, ftrouble = self:flatten(commit.tree, "", found)
+    if not ok then return nil, ftrouble end
+    local out: mut {string:Git.TreeEntry} = {}
+    for path, recorded in pairs(found) do
+      out[path] = { mode = mode_text(recorded.mode), name = path, oid = Codec.hex(recorded.oid) }
     end
     return out
   end
