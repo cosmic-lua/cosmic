@@ -18,6 +18,7 @@ local type Failure = require("cosmic.failure")
 local type verb_spec = require("build.verb_spec")
 local type flags = require("cosmic.flags")
 local type standalone_type = require("build.standalone")
+local type tree_type = require("build.tree")
 
 local log = logger.log
 
@@ -510,6 +511,33 @@ local function run_projected(file: string, argv: {string}, tree_root: Root, name
   return 0
 end
 
+--- Runs `file`, the module `name` of the tree `tree_root`, as `run` does where its last good run stands
+--- ([`build.run_stamp`]), but without the working database's write lock, which another run holds: the database read
+--- without writing ([`work.settled_read`]) stands as the tree does, the tool is as new as cosmic's own tree
+--- ([`reboot.settled`]), and the projection that run left is the one a build would write again. Nil where any of
+--- that does not hold, or cannot be read: the run then waits for the lock, as ever. The projection is attached as
+--- [`run_projected`] attaches it, so a build that publishes another meanwhile is one the locked run meets too.
+--- @param standing what the tree is to the running tool ([`tree.standing`])
+local function run_unlocked(file: string, argv: {string}, tree_root: Root, name: string,
+                            standing: tree_type.Standing): integer?
+  local build_paths = require("build.paths")
+  local root = tree_root.dir
+  local dir, _ = build_paths.optional(root)
+  if dir == nil then return nil end
+  local db, _ = require("build.work").settled_read(root, standing)
+  if db == nil then return nil end
+  if standing.own and not require("build.reboot").settled(db) then
+    local _, _ = db:close()
+    return nil
+  end
+  local run_stamp = require("build.run_stamp")
+  local key = run_stamp.key(db, root, standing.own, run_stamp.own_tool(), name)
+  local _, _ = db:close()
+  local database = build_paths.under(dir).projection
+  if key == nil or not run_stamp.holds(dir, key, name, database) then return nil end
+  return run_projected(file, argv, tree_root, name, database)
+end
+
 -- TODO: hold a module of the tree that a run calls as an entry point ([`Declarations.Input.entry`]); the checker holds
 -- only a program's cmd/<name>/main.tl and a file run alone so, since any module of a tree may be run.
 
@@ -566,11 +594,30 @@ local function run(file: string, argv: {string}): integer
       return code
     end
   end
-  local handle, open_trouble = work.open(root, nil, "running " .. file)
-  if handle == nil then
-    log:complain(open_trouble)
+  -- Where another run holds the write lock, a module whose last good run stands as the tree does runs without waiting
+  -- for it ([`run_unlocked`]).
+  local doing = "running " .. file
+  local opening, try_trouble = work.try_open(root, doing)
+  if opening == nil then
+    log:complain(try_trouble)
     return 1
   end
+  local held = opening.handle
+  if held == nil and opening.other_schema == nil then
+    local code = run_unlocked(file, argv, tree_root, name, standing)
+    if code ~= nil then
+      return code
+    end
+  end
+  if held == nil then
+    local waited, open_trouble = work.open(root, nil, doing)
+    if waited == nil then
+      log:complain(open_trouble)
+      return 1
+    end
+    held = waited
+  end
+  local handle = held
   local staged, stage_trouble = work.stage(handle, standing)
   if staged == nil then
     local _, _ = work.close(handle)
