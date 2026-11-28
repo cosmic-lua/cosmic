@@ -735,9 +735,12 @@ local function generated_of(m: Module, built: Pipeline.Built, facts?: boolean, j
   end
   -- The module that holds the hook the wraps and the parameter checks call is written without them: a checked call in the
   -- hook would call the hook.
-  local main_wrong = main_trouble(m, result)
-  if main_wrong ~= "" then
-    return nil, main_wrong
+  if not unwritten then
+    -- Only a build writes the program; a check or a test of a tree reads a main as any module.
+    local main_wrong = main_trouble(m, result)
+    if main_wrong ~= "" then
+      return nil, main_wrong
+    end
   end
   local emitted = CompileGrammar.emit(build, result, facts == true and m.path ~= "build.test_worker", true, true)
   local code = emitted.code

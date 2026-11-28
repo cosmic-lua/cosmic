@@ -153,6 +153,12 @@ local function counted(entries: {string}, label: string, lone: boolean): {string
   return lines
 end
 
+--- A skip's reason with the scratch path of its test's own directory (under /tmp/cosmic-test-) written `<dir>`, so
+--- that modules which gave the one reason are seen to.
+local function alike(reason: string): string
+  return (reason:gsub("/tmp/cosmic%-test%-[^%s:)]*", "<dir>"))
+end
+
 --- The skipped tests (`<module> <test>: <reason>`), sorted. The tests of a module that gave one reason are counted
 --- in one line, so a host that lacks what a module checks says so once. A test whose reason no other test of its
 --- module gave keeps its own line.
@@ -161,10 +167,10 @@ function test_report.skips(skips: {string}): {string}
   -- the run's records: a module name is no help to a host that lacks what the reason names.
   local modules: mut {string: mut {string: boolean}} = {}
   local tests: mut {string: integer} = {}
-  local rest: mut {string} = {}
   for _, entry in ipairs(skips) do
-    local module, why = entry:match("^(%S+) %S+: (.*)$")
-    if module ~= nil and why ~= nil then
+    local module, said = entry:match("^(%S+) %S+: (.*)$")
+    if module ~= nil and said ~= nil then
+      local why = alike(said)
       local of = modules[why]
       if of == nil then
         modules[why] = { [module] = true }
@@ -172,8 +178,6 @@ function test_report.skips(skips: {string}): {string}
         of[module] = true
       end
       tests[why] = (tests[why] or 0) + 1
-    else
-      rest[#rest + 1] = entry
     end
   end
   local across: mut {string: boolean} = {}
@@ -187,8 +191,8 @@ function test_report.skips(skips: {string}): {string}
   local kept: mut {string} = {}
   local lines: mut {string} = {}
   for _, entry in ipairs(skips) do
-    local why = entry:match("^%S+ %S+: (.*)$")
-    if why ~= nil and across[why] == true then
+    local said = entry:match("^%S+ %S+: (.*)$")
+    if said ~= nil and across[alike(said)] == true then
       -- Counted below, once.
     else
       kept[#kept + 1] = entry

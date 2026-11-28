@@ -50,6 +50,13 @@ local function test_a_reason_several_modules_gave_is_one_line()
       "test: SKIP  3 tests in 2 modules, no socket", table.concat(lines, "\n"))
 end
 
+local function test_scratch_paths_do_not_keep_a_reason_apart()
+  local lines = test_report.skips({ "m test_a: no socket (/tmp/cosmic-test-x1/p.sock: denied)",
+    "n test_a: no socket (/tmp/cosmic-test-y2/p.sock: denied)" })
+  assert(table.concat(lines, "\n") == "test: SKIP  2 tests in 2 modules, no socket (<dir>: denied)",
+    table.concat(lines, "\n"))
+end
+
 local function test_a_pass_with_no_assert_is_told_of_skip()
   local lines = test_report.unchecked({ "b test_y", "a test_x" })
   assert(lines[1] == "test: NO ASSERT  a test_x" and lines[2] == "test: NO ASSERT  b test_y")
