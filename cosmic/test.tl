@@ -66,6 +66,7 @@ local errors = require("cosmic.internal.errors")
 local TestPolicy = require("cosmic.internal.test_policy")
 -- What `cosmic` and `environment` take: every worker loads these
 -- already, and build/harness_epoch.tl's `library` names each.
+local Diff = require("cosmic.diff")
 local Env = require("cosmic.env")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
@@ -693,6 +694,36 @@ function Test.raises(fn: function(), says?: string): string
   assert(says == nil or message:find(says, 1, true) ~= nil,
     "test: expected a raise" .. wanted .. ", but it raised: " .. message)
   return message
+end
+
+--- How many lines of the diff [`Test.equal`] shows.
+local EQUAL_DIFF_LINES <const> = 60
+
+--- Checks that the text `got` is the text `want`, and when it is not fails the test with the change as a unified diff
+--- (`--- want`, `+++ got`) of the lines, cut after 60 lines with a count of the rest, instead of only saying that
+--- the texts differ. `what` names the thing compared and heads the message. The call counts as a call to `assert`.
+---
+---     Test.equal("a\nb\n", rendered, "the rendered table")
+--- @param want the text the test expects
+--- @param got the text the code made
+--- @param what names what is compared, `text` if none
+function Test.equal(want: string, got: string, what?: string)
+  if want == got then
+    assert(true)
+    return
+  end
+  local text = Diff.unified(Diff.lines(want, got), { old_name = "want", new_name = "got" })
+  local lines: mut {string} = {}
+  for line in text:gmatch("([^\n]*)\n") do lines[#lines + 1] = line end
+  local shown: mut {string} = {}
+  for i, line in ipairs(lines) do
+    if i > EQUAL_DIFF_LINES then break end
+    shown[#shown + 1] = line
+  end
+  if #lines > EQUAL_DIFF_LINES then
+    shown[#shown + 1] = "... " .. tostring(#lines - EQUAL_DIFF_LINES) .. " more diff lines"
+  end
+  assert(false, "test: " .. (what or "text") .. " differs from what was expected:\n" .. table.concat(shown, "\n"))
 end
 
 Test.runtime_environment = {

@@ -26,6 +26,25 @@ local function test_raises_answers_the_message_and_refuses_otherwise()
     'naming "x", but it raised: else')
 end
 
+--- `equal` passes on the same text, and on a difference fails with the change as a unified diff, named and cut.
+local function test_equal_shows_the_change_as_a_diff()
+  Test.equal("a\nb\n", "a\nb\n")
+  local said = Test.raises(function() Test.equal("a\nb\nc\n", "a\nB\nc\n", "the table") end, "the table differs")
+  assert(said:find("--- want\n+++ got\n@@ -1,3 +1,3 @@\n a\n-b\n+B\n c", 1, true) ~= nil, said)
+  local long_want: mut {string} = {}
+  local long_got: mut {string} = {}
+  for i = 1, 100 do
+    local old_line = "old " .. tostring(i)
+    local new_line = "new " .. tostring(i)
+    long_want[#long_want + 1] = old_line
+    long_got[#long_got + 1] = new_line
+  end
+  local cut = Test.raises(function()
+    Test.equal(table.concat(long_want, "\n") .. "\n", table.concat(long_got, "\n") .. "\n")
+  end, "text differs")
+  assert(cut:find("more diff lines", 1, true) ~= nil and cut:find("old 100", 1, true) == nil, cut)
+end
+
 --- `module`'s table, whose fields a runner installs, as its untyped self.
 local function fields_of(module: any): mut {string:any}
   if module is mut {string:any} then return module end -- checked: is_on_record
