@@ -529,7 +529,7 @@ local function apply_method(ctx: Ctx, node: Ast.MethodCall, object: Type, expect
       -- An optional method that a test showed is there (`if a.cb ~= nil then a:cb() end`): the place `a.cb` holds the fact.
       local base = path_key(ctx, node.object)
       if base ~= nil then
-        local fact = ctx.flow.facts[base .. "." .. node.name]
+        local fact = Flow.fact(ctx.flow, base .. "." .. node.name)
         if fact ~= nil then
           ft = fact.type
         end
@@ -586,9 +586,9 @@ local function read_name(ctx: Ctx, e: Ast.Name, expected: Type?): Type
           length = Lexer.length(tokens, v.declared) } else nil end)
     ctx.flow = Flow.assigned(ctx.flow, id)
   end
-  if next(ctx.flow.facts) ~= nil then
+  if Flow.has_facts(ctx.flow) then
     local key = path_key(ctx, e)
-    local fact = key ~= nil and ctx.flow.facts[key] or nil -- checked: and_ternary
+    local fact = key ~= nil and Flow.fact(ctx.flow, key) or nil -- checked: and_ternary
     if fact ~= nil then
       Narrowing.note_narrowed(ctx, e, fact.declared, fact.type)
       return fact.type
@@ -643,7 +643,7 @@ local function apply(ctx: Ctx, n: Ast.Exp, t: Type, expected: Type?, wants_lists
     Writes.note_move(ctx, n, base, n.name)
     if ctx.flow.paths > 0 and read.tag ~= "invalid" then
       local key = path_key(ctx, n)
-      local fact = key ~= nil and ctx.flow.facts[key] or nil -- checked: and_ternary
+      local fact = key ~= nil and Flow.fact(ctx.flow, key) or nil -- checked: and_ternary
       if fact ~= nil then
         Narrowing.note_narrowed(ctx, n, fact.declared, fact.type)
         return fact.type, nil
@@ -1506,7 +1506,7 @@ local function assign_statement(ctx: Ctx, s: Ast.Assign)
     end
     if id ~= nil then
       -- The drop is told to a later use only where it took away a test that showed the value was not nil.
-      local fact = ctx.flow.facts[id_key(ctx, id)]
+      local fact = Flow.fact(ctx.flow, id_key(ctx, id))
       local told = (fact ~= nil and not nilable(fact.type)) or ctx.flow.paths > 0 or next(ctx.flow.lens) ~= nil
       local tokens, at = ctx.tokens, base_of(target).first
       ctx.flow = Flow.assign(ctx.flow, id, if told then
@@ -1798,7 +1798,7 @@ local ROUNDS <const> = 6
 --- entry knows nothing has no head to settle.
 local function run_loop(ctx: Ctx, entry: Flow.State, walk: function(head: Flow.State): Flow.State, Flow.State): Flow.State
   local head = entry
-  if next(entry.facts) ~= nil or next(entry.lens) ~= nil or entry.unsets > 0 then
+  if Flow.has_facts(entry) or next(entry.lens) ~= nil or entry.unsets > 0 then
     ctx.quiet = ctx.quiet + 1
     local round = 0
     while true do

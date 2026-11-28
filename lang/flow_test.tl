@@ -1,5 +1,5 @@
---- Tests of the lengths of arrays a flow state holds ([`lang.flow`]), on the states themselves: [`lang.check_flow_test`] has the
---- programs they decide.
+--- Tests of the facts and the lengths of arrays a flow state holds ([`lang.flow`]), on the states themselves:
+--- [`lang.check_flow_test`] has the programs they decide.
 local Flow = require("lang.flow")
 local Test = require("cosmic.test")
 local Types = require("lang.types")
@@ -52,4 +52,53 @@ local function test_forget_lengths_after_assignments_and_joins_that_drop_some_of
   -- A state with no fact at all, and one whose last fact of a length an assignment took, are returned as they are.
   local last = Flow.assign(Flow.know_length(Flow.start(), "7", 1, store.boolean, store.integer), 7, nil)
   assert(Flow.forget_lengths(last) == last)
+end
+
+local function test_a_state_of_many_narrowed_places_keeps_each_fact_and_shares_the_states_before_it()
+  local states: mut {Flow.State} = { Flow.start() }
+  for i = 1, 100 do
+    local next_state = narrowed(states[#states]!, "1.f" .. tostring(i))
+    states[#states + 1] = next_state
+  end
+  local last = states[#states]!
+  for i = 1, 100 do
+    assert(Flow.fact(last, "1.f" .. tostring(i)) ~= nil, "the fact of field " .. tostring(i))
+  end
+  -- Each state before it holds the facts up to its own, and none after: no narrowing wrote to it.
+  local middle = states[51]!
+  assert(Flow.fact(middle, "1.f50") ~= nil and Flow.fact(middle, "1.f51") == nil)
+  assert(Flow.has_facts(middle) and not Flow.has_facts(states[1]!))
+  -- A place narrowed again holds the newer type, and its state counts it once.
+  local again = Flow.narrow(last, "1.f7", store.string, store.integer)
+  assert(Flow.fact(again, "1.f7")!.type == store.string and Flow.fact(last, "1.f7")!.type == store.boolean)
+  assert(again.facts.count == 100)
+  -- A place narrowed back to its declared type has no fact, and the others stay.
+  local back = Flow.narrow(again, "1.f7", store.integer, store.integer)
+  assert(Flow.fact(back, "1.f7") == nil and Flow.fact(back, "1.f8") ~= nil and back.facts.count == 99)
+  -- An assignment takes every path from the local away.
+  assert(not Flow.has_facts(Flow.assign(last, 1, nil)))
+end
+
+local function test_a_join_keeps_the_places_both_edges_hold_whichever_holds_fewer()
+  local base = narrowed(narrowed(Flow.start(), "1.a"), "1.b")
+  local many = base
+  for i = 1, 40 do
+    many = narrowed(many, "1.f" .. tostring(i))
+  end
+  local few = narrowed(base, "2")
+  local function same_type(a: Types.Type): Types.Type
+    return a
+  end
+  local function never(): boolean
+    return false
+  end
+  for _, joined in ipairs({ Flow.join(many, few, same_type, never), Flow.join(few, many, same_type, never) }) do
+    assert(joined.facts.count == 2 and Flow.fact(joined, "1.a") ~= nil and Flow.fact(joined, "1.b") ~= nil)
+    assert(Flow.fact(joined, "1.f1") == nil and Flow.fact(joined, "2") == nil and joined.paths == 2)
+    assert(Flow.same(joined, base))
+  end
+  -- Edges that share their facts join to them, the paths counted as they were.
+  local twin = Flow.know_length(many, "3", 1, store.boolean, store.integer)
+  local shared = Flow.join(many, twin, same_type, never)
+  assert(shared.facts == many.facts and shared.paths == many.paths)
 end
