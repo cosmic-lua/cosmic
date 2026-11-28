@@ -231,8 +231,15 @@ function Narrowing.index_read(ctx: Ctx, node: Ast.Index, object: Type): Type
             "where it is made", { show(ctx, k) })
         return ctx.invalid
       end
+      local told: mut {string} = {}
+      if body ~= nil then
+        for _, f in ipairs(body.fields) do
+          if #told < 8 then told[#told + 1] = "`" .. f.name .. "`" end
+        end
+      end
+      local has = if #told > 0 then " (it has " .. table.concat(told, ", ") .. ")" else "" end
       report(ctx, "record_index", node, subject(ctx, node.key) .. " is " .. tq(ctx, k) .. ", which names no field of " ..
-          tq(ctx, t) .. ": a record is not a map",
+          tq(ctx, t) .. ": a record is not a map" .. has,
         "write the field (`" .. text_of(ctx, node.object) .. ".field`), or index a `{K: V}`", { show(ctx, k) })
       return ctx.invalid
     end
@@ -250,7 +257,7 @@ function Narrowing.index_read(ctx: Ctx, node: Ast.Index, object: Type): Type
   end
   local _ = ctx.walk.expr(ctx, node.key, nil)
   report(ctx, "not_indexable", node, subject(ctx, node.object) .. " is " .. tq(ctx, t) .. ", which has no elements to index",
-    "index an array, a map or a record", { show(ctx, t) })
+    "index an array (`a[1]`), a map (`m[key]`) or a record (`r.field`)", { show(ctx, t) })
   return ctx.invalid
 end
 

@@ -1,6 +1,8 @@
 --- Puts the checker's errors right where each has one rewrite that keeps what the program means ([`Codes.Rewrite`]):
 --- `n` in `"n=" .. n` becomes `tostring(n)`, and a `boolean?` condition `x` becomes `x == true`. `cosmic fix` writes
 --- them into a file, and cosmic agent's run into a refused snippet before it runs it, telling the model what it changed.
+local Codes = require("lang.check_codes")
+
 local record Rewrite
   --- A rewrite at a place of a text: the error's code and where it is, and what to write before and after the place.
   record Edit
@@ -12,6 +14,8 @@ local record Rewrite
     length: integer
     before: string
     after: string
+    --- What replaces the text of the place, between `before` and `after`; nil where the text of the place stays.
+    text?: string
   end
 
   --- A rewrite made: where, under which code, and the text of the place before and after it.
@@ -28,6 +32,16 @@ local record Rewrite
     text: string
     made: {Made}
   end
+end
+
+--- The edit that makes the rewrite `r` of an error `code` at the place `y`, `x`, `offset`, `length`: at the place the
+--- rewrite names where it names one.
+function Rewrite.edit(code: string, y: integer, x: integer, offset: integer, length: integer, r: Codes.Rewrite): Rewrite.Edit
+  local place = r.place
+  if place ~= nil then
+    y, x, offset, length = place.y, place.x, place.offset, place.length
+  end
+  return { code = code, y = y, x = x, offset = offset, length = length, before = r.before, after = r.after, text = r.text }
 end
 
 --- `text` with `edits` made to it. Of two edits whose places overlap,
@@ -54,7 +68,7 @@ function Rewrite.apply(text: string, edits: {Rewrite.Edit}): Rewrite.Applied
   local at = 1
   for _, e in ipairs(kept) do
     local was = text:sub(e.offset, e.offset + e.length - 1)
-    local now = e.before .. was .. e.after
+    local now = e.before .. (e.text or was) .. e.after
     parts[#parts + 1] = text:sub(at, e.offset - 1)
     parts[#parts + 1] = now
     at = e.offset + e.length

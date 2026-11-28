@@ -395,6 +395,9 @@ local record Ctx
   mut written: Ast.Name?
   --- The name of the function of the string library each local that is given one and never assigned holds, by id.
   library: mut {integer: string}
+  --- The type each local declares in its statement, by the id of the local's binding: where a view that is written is
+  --- declared ([`Writes.view_rewrite`]).
+  annotated: mut {integer: Ast.Type}
   --- Each `s:sub(...)` whose `s` is a string, by the call's id: its bounds bound what it answers ([`Operators.short_range`]).
   string_subs: mut {integer: boolean}
   --- The reads of `table.move` not yet taken as the callee of a call, by the id of the node ([`Writes.move_stray`]).
@@ -474,6 +477,24 @@ function Context.text_of(ctx: Ctx, node: Ast.Node): string
   return text
 end
 local text_of = Context.text_of
+
+--- The text of the tokens of `node`, whole: spaces between tokens as one, and no comment. For a rewrite that writes the
+--- node again.
+function Context.full_text(ctx: Ctx, node: Ast.Node): string
+  local b = base_of(node)
+  if b.last < b.first then
+    return text_of(ctx, node)
+  end
+  local tokens = ctx.tokens
+  local parts: mut {string} = {}
+  for i = b.first, b.last do
+    if i > b.first and Lexer.offset(tokens, i) > Lexer.stop(tokens, i - 1) then
+      parts[#parts + 1] = " "
+    end
+    parts[#parts + 1] = Lexer.text(tokens, i)
+  end
+  return table.concat(parts)
+end
 
 function Context.subject(ctx: Ctx, node: Ast.Node): string
   return quoted(text_of(ctx, node))
