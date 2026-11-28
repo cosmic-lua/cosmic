@@ -3,6 +3,7 @@
 --- the top-level names, the candidates and the plurals; and a text that is no memo of a read is a miss.
 local Node = require("build.syntax_node")
 local ReadMemo = require("build.fix.read_memo")
+local store_lookups = require("build.store_lookups")
 local SyntaxLinks = require("build.syntax_links")
 local Test = require("cosmic.test")
 
@@ -74,4 +75,26 @@ local function test_what_a_read_left_out_stays_out_and_another_text_is_a_miss()
   assert(back.candidates == nil and back.plurals == nil and back.requires == nil and back.returns == nil)
   assert(ReadMemo.decode("", source) == nil)
   assert(ReadMemo.decode("other 1\n", source) == nil)
+end
+
+--- A read's salt is the code a read runs: what [`build.fix.read`] loads, however far, holds none of the rest of fix or of
+--- the tree checks, so an edit there leaves every read kept.
+local function test_the_code_a_read_runs_holds_no_other_part_of_fix_or_the_tree_checks()
+  local seen: mut {string: boolean} = {}
+  local stack: mut {string} = { "build.fix.read" }
+  while #stack > 0 do
+    local name = assert(table.remove(stack))
+    if not (seen[name] == true) then
+      seen[name] = true
+      local needs = assert(store_lookups.requires(name))
+      for _, need in ipairs(needs) do stack[#stack + 1] = need end
+    end
+  end
+  local allowed: {string: boolean} = { ["build.fix.read"] = true, ["build.fix.read_memo"] = true,
+    ["build.fix.near"] = true, ["build.tree_checks.known"] = true, ["build.tree_checks.common"] = true }
+  for name in pairs(seen) do
+    local part = name == "build.fix" or name:sub(1, 10) == "build.fix." or name == "build.tree_checks" or
+      name:sub(1, 18) == "build.tree_checks."
+    assert(not part or allowed[name] == true, name .. " is in the code a read runs")
+  end
 end
