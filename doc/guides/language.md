@@ -652,6 +652,15 @@ print(total(colors))
 A literal whose value is `nil` or of a type parameter has no record to make, and is `literal_needs_type`: declare the
 type where the literal is made.
 
+The record made for a literal has its fields and no others, so it is also a value of a recursive alias whose arms
+are maps of strings, such as `Json.Value`: `local warm = { id = "x", usage = { n = 1 } }` is passed to `Json.encode`
+as it is. A declared record is not, since a value of it may hold other fields.
+
+An empty literal with no type (`local rows = {}`, or one of several locals: `local total, rows = 0, {}`) takes its
+type from the first thing stored in it: `rows[#rows + 1] = row` or `table.insert(rows, row)` makes an array of the
+row, and `seen[name] = true` a map of the key. A read of it before any store, where no array or map is wanted, is
+`literal_needs_type`. One that is never stored in nor read is left as it is, like any other local that is never read.
+
 ## a record type in braces
 
 Two or more fields in braces write a record type where it is used: `{x: number, y: number}`. A field may be left out

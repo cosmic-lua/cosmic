@@ -425,7 +425,7 @@ local CASES <const>: {Case} = {
     msg = "the key 1 is written twice in this literal", fix = "remove the second 1, or give the two different keys",
   },
   {
-    code = "literal_needs_type", source = "local t = {}\n", at = { line = 1, column = 11 },
+    code = "literal_needs_type", source = "local n = #{}\nlocal _ = n\n", at = { line = 1, column = 12 },
     msg = "this literal has no items and no type to make it from", fix = "declare the type: `local name: mut {T} = {}`",
   },
   {

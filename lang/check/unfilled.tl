@@ -23,18 +23,24 @@ end
 
 local FIX = "declare the type: `local name: mut {T} = {}` (or `mut {K: V}`), or store a value first"
 
---- Whether `s`, the statement that declares one local from one value, makes an unfilled table: an empty literal that
---- has no type written for it. Returns the literal.
-function Unfilled.candidate(ctx: Ctx, s: Ast.Local): Ast.Table?
-  local b = s.bindings[1]
-  if #s.bindings ~= 1 or #s.values ~= 1 or #s.types > 0 or b == nil or b.attr ~= nil or ctx.lenient > 0 then
+--- Whether the `i`th binding of `s`, a statement that declares locals with no types written, makes an unfilled table: its
+--- value is an empty literal (`local seen = {}`, or `local total, seen = 0, {}`). Returns the literal.
+function Unfilled.candidate(ctx: Ctx, s: Ast.Local, i: integer): Ast.Table?
+  local b = s.bindings[i]
+  local given = s.values[i]
+  if #s.types > 0 or b == nil or given == nil or b.attr ~= nil or ctx.lenient > 0 then
     return nil
   end
-  local value = peel(s.values[1])
+  local value = peel(given)
   if value.kind ~= "Table" or TableLiterals.shape_of(value.items) ~= "empty" then
     return nil
   end
   return value
+end
+
+--- Whether `e` is the literal of an unfilled local, which takes no type of its own.
+function Unfilled.holds_literal(ctx: Ctx, e: Ast.Table): boolean
+  return ctx.unfilled_n > 0 and ctx.unfilled_literals[e.id] == true
 end
 
 --- Makes the local `id` unfilled, from the literal `lit`.
@@ -43,6 +49,7 @@ function Unfilled.declare(ctx: Ctx, id: integer, lit: Ast.Table)
     ctx.unfilled_n = ctx.unfilled_n + 1
   end
   ctx.unfilled[id] = lit
+  ctx.unfilled_literals[lit.id] = true
   ctx.vars[id] = ctx.invalid
 end
 
@@ -53,6 +60,7 @@ local function fill(ctx: Ctx, id: integer, t: Type)
     return
   end
   ctx.unfilled[id] = nil
+  ctx.unfilled_literals[lit.id] = nil
   ctx.unfilled_n = ctx.unfilled_n - 1
   ctx.vars[id] = t
   if ctx.typed then
@@ -230,20 +238,14 @@ function Unfilled.read(ctx: Ctx, e: Ast.Name, expected: Type?)
   fill(ctx, id, ctx.invalid)
 end
 
---- At the end of the module: a table nothing was stored in nor read from has no type either.
+--- At the end of the module: a table nothing was stored in nor read from is left as it is, like any other local the
+--- program does not read.
 function Unfilled.finish(ctx: Ctx)
   if ctx.unfilled_n == 0 then
     return
   end
-  local left: mut {Ast.Table} = {}
-  for _, lit in pairs(ctx.unfilled) do
-    left[#left + 1] = lit
-  end
-  table.sort(left, function(a, b)
-    return a.id < b.id
-  end)
-  for _, lit in ipairs(left) do
-    report(ctx, "literal_needs_type", lit, "this literal has no items and no type to make it from", FIX)
+  for id in pairs(ctx.unfilled) do
+    fill(ctx, id, ctx.invalid)
   end
 end
 

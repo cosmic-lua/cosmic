@@ -378,6 +378,8 @@ local record Ctx
   unread_schemas: mut {Decl: boolean}
   --- The locals made from an empty literal with no type, by id, until the first store in each gives it one ([`lang.check.unfilled`]).
   unfilled: mut {integer: Ast.Table}
+  --- The literals of the locals in `unfilled`, by id: they take no type of their own.
+  unfilled_literals: mut {integer: boolean}
   mut unfilled_n: integer
   --- The result columns of each call of `rows` or `one` on a handle of a `local schema` with literal SQL
   --- that SQLite prepares against it, by the id of the call.
