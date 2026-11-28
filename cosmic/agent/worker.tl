@@ -245,7 +245,8 @@ local function started(set: Worker.Set, opts: Worker.Options): (Stream.Lines) | 
   argv[#argv + 1] = "--modules"
   argv[#argv + 1] = if modules == "" then "none" else modules end
   local handle, why = Child.start(argv, { cwd = opts.cwd, stdin = "stream", stdout = "stream", stderr = "stream",
-    policy = policy, timeout_ns = Child.FOREVER, env = if base ~= nil then base.env else nil end,
+    policy = policy, timeout_ns = Child.FOREVER, ends_with_parent = true,
+    env = if base ~= nil then base.env else nil end,
     fds = if base ~= nil then base.fds else nil end })
   if handle == nil then return nil, Failure.new("worker: starting it: " .. tostring(why)) end
   local reader, writer, output = handle.stdout_stream, handle.stdin_stream, handle.stderr_stream
