@@ -8,6 +8,7 @@
 --- the test's). A `return` deeper in the test, in a branch that also asserts, in a loop, a callback or a helper, is no
 --- skip and is not read.
 local Ast = require("lang.ast")
+local TestNames = require("build.test_names")
 local Node = require("build.syntax_node")
 
 local record TestReturns
@@ -50,7 +51,7 @@ end
 function TestReturns.of_chunk(chunk: Ast.Chunk): {{string}}
   local sites: mut {{string}} = {}
   for _, top in ipairs(chunk.body.stats) do
-    if top.kind == "LocalFunction" and top.name.name:match("^test_") ~= nil then
+    if top.kind == "LocalFunction" and TestNames.called(top.name.name) then
       local before: Ast.Stat? = nil
       for _, stat in ipairs(top.fn.body.stats) do
         local shape = early(stat, before)

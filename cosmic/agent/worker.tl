@@ -42,6 +42,7 @@ local Proc = require("cosmic.proc")
 local String = require("cosmic.string")
 local Sandbox = require("cosmic.sandbox")
 local Stream = require("cosmic.stream")
+local sys = require("cosmic.sys")
 
 local record Worker
   --- The most bytes of a snippet's output a result holds: 64KB.
@@ -152,8 +153,12 @@ function Worker.close(set: Worker.Set)
 end
 
 --- The policy `given` holds the worker to, and what it runs ([`Worker.program`]): without `runs` (commands), no fork
---- and no grant of `x`; with `program`, fork, and `x` of that file alone, so that only it runs, again and again.
-local function held_to(given: Sandbox.Policy, runs: boolean, program?: string): (Sandbox.Policy) | (nil, Failure)
+--- and no grant of `x`; with `program`, fork, and `x` of that file alone, so that only it runs, again and again. With
+--- `core` too, the program is this program, which runs as that core: the core is the file granted `x`, and the
+--- program's file is read alone.
+local function held_to(given: Sandbox.Policy, runs: boolean, program?: string,
+                       core?: string): (Sandbox.Policy) | (nil, Failure)
+  local run = core or program
   -- TODO: copy `merged` whole, changing its calls alone, once a record can be copied with a field changed: a field
   -- Sandbox.Policy gains is left out of this copy, and so given to the worker as nothing.
   local merged, why = Sandbox.union(given)
@@ -179,11 +184,21 @@ local function held_to(given: Sandbox.Policy, runs: boolean, program?: string): 
     -- by the names the root binds): with no grant left with `x` the exec filter holds too, so the worker cannot
     -- become another program, nor run itself again. A grant of `x` alone is then no grant.
     local letters = if not strip then grant.letters else (grant.letters:gsub("x", "")) end
-    if program ~= nil and letters:find("w", 1, true) ~= nil then
-      local reach, _ = Fs.absolute(grant.path)
-      if reach ~= nil and (program == reach or program:sub(1, #reach + 1) == reach .. "/") then
+    if run ~= nil and letters:find("w", 1, true) ~= nil then
+      -- Each by its real path, as the kernel holds them: a link from elsewhere into the grant is the file it names.
+      -- Under `isolate` a grant's `from` is where it reaches; its path is a name there.
+      local over = false
+      for _, place in ipairs({ grant.path, grant.from or grant.path }) do
+        local reach, _ = Fs.absolute(place)
+        if reach ~= nil then
+          local real, _ = sys.realpath(reach)
+          if Fs.within(run, real or reach) then over = true end
+        end
+      end
+      if over then
         -- A snippet that could write the program could run what it wrote.
-        return nil, Failure.new("worker: " .. program .. " lies where a snippet may write (" .. grant.path .. ")")
+        return nil, Failure.new("worker: " .. run .. " lies where a snippet may write (" .. grant.path ..
+            "): start cosmic agent with a cosmic outside it, such as one on PATH")
       end
     end
     if letters ~= "" then
@@ -198,7 +213,12 @@ local function held_to(given: Sandbox.Policy, runs: boolean, program?: string): 
     grants[#grants + 1] = { loopback = address }
   end
   for _, name in ipairs(Sandbox.env(merged)) do grants[#grants + 1] = { env = name } end
-  if program ~= nil then grants[#grants + 1] = { path = program, letters = "rx" } end
+  if core ~= nil and program ~= nil then
+    grants[#grants + 1] = { path = core, letters = "rx" }
+    grants[#grants + 1] = { path = program, letters = "r" }
+  elseif program ~= nil then
+    grants[#grants + 1] = { path = program, letters = "rx" }
+  end
   return { grants = grants, isolate = merged.isolate, setup = merged.setup, limits = merged.limits }
 end
 
@@ -530,8 +550,9 @@ Worker.OUTPUT_BYTES = 64 * 1024
 
 --- Runs this program, as `set` starts its worker (its `argv` but the closing `agent worker`), with `words` (a verb of
 --- cosmic and its arguments) in `cwd`, for at most `timeout_ns`: its standard output and standard error together. Under
---- `policy` it is held as the worker is, but that it may start a process, and run this program's file alone: so
---- `cosmic test` runs, and the processes it starts of itself, but no other program, with commands or without.
+--- `policy` it is held as the worker is, but that it may start a process, and run this program alone: so
+--- `cosmic test` runs, and the processes it starts of itself, but no other program, with commands or without. What
+--- runs is this program's core ([`Child.core`]), so the program's file may lie where a snippet may write.
 function Worker.program(set: Worker.Set, words: {string}, cwd: string, policy?: Sandbox.Policy,
                         timeout_ns?: integer): (Child.Result) | (nil, Failure)
   local given = set.argv
@@ -539,11 +560,22 @@ function Worker.program(set: Worker.Set, words: {string}, cwd: string, policy?: 
   if kept >= 3 and given[kept] == "worker" and given[kept - 1] == "agent" then kept = kept - 2 end
   if given[1] == nil then return nil, Failure.new("worker: it is started by no program") end
   -- Granted by its path, the program is named whole: a bare name would resolve where the snippet runs.
-  local program, unresolved = Fs.absolute(given[1])
-  if program == nil then return nil, unresolved end
+  local named, unresolved = Fs.absolute(given[1])
+  if named == nil then return nil, unresolved end
+  -- By its real path, which the sandbox grants and the kernel runs: a link is the file it names.
+  local real, _ = sys.realpath(named)
+  local program = real or named
   local held: Sandbox.Policy? = nil
   if policy ~= nil then
-    local made, why = held_to(policy, false, program)
+    -- This program starts as its core, so the core is what is granted `x`: the program's own file runs not, and
+    -- may lie where a snippet writes (a tree that carries its tool). A host program runs as its file.
+    local core: string? = nil
+    local own, _ = Proc.executable()
+    if own ~= nil then
+      local own_real, _ = sys.realpath(own)
+      if own_real == program then core = Child.core() end
+    end
+    local made, why = held_to(policy, false, program, core)
     if made == nil then return nil, why end
     held = made
   end
