@@ -95,6 +95,14 @@ local record Sandbox
   --- A grant of an address of the program's own network ([`rules.Loopback`]): `{ loopback = "127.0.0.2" }`.
   type Loopback = rules.Loopback
 
+  --- A cap on the letters of the other grants at a path and beneath it
+  --- ([`rules.Cap`]): `{ at_most = ".git", letters = "r" }`.
+  type Cap = rules.Cap
+
+  --- A cap under a grant that gives more, which a kernel layer must hold
+  --- apart ([`rules.Live`]).
+  type Live = rules.Live
+
   --- Resource limits on every process the program starts
   --- ([`rules.Limits`]).
   type Limits = rules.Limits
@@ -211,6 +219,26 @@ end
 ---     print(table.concat(Sandbox.loopback(p), ",")) -- 127.0.0.2
 function Sandbox.loopback(p: Sandbox.Policy): {string}
   return rules.loopback(p)
+end
+
+--- The caps of `p`, in its order.
+---
+---     local p: Sandbox.Policy = { grants = { { path = ".", letters = "rw" }, { at_most = ".git", letters = "r" } } }
+---     print(Sandbox.caps(p)[1].at_most) -- .git
+function Sandbox.caps(p: Sandbox.Policy): {Sandbox.Cap}
+  return rules.caps(p)
+end
+
+--- The caps of the merged `merged` that lie under a grant giving more
+--- letters than they leave, each with the deepest such grant: the ones a
+--- kernel layer must hold apart. A relative path is named under `base`
+--- when it is given.
+---
+---     local merged = assert(Sandbox.union({ grants = { { path = ".", letters = "rw" }, { at_most = ".git", letters = "r" } } }))
+---     local live = Sandbox.live_caps(merged)
+---     print(live[1].cap.at_most, live[1].over, live[1].under.path) -- .git  w  .
+function Sandbox.live_caps(merged: Sandbox.Policy, base?: string): {Sandbox.Live}
+  return rules.live_caps(merged, base)
 end
 
 --- What the profile `name` holds on this host, as a policy: "system"
@@ -488,6 +516,15 @@ function Sandbox.permits(policy: Sandbox.Policy, path: string, action: string, c
       local resolved, _ = Fs.absolute(at)
       grants[#grants + 1] = { path = resolved or at, letters = grant.letters }
     end
+  end
+  -- A cap takes back beneath it what the grants above give.
+  for _, cap in ipairs(rules.caps(merged)) do
+    local at = cap.at_most
+    if at:sub(1, 1) ~= "/" and base ~= nil then
+      at = base .. (if base:sub(-1) == "/" then "" else "/" end) .. at
+    end
+    local real_at, _ = Sandbox.real(at)
+    grants[#grants + 1] = { at_most = real_at or at, letters = cap.letters }
   end
   local allowed, allow_why = rules.allows({ grants = grants }, checked, letter)
   if allowed and creates then
@@ -1016,6 +1053,12 @@ function Sandbox.restrict(policy: Sandbox.Policy, options?: Sandbox.RestrictOpti
     if not done then return nil, seatbelt_why end
     record_held(merged, runtime_grants())
     return true
+  end
+  local live = rules.live_caps(merged, (assert(sys.realpath("."))))
+  if #live > 0 then
+    return denied("cap \"" .. live[1]!.cap.at_most .. "\" is beneath grant \"" .. live[1]!.under.path ..
+        "\", which gives more: Landlock cannot take a grant's letters back beneath it; start a " ..
+        "child with Child.start and isolate \"file\" instead")
   end
   local layers = rules.layers(merged)
   local grants: mut {raw_process.Grant} = {}

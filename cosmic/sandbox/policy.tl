@@ -61,6 +61,24 @@ local record rules
     from?: string
   end
 
+  --- The most the other grants give at a path and beneath it, as a [`rules.Grant`]:
+  --- `{ at_most = ".git", letters = "r" }`. It grants nothing of its own: a grant of the
+  --- path or of one beneath it is cut to these letters, and so is what a grant of a
+  --- directory above it reaches there, so a tree granted `rwxc` may hold a part it
+  --- only reads. Its letters are `r` or `rx`. The path must exist when the program
+  --- starts, as a grant's must. Where a grant above it gives more (it is "live",
+  --- [`rules.live_caps`]), Linux holds it by a read-only mount at its path in a root
+  --- of the program's own, so it needs `isolate` file there, and it is refused beneath
+  --- a grant of `u`, since a read-only mount does not stop a connect; macOS holds it
+  --- by Seatbelt rules that deny writes, and runs where `x` is not given, there.
+  --- [`Sandbox.restrict`] refuses a live one: Landlock only adds rights.
+  record Cap
+    --- The path, as a grant's: relative to the directory the program runs in.
+    at_most: string
+    --- The letters left there: "r" or "rx".
+    letters: string
+  end
+
   --- System calls a program may make beyond its basics, as a [`rules.Grant`]: `{ calls = "fork" }`.
   record Calls
     --- Which ones ([`rules.Promise`]).
@@ -101,8 +119,9 @@ local record rules
   --- calls beyond its basics (`{ calls = "fork" }`, [`rules.Calls`]), reach a host (`{ connect = "github.com:443" }`,
   --- [`rules.Connect`]), have a profile's grants (`{ profile = "system" }`, [`rules.Profile`]), read a variable of the
   --- caller's (`{ env = "HOME" }`, [`rules.Env`]) or use an address of its own network
-  --- (`{ loopback = "127.0.0.2" }`, [`rules.Loopback`]). Each is told by the field it alone has.
-  type Grant = Path | Calls | Connect | Profile | Env | Loopback
+  --- (`{ loopback = "127.0.0.2" }`, [`rules.Loopback`]), or cut what the others give beneath a path
+  --- (`{ at_most = ".git", letters = "r" }`, [`rules.Cap`]). Each is told by the field it alone has.
+  type Grant = Path | Calls | Connect | Profile | Env | Loopback | Cap
 
   --- Resource limits on every process the program starts. Nil is the
   --- start's default: 1024 open files, no core dump, and under `isolate`
@@ -277,6 +296,17 @@ local record rules
     rlimits: {string:integer}
   end
 
+  --- A cap that a grant above it gives more than ([`rules.live_caps`]): what a
+  --- kernel holds apart, since the grant alone would reach the cap's path whole.
+  record Live
+    --- The cap.
+    cap: Cap
+    --- The letters the grants above it give that it leaves out, in the order of "rwxcu".
+    over: string
+    --- The deepest grant above it: the one whose mount the cap's lies on, under `isolate` file.
+    under: Path
+  end
+
   --- A socket family a filter lets a program make ([`rules.Layers`]).
   enum Socket
     "unix"
@@ -438,6 +468,27 @@ local function invalid(p: rules.Policy, exact: boolean): string
       end
       continue
     end
+    if grant is rules.Cap then
+      local cap_path = grant.at_most
+      if cap_path == "" or cap_path:find("\0", 1, true) ~= nil then
+        return at({ "grants", i, "at_most" }, "a cap names a path that is not empty and holds no NUL")
+      end
+      for segment in cap_path:gmatch("[^/]+") do
+        if segment == ".." then
+          return at({ "grants", i, "at_most" }, "\"..\" is not allowed; name the directory itself")
+        end
+      end
+      local capped = canonical_letters(grant.letters)
+      if capped ~= "r" and capped ~= "rx" then
+        return at({ "grants", i, "letters" }, "a cap leaves \"r\" or \"rx\": it holds a path to reading, " ..
+            "or to reading and running")
+      end
+      if exact and capped ~= grant.letters then
+        return at({ "grants", i, "letters" }, "\"" .. grant.letters .. "\" is not in the order of \"" ..
+            LETTERS .. "\", each letter once: \"" .. tostring(capped) .. "\"")
+      end
+      continue
+    end
     if grant.path == nil or grant.path == "" or grant.path:find("\0", 1, true) ~= nil then -- checked: compare_disjoint
       return at({ "grants", i, "path" }, "a grant names a path that is not empty and holds no NUL, or calls")
     end
@@ -550,6 +601,25 @@ local function clean_path(path: string): string
   if path:sub(1, 1) == "/" then return "/" .. joined end
   if joined == "" then return "." end
   return joined
+end
+
+--- Whether `inner` is `outer` or a path beneath it, both cleaned: an
+--- absolute path is never beneath a relative one, nor one beneath the
+--- other.
+local function within(inner: string, outer: string): boolean
+  if inner == outer or outer == "/" and inner:sub(1, 1) == "/" then return true end
+  if outer == "." then return inner:sub(1, 1) ~= "/" end
+  return inner:sub(1, #outer + 1) == outer .. "/"
+end
+
+--- The letters of "rwxcu" both `a` and `b` hold, in that order; "" for none.
+local function common_letters(a: string, b: string): string
+  local out: mut {string} = {}
+  for i = 1, #LETTERS do
+    local letter = LETTERS:sub(i, i)
+    if a:find(letter, 1, true) and b:find(letter, 1, true) then out[#out + 1] = letter end
+  end
+  return table.concat(out)
 end
 
 --- The members of every list given, each once, in byte order.
@@ -728,6 +798,15 @@ function rules.paths(p: rules.Policy): {rules.Path}
   return out
 end
 
+--- The caps of `p` ([`rules.Cap`]), in its order.
+function rules.caps(p: rules.Policy): {rules.Cap}
+  local out: mut {rules.Cap} = {}
+  for _, grant in ipairs(p.grants or {}) do
+    if grant is rules.Cap then out[#out + 1] = grant end
+  end
+  return out
+end
+
 --- The hosts the grants of `p` reach, "host:port", in its order.
 function rules.connects(p: rules.Policy): {string}
   local out: mut {string} = {}
@@ -790,6 +869,8 @@ function rules.merge(...: rules.Policy): (rules.Policy) | (nil, Failure)
   end
   local joined: mut {string:Joined} = {}
   local order: mut {Joined} = {}
+  -- Each cap's path, cleaned, to the letters every cap of it leaves.
+  local capped: mut {string:string} = {}
   local limits: rules.Limits = {}
   local set_env: mut {string:string} = {}
   local digests: mut {string:string} = {}
@@ -834,6 +915,12 @@ function rules.merge(...: rules.Policy): (rules.Policy) | (nil, Failure)
       end
       if grant is rules.Loopback then
         loopback = sorted_set(loopback, { grant.loopback })
+        continue
+      end
+      if grant is rules.Cap then
+        local cap_at = clean_path(grant.at_most)
+        local held_cap = capped[cap_at]
+        capped[cap_at] = if held_cap == nil then grant.letters else common_letters(held_cap, grant.letters) end
         continue
       end
       local at = clean_path(grant.path)
@@ -889,8 +976,20 @@ function rules.merge(...: rules.Policy): (rules.Policy) | (nil, Failure)
     if canonical == nil then
       return refuse(path_of({ "grants" }) .. ": the grant of " .. held.path .. " holds no letter of \"" .. LETTERS .. "\"")
     end
-    paths[#paths + 1] = { path = held.path, from = held.from, letters = canonical }
+    -- A grant at a cap or beneath one keeps what the cap leaves; one left nothing grants nothing.
+    for cap_at, cap_letters in pairs(capped) do
+      if within(held.path, cap_at) then canonical = common_letters(canonical, cap_letters) end
+    end
+    if canonical ~= "" then
+      paths[#paths + 1] = { path = held.path, from = held.from, letters = canonical }
+    end
   end
+  local caps: mut {rules.Cap} = {}
+  -- Each cap leaves "r" at least ([`invalid`]), so their common letters are never none.
+  for cap_at, cap_letters in pairs(capped) do
+    caps[#caps + 1] = { at_most = cap_at, letters = cap_letters }
+  end
+  table.sort(caps, function(a: rules.Cap, b: rules.Cap): boolean return a.at_most < b.at_most end)
   table.sort(paths, function(a: rules.Path, b: rules.Path): boolean
     if a.path ~= b.path then return a.path < b.path end
     return (a.from or "") < (b.from or "")
@@ -902,6 +1001,7 @@ function rules.merge(...: rules.Policy): (rules.Policy) | (nil, Failure)
   for _, target in ipairs(connect) do grants[#grants + 1] = { connect = target } end
   for _, name in ipairs(env) do grants[#grants + 1] = { env = name } end
   for _, address in ipairs(loopback) do grants[#grants + 1] = { loopback = address } end
+  for _, cap in ipairs(caps) do grants[#grants + 1] = cap end
   -- `file` implies `proc`: written out, so the two spellings are one policy.
   local implied: rules.Isolate = "proc"
   local has_file, has_proc = false, false
@@ -931,25 +1031,6 @@ end
 --- The most open files a process under a policy may hold unless its
 --- `open_files` says.
 local DEFAULT_OPEN_FILES <const> = 1024
-
---- Whether `inner` is `outer` or a path beneath it, both cleaned: an
---- absolute path is never beneath a relative one, nor one beneath the
---- other.
-local function within(inner: string, outer: string): boolean
-  if inner == outer or outer == "/" and inner:sub(1, 1) == "/" then return true end
-  if outer == "." then return inner:sub(1, 1) ~= "/" end
-  return inner:sub(1, #outer + 1) == outer .. "/"
-end
-
---- The letters of "rwxcu" both `a` and `b` hold, in that order; "" for none.
-local function common_letters(a: string, b: string): string
-  local out: mut {string} = {}
-  for i = 1, #LETTERS do
-    local letter = LETTERS:sub(i, i)
-    if a:find(letter, 1, true) and b:find(letter, 1, true) then out[#out + 1] = letter end
-  end
-  return table.concat(out)
-end
 
 --- The members of `a` that `b` holds too, in `a`'s order.
 local function common<T is Key>(a: {T}, b: {T}): {T}
@@ -1073,6 +1154,9 @@ local function intersect_two(a: rules.Policy, b: rules.Policy): (rules.Policy) |
   for _, address in ipairs(common(rules.loopback(a), rules.loopback(b))) do
     grants[#grants + 1] = { loopback = address }
   end
+  -- A cap of either layer holds the stack: what both allow is at most what each leaves.
+  for _, cap in ipairs(rules.caps(a)) do grants[#grants + 1] = cap end
+  for _, cap in ipairs(rules.caps(b)) do grants[#grants + 1] = cap end
   local function shown(value: integer?): string?
     if value == nil then return nil end
     return tostring(value)
@@ -1138,14 +1222,68 @@ function rules.allows(p: rules.Policy, path: string, letters: string): boolean, 
     return false, "sandbox: letters are of \"" .. LETTERS .. "\", at least one: " .. string.format("%q", letters)
   end
   local at = clean_path(path)
-  local missing = letters
+  local given = ""
   for _, grant in ipairs(rules.paths(p)) do
-    if within(at, clean_path(grant.path)) then
-      missing = missing:gsub("[" .. grant.letters .. "]", "")
+    if within(at, clean_path(grant.path)) then given = given .. grant.letters end
+  end
+  local cut_by: string? = nil
+  for _, cap in ipairs(rules.caps(p)) do
+    if within(at, clean_path(cap.at_most)) then
+      local left = common_letters(given, cap.letters)
+      if left ~= common_letters(given, LETTERS) and cut_by == nil then cut_by = cap.at_most end
+      given = left
     end
   end
+  local wanting: mut {string} = {}
+  for i = 1, #letters do
+    local letter = letters:sub(i, i)
+    if not given:find(letter, 1, true) then wanting[#wanting + 1] = letter end
+  end
+  local missing = table.concat(wanting)
   if missing == "" then return true, "" end
+  if cut_by ~= nil then
+    return false, "sandbox: the cap of " .. cut_by .. " leaves no " .. missing .. " on " .. at
+  end
   return false, "sandbox: no grant gives " .. missing .. " on " .. at
+end
+
+--- The caps of the merged policy `merged` that a grant above gives more than, each with
+--- the letters it cuts and the deepest such grant ([`rules.Live`]), in its order. A
+--- cap with none above it is held by the grants alone, which [`rules.merge`] has cut.
+--- With `base`, the absolute directory the program runs in, a relative path is named
+--- beneath it, so a relative cap under an absolute grant is found too.
+function rules.live_caps(merged: rules.Policy, base?: string): {rules.Live}
+  local function named(path: string): string
+    local at = clean_path(path)
+    if base == nil or at:sub(1, 1) == "/" then return at end
+    if at == "." then return clean_path(base) end
+    return clean_path(base .. "/" .. at)
+  end
+  local out: mut {rules.Live} = {}
+  for _, cap in ipairs(rules.caps(merged)) do
+    local at = named(cap.at_most)
+    local above = ""
+    local under: rules.Path? = nil
+    local under_at = ""
+    for _, grant in ipairs(rules.paths(merged)) do
+      local path = named(grant.path)
+      if path ~= at and within(at, path) then
+        above = above .. grant.letters
+        if under == nil or #path > #under_at then under, under_at = grant, path end
+      end
+    end
+    local over: mut {string} = {}
+    for i = 1, #LETTERS do
+      local letter = LETTERS:sub(i, i)
+      if above:find(letter, 1, true) and not cap.letters:find(letter, 1, true) then
+        over[#over + 1] = letter
+      end
+    end
+    if under ~= nil and #over > 0 then
+      out[#out + 1] = { cap = cap, over = table.concat(over), under = under }
+    end
+  end
+  return out
 end
 
 --- `p` with `connect` in place of its own: what [`Child.start`] runs a
