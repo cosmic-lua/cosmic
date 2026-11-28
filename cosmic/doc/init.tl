@@ -886,6 +886,30 @@ function Doc.text(view: Doc.View, query: string): (string) | (nil, Failure)
   return table.concat(answer.lines, "\n")
 end
 
+--- A line for each `cosmic.<name>` module of `index` that `skip` does not name (by `name`), as a list to pick a module
+--- from: `cosmic.<name>: ` and the start of what it is for, its first clause past a few words and at most about 60
+--- bytes. Some hold more under them (`cosmic.web.route`), which a lookup of the module names. One string, a line each.
+function Doc.library(index: {Doc.Summary}, skip?: {string: boolean}): string
+  local out: mut {string} = {}
+  for _, summary in ipairs(index) do
+    local name = summary.module:match("^cosmic%.([%w_]+)$")
+    if name ~= nil and (skip == nil or skip[name] == nil) then
+      local about = summary.text:gsub("%s+", " "):gsub("^ ", "")
+      -- The first clause past its first few words, and at most 60 bytes.
+      local stop = about:find("[.:;] ", 25)
+      local dash = about:find(" %-%- ", 25)
+      if dash ~= nil and (stop == nil or dash < stop) then stop = dash end
+      if stop ~= nil then about = about:sub(1, stop - 1) end
+      about = about:gsub("%.$", "")
+      if #about > 60 then
+        about = String.cut(about, 58):gsub("%s%S*$", ""):gsub("[%s,;:(]+$", "") .. "..."
+      end
+      out[#out + 1] = "cosmic." .. name .. (if about ~= "" then ": " .. about else "" end)
+    end
+  end
+  return table.concat(out, "\n")
+end
+
 -- Doc.records, its failure in words.
 local function records_text(view: View, words: {string}, stale?: boolean): Types.Records?, string
   local entries: mut {Types.Record} = {}

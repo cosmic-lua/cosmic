@@ -1114,6 +1114,16 @@ local function test_text_answers_a_page_or_says_why(dir: string)
   assert(db:close())
 end
 
+--- Doc.library lists each cosmic module a line and leaves out what `skip` names.
+local function test_library_lists_a_line_a_module_but_the_skipped()
+  local text = Doc.library({
+    { module = "cosmic.fs", text = "Files and directories.", closed = "" },
+    { module = "cosmic.test", text = "Tests.", closed = "" },
+    { module = "cosmic.web.route", text = "Routes.", closed = "" },
+  }, { test = true })
+  assert(text == "cosmic.fs: Files and directories", text)
+end
+
 --- `--json` prints the entries a lookup finds, as [`Doc.answer`] would
 --- show them, one JSON object per line, qualified names in the order given.
 local function test_records_are_one_json_object_per_entry(dir: string)
