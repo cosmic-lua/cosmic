@@ -118,7 +118,10 @@ end
 --- Marks `key` as the directory used last.
 local function used(tree: Tree, key: string)
   for i, k in ipairs(tree.recent) do
-    if k == key then table.remove(tree.recent, i) break end
+    if k == key then
+      table.remove(tree.recent, i)
+      break
+    end
   end
   tree.recent[#tree.recent + 1] = key
 end

@@ -792,8 +792,25 @@ local function test_a_check_leaves_a_file_not_laid_out_as_it_is(tmp: string)
   local done, file = laid_in(tmp, "a.tl", source, true)
   assert(done.state == "unlaid" and done.text == source, done.state)
   assert(assert(Fs.read(file)) == source, "a check wrote the file")
+  assert(done.would == "local x = 1\n", tostring(done.would))
   local laid_out = laid_in(tmp, "b.tl", "local x = 1\n", true)
   assert(laid_out.state == "laid")
+end
+
+--- The diff of a layout names the file on both sides, and is cut after 40 lines with a count of the rest.
+local function test_a_long_layout_diff_is_cut()
+  local source: mut {string} = {}
+  local would: mut {string} = {}
+  for i = 1, 60 do
+    source[i] = "local   x" .. tostring(i) .. "=1"
+    would[i] = "local x" .. tostring(i) .. " = 1"
+  end
+  local diff = fix.layout_diff("a.tl", table.concat(source, "\n") .. "\n", table.concat(would, "\n") .. "\n")
+  assert(diff:find("--- a.tl\n+++ a.tl\n@@", 1, true) == 1, diff)
+  assert(diff:find("\n... %d+ more lines$") ~= nil, diff)
+  local count = 0
+  for _ in diff:gmatch("\n") do count = count + 1 end
+  assert(count == 40, tostring(count))
 end
 
 --- A faulty layout and why the formatter refuses it.

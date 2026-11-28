@@ -103,8 +103,12 @@ local function check_patch(tmp: string, text: string, opts: Patch.Options): bool
     result = applied
   end)
   if not ok then return false, "raised: " .. tostring(outcome) end
-  if snapshot(base .. "/outside") ~= before_outside then return false, "a file outside the root changed" end
-  if assert(Fs.read(base .. "/beside")) ~= before_beside then return false, "a file beside the root changed" end
+  if snapshot(base .. "/outside") ~= before_outside then
+    return false, "a file outside the root changed"
+  end
+  if assert(Fs.read(base .. "/beside")) ~= before_beside then
+    return false, "a file beside the root changed"
+  end
   if assert(Fs.status(root .. "/.git")).exists then return false, "a .git was made" end
   local unchanged = true
   local seen = result
