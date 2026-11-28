@@ -52,4 +52,49 @@ function doctest.blocks(source: string): {markdown.Block}?, string
   return markdown.parse_blocks(source)
 end
 
+--- Where an error at line `at` of the source `extract` made stands in the doc: the doc's own line where the
+--- line is one of an example's statements, the line the example opens at where it is some other line of its
+--- function (a `sh` command, the output check), nil where it is one of the helpers every doc's source starts with.
+--- @param source the generated source
+--- @param at 1-based line of that source
+--- @return integer | nil the doc line
+function doctest.relocate(source: string, at: integer): integer?
+  local lines: mut {string} = {}
+  for each in (source .. "\n"):gmatch("(.-)\n") do lines[#lines + 1] = each end
+  local opened: mut {string:integer} = {}
+  for _, each in ipairs(lines) do
+    local name, line = each:match("^%-%- line ([%w_]+) (%d+)$")
+    if name ~= nil then opened[name] = math.tointeger(tonumber(line)) or 0 end
+  end
+  local current: string? = nil
+  local marker: integer? = nil
+  local first = 0
+  local count = 0
+  for i = 1, math.min(at, #lines) do
+    local each = lines[i] or ""
+    local name = each:match("^local function ([%w_]+)%(tmp: string%)$")
+    if name ~= nil then
+      current = name
+      marker = nil
+    elseif each == "end" then
+      current = nil
+      marker = nil
+    else
+      local doc, many = each:match("^  %-%- doc (%d+) (%d+)$")
+      if doc ~= nil and many ~= nil then
+        marker = i
+        first = math.tointeger(tonumber(doc)) or 0
+        count = math.tointeger(tonumber(many)) or 0
+      end
+    end
+  end
+  if marker ~= nil and at > marker and at <= marker + count then
+    return first + (at - marker - 1)
+  end
+  if current ~= nil then
+    return opened[current]
+  end
+  return nil
+end
+
 return doctest

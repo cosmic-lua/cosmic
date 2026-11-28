@@ -186,7 +186,10 @@ local function cosmic(...: string): Child.Result
     stderr = "capture", timeout_ns = Clock.seconds(120) }))
   return ran
 end
-print((cosmic("test").stdout or ""):match("test: %d+ tests? passed"))
+local tested = cosmic("test")
+local out = (tested.stderr or "") .. (tested.stdout or "")
+-- The whole run where it did not pass, so a failure says which test and why.
+print(out:match("test: %d+ tests? passed") or out)
 print(cosmic("mcp", "call", "add_note", '{"text":"milk"}', "--", "main.tl").stdout)
 print(cosmic("mcp", "prompts", "--", "main.tl").stdout)
 local refused = cosmic("mcp", "call", "add_note", '{"text":""}', "--", "main.tl")

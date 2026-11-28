@@ -64,6 +64,7 @@ local Diff = require("cosmic.diff")
 local Doc = require("cosmic.doc")
 local flow = require("build.flow")
 local laid = require("build.fix.laid")
+local FixRead = require("build.fix.read")
 local ReadMemo = require("build.fix.read_memo")
 local FixRewrites = require("build.fix.rewrites")
 local Format = require("build.fix.format")
@@ -74,7 +75,6 @@ local near = require("build.fix.near")
 local ignored = require("build.fix.ignored")
 local Ast = require("lang.ast")
 local ErrorRender = require("build.error_render")
-local SyntaxAnalyzer = require("build.syntax_analyzer")
 local SyntaxLinks = require("build.syntax_links")
 local SyntaxNode = require("build.syntax_node")
 local reboot = require("build.reboot")
@@ -1149,42 +1149,6 @@ function fix.link_context(root: string, whole: boolean, own: boolean,
   return source
 end
 
---- Whether `file` is one whose functions `near` compares: not a test,
---- an example or a declaration file, which offer nothing to compare.
-local function compared(file: string): boolean
-  return not String.ends_with(file, "_test.tl") and
-    not String.ends_with(file, "_example.tl") and not String.ends_with(file, ".d.tl")
-end
-
---- The candidate `near` compares for a doc entry, nil for one it passes over: an exported function or method with a
---- doc comment. `signature` tells a method written as a function with a `self` first.
-local function candidate_of(exported: boolean, kind: string, text: string, signature: string, source_symbol: string,
-                            line: integer): near.Candidate?
-  if exported and (kind == "function" or kind == "method") and text ~= "" then
-    return { source_symbol = source_symbol, text = text, line = line,
-      method = kind == "method" or signature:find("^[^(]*%(%s*self%s*:") ~= nil }
-  end
-  return nil
-end
-
---- What `near` compares of a file: each exported function or method with a doc comment, read off `chunk`
---- ([`SyntaxAnalyzer.docs`]), the tree of `text`.
-local function candidates_from(chunk: Ast.Chunk, text: string): {near.Candidate}
-  local candidates: mut {near.Candidate} = {}
-  for _, entry in ipairs(SyntaxAnalyzer.docs(chunk, text)) do
-    local found = candidate_of(entry.exported, entry.kind, entry.text, entry.signature, entry.source_symbol, entry.line)
-    if found ~= nil then candidates[#candidates + 1] = found end
-  end
-  return candidates
-end
-
---- [`candidates_from`] `source`, as written; nil where it does not parse.
-local function written_candidates_of(source: string, file: string): {near.Candidate}?
-  local chunk, _ = SyntaxNode.parse(source, file)
-  if chunk == nil then return nil end
-  return candidates_from(chunk, source)
-end
-
 --- `near`'s notes on the exported functions of `files`, each line
 --- prefixed with its file: a test, an example or a declaration file
 --- offers nothing to compare, nor does a file outside `root`. The module
@@ -1195,7 +1159,7 @@ end
 --- @param databases {Sqlite.Handle} Where the standard library's docs are
 --- read, in search order: fix's `run` hands it [`Store.databases()`]
 --- @param ready? {string: {near.Candidate}} Each file's candidates
---- ([`candidates_from`]), where a parse made already found them; a file
+--- ([`FixRead.candidates_from`]), where a parse made already found them; a file
 --- missing here is read and parsed again
 --- @return {string} One line per note, `file:line: message`
 function fix.notes(root: string, files: {string}, databases: {Sqlite.Handle},
@@ -1211,7 +1175,7 @@ function fix.notes(root: string, files: {string}, databases: {Sqlite.Handle},
   local prepared = near.index(known)
   local out: mut {string} = {}
   for _, file in ipairs(files) do
-    local plain = compared(file)
+    local plain = FixRead.compared(file)
     local absolute, _ = Fs.absolute(file)
     local relative: string? = nil
     if plain and absolute ~= nil then
@@ -1224,7 +1188,7 @@ function fix.notes(root: string, files: {string}, databases: {Sqlite.Handle},
       if candidates == nil then
         local source, _ = Fs.read(file)
         if source ~= nil then
-          candidates = written_candidates_of(source, file)
+          candidates = FixRead.written_candidates_of(source, file)
         end
       end
     end
@@ -1236,43 +1200,6 @@ function fix.notes(root: string, files: {string}, databases: {Sqlite.Handle},
     end
   end
   return out
-end
-
---- What a run keeps of `file`'s parse, so nothing after it parses the file again: what its links read (`facts`), what the
---- notes compare (`ready`), and, where the tree checks will run, the plurals they look for (`plurals`, by the file's path
---- from the root). `chunk` is the new checker's tree of `source`, as written.
-function fix.read_off(file: string, chunk: Ast.Chunk, source: string, facts: mut {string: links.Facts},
-                      ready: mut {string: {near.Candidate}}, plurals: mut {string: tree_checks.Plurals}?): ReadMemo.Read
-  local read: ReadMemo.Read = {
-    settled = SyntaxLinks.settled(chunk, SyntaxNode.scope(chunk, file)),
-    candidates = if compared(file) then candidates_from(chunk, source) else nil end,
-    plurals = if plurals ~= nil then tree_checks.read_off(file, source, chunk) else nil end,
-  }
-  if plurals ~= nil then
-    -- What the tree checks keep of the parse goes into the memo too.
-    local known = tree_checks.known_of(source, file)
-    if known ~= nil then read.requires, read.returns = known.requires, known.returns end
-  end
-  fix.take_read(file, source, read, facts, ready, plurals)
-  return read
-end
-
---- Takes what was read off `file`, whose text is `source` ([`fix.read_off`], or a memo of it), into the tables a run
---- keeps of every file.
-function fix.take_read(file: string, source: string, read: ReadMemo.Read, facts: mut {string: links.Facts},
-                       ready: mut {string: {near.Candidate}}, plurals: mut {string: tree_checks.Plurals}?)
-  facts[file] = SyntaxLinks.facts_of(read.settled, source)
-  local candidates = read.candidates
-  if candidates ~= nil then ready[file] = candidates end
-  local requires = read.requires
-  if plurals ~= nil and requires ~= nil then
-    tree_checks.knows(source, file, requires, read.returns)
-  end
-  local found = read.plurals
-  if plurals ~= nil and found ~= nil then
-    while file:sub(1, 2) == "./" do file = file:sub(3) end
-    plurals[file] = found
-  end
 end
 
 --- Whether `file` is in a tree of its own inside cosmic's own tree at
@@ -1723,7 +1650,7 @@ local function lay_out_teal(ctx: Fix)
       if text ~= nil then held = ReadMemo.decode(text, source) end
     end
     if source ~= nil and held ~= nil and laid.format(kept, source, file).text == source then
-      fix.take_read(file, source, held, facts, ready, plurals)
+      FixRead.take(file, source, held, facts, ready, plurals)
     elseif source == nil then
       failures[#failures + 1] = read_trouble or file .. ": not read"
     else
@@ -1744,7 +1671,7 @@ local function lay_out_teal(ctx: Fix)
         end
         chunk = done.chunk
         local text = done.text
-        local made = fix.read_off(file, chunk, text, facts, ready, plurals)
+        local made = FixRead.off(file, chunk, text, facts, ready, plurals)
         if reads_kept and plurals ~= nil and done.state == "laid" then
           check_memo.put(assert(memo), READS, read_key, ReadMemo.encode(made))
         end

@@ -38,7 +38,7 @@
 --- captured pipe cannot hold up a wait.
 ---
 --- A child started with [`Child.start`] keeps running if a signal ends this process, which then never closes
---- its handle -- unless a `sandbox` that unveils holds it, whose pid
+--- its handle -- unless it asks for `ends_with_parent`, or a `sandbox` that unveils holds it, whose pid
 --- namespace ends with this process. Only [`Child.run`] holds SIGINT
 --- and SIGTERM for you. A supervisor takes a [`Signal.guard`] and asks
 --- `g:cancelled()` after each round of [`Child.wait_any`] or
@@ -315,6 +315,18 @@ local record Options
   --- and ends with it; true by default. False for a child meant to
   --- outlive the call that started it.
   process_group?: boolean
+  --- Whether the kernel ends the child (SIGKILL) when this process ends,
+  --- even by a SIGKILL that no handler sees; false by default. For a child
+  --- that serves this process alone (a worker, a session, an app under a
+  --- supervisor), which a parent that is killed would leave running. The
+  --- child alone: what it starts is not ended with it, unless it is under
+  --- `isolate` "file", whose processes end with it. A parent gone before
+  --- the start completes fails the start. Linux (PR_SET_PDEATHSIG, which a
+  --- program that gains privilege at exec clears -- set-user-ID,
+  --- set-group-ID or file capabilities -- unless `credentials` holds
+  --- no_new_privs); on macOS the child outlives this process,
+  --- as without it.
+  ends_with_parent?: boolean
   --- How long the child may run, from its start, before it is ended as an
   --- expired [`Handle.wait`] ends it -- SIGTERM, a grace period, then
   --- SIGKILL, its group included -- its Result `timed_out`. Every start
@@ -3612,7 +3624,7 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
     terminal = if pty.name ~= nil then pty.name else true end
   end
   local called, pid, trouble, errno = pcall(raw.spawn, path, run_argv, env, cwd, -- checked: overload_none -- untyped: call
-    slots[0], slots[1], slots[2], grouped, extra, sandbox, credentials, terminal)
+    slots[0], slots[1], slots[2], grouped, extra, sandbox, credentials, terminal, opts.ends_with_parent == true)
   if not called then
     unwire(wiring, false)
     if channel ~= nil then local _, _ = sys.close(channel[1]) end -- checked: index_may_be_nil

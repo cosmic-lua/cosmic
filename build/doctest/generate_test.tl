@@ -5,6 +5,7 @@
 --- [`build.doctest.markdown_test`] covers the fence parsing.
 local markdown = require("build.doctest.markdown")
 local generate = require("build.doctest.generate")
+local doctest = require("build.doctest")
 
 local type Block = markdown.Block
 local type Modifiers = markdown.Modifiers
@@ -359,4 +360,28 @@ local function test_entries_leave_a_sh_block_out()
     block("teal", "local x = 1", no_mods),
   }))
   assert(#entries == 1 and assert(entries[1]).source == "local x = 1")
+end
+
+--- An error at a line of the generated source names the doc's own line where the line is an example's statement, the
+--- line the example opens at where it is another line of its function, and none for a helper.
+local function test_a_generated_line_is_relocated_to_the_doc_line_it_came_from()
+  local opening: Block = block("teal", "local a = 1\nlocal b = 2", no_mods)
+  opening.line = 10
+  local more: Block = block("teal", "local c = 3", mods(true, nil, nil))
+  more.line = 20
+  local shown: Block = block("output", "", no_mods)
+  shown.line = 30
+  local code, trouble = generate.from_blocks({ opening, more, shown }, "fixture.md")
+  assert(code ~= nil, "generate failed: " .. tostring(trouble))
+  local at: mut {string:integer} = {}
+  local n = 0
+  for each in (code .. "\n"):gmatch("(.-)\n") do
+    n = n + 1
+    at[each:match("^%s*(local [abc]) =") or "-"] = n
+  end
+  assert(doctest.relocate(code, assert(at["local a"])) == 11, "a")
+  assert(doctest.relocate(code, assert(at["local b"])) == 12, "b")
+  assert(doctest.relocate(code, assert(at["local c"])) == 21, "c")
+  assert(doctest.relocate(code, assert(at["local a"]) - 3) == 10, "the example's own line")
+  assert(doctest.relocate(code, 1) == nil, "a line before every example is a helper's")
 end

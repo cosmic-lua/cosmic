@@ -3,8 +3,8 @@
 --- read many times and given in a literal, a literal of many items, a union of many tagged records read by a field
 --- they share, a union of records with two tag values each told apart by a fixed number of tests (checked, and declared in
 --- the second guard at the end), an `if` expression of many arms, a function of many parameters called with all of
---- them, and a run of calls each after a test of an array's length, among many narrowed places (checked, and declared in
---- the guard before the last). A chain of tests over every tag of a union, and a test of every tag joined by `or`, are held to four times the
+--- them, a chain of tests that narrows many places (its own guard), and a run of calls each after a test of an array's
+--- length, among many narrowed places (checked, and declared in the guard after it). A chain of tests over every tag of a union, and a test of every tag joined by `or`, are held to four times the
 --- members costing about the square of four (16 times) and not its cube, since each test reads what the one before
 --- left.
 --- The guards of [`lang.relation`] are in [`lang.relation_speed_test`]; this module does not time it apart.
@@ -184,6 +184,17 @@ local FORMS <const>: {string: function(n: integer): string} = {
     out[#out + 1] = "  end\nend\n"
     return table.concat(out)
   end,
+  ["a chain of tests that narrows many places"] = function(n: integer): string
+    -- Each test narrows a field of its own, and every narrowing makes a state that holds the ones before it.
+    local out: mut {string} = { "local record R\n" }
+    local tests: mut {string} = {}
+    for i = 1, n * 40 do
+      out[#out + 1] = "  f" .. tostring(i) .. "?: integer\n"
+      tests[#tests + 1] = "r.f" .. tostring(i) .. " ~= nil"
+    end
+    out[#out + 1] = "end\nlocal r: R = {}\nif " .. table.concat(tests, " and ") .. " then\n  r = {}\nend\n"
+    return table.concat(out)
+  end,
   ["an if expression of many arms"] = function(n: integer): string
     local arms: mut {string} = {}
     for i = 1, n * 50 do
@@ -264,6 +275,22 @@ local function test_four_times_the_input_costs_about_four_times_the_time_for_dec
     prepare(large)
   end, 10)
   assert(ok, "four times the members " .. why)
+end
+
+local function test_four_times_the_narrowed_places_costs_about_four_times_the_time()
+  -- A narrowing that copied every fact the state holds, and a join that walked the facts of both edges, made this the
+  -- square: 200 places against 800 cost 5.6 to 9 times on the release core (2026-11-27 and 28), and 4.2 to 4.6 times
+  -- since a narrowing shares the facts before it and a join walks the edge with fewer. The limit is the one of the
+  -- state-changing run of calls below, for the same reason.
+  local form = assert(FORMS["a chain of tests that narrows many places"])
+  local small = prepare(form(5))
+  local large = prepare(form(20))
+  local ok, why = Speed.within(function()
+    check(small)
+  end, function()
+    check(large)
+  end, if sanitized then 10 else 6 end)
+  assert(ok, "four times the narrowed places " .. why)
 end
 
 local function test_four_times_the_calls_costs_about_four_times_the_time_where_the_state_changes_between_them()

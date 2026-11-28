@@ -48,6 +48,9 @@ struct spawn_plan {
   int status_write;
   long descriptor_limit;
   int process_group;
+  /* Whether the child is ended (SIGKILL) when the thread that started it
+   * ends: PR_SET_PDEATHSIG, set after its credentials. Linux; Darwin has none. */
+  int ends_with_parent;
   int terminal;
   int credentials;
   uid_t user;

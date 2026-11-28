@@ -155,6 +155,90 @@ end
   assert(not sys.kill(descendant, 0))
 end
 
+--- A driver that starts a sleeping child, with `ends_with_parent` as
+--- `ends`, writes its pid and then readiness, and waits on it; the
+--- host pid of that child once the driver is ready.
+local function start_a_driver(tmp: string, ends: boolean): Child.Handle, integer
+  local ready = tmp .. "/ready"
+  local descendant_path = tmp .. "/descendant"
+  local fixture = tmp .. "/driver.tl"
+  assert(Fs.write(fixture, [[
+local Child = require("cosmic.child")
+local Proc = require("cosmic.proc")
+local AGAIN <const> = ]] .. string.format("%q", AGAIN) .. [[
+
+return function(argv: {string}): integer
+  local relaunch = assert(Proc.relaunch())
+  local words = { table.unpack(relaunch.argv) }
+  words[#words + 1] = "-e"
+  words[#words + 1] = "local Fs = require('cosmic.fs') local pid, ready = ... " ..
+    "assert(Fs.write(pid!, tostring(require('cosmic.sys').getpid()))) assert(Fs.write(ready!, 'ready')) " ..
+    "local _, _ = require('cosmic.clock').sleep(30000000000)"
+  words[#words + 1] = (argv[1] or "")
+  words[#words + 1] = (argv[2] or "")
+  local h = assert(Child.start(words, { timeout_ns = Child.FOREVER, env = relaunch.env, fds = relaunch.fds,
+    process_group = false, ends_with_parent = ]] .. tostring(ends) .. [[ }))
+  local _, _ = h:wait()
+  return 0
+end
+]]))
+  local fd, diagnostic = output(tmp, "driver.log")
+  local started = Test.cosmic({ fixture, descendant_path, ready },
+    { timeout_ns = Child.FOREVER, stdout = fd, stderr = fd, process_group = false })
+  local driver = assert(Child.start(started.argv, started.options))
+  local deadline = Clock.monotonic_ns() + Clock.seconds(30)
+  local said, _ = Fs.read(ready)
+  while said ~= "ready" and Clock.monotonic_ns() < deadline do
+    local _, _ = Clock.sleep(Clock.ms(10))
+    said, _ = Fs.read(ready)
+  end
+  assert(Fs.close(fd))
+  local log, _ = Fs.read(diagnostic)
+  assert(said == "ready", "driver did not report readiness; log=" .. (log or "<none>"))
+  local descendant = assert(child_lua_fixture.host_pid(driver.pid, assert(math.tointeger((assert(tonumber(
+    assert(Fs.read(descendant_path)):match("%d+"))))))))
+  return driver, descendant
+end
+
+--- Whether `pid` runs: a zombie, which a subreaper of this process's
+--- may hold unreaped once its parent is gone, has ended.
+local function runs(pid: integer): boolean
+  local stat, _ = Fs.read("/proc/" .. tostring(pid) .. "/stat")
+  return stat ~= nil and stat:match("%) (%a)") ~= "Z"
+end
+
+--- Whether `pid` is gone within `ns`.
+local function gone_within(pid: integer, ns: integer): boolean
+  local by = Clock.monotonic_ns() + ns
+  while runs(pid) and Clock.monotonic_ns() < by do
+    local _, _ = Clock.sleep(Clock.ms(10))
+  end
+  return not runs(pid)
+end
+
+--- A child started with `ends_with_parent` is ended when its parent is
+--- killed (SIGKILL, which no handler sees); without it, it lives on.
+local function test_a_child_ends_with_a_killed_parent_when_asked(tmp: string)
+  if assert(sys.uname()).sysname ~= "Linux" then
+    Test.skip("only Linux ends a child with its parent")
+  end
+  local kept_dir, ended_dir = tmp .. "/kept", tmp .. "/ended"
+  assert(Fs.mkdirs(kept_dir))
+  assert(Fs.mkdirs(ended_dir))
+  local driver, descendant = start_a_driver(kept_dir, false)
+  assert(driver:stop(sys.SIGKILL))
+  local _ = assert(driver:wait(Clock.seconds(8)))
+  local outlived = not gone_within(descendant, Clock.ms(500))
+  local _ = sys.kill(descendant, sys.SIGKILL)
+  assert(outlived, "a child started without ends_with_parent ended with its parent")
+  driver, descendant = start_a_driver(ended_dir, true)
+  assert(driver:stop(sys.SIGKILL))
+  local _ = assert(driver:wait(Clock.seconds(8)))
+  local ended = gone_within(descendant, Clock.seconds(5))
+  if not ended then local _ = sys.kill(descendant, sys.SIGKILL) end
+  assert(ended, "a child started with ends_with_parent outlived its killed parent")
+end
+
 --- A caller writing to a `stdin = "stream"` child that has gone gets
 --- EPIPE, not SIGPIPE: the write fails and this process lives on. Run
 --- in a relaunched process, since one that already ignores SIGPIPE (a

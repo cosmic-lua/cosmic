@@ -833,10 +833,9 @@ local function execute(argv: {string}, io: verb.Io?, held: mut {string}): intege
     return bare.written(complain, wrote, write_why)
   end
   local run = to.run or run_child
-  -- TODO: have the child end with this process where this one is ended by
-  -- SIGKILL, which no handler sees: PR_SET_PDEATHSIG in the child, once
-  -- Child.Options has an option for it. Until then only SIGINT and SIGTERM
-  -- (Child.run's guard) end it, and a killed verb leaves it running.
+  -- The child ends with this process where this one is ended by SIGKILL,
+  -- which no handler sees (`ends_with_parent`), and by SIGINT and SIGTERM
+  -- through Child.run's guard.
   -- The relay's decision lines go to this process's own standard error, not
   -- through the program's pty, so that a flow it refuses says why, with the
   -- remedy, where the caller reads it. The library's start drops them by
@@ -844,7 +843,7 @@ local function execute(argv: {string}, io: verb.Io?, held: mut {string}): intege
   -- which the relay says once at its start, on the same line.
   local result, started = run(request.argv, {
     policy = policy, fds = request.fds, timeout_ns = request.timeout_ns or Child.FOREVER, cwd = request.cwd,
-    relay_log = "inherit", tailscale = machine_tailnet,
+    relay_log = "inherit", ends_with_parent = true, tailscale = machine_tailnet,
   })
   if result == nil then
     -- [`request_of`] gives the program a slot, or this process's own file.
