@@ -43,7 +43,7 @@ function ReadMemo.salt(root: string): string
     "build/syntax_analyzer.tl", "build/todo_scan.tl", "build/markers.tl", "build/plural_sites.tl",
     "build/tree_checks/docs.tl", "build/tree_checks/init.tl", "build/tree_checks/common.tl", "build/fix/init.tl",
     "build/fix/near.tl", "build/fix/read_memo.tl", "build/check_memo.tl", "cosmic/internal/link_text.tl",
-    "cosmic/string.tl", "build/test_returns.tl", "build/analysis_schema.tl" }, "read 2")
+    "cosmic/string.tl", "build/test_returns.tl", "build/analysis_schema.tl" }, "read 3")
 end
 
 local function bit(value: boolean): string

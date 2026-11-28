@@ -14,7 +14,6 @@
 --- documentation names its first word as what they stand in for.
 
 local Failure = require("cosmic.failure")
-local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
 local String = require("cosmic.string")
 local link_text = require("cosmic.internal.link_text")
@@ -73,6 +72,8 @@ local record Doc
   type Entry = Types.Entry
   type Lookup = Types.Lookup
   type Answer = Types.Answer
+  type Record = Types.Record
+  type Records = Types.Records
   type Summary = Types.Summary
   type Taking = Types.Taking
   type Use = Types.Use
@@ -885,29 +886,24 @@ function Doc.text(view: Doc.View, query: string): (string) | (nil, Failure)
 end
 
 -- Doc.records, its failure in words.
-local function records_text(view: View, words: {string}, stale?: boolean): Answer?, string
-  local lines: mut {string} = {}
+local function records_text(view: View, words: {string}, stale?: boolean): Types.Records?, string
+  local entries: mut {Types.Record} = {}
   local all = true
   local asked = asked_of(view, words)
+  local old: boolean? = if stale == true then true else nil end
   if asked == nil then
     local index, trouble = modules_asked(view, words)
     if index == nil then
       return nil, trouble
     end
     for _, summary in ipairs(index) do
-      local object: mut {string: Json.Value} = {
+      entries[#entries + 1] = {
         query = table.concat(words, " "), exact = false, module = summary.module,
         symbol = "", kind = "module", signature = "", text = summary.text,
+        closed = if summary.closed ~= "" then summary.closed else nil end, stale = old,
       }
-      if summary.closed ~= "" then object["closed"] = summary.closed end
-      if stale == true then object["stale"] = true end
-      local line, encode_trouble = Json.encode(object)
-      if line == nil then
-        return nil, tostring(encode_trouble)
-      end
-      lines[#lines + 1] = line
     end
-    return { lines = lines, found = true, said = "" }, ""
+    return { entries = entries, found = true }, ""
   end
   for _, asking in ipairs(asked) do
     local found, trouble = lookup_text(view, asking)
@@ -916,44 +912,35 @@ local function records_text(view: View, words: {string}, stale?: boolean): Answe
     end
     if #found == 0 then all = false end
     for index, entry in ipairs(found) do
-      local object: mut {string: Json.Value} = {
-        query = asking, exact = found.exact and index <= found.named,
-        module = entry.module, kind = entry.kind, signature = entry.signature,
-        symbol = if entry.symbol == "" then "" else entry.source_symbol end,
-        text = entry.text,
-      }
+      local symbol = if entry.symbol == "" then "" else entry.source_symbol end
+      local said = entry.text
+      local file: string? = nil
+      local line: integer? = nil
+      local code: string? = nil
       if entry.kind == "example" then
         local ex = example_of(entry)
-        object["symbol"] = ex.name
-        object["text"] = ex.text
-        object["file"] = ex.file
-        object["line"] = ex.line
-        object["code"] = ex.source
+        symbol, said, file, line, code = ex.name, ex.text, ex.file, ex.line, ex.source
       else
         if entry.kind == "section" or entry.symbol == "" then
-          object["text"] = link_text.unlinked(entry.text)
+          said = link_text.unlinked(entry.text)
         end
-        if entry.file ~= "" then object["file"] = entry.file end
-        if entry.line > 0 then object["line"] = entry.line end
+        if entry.file ~= "" then file = entry.file end
+        if entry.line > 0 then line = entry.line end
       end
-      if found.verb ~= nil and index == found.modules then
-        object["verb"] = asking
-      end
-      local searched_as = found.respelled
-      if searched_as ~= nil then object["respelled"] = searched_as end
-      if stale == true then object["stale"] = true end
-      local line, encode_trouble = Json.encode(object)
-      if line == nil then
-        return nil, tostring(encode_trouble)
-      end
-      lines[#lines + 1] = line
+      entries[#entries + 1] = {
+        query = asking, exact = found.exact and index <= found.named,
+        module = entry.module, kind = entry.kind, signature = entry.signature, symbol = symbol, text = said,
+        file = file, line = line, code = code, stale = old, respelled = found.respelled,
+        verb = if found.verb ~= nil and index == found.modules then asking else nil end,
+      }
     end
   end
-  return { lines = lines, found = all, said = "" }, ""
+  return { entries = entries, found = all }, ""
 end
 
---- `cosmic docs --json <words...>`: a JSON object a line for what the page
---- of [`Doc.answer`] shows, every entry and not the first few, in its order:
+--- The entries of `cosmic docs --json <words...>`, which it prints as a JSON
+--- object a line, for what the page of [`Doc.answer`] shows, every
+--- entry and not the first few, in its order:
 --- - an entry [`Doc.lookup`] finds for each query [`Doc.asked`] names:
 ---   `query`, `exact` (whether the query names the entry, and it does not
 ---   stand in for a name it did), `module`, `symbol` (as the page names it:
@@ -970,9 +957,8 @@ end
 --- A query that finds nothing has no line. Each object carries `stale`, true,
 --- where `stale` is set: the lookup reads the last build, the tree not
 --- building as it stands. Nil and a [`Failure`] when a database
---- cannot be read; `found` is false when a query found nothing, and `said`
---- is empty.
-function Doc.records(view: Doc.View, words: {string}, stale?: boolean): (Doc.Answer) | (nil, Failure)
+--- cannot be read; `found` is false when a query found nothing.
+function Doc.records(view: Doc.View, words: {string}, stale?: boolean): (Doc.Records) | (nil, Failure)
   local value, why = records_text(view, words, stale)
   if value == nil then return nil, Failure.new(why) end
   return value

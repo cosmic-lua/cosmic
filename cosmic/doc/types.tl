@@ -148,6 +148,47 @@ local record Types
     said: string
   end
 
+  --- One entry of `cosmic docs --json`, a JSON object a line once encoded: see [`cosmic.doc.records`] for each
+  --- field. An optional field that is nil is absent from the object.
+  record Record
+    --- The word the entry answers.
+    query: string
+    --- Whether the word names the entry, not only relates to it.
+    exact: boolean
+    --- The module that declares it.
+    module: string
+    --- Its name as a caller of the module writes it; "" for the module's own row.
+    symbol: string
+    --- What it is: "module", "function", "record", "field" and the like.
+    kind: string
+    --- Its declaration, as its page shows it.
+    signature: string
+    --- Its doc comment.
+    text: string
+    --- Who alone may require its module, where only some may.
+    closed?: string
+    --- True where the lookup reads the last build, the tree not building as it stands.
+    stale?: boolean
+    --- The file that declares it, from the root.
+    file?: string
+    --- The line of `file` it is declared on.
+    line?: integer
+    --- The source of an example.
+    code?: string
+    --- The verb `cosmic <query>` the entry points to.
+    verb?: string
+    --- The query as it was looked up, where a word of it was respelled.
+    respelled?: string
+  end
+
+  --- What `cosmic docs --json` prints for its words: [`cosmic.doc.records`].
+  record Records
+    --- The entries, in the order the page shows them.
+    entries: {Record}
+    --- Whether every word found something: the run's pass.
+    found: boolean
+  end
+
   --- One module as the index lists it.
   record Summary
     --- The module's name.

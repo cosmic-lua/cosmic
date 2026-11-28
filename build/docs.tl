@@ -9,6 +9,8 @@ local Clock = require("cosmic.clock")
 local Doc = require("cosmic.doc")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
+local Failure = require("cosmic.failure")
+local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local String = require("cosmic.string")
@@ -49,6 +51,35 @@ local record docs
 end
 
 local text = bind.text
+
+--- What `cosmic docs --json` prints for `words` in `view`: each entry of [`Doc.records`] as a JSON object a line,
+--- its absent fields left out, with `stale` true on each where `stale` is set. Nil and a [`Failure`] where a database
+--- cannot be read or an entry cannot be encoded; `said` is empty.
+function docs.record_lines(view: Doc.View, words: {string}, stale?: boolean): (Doc.Answer) | (nil, Failure)
+  local records, trouble = Doc.records(view, words, stale)
+  if records == nil then return nil, trouble end
+  local lines: mut {string} = {}
+  for _, entry in ipairs(records.entries) do
+    local object: mut {string: Json.Value} = {
+      query = entry.query, exact = entry.exact, module = entry.module, symbol = entry.symbol, kind = entry.kind,
+      signature = entry.signature, text = entry.text,
+    }
+    local function put(name: string, value: (string | integer | boolean)?)
+      if value ~= nil then object[name] = value end
+    end
+    put("closed", entry.closed)
+    put("stale", entry.stale)
+    put("file", entry.file)
+    put("line", entry.line)
+    put("code", entry.code)
+    put("verb", entry.verb)
+    put("respelled", entry.respelled)
+    local line, encode_trouble = Json.encode(object)
+    if line == nil then return nil, encode_trouble end
+    lines[#lines + 1] = line
+  end
+  return { lines = lines, found = records.found, said = "" }
+end
 
 --- Says once a process, on stderr, that the projection at `path`, which
 --- `other` wrote ([`writer.other_code`]), is read none of. `root` is the
@@ -262,7 +293,7 @@ local function run(argv: {string}): integer
     return 1
   end
   if parsed.set["--json"] == true then
-    local records, records_trouble = Doc.records(view, parsed.words, stale ~= "")
+    local records, records_trouble = docs.record_lines(view, parsed.words, stale ~= "")
     if records == nil then
       log:complain("docs: " .. tostring(records_trouble))
       return 1

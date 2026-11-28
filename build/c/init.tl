@@ -719,7 +719,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
   end
   if store ~= nil and stored then
     local salt = check_memo.salt(root, { "build/c/init.tl", "build/c/rules.tl", "build/c/tree.tl", "build/c/inputs.tl",
-      "build/check_memo.tl", "build/gen_syscalls.tl", "build/plural.tl" }, "c 1")
+      "build/check_memo.tl", "build/gen_syscalls.tl", "build/plural.tl" }, "c 2")
     local context = root .. "\0" .. cwd .. "\0" .. tostring(limit or dump_limit) .. "\0" .. declared_text(declared)
     local readers: mut {integer: inputs.Reader} = {}
     for j, job in ipairs(jobs) do

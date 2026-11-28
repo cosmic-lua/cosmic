@@ -12,6 +12,10 @@ local Fs = require("cosmic.fs")
 local Git = require("cosmic.git")
 
 local record ignored
+  --- What [`ignored.of`] reads of the tree at `root`, as one text: the paths it leaves alone, or why it could read none.
+  --- Two runs that read the same text leave the same paths alone, so a verdict on the tree keys on it
+  --- ([`build.fix.verdict`]).
+  answer: function(root: string): string
 end
 
 --- Whether the untracked, ignored paths of the tree at `root` can be had, and what they are: files by their path from
@@ -48,6 +52,25 @@ local function listed(root: string, say?: function(string)): {string: boolean}?,
     end
   end
   return files, directories
+end
+
+function ignored.answer(root: string): string
+  local said: mut {string} = {}
+  local files, directories = listed(root, function(line: string)
+    said[#said + 1] = line
+  end)
+  if files == nil or directories == nil then
+    return "unread\0" .. table.concat(said, "\0")
+  end
+  local out: mut {string} = {}
+  for path in pairs(files) do
+    out[#out + 1] = "f " .. path
+  end
+  for path in pairs(directories) do
+    out[#out + 1] = "d " .. path
+  end
+  table.sort(out)
+  return table.concat(out, "\0")
 end
 
 --- A test of whether a path under `root`, given from it, is left alone. The tree is read once, at the first path.
