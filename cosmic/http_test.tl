@@ -1572,6 +1572,9 @@ local function test_fail_status_fails_a_status_of_400_or_more_and_otherwise_retu
   assert(tostring(why) == "GET " .. url .. ": status 410: served once", tostring(why))
   local _, put = Http.request("PUT", url, { timeout_ns = Clock.seconds(60), body = "x", fail_status = true, script = { gone } })
   assert(tostring(put):find("PUT " .. url .. ": status 410", 1, true) ~= nil, tostring(put))
+  local padded = "HTTP/1.1 500 Oops\r\nContent-Length: 605\r\n\r\n" .. string.rep(" ", 600) .. "error"
+  local _, wide = Http.get(url, { timeout_ns = Clock.seconds(60), fail_status = true, script = { padded } })
+  assert(tostring(wide) == "GET " .. url .. ": status 500: error", tostring(wide))
   local ok = assert(Http.get(url, { timeout_ns = Clock.seconds(60), fail_status = true,
     script = { "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nhi" } }))
   assert(ok.body == "hi")

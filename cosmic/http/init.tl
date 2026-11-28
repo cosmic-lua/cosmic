@@ -380,7 +380,8 @@ local record Http
     --- Whether a final status of 400 or more fails, as `curl -f` does,
     --- in place of returning it: the [`Failure`] has the status as its
     --- `code`, and its message the method, the URL, the status and the
-    --- start of the body (`GET http://a/x: status 410: gone`). False by
+    --- start of the body (`GET http://a/x: status 410: gone`), the URL as it
+    --- was sent, escaped as [`Http.open`] escapes it. False by
     --- default, which returns every status for the caller to check.
     fail_status?: boolean
     --- The schemes a redirect may lead to: "https" alone by default
@@ -1126,7 +1127,7 @@ end
 --- `opts.fail_status`: the method, URL, status and the start of the body
 --- with its control bytes left out. Closes `response`.
 local function refused_status(response: Response, method: string, url: string): Failure
-  local head, _ = Stream.read_up_to(response, 512)
+  local head, _ = Stream.read_up_to(response, 4096)
   local start = head or ""
   local _, _ = response:close()
   start = start:gsub("[%z\1-\8\14-\31\127]", ""):gsub("%s+", " "):gsub("^ ", ""):sub(1, 200):gsub(" $", "")
