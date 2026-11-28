@@ -927,6 +927,14 @@ function reboot.rebuild_failed(root: string, argv: {string},
   return 3
 end
 
+--- Whether the tool is as new as cosmic's own tree, whose working database is `db`, and settled: the case where
+--- [`reboot.guard`] returns nil at once, rebuilding and re-entering nothing. Unlike the guard it writes nothing, so it
+--- reads a database it does not hold ([`work.settled_read`]).
+function reboot.settled(db: Sqlite.Handle): boolean
+  local fingerprint, _ = identity.hash_over(db, "1")
+  return fingerprint ~= nil and fingerprint == (meta_of("boot_hash") or "") and not unsettled()
+end
+
 --- The staleness guard every verb that builds the tree applies once
 --- it has staged it, before it compiles anything: `cosmic <file.tl>`,
 --- `cosmic test`, and through [`reboot.stale_exit`] the read-only verbs.

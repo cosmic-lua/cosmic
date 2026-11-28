@@ -462,6 +462,48 @@ local function test_an_unsettled_row_is_read_again_at_the_epoch(tmp: string)
   assert(work.close(handle))
 end
 
+--- Whether a read of `tmp`'s working database that writes nothing ([`work.settled_read`]) finds it standing as the
+--- tree does, and why not.
+local function settled(tmp: string): boolean, string
+  local db, trouble = work.settled_read(tmp, { own = false })
+  if db == nil then return false, trouble end
+  assert(db:close())
+  return true, ""
+end
+
+--- A read that writes nothing finds the working database standing as the tree does until a file moves: a file
+--- written again with its own bytes still stands, as the stage would only write its new stat, while an edit, a new
+--- file and a gone one each say which file moved. A stage that writes again makes the database stand once more.
+local function test_a_read_that_writes_nothing_finds_whether_a_stage_would_write(tmp: string)
+  assert(Fs.write(tmp .. "/a.tl", "return 1\n"))
+  assert(Fs.write(tmp .. "/b.tl", "return 2\n"))
+  local handle = assert(work.open(tmp))
+  stage_settled(handle)
+  assert(work.close(handle))
+  local stands, why = settled(tmp)
+  assert(stands, why)
+  assert(Fs.write(tmp .. "/b.tl", "return 2\n"))
+  assert(Fs.set_mtime(tmp .. "/b.tl", 0, 0))
+  stands, why = settled(tmp)
+  assert(stands, "the same bytes moved the tree: " .. why)
+  assert(Fs.write(tmp .. "/b.tl", "return 22\n"))
+  stands, why = settled(tmp)
+  assert(not stands and why == "b.tl moved since the last stage", why)
+  assert(Fs.write(tmp .. "/b.tl", "return 2\n"))
+  assert(Fs.write(tmp .. "/c.tl", "return 3\n"))
+  stands, why = settled(tmp)
+  assert(not stands and why == "c.tl moved since the last stage", why)
+  assert(Fs.remove(tmp .. "/c.tl"))
+  assert(Fs.remove(tmp .. "/a.tl"))
+  stands, why = settled(tmp)
+  assert(not stands and why == "a.tl is gone since the last stage", why)
+  handle = assert(work.open(tmp))
+  stage_settled(handle)
+  assert(work.close(handle))
+  stands, why = settled(tmp)
+  assert(stands, why)
+end
+
 --- Files edited or removed after the stage are named, sorted; an
 --- unchanged file is not, even one staged unsettled (no time kept).
 local function test_moved_since_stage_names_files_edited_after_it(tmp: string)
