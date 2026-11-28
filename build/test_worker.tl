@@ -361,7 +361,7 @@ worker.loads = {
   "build.assertions", "build.cache_names", "build.code_walk", "build.confine", "build.key_parts", "build.load_module",
   "build.test_inputs",
   "build.test_worker", "cmd.cosmic.main", "cosmic.coverage",
-  "cosmic.diff", "cosmic.env", "cosmic.failure", "cosmic.fs", "cosmic.internal.source_run", "cosmic.internal.test_policy", "cosmic.proc",
+  "cosmic.env", "cosmic.failure", "cosmic.fs", "cosmic.internal.source_run", "cosmic.internal.test_policy", "cosmic.proc",
   "cosmic.test",
 }
 
