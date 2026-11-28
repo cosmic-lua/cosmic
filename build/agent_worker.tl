@@ -51,6 +51,7 @@ local Rewrite = require("lang.rewrite")
 local Poll = require("cosmic.poll")
 local Worker = require("cosmic.agent.worker")
 local Store = require("cosmic.store")
+local StandardText = require("build.standard_text")
 local String = require("cosmic.string")
 local standalone = require("build.standalone")
 local sys = require("cosmic.sys")
@@ -542,7 +543,13 @@ local function unloadable(loading: Loading, code: string): {string}
       if seen[file .. " " .. name] == nil then
         seen[file .. " " .. name] = true
         local tree_name = name ~= "cosmic" and name:sub(1, 7) ~= "cosmic." and name:find("^mcp%.") == nil
-        if not may_require(loading, name) and tree_name and #loading.roots > 0 then
+        local mine = if tree_name and #loading.roots > 0 then Nearby.file(loading.roots, name) else nil end
+        if not may_require(loading, name) and mine ~= nil then
+          -- In cosmic's own checkout: Nearby.find leaves a module the binary carries to the binary.
+          told[#told + 1] = file .. ": require(" .. Json.quote(name) .. "): " .. mine.file .. " is in the tree, but " ..
+            "this binary carries a module of that name, which a snippet may not require; Host.check(" ..
+            Json.quote(mine.file) .. ") checks the tree's file"
+        elseif not may_require(loading, name) and tree_name and #loading.roots > 0 then
           local stem = name:gsub("%.", "/")
           told[#told + 1] = file .. ": require(" .. Json.quote(name) .. "): no module of that name: neither " .. stem ..
             ".tl nor " .. stem .. "/init.tl is in " .. loads_of_trees(loading) .. "; write it first, or check the name"
@@ -553,6 +560,28 @@ local function unloadable(loading: Loading, code: string): {string}
           local near = Nearby.find(loading.roots, name)
           if near ~= nil then pending[#pending + 1] = { near.file, near.text } end
         end
+      end
+    end
+  end
+  return told
+end
+
+--- A line for each `cosmic.*` module `code` requires whose file in one of `loading`'s trees (cosmic's own checkout)
+--- differs from the copy this binary carries, which is the one a snippet is checked against and runs: a refusal that
+--- reads the binary's copy says so, so an edit of the tree's file is not taken for one the snippet saw.
+local function shadowed(loading: Loading, code: string): {string}
+  local told: mut {string} = {}
+  if #loading.roots == 0 or not loading.cosmic then return told end
+  local required, _ = Pipeline.requires(SNIPPET, code)
+  for _, name in ipairs(required or {}) do
+    if name == "cosmic" or name:sub(1, 7) == "cosmic." then
+      local mine = Nearby.file(loading.roots, name)
+      -- The source the binary was built from, not the declarations the checker reads; a module it lacks has no copy.
+      local carried = StandardText.source(name)
+      if mine ~= nil and carried ~= nil and carried ~= mine.text then
+        told[#told + 1] = SNIPPET .. ": require(" .. Json.quote(name) .. ") reads this binary's copy of " .. name ..
+          ", not " .. mine.file .. ", which differs: a snippet runs the standard library the tool was built with; " ..
+          "Host.check(" .. Json.quote(mine.file) .. ") checks a file against the tree's copy"
       end
     end
   end
@@ -590,15 +619,25 @@ local function checks_of(loading: Loading): Host.Checks
     local near = Nearby.provider(loading.roots, found)
     local carried = loading.carried
     local trees = #loading.roots > 0
-    -- The trees that are cosmic's own to this tool (it was built from them): there, as `cosmic fix` reads it, a module
-    -- the binary carries is read from the tree, so a file is checked against the stdlib it is beside, not the one built.
+    -- The trees that are cosmic's own to this tool (it was built from them): there, as `cosmic fix` reads it, a
+    -- `cosmic.*` module is read from the tree, so a file is checked against the stdlib it is beside, not the one built.
     local own = Nearby.own(loading.roots, Store.meta("built_from"))
     local strict: Pipeline.Options = { globals = given.globals, types = given.types, project = given.project,
       lax = false, nearby = found, standard = function(module: string): Driver.Source?
         -- Only the stdlib's names: the tree's other modules go through `near`, which records them as found.
-        if #own > 0 and (module == "cosmic" or module:sub(1, 7) == "cosmic.") then
+        local stdlib = module == "cosmic" or module:sub(1, 7) == "cosmic."
+        if #own > 0 and stdlib then
           local mine = Nearby.file(own, module)
           if mine ~= nil then return Driver.source(module, mine.file, mine.text, "tl") end
+        end
+        -- Any other module of the trees is the tree's file, as `cosmic fix` reads it, though the binary carries one of
+        -- its name (a tree module of the checkout the tool was built from), which `near` leaves to the binary.
+        -- An `mcp.*` module stays the server's, as a snippet runs it.
+        local server = module:find("^mcp%.") ~= nil
+        local mine = if trees and not stdlib and not server then Nearby.file(loading.roots, module) else nil end
+        if mine ~= nil then
+          found[module] = mine
+          return Driver.source(module, mine.file, mine.text, "tl")
         end
         return carried(module) or (if trees then near(module) else nil end)
       end }
@@ -635,7 +674,10 @@ local function answer_to(loading: Loading, modules: Modules, capture: Capture, c
   local made, fixed = checked_fixed(loading.kept, code, loading.cosmic)
   local lua = made.code
   if lua == nil then
-    local refusal: mut {string: Json.Value} = { id = id, refused = Json.array(made.lines) }
+    local lines: mut {Json.Value} = {}
+    for _, said in ipairs(made.lines) do lines[#lines + 1] = said end
+    for _, said in ipairs(shadowed(loading, code)) do lines[#lines + 1] = said end
+    local refusal: mut {string: Json.Value} = { id = id, refused = Json.array(lines) }
     if #fixed > 0 then refusal["fixed"] = Json.array(fixed) end
     return refusal
   end

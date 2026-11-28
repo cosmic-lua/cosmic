@@ -6,6 +6,7 @@ local Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 local Host = require("cosmic.agent.host")
 local Json = require("cosmic.json")
+local Store = require("cosmic.store")
 local Sessions = require("cosmic.agent.sessions")
 local Test = require("cosmic.test")
 local Tools = require("cosmic.agent.tools")
@@ -1000,6 +1001,54 @@ local function test_a_snippet_requires_a_module_of_the_working_directory_and_see
   local held = run(w, "local U = require(\"util\")\nreturn { n = U.twice(1) }\n", nil, dir)
   local said = Json.to_array(held["refused"])!
   assert(tostring(said[1]):find("^util%.tl:3: U%.twice: a failure's reason is exactly a string") ~= nil, shown(held))
+  worker_close(w)
+end
+
+--- A module of the working directory's tree whose name the binary carries too (a tree module of the checkout the tool
+--- was built from) stays the binary's, which a snippet may not require: the refusal says the file is there and why it
+--- is not read, and names Host.check, which reads it.
+local function test_a_refusal_of_a_tree_module_the_binary_carries_says_why()
+  local w = set_of_worker()
+  local dir = Fs.mkdtemp("agent-worker-")!
+  assert(Fs.mkdirs(dir .. "/build"))
+  assert(Fs.write(dir .. "/build/nearby.tl", "local record N\nend\nfunction N.mine(): integer return 7 end\nreturn N\n"))
+  local refused = run(w, "local N = require(\"build.nearby\")\nreturn { n = N.mine() }\n", nil, dir)
+  local said = tostring(Json.to_array(refused["refused"])![1])
+  assert(said:find("build/nearby.tl is in the tree, but this binary carries a module of that name", 1, true) ~= nil,
+    shown(refused))
+  assert(said:find("Host.check(\"build/nearby.tl\")", 1, true) ~= nil, shown(refused))
+  -- Host.check reads the tree's file, and a file that requires it.
+  local checked = run(w, "Host.check(\"build/nearby.tl\")\nreturn { passed = true }\n", nil, dir)
+  assert(checked["ok"] == true, shown(checked))
+  assert(Fs.write(dir .. "/top.tl", "local N = require(\"build.nearby\")\nlocal s: string = N.mine()\nreturn s\n"))
+  local caller = run(w, "Host.check(\"top.tl\")\n", nil, dir)
+  assert(caller["ok"] ~= true and tostring(caller["error"]):find("top.tl:2:", 1, true) ~= nil, shown(caller))
+  worker_close(w)
+end
+
+--- A snippet runs the standard library this binary carries, beside a tree that holds another copy of it (cosmic's own
+--- checkout): a refusal of a snippet that requires a `cosmic.*` module whose file in the tree differs says so, and
+--- names Host.check, which checks a file against the tree's copy.
+local function test_a_refusal_says_the_snippet_reads_the_binarys_copy_of_an_edited_stdlib_module()
+  local w = set_of_worker()
+  local dir = Fs.mkdtemp("agent-worker-")!
+  assert(Fs.mkdirs(dir .. "/cosmic"))
+  assert(Fs.write(dir .. "/cosmic/clock.tl", "local record C\nend\nfunction C.mine(): integer return 7 end\nreturn C\n"))
+  local refused = run(w, "local C = require(\"cosmic.clock\")\nreturn { n = C.mine() }\n", nil, dir)
+  local lines = Json.to_array(refused["refused"])!
+  local told: mut {string} = {}
+  for i, line in ipairs(lines) do told[i] = tostring(line) end
+  local said = table.concat(told, "\n")
+  assert(said:find("this binary's copy of cosmic.clock, not cosmic/clock.tl", 1, true) ~= nil, shown(refused))
+  assert(said:find("Host.check", 1, true) ~= nil, shown(refused))
+  -- The binary's own text in the tree: a refusal says nothing of it.
+  assert(Fs.write(dir .. "/cosmic/clock.tl", assert(Store.source("cosmic.clock"))))
+  local plain = run(w, "local C = require(\"cosmic.clock\")\nlocal s: string = 1\nreturn { c = C ~= nil, s = s }\n", nil, dir)
+  local plain_lines = Json.to_array(plain["refused"])!
+  for _, line in ipairs(plain_lines) do
+    assert(not tostring(line):find("binary's copy", 1, true), shown(plain))
+  end
+  assert(#plain_lines > 0, shown(plain))
   worker_close(w)
 end
 
