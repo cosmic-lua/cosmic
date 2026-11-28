@@ -897,18 +897,20 @@ function Pipeline.edits(result: Driver.Outcome): {Rewrite.Edit}
   return out
 end
 
---- `lines` with a place on line 1 of `file` moved back by `width` bytes, which a text had before its own first line.
-local function unshifted(lines: {string}, file: string, width: integer): {string}
+--- `lines` with a place on line `y` of `file` moved back by `width` bytes, which a text had put before that line's own.
+local function unshifted(lines: {string}, file: string, y: integer, width: integer): {string}
   local out: mut {string} = {}
-  local head = "^" .. file:gsub("%p", "%%%0") .. ":1:(%d+):(.*)$"
+  local row = tostring(y)
+  local head = "^" .. file:gsub("%p", "%%%0") .. ":" .. row .. ":(%d+):(.*)$"
   for _, line in ipairs(lines) do
     local column, rest = line:match(head)
     local at = math.tointeger(tonumber(column))
-    local told = if at ~= nil and rest ~= nil and at > width then file .. ":1:" .. tostring(at - width) .. ":" .. rest else line end
-    -- A place the message names on line 1 is the text's too.
-    out[#out + 1] = told:gsub("declared at 1:(%d+)", function(c: string): string
+    local told = if at ~= nil and rest ~= nil and at > width then file .. ":" .. row .. ":" .. tostring(at - width) .. ":" .. rest else
+      line end
+    -- A place the message names on that line is the text's too.
+    out[#out + 1] = told:gsub("declared at " .. row .. ":(%d+)", function(c: string): string
       local n = math.tointeger(tonumber(c)) or 0
-      return "declared at 1:" .. tostring(if n > width then n - width else n end)
+      return "declared at " .. row .. ":" .. tostring(if n > width then n - width else n end)
     end)
   end
   return out
@@ -923,11 +925,18 @@ function Pipeline.implied(made: Pipeline.Alone, file: string, text: string, agai
     Pipeline.Alone
   local implicit = made.implicit
   -- The check again binds each name: it is never asked for a second time.
-  -- A text that begins with `#!` is a file's alone: nothing may stand before it.
-  if implicit == nil or made.code ~= nil or implying.now or text:sub(1, 1) == "#" then
+  if implicit == nil or made.code ~= nil or implying.now then
     return made
   end
-  local head = "^" .. file:gsub("%p", "%%%0") .. ":1:(%d+):"
+  -- Nothing may stand before a first line that begins with `#` (`#!`): the requires go at the start of the line after it.
+  local lead, body = "", text
+  if text:sub(1, 1) == "#" then
+    local first = text:match("^[^\n]*\n")
+    if first == nil then return made end
+    lead, body = first, text:sub(#first + 1)
+  end
+  local y = if lead == "" then 1 else 2 end
+  local head = "^" .. file:gsub("%p", "%%%0") .. ":" .. tostring(y) .. ":(%d+):"
   local names: mut {{string}} = {}
   for _, pair in ipairs(implicit) do names[#names + 1] = pair end
   local second = made
@@ -942,7 +951,7 @@ function Pipeline.implied(made: Pipeline.Alone, file: string, text: string, agai
     bound[#bound + 1] = "do end "
     prefix = table.concat(bound)
     implying.now = true
-    second = again(prefix .. text)
+    second = again(lead .. prefix .. body)
     implying.now = false
     if second.code ~= nil then return second end
     local failed: mut {integer: boolean} = {}
@@ -972,12 +981,14 @@ function Pipeline.implied(made: Pipeline.Alone, file: string, text: string, agai
   local width = #prefix
   local edits: mut {Rewrite.Edit} = {}
   for _, e in ipairs(second.edits or {}) do
-    if e.offset > width then
-      edits[#edits + 1] = { code = e.code, y = e.y, x = if e.y == 1 then e.x - width else e.x end, offset = e.offset - width,
+    if e.offset <= #lead then
+      edits[#edits + 1] = e
+    elseif e.offset > #lead + width then
+      edits[#edits + 1] = { code = e.code, y = e.y, x = if e.y == y then e.x - width else e.x end, offset = e.offset - width,
         length = e.length, before = e.before, after = e.after, text = e.text }
     end
   end
-  return { code = nil, lines = unshifted(second.lines, file, width), stages = second.stages, edits = edits }
+  return { code = nil, lines = unshifted(second.lines, file, y, width), stages = second.stages, edits = edits }
 end
 
 --- What a build holding `module`, the file `file`, lowered made of it ([`Pipeline.Alone`]).

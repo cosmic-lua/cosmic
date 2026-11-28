@@ -106,6 +106,9 @@ end
 --- passes).
 function Refusals.nil_fix(ctx: Ctx, node: Ast.Node, t: Type): string
   local e = peel(node)
+  if (e.kind == "Nil") then
+    return "`nil` is always nil, so no test helps: write the value meant in its place"
+  end
   if (e.kind == "Call") or (e.kind == "MethodCall") then
     local call = subject(ctx, e)
     return "take the value with `local v = " .. text_of(ctx, e) .. "!`, or test it first (`if v == nil then " ..

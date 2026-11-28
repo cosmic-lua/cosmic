@@ -55,6 +55,10 @@ local CASES <const>: {Case} = {
     fix = "take the value with `local v = find()!`, or test it first",
   },
   {
+    code = "nil_not_allowed", source = "local x = 1\nx = x + nil\n", at = { line = 2, column = 9 },
+    msg = "`nil` is nil, and `+` takes numbers", fix = "`nil` is always nil, so no test helps",
+  },
+  {
     code = "nil_not_allowed", source = "local s: string = nil\n",
     msg = "nil is given as the value of `s`, where `string` is wanted", fix = "declare what takes it `string?`",
   },
@@ -756,6 +760,32 @@ local function test_the_default_of_a_value_a_test_made_non_nil_is_deleted_not_ma
   assert(has(bare.fix, "write the test: `n ~= 0`"), bare.fix)
   local text = first_error("local s = \"a\"\nlocal t = s or \"b\"\n", "condition_type")
   assert(has(text.fix, "delete `or ...`") and not has(text.fix, "~="), text.fix)
+end
+
+--- A probe of a module's table (`Http and nil`, `if Fs then`) always holds: it is taken, and `and` answers the right.
+local function test_a_module_table_is_a_condition_that_always_holds()
+  local module = { ["m.fs"] = "local record Fs\n  x: integer\nend\nreturn Fs\n" }
+  for _, source in ipairs({
+    "local Fs = require(\"m.fs\")\nlocal r = Fs and nil\nlocal s: string = Fs and \"a\"\nif Fs then\n  print(r, s)\nend\n",
+    "local Fs = require(\"m.fs\")\nwhile not Fs do\nend\n",
+  }) do
+    local r = Programs.run(source, module)
+    assert(#r.before == 0 and #r.errors == 0, Programs.codes(r) .. " in\n" .. source)
+  end
+  -- A default of it is still never used, and a function is still no condition.
+  local r = Programs.run("local Fs = require(\"m.fs\")\nlocal t = Fs or 1\nprint(t)\n", module)
+  assert(Programs.codes(r) == "condition_type", Programs.codes(r))
+  local f = first_error("local function g() end\nif g then\nend\n", "condition_type")
+  assert(has(f.fix, "never false"), f.fix)
+end
+
+--- `or` of a boolean and a `true?` (an effect's `(true) | (nil, Failure)`) is a `true?`, and a condition.
+local function test_a_boolean_or_an_optional_true_is_a_condition()
+  local r = Programs.run("local function f(): true?\n  return true\nend\nlocal why: string? = nil\nlocal ok = f()\n" ..
+      "if why == nil or ok then\n  print(1)\nend\n")
+  assert(#r.before == 0 and #r.errors == 0, Programs.codes(r))
+  local maybe = first_error("local function f(b: boolean, c: boolean?): boolean\n  return b or c\nend\n", "or_mix")
+  assert(has(maybe.msg, "`or` of a boolean and another type"), maybe.msg)
 end
 
 local function test_a_needless_default_of_an_index_read_says_what_made_it_never_nil()
