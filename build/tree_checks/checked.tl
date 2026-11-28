@@ -166,7 +166,7 @@ function tree_checked.scoped(root: string, memo?: Sqlite.Handle, marking?: Ceili
   local salt = check_memo.salt(root, { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl",
     "lang/scopes_cover.tl", "lang/truthy.tl", "lang/prelude.d.tl", "lang/stdlib.d.tl",
     "build/check_memo.tl", "build/driver.tl", "build/tree_checks/checked.tl", "build/tree_checks/common.tl", "build/tree_program.tl" },
-    "scoped 4")
+    "scoped 5")
   if memo ~= nil then
     local _, _ = check_memo.prepare(memo, "scoped")
   end
@@ -273,7 +273,7 @@ end
 --- The salt of the digests of [`ShapeKey`], from the code that makes them.
 local function shaping_of(root: string, memo: Sqlite.Handle?): Shaping
   return { memo = memo, salt = check_memo.salt(root, { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "build/shape_key.tl", "build/check_memo.tl" },
-    "shape 2") }
+    "shape 3") }
 end
 
 --- The files of `files` that a lowering covers, each with the key its result is kept under: `salt`, its dialect and
@@ -627,7 +627,7 @@ function tree_checked.declared(root: string, memo?: Sqlite.Handle, marking?: Cei
   local salt = check_memo.salt(root, { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl",
     "lang/truthy.tl", "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/prelude.d.tl", "lang/stdlib.d.tl", "build/check_memo.tl", "build/driver.tl",
     "build/tree_checks/checked.tl", "build/tree_checks/common.tl", "build/tree_program.tl", "build/gen_syscalls.tl", "core/syscalls.h",
-    "core/process.h", "core/socket.h" }, "declared 6")
+    "core/process.h", "core/socket.h" }, "declared 7")
   local written, written_why = TreeProgram.derived_of(root)
   if written == nil then
     return { "reading the derived sources: " .. written_why }
@@ -676,7 +676,7 @@ function tree_checked.checked(root: string, memo?: Sqlite.Handle, phases?: {stri
     "lang/truthy.tl", "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/check/",
     "lang/flow.tl", "lang/check_codes.tl", "lang/warnings.tl", "lang/prelude.d.tl", "lang/stdlib.d.tl", "build/check_memo.tl", "build/driver.tl", "build/tree_checks/checked.tl", "build/tree_checks/common.tl", "build/tree_program.tl",
     "build/syntax_shape_specs.tl", "build/syntax_record_calls.tl", "build/syntax_protobuf_specs.tl", "build/syntax_record_splices.tl", "build/gen_syscalls.tl", "core/syscalls.h", "core/process.h",
-    "core/socket.h" }, "checked 6")
+    "core/socket.h" }, "checked 7")
   local written, written_why = TreeProgram.derived_of(root)
   if written == nil then
     return { "reading the derived sources: " .. written_why }
@@ -734,7 +734,7 @@ function tree_checked.pipeline(root: string, build_db: Database, memo?: Sqlite.H
     "build/syntax_shape_specs.tl", "build/syntax_record_calls.tl", "build/syntax_protobuf_specs.tl", "build/syntax_record_splices.tl", "build/pipeline.tl", "build/pipeline_check.tl",
     "build/gen_syscalls.tl", "build/compile_grammar.tl", "build/main_locals.tl", "build/lua_tail.tl", "lang/codegen.tl", "lang/truthy.tl", "lang/fact_wraps.tl",
     "lang/boundaries.tl", "lang/boundary_checks.tl",
-    "core/syscalls.h", "core/process.h", "core/socket.h" }, "pipeline 4")
+    "core/syscalls.h", "core/process.h", "core/socket.h" }, "pipeline 5")
   local tree = tree_of(files, salt, TreeProgram.bindings_of(root), written, shaping_of(root, memo))
   return PipelineCheck.compare(root, build_db, memo, #tree.rows, function(index: integer): PipelineCheck.Row
     local row = assert(tree.rows[index])
@@ -791,7 +791,7 @@ function tree_checked.untyped(root: string, memo?: Sqlite.Handle, marking?: Ceil
     "lang/check_codes.tl", "lang/warnings.tl", "lang/prelude.d.tl", "lang/stdlib.d.tl",
     "build/check_memo.tl", "build/driver.tl", "build/syntax_node.tl", "build/syntax_report.tl",
     "build/syntax_receivers.tl", "build/syntax_contracts.tl", "build/contract_rules.tl", "build/tree_checks/checked.tl", "build/tree_checks/common.tl",
-    "build/tree_program.tl", "build/gen_syscalls.tl", "core/syscalls.h", "core/process.h", "core/socket.h" }, "untyped 2")
+    "build/tree_program.tl", "build/gen_syscalls.tl", "core/syscalls.h", "core/process.h", "core/socket.h" }, "untyped 3")
   local tree = tree_of(files, salt, TreeProgram.bindings_of(root), written, shaping_of(root, memo), only)
   if memo ~= nil then
     local _, _ = check_memo.prepare(memo, "untyped")
