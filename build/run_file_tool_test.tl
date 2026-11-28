@@ -423,6 +423,46 @@ local function test_an_unchanged_tree_runs_its_last_build(tmp: string)
   assert(builds_of(root) == built + 1, "a run of an edited tree did not build it")
 end
 
+--- Runs `file` in `root` as [`run_in`] does, stopped after `limit_ns`.
+local function run_within(root: string, file: string, limit_ns: integer): Child.Result
+  local env = Test.environment()
+  env["COSMIC_BUILD_CACHE"] = "0"
+  env["COSMIC_STANDALONE"] = "0"
+  local started = Test.cosmic({ file }, { cwd = root, env = env,
+    stdout = "capture", stderr = "capture", timeout_ns = limit_ns })
+  return (assert(Child.run(started.argv, started.options)))
+end
+
+--- A run of a tree nothing in has moved since its last good run does not wait for another run that holds the working
+--- database's write lock, as a build does: it reads what that run last committed and runs the projection it finds
+--- standing, building nothing. Here this test is that other run. An edit makes the run wait for the lock, since only
+--- a build under it can say what the edit does, and the run says it once the lock is free.
+local function test_an_unchanged_tree_runs_while_another_run_holds_its_lock(tmp: string)
+  local Sqlite = require("cosmic.sqlite")
+  local root = tree_of(tmp, "held", { ["lib.tl"] = LIB_ONE, ["main.tl"] = 'local lib = require("lib")\nprint(lib.word)\n' })
+  local first = run_in(root, "main.tl")
+  assert(first.code == 0 and first.stdout == "one\n", tostring(first.stdout) .. tostring(first.stderr))
+  local built = builds_of(root)
+  local writer_db = assert(Sqlite.open(require("build.paths").resolve(root, Test.environment()).working,
+    { writable = true }))
+  local ok, failure = pcall(function()
+    assert(writer_db:exec("BEGIN IMMEDIATE"))
+    local held = run_within(root, "main.tl", Clock.seconds(10))
+    local said = tostring(held.stdout) .. tostring(held.stderr)
+    assert(not held.timed_out, "waited for the lock: " .. said)
+    assert(held.code == 0 and held.stdout == "one\n", said)
+    assert(Fs.write(root .. "/lib.tl", (LIB_ONE:gsub('"one"', '"two"'))))
+    local edited = run_within(root, "main.tl", Clock.seconds(3))
+    assert(edited.timed_out, "an edited tree ran without the lock: " .. tostring(edited.stdout) .. tostring(edited.stderr))
+  end)
+  local _, _ = writer_db:exec("ROLLBACK")
+  local _, _ = writer_db:close()
+  if not ok then error(failure, 0) end
+  assert(builds_of(root) == built, "a run under another's lock built the tree")
+  local freed = run_in(root, "main.tl")
+  assert(freed.code == 0 and freed.stdout == "two\n", tostring(freed.stdout) .. tostring(freed.stderr))
+end
+
 --- A run that left a broken sibling out builds the tree on every run, so each says the warning again.
 local function test_a_left_out_sibling_is_told_on_every_run(tmp: string)
   local root = tree_of(tmp, "left", { ["good.tl"] = 'print("ok")\n', ["bad.tl"] = TYPE_ERROR })

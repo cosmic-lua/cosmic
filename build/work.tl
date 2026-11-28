@@ -745,9 +745,10 @@ end
 --- holding the lock builds the same tree, and what it last committed is
 --- read meanwhile, never waited for. A file of another schema it neither
 --- reads nor removes, whoever holds the lock: it returns no handle, and
---- the schema it found (`other_schema`).
-function work.try_open(root: string): work.Opening?, string
-  return opened(root, nil, false, "never", false)
+--- the schema it found (`other_schema`). `doing` names the run while it
+--- holds the lock, as [`work.open`]'s does.
+function work.try_open(root: string, doing?: string): work.Opening?, string
+  return opened(root, nil, false, "never", false, doing)
 end
 
 --- Opens `root`'s working database as [`work.try_open`] does, waiting for
@@ -1256,32 +1257,80 @@ local record Walking
   mut above: string
 end
 
+--- Whether `file` of `root`, whose stat differs from its rows, still holds the bytes each of the tables `wanted`
+--- names has for it, at most `size` of them as a stage reads it: a file written again with what it held, or one
+--- whose stat had not settled when it was staged, which a stage only writes again with its new stat. `link_kind` is
+--- the kind its `linked` row has. A stage's dry run ([`staging`]) goes on past such a file; false and why where it
+--- would write a row of other bytes, or a row the table lacks.
+local function same_bytes(db: Database, root: string, file: string, size: integer, wanted: {string:boolean},
+                          link_kind?: string): boolean, string
+  local data, read_trouble = Fs.read(root .. "/" .. file, size)
+  if data == nil then return false, tostring(read_trouble) end
+  local sha256 = Hash.hex_sha256(data)
+  for _, table_name in ipairs({ "files", "tool", "scanned", "linked" }) do
+    if wanted[table_name] == true then
+      local sql = "SELECT sha256 FROM " .. table_name .. " WHERE path = ?1"
+      local params: {Sqlite.Param} = { text(file) }
+      if table_name == "linked" then
+        sql = sql .. " AND kind = ?2"
+        params = { text(file), text(link_kind or "") }
+      end
+      local row, trouble = db:one(sql, params)
+      if trouble ~= nil then return false, tostring(trouble) end
+      if row == nil or row:text(1) ~= sha256 then
+        return false, file .. " moved since the last stage"
+      end
+    end
+  end
+  return true, ""
+end
+
+--- The rest of a dry run of a stage ([`staging`]) once its walk found no file moved: whether the stage would delete
+--- a row of a file the walk no longer finds (`known` holds what it did not find), find links again (the code finding
+--- them is another, or a staged file's text is not read for links yet, or a row of what one found has no file), or
+--- prune a TODO row, or record another code as having staged the tree. Nil and the first it found where it would;
+--- else what it staged.
+local function dry_rest(db: Database, known: {string:{string:Known}}): work.Staged?, string
+  for _, table_name in ipairs({ "files", "tool", "scanned", "linked" }) do
+    local gone = next((assert(known[table_name], "every table was read by the walk")))
+    if gone ~= nil then return nil, gone .. " is gone since the last stage" end
+  end
+  -- The code a stage records ([`running_tool`]), and the one finding links it keeps ([`links_finder`]): a process
+  -- that carries no boot hash takes the tree's for both.
+  local by, by_trouble = running_tool(db)
+  if by == nil then return nil, by_trouble end
+  local finder = if Store.meta("boot_hash") == nil then "IS ?1" else "IS NOT NULL" end
+  local row, trouble = db:one("SELECT " ..
+      "(SELECT value FROM meta WHERE key = 'staged_by') IS ?1 AND " ..
+      "(SELECT value FROM meta WHERE key = 'links_boot') IS ?1 AND " ..
+      "(SELECT value FROM meta WHERE key = 'links_by') " .. finder .. " AND " ..
+      "NOT EXISTS (SELECT 1 FROM linked l WHERE NOT EXISTS (SELECT 1 FROM linked_texts t " ..
+      "WHERE t.sha256 = l.sha256 AND t.kind = l.kind)) AND " ..
+      "NOT EXISTS (SELECT 1 FROM linked_found f WHERE NOT EXISTS (SELECT 1 FROM linked l " ..
+      "WHERE l.sha256 = f.sha256 AND l.kind = f.kind)) AND " ..
+      "NOT EXISTS (SELECT 1 FROM linked_texts f WHERE NOT EXISTS (SELECT 1 FROM linked l " ..
+      "WHERE l.sha256 = f.sha256 AND l.kind = f.kind)) AND " ..
+      "NOT EXISTS (SELECT 1 FROM todos WHERE sha256 NOT IN " ..
+      "(SELECT sha256 FROM files UNION SELECT sha256 FROM tool UNION SELECT sha256 FROM scanned)) AND " ..
+      "NOT EXISTS (SELECT 1 FROM todo_misses WHERE sha256 NOT IN " ..
+      "(SELECT sha256 FROM files UNION SELECT sha256 FROM tool UNION SELECT sha256 FROM scanned))",
+    { text(by) })
+  if row == nil then return nil, tostring(trouble) end
+  if row:integer(1) ~= 1 then return nil, "the stage would record its code or find links again" end
+  return { files = 0, read = 0, notes = {} }, ""
+end
+
 --- What [`work.stage`] told `handle` its root is. Raises on a handle that was not staged: every compile and write
 --- reads a staged tree.
 function work.standing(handle: work.Handle): tree.Standing
   return (assert(handle.standing, "the tree was not staged: work.stage tells a handle what its root is"))
 end
 
---- Reads the tree into `files` and, in cosmic's own tree, fingerprints
---- what the tool is made of into `tool`, everything else the walk
---- finds into `scanned`, and each file whose links are checked into
---- `linked`, in one pass: a file is stat'd once and read at most once,
---- and scanned for TODOs and read for links in the same moment. A file
---- whose stat matches its row is not read; one that differs, or is
---- new, is read, hashed and written; one the walk no longer finds is
---- deleted. Only a change reaches the database.
----
---- The walk goes where `cosmic fix` looks for links, too
---- ([`link_files.skipper`]): what only that walk reaches (doc/'s prose,
---- `.claude/`) is staged into `linked` alone.
---- @param standing what `root` is to the running tool, which the handle
----   keeps. Whether it is cosmic's own tree decides which files are the
----   tool's sources, and so is a part of what a stage reads.
-function work.stage(handle: work.Handle, standing: tree.Standing): work.Staged?, string -- checked: not_assigned
-  local db = handle.db
-  local root = handle.root
-  handle.standing = standing
-  local own_tree = standing.own
+--- [`work.stage`] of `db`, the working database of `root`, where `handle` is the run's that holds it. Without one it
+--- is the stage's dry run, which writes nothing: it answers nil, and the first thing it found the stage would write,
+--- where the stage would write any row or the code that staged it was another than this process's.
+local function staging(db: Database, root: string, own_tree: boolean, handle?: work.Handle): work.Staged?, string -- checked: not_assigned
+  local dry = handle == nil
   -- A link is taken for what it leads to, so a project whose modules
   -- or tests are reached through one (`lib -> ../shared/lib`) builds
   -- them. A loop of links ends its branch rather than the stage.
@@ -1449,6 +1498,15 @@ function work.stage(handle: work.Handle, standing: tree.Standing): work.Staged?,
       local write_tool = tool and moved(known.tool, file, st, mtime_ns) -- checked: map_field
       local write_scanned = scan and moved(known.scanned, file, st, mtime_ns) -- checked: map_field
       local write_linked = link_kind ~= nil and moved(known.linked, file, st, mtime_ns) -- checked: map_field
+      if dry and (write_files or write_tool or write_scanned or write_linked) then
+        local same, why = same_bytes(db, root, file, st.size, { files = write_files, tool = write_tool,
+          scanned = write_scanned, linked = write_linked }, link_kind)
+        if not same then
+          finish(put)
+          return nil, why
+        end
+        write_files, write_tool, write_scanned, write_linked = false, false, false, false
+      end
       if write_files or write_tool or write_scanned or write_linked then
         -- At most the size the stat saw: a file that grows while it is
         -- read (a strace log in the tree, written as this run reads)
@@ -1498,7 +1556,9 @@ function work.stage(handle: work.Handle, standing: tree.Standing): work.Staged?,
       end
     end
   end
-  if own_tree then
+  -- The directories' stats only tell a later run that the tool may have moved without its walk ([`work.tool_moved`]);
+  -- the dry run walked every directory itself.
+  if own_tree and not dry then
     local cleared, trouble = db:exec("DELETE FROM tool_discovery")
     if not cleared then
       finish(put)
@@ -1526,6 +1586,9 @@ function work.stage(handle: work.Handle, standing: tree.Standing): work.Staged?,
     discovery_put:close()
   end
   finish(put)
+  if dry then
+    return dry_rest(db, known)
+  end
   for _, table_name in ipairs({ "files", "tool", "scanned", "linked" }) do
     local forgot, forget_trouble = forget(db, table_name,
       (assert(known[table_name], "every table forgotten was read above")))
@@ -1533,7 +1596,7 @@ function work.stage(handle: work.Handle, standing: tree.Standing): work.Staged?,
       return nil, forget_trouble
     end
   end
-  local found, found_trouble = find_links(handle, texts)
+  local found, found_trouble = find_links(assert(handle, "a stage that writes holds the database"), texts)
   if not found then
     return nil, found_trouble
   end
@@ -1556,6 +1619,69 @@ function work.stage(handle: work.Handle, standing: tree.Standing): work.Staged?,
     return nil, tostring(record_trouble)
   end
   return staged, ""
+end
+
+--- Reads the tree into `files` and, in cosmic's own tree, fingerprints
+--- what the tool is made of into `tool`, everything else the walk
+--- finds into `scanned`, and each file whose links are checked into
+--- `linked`, in one pass: a file is stat'd once and read at most once,
+--- and scanned for TODOs and read for links in the same moment. A file
+--- whose stat matches its row is not read; one that differs, or is
+--- new, is read, hashed and written; one the walk no longer finds is
+--- deleted. Only a change reaches the database.
+---
+--- The walk goes where `cosmic fix` looks for links, too
+--- ([`link_files.skipper`]): what only that walk reaches (doc/'s prose,
+--- `.claude/`) is staged into `linked` alone.
+--- @param standing what `root` is to the running tool, which the handle
+---   keeps. Whether it is cosmic's own tree decides which files are the
+---   tool's sources, and so is a part of what a stage reads.
+function work.stage(handle: work.Handle, standing: tree.Standing): work.Staged?, string
+  handle.standing = standing
+  return staging(handle.db, handle.root, standing.own, handle)
+end
+
+--- The working database of `root`, opened read-only and holding no lock, where a stage would write nothing in it: no
+--- file moved, came or went since the last stage, the code that staged it and found its links is this process's, and
+--- every file it holds has had its links read ([`staging`]'s dry run). What a file run reads where another run holds
+--- the write lock ([`build.dispatch`]): what that run last committed, where it stands as the tree does, is what a
+--- stage of its own would leave, so the run need not wait for the lock to know whether its projection holds. The
+--- database is opened as [`work.tool_read_unwritten`] opens it. Nil and why where it is missing, of another
+--- schema, or a stage would write any row; the caller closes the database.
+--- @param standing what `root` is to the running tool ([`work.stage`])
+function work.settled_read(root: string, standing: tree.Standing): Database?, string
+  local directory, _ = build_paths.optional(root)
+  if directory == nil then return nil, "no build directory" end
+  local path = build_paths.under(directory).working
+  local present_status, _ = Fs.status(path)
+  if present_status == nil or not present_status.exists then return nil, "no working database" end
+  local logged_status, _ = Fs.status(path .. "-wal")
+  local logged = logged_status ~= nil and logged_status.exists
+  local db, open_trouble = Sqlite.open(path, { immutable = not logged })
+  if db == nil then return nil, tostring(open_trouble) end
+  local schema, _ = schema_of(db)
+  if schema ~= version then
+    local _, _ = db:close()
+    return nil, "the working database is of another schema"
+  end
+  local typed, hold_trouble = Sqlite.hold(db, work_schema.Database)
+  if typed == nil then
+    local _, _ = db:close()
+    return nil, tostring(hold_trouble)
+  end
+  -- One read transaction, left open for the caller: the dry stage and what the caller reads after it (the boot
+  -- fingerprint, the run's stamp key) see one commit of the run that holds the lock, not one each. The close ends it.
+  local begun, begun_why = typed:exec("BEGIN")
+  if not begun then
+    local _, _ = typed:close()
+    return nil, tostring(begun_why)
+  end
+  local staged, trouble = staging(typed, root, standing.own, nil)
+  if staged == nil then
+    local _, _ = typed:close()
+    return nil, trouble
+  end
+  return typed, ""
 end
 
 --- The code the working database `db` records staging it (`meta`'s
