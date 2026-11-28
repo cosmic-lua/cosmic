@@ -1,4 +1,4 @@
---- cosmic.diff against GNU `diff -u`: `bin/cosmic bench/diff.tl [name...]`.
+--- cosmic.diff against GNU `diff -u` and `patch`: `bin/cosmic bench/diff.tl [name...]`.
 --- Each size has two cases: [`Diff.lines`] and [`Diff.unified`] on two texts in this process, and the command as a
 --- program (its start, its run and the read of its output, as a snippet that ran it would pay) with its ratio to the
 --- call. The texts are code-like lines with 0.5 to 2 percent of them edited, and one pair of unrelated texts, where
@@ -87,6 +87,15 @@ local function pair(name: string, old: string, new: string)
     for _ = 1, n do local _ = Diff.unified(Diff.lines(old, new)) end
   end, { bytes = #old + #new })
   bench.case("diff " .. name .. ": command", command({ "diff", "-u", a, b }), { baseline = "diff " .. name })
+  -- The patch `patch` reads is the one `diff -u` would write; it works on a copy, so each run starts from the old text.
+  local hunks = Diff.lines(old, new)
+  local patch_file, work = a .. ".patch", a .. ".work"
+  assert(Fs.write(patch_file, Diff.unified(hunks, { old_name = "f", new_name = "f" })))
+  bench.case("apply " .. name, function(n: integer)
+    for _ = 1, n do assert(Diff.apply(old, hunks).text ~= nil) end
+  end, { bytes = #old })
+  local run = command({ "patch", "-s", "-o", work, a, patch_file })
+  bench.case("apply " .. name .. ": command", run, { baseline = "apply " .. name })
 end
 
 local record Size
