@@ -88,13 +88,14 @@ end
 --- whose daemon is not there fails the start, naming the target.
 local function test_a_daemon_that_is_not_there_fails_the_start(tmp: string)
   local plain = assert(Sandbox.union({ grants = { { connect = "example.com:443" } } }))
-  local same = assert(tailnet.policy(plain, { socket = tmp .. "/none.sock" }))
+  local same = assert(tailnet.policy(plain))
   assert(same == plain)
+  local gone = assert(Tailscale.connect({ socket = tmp .. "/none.sock" }))
   local merged = assert(Sandbox.union({ grants = { { connect = "tag:db:5432" } } }))
-  local none, why = tailnet.policy(merged, { socket = tmp .. "/none.sock" })
+  local none, why = tailnet.policy(merged, gone)
   assert(none == nil and tostring(why):find('^sandbox: connect "tag:db:5432" names nodes of the tailnet') ~= nil, why)
   local child, refused = Child.start({ "/bin/true" }, {
-    timeout_ns = Child.FOREVER, policy = { grants = { { connect = "tag:db:5432" } } }, tailscale = { socket = tmp .. "/none.sock" },
+    timeout_ns = Child.FOREVER, policy = { grants = { { connect = "tag:db:5432" } } }, tailscale = gone,
   })
   assert(child == nil and refused.message:find('connect "tag:db:5432"', 1, true) ~= nil, refused)
 end
@@ -154,11 +155,12 @@ local function test_a_policy_resolves_through_the_daemon_and_refuses_a_target_of
   local said: mut {string} = {}
   with_daemon(tmp, STATUS_JSON, function(socket: string)
     local merged = assert(Sandbox.union({ grants = { { connect = "example.com:443" }, { connect = "tag:db:5432" } } }))
-    local run = assert(tailnet.policy(merged, { socket = socket }))
+    local client = assert(Tailscale.connect({ socket = socket }))
+    local run = assert(tailnet.policy(merged, client))
     local text = table.concat(Sandbox.connects(run), " ")
     said[#said + 1] = text
     local typo = assert(Sandbox.union({ grants = { { connect = "tag:dbs:5432" } } }))
-    local _, why = tailnet.policy(typo, { socket = socket })
+    local _, why = tailnet.policy(typo, client)
     local said_why = tostring(why)
     said[#said + 1] = said_why
   end)
@@ -171,7 +173,7 @@ end
 --- the sandbox was doing in front.
 local function test_a_daemon_that_cannot_be_asked_keeps_the_cause(tmp: string)
   local merged = assert(Sandbox.union({ grants = { { connect = "tag:db:5432" } } }))
-  local _, why = tailnet.policy(merged, { socket = tmp .. "/none.sock" })
+  local _, why = tailnet.policy(merged, assert(Tailscale.connect({ socket = tmp .. "/none.sock" })))
   assert(why ~= nil, "a daemon that is not there was asked")
   assert(tostring(why):find('which tailscaled was asked for: tailscale: ', 1, true) ~= nil, tostring(why))
 end
@@ -181,8 +183,22 @@ local function test_a_node_that_is_not_running_fails_the_start(tmp: string)
   local why = ""
   with_daemon(tmp, '{"Version": "1.90.0", "BackendState": "Stopped", "MagicDNSSuffix": ""}', function(socket: string)
     local merged = assert(Sandbox.union({ grants = { { connect = "tag:db:5432" } } }))
-    local _, trouble = tailnet.policy(merged, { socket = socket })
+    local _, trouble = tailnet.policy(merged, assert(Tailscale.connect({ socket = socket })))
     why = tostring(trouble)
   end)
   assert(why:find("the node is Stopped, so it knows no peers", 1, true) ~= nil, why)
+end
+
+--- A policy that names nodes of the tailnet needs a client to ask; with
+--- none, the start fails, naming the target and what to give.
+local function test_a_tailnet_target_with_no_client_fails_the_start()
+  local merged = assert(Sandbox.union({ grants = { { connect = "example.com:443" }, { connect = "tag:db:5432" } } }))
+  local none, why = tailnet.policy(merged)
+  assert(none == nil and tostring(why) ==
+      'sandbox: connect "tag:db:5432" names nodes of the tailnet, so the start needs tailscale = a client (Tailscale.connect())',
+    tostring(why))
+  local child, refused = Child.start({ "/bin/true" }, {
+    timeout_ns = Child.FOREVER, policy = { grants = { { connect = "tag:db:5432" } } },
+  })
+  assert(child == nil and refused.message:find("needs tailscale = a client", 1, true) ~= nil, refused)
 end

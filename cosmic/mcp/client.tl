@@ -944,7 +944,7 @@ function McpClient.spawn(argv: {string}, opts: Child.Options, client_opts?: McpC
   local given: Child.Options = {
     env = opts.env, cwd = opts.cwd, stdin = "stream", stdout = "stream", stderr = opts.stderr, fds = opts.fds,
     capture_limit = opts.capture_limit, process_group = opts.process_group, timeout_ns = opts.timeout_ns,
-    sandbox = opts.sandbox,
+    sandbox = opts.sandbox, tailscale = opts.tailscale,
   }
   local handle, why = Child.start(argv, given)
   if handle == nil then

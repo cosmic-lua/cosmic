@@ -84,7 +84,7 @@ local Innermost = require("cosmic.internal.innermost_guard")
 local Signal = require("cosmic.signal")
 local Rules = require("cosmic.sandbox")
 local Tailnet = require("cosmic.sandbox.tailnet")
-local type Tailscale = require("cosmic.tailscale")
+local type TsStatus = require("cosmic.tailscale.node")
 local Seatbelt = require("cosmic.sandbox.seatbelt")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
@@ -451,11 +451,12 @@ local record Options
   --- - `connect` may name nodes of the machine's tailnet: `tag:db:5432`
   ---   grants each address of every peer tagged `tag:db`, and
   ---   `user:will@example.com:*` of every untagged peer that user owns, as
-  ---   tailscaled's status lists them when the start runs (`tailscale`
-  ---   names the daemon). Only addresses of Tailscale's ranges are
-  ---   granted. A peer that joins later is not granted; a start whose
-  ---   daemon cannot be asked, whose node is not running, or one of whose
-  ---   targets names no peer fails, naming the target.
+  ---   the status of `tailscale`, the client the start is given, lists
+  ---   them when the start runs. Only addresses of Tailscale's ranges are
+  ---   granted. A peer that joins later is not granted; a start with no
+  ---   `tailscale`, whose daemon cannot be asked, whose node is not
+  ---   running, or one of whose targets names no peer fails, naming the
+  ---   target.
   --- - `connect` gives the child a network namespace of its own, with
   ---   its loopback up and inet sockets, whose only way out is the network
   ---   relay this start runs: a process of this
@@ -656,12 +657,13 @@ local record Options
   --- error fails the start. A policy with no `connect` starts no relay, and
   --- this has no effect.
   relay_log?: RelayLog | integer
-  --- The tailscaled a policy's tailnet `connect` targets (`tag:db:5432`,
+  --- The client a policy's tailnet `connect` targets (`tag:db:5432`,
   --- `user:will@example.com:*`) are resolved through, once, as the start
-  --- runs ([`cosmic.sandbox.tailnet`]): [`Tailscale.connect`]'s options,
-  --- the machine's own daemon when nil. A daemon that cannot be asked, or
-  --- a node that is not running, fails the start.
-  tailscale?: Tailscale.Daemon
+  --- runs ([`cosmic.sandbox.tailnet`]): a [`cosmic.tailscale`] client,
+  --- [`Tailscale.connect()`]. A policy with such a target and no client, a
+  --- daemon that cannot be asked, or a node that is not running fails the
+  --- start.
+  tailscale?: TsStatus.Source
 end
 
 --- What [`Handle.try_wait`] returns.
@@ -3147,7 +3149,7 @@ local record RelayPrep
   dir: string
   --- The policy the relay's process is started under.
   policy: Rules.Policy
-  --- The relay's config, one line of JSON.
+  --- The relay's config, one line of query text ([`RelayConfig.encode`]).
   config: string
   --- Where its decision lines go.
   log: RelayLog | integer
