@@ -2241,6 +2241,7 @@ fn vendorLibraries(
         .files = &curl_sources,
         .flags = &curl_flags,
     });
+    for (libraries.items) |library| harden(b, library.root_module, configuration);
     return libraries.items;
 }
 
@@ -2284,6 +2285,41 @@ fn ownCoreFiles(b: *std.Build, configuration: Configuration, portable_startup_te
         if (configuration.sanitize) "core/testing_checked.c" else "core/testing.c",
     }) catch @panic("OOM");
     return paths.items;
+}
+
+/// Hardens every C and C++ file a release core's module compiles, the
+/// core's own and each vendored library's, so that a memory bug in any of
+/// them meets the compiler's mitigations: stack-clash probes, locals
+/// that start zeroed rather than holding an old frame's bytes, and on
+/// aarch64 Linux return addresses signed with pointer authentication,
+/// which the kernel turns on for every process. The module's
+/// own stack protector (`-fstack-protector-strong`) and position-
+/// independent code, which a static-pie link needs, are set here too.
+/// The checked core is left as it is: its sanitizers catch what these
+/// would hide, and zeroed locals would hide an uninitialized read.
+/// The flags go first, so a file's own flags can override one.
+fn harden(b: *std.Build, mod: *std.Build.Module, configuration: Configuration) void {
+    if (configuration.sanitize) return;
+    const t = mod.resolved_target.?.result;
+    mod.stack_protector = true;
+    if (t.os.tag == .linux) mod.pic = true;
+    var flags: std.ArrayList([]const u8) = .empty;
+    flags.append(b.allocator, "-ftrivial-auto-var-init=zero") catch @panic("OOM");
+    // Darwin's clang has no stack-clash probes; its kernel's guard pages
+    // and the 16 KiB pages that hold them are what it has.
+    if (t.os.tag == .linux) flags.append(b.allocator, "-fstack-clash-protection") catch @panic("OOM");
+    // TODO: landing pads (BTI, IBT) and shadow stacks once the link
+    // marks the core with them: the kernel enforces them only for a
+    // program whose GNU property note says so, and the note is written
+    // only when every object has it, so musl, compiler-rt and the Zig
+    // code leave the core unmarked and the pads would be dead weight.
+    if (t.cpu.arch == .aarch64 and t.os.tag == .linux) flags.append(b.allocator, "-mbranch-protection=pac-ret") catch @panic("OOM");
+    const extra = flags.items;
+    for (mod.link_objects.items) |object| switch (object) {
+        .c_source_file => |file| file.flags = std.mem.concat(b.allocator, []const u8, &.{ extra, file.flags }) catch @panic("OOM"),
+        .c_source_files => |files| files.flags = std.mem.concat(b.allocator, []const u8, &.{ extra, files.flags }) catch @panic("OOM"),
+        else => {},
+    };
 }
 
 fn coreOptimize(configuration: Configuration) std.lang.Optimize {
@@ -2396,10 +2432,14 @@ fn core(
         .map => |map| mod.addCSourceFile(.{ .file = map, .flags = &.{ "-std=c11", debug_dir, "-g0" } }),
     }
 
+    harden(b, mod, configuration);
     const exe = b.addExecutable(.{
         .name = "cosmic-core",
         .root_module = mod,
     });
+    // A release core on Linux is a static PIE, so ASLR moves its code and
+    // data as it moves the stack's; on macOS every executable is one.
+    if (!configuration.sanitize and target.result.os.tag == .linux) exe.pie = true;
     // One section per function and per object, so the linker's garbage
     // collection (on by default in a release link) drops each unreachable
     // function rather than keeping a whole file's code for the one

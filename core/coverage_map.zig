@@ -73,7 +73,44 @@ fn blocksOf(arena: Allocator, io: Io, core_path: []const u8) !Blocks {
     const count = pcs.data.len / 16;
     if (pcs.data.len % 16 != 0 or flags.data.len != count)
         fatal("{s}: {d} flags for a {d}-byte PC table", .{ core_path, flags.data.len, pcs.data.len });
-    return .{ .pcs = pcs.data, .count = count, .format = kind };
+    const table = if (kind.ofmt == .elf) try relocated(arena, file, pcs) else pcs.data;
+    return .{ .pcs = table, .count = count, .format = kind };
+}
+
+/// The PC table as a loader would leave it at a base of 0. A static PIE
+/// (every release core on Linux) leaves each block's address to the loader:
+/// the table's words hold 0 in the file, and the address is the addend of
+/// a RELATIVE relocation in an allocated `SHT_RELA` section. A link that
+/// is not position-independent, or one that packs its relocations as RELR
+/// (whose addend is the word itself), has nothing to apply.
+fn relocated(arena: Allocator, file: []const u8, pcs: Section) ![]const u8 {
+    const table = try arena.dupe(u8, pcs.data);
+    const relative: u32 = switch (read(u16, file, 0x12)) {
+        0x3e => 8, // R_X86_64_RELATIVE
+        0xb7 => 1027, // R_AARCH64_RELATIVE
+        else => unreachable,
+    };
+    const shoff = read(u64, file, 0x28);
+    const shentsize = read(u16, file, 0x3a);
+    const shnum = read(u16, file, 0x3c);
+    for (0..shnum) |i| {
+        const header = shoff + i * shentsize;
+        const sh_type = read(u32, file, header + 0x04);
+        const sh_flags = read(u64, file, header + 0x08);
+        if (sh_type != 4 or sh_flags & 2 == 0) continue; // SHT_RELA, SHF_ALLOC
+        const offset = read(u64, file, header + 0x18);
+        const size = read(u64, file, header + 0x20);
+        if (offset > file.len or size > file.len - offset) fatal("relocation section {d} runs past the file", .{i});
+        var at = offset;
+        while (at + 24 <= offset + size) : (at += 24) {
+            const r_offset = read(u64, file, at);
+            const r_info = read(u64, file, at + 8);
+            if (@as(u32, @truncate(r_info)) != relative) continue;
+            if (r_offset < pcs.address or r_offset + 8 > pcs.address + table.len) continue;
+            std.mem.writeInt(u64, table[r_offset - pcs.address ..][0..8], read(u64, file, at + 16), .little);
+        }
+    }
+    return table;
 }
 
 fn fatal(comptime format: []const u8, args: anytype) noreturn {
@@ -81,7 +118,9 @@ fn fatal(comptime format: []const u8, args: anytype) noreturn {
     std.process.exit(1);
 }
 
-const Section = struct { data: []const u8 };
+/// A section's bytes as the file holds them, and the address it is linked
+/// at (in ELF; 0 for Mach-O, whose table needs no relocating).
+const Section = struct { data: []const u8, address: u64 = 0 };
 
 /// The kind of file a core is, as `std.debug.Info.load` wants it.
 const Format = struct { ofmt: std.Target.ObjectFormat, arch: std.Target.Cpu.Arch };
@@ -131,7 +170,7 @@ fn elfSection(file: []const u8, name: []const u8) ?Section {
         if (!std.mem.eql(u8, found, name)) continue;
         const offset = read(u64, file, header + 0x18);
         const size = read(u64, file, header + 0x20);
-        return .{ .data = file[offset..][0..size] };
+        return .{ .data = file[offset..][0..size], .address = read(u64, file, header + 0x10) };
     }
     return null;
 }
@@ -236,8 +275,9 @@ fn generate(arena: Allocator, io: Io, core_path: []const u8, roots: []const []co
     try blocks.resize(arena, count);
     for (blocks.items(.pc), blocks.items(.index), 0..) |*pc, *index, i| {
         pc.* = read(u64, pcs, i * 16);
-        // A position-independent link leaves these for the loader to fill.
-        if (pc.* == 0) fatal("{s}: the PC table is not filled in; link without PIE", .{core_path});
+        // [`relocated`] fills in what a position-independent link left to
+        // the loader; a word still 0 had no relocation it knows.
+        if (pc.* == 0) fatal("{s}: block {d} has no address in the PC table", .{ core_path, i });
         index.* = @intCast(i);
     }
     blocks.sortUnstable(struct {
