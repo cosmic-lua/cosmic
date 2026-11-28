@@ -801,7 +801,7 @@ local function test_the_index_marks_a_module_private_to_its_package(dir: string)
     "rules.returns.open  Open.",
     "rules.returns.paths  (private to rules/returns/) Paths.",
   }, "\n"), all)
-  local records = assert(Doc.records(both, {})).lines
+  local records = assert(docs.record_lines(both, {})).lines
   local marked = 0
   for _, line in ipairs(records) do
     local object = assert(Json.decode_object(line))
@@ -1128,7 +1128,7 @@ end
 --- show them, one JSON object per line, qualified names in the order given.
 local function test_records_are_one_json_object_per_entry(dir: string)
   local db = built(dir, fs_tree())
-  local both = assert(Doc.records(view({ db }), { "Fs.write", "Fs.read" }))
+  local both = assert(docs.record_lines(view({ db }), { "Fs.write", "Fs.read" }))
   local lines = both.lines
   assert(both.found and #lines == 2, tostring(#lines))
   local write = assert(Json.decode_object(support.nth(lines, 1)))
@@ -1137,7 +1137,7 @@ local function test_records_are_one_json_object_per_entry(dir: string)
   assert(read["symbol"] == "Fs.read" and read["exact"] == true, support.nth(lines, 2))
   assert(read["file"] == "cosmic/fs.tl" and math.type(read["line"]) == "integer", support.nth(lines, 2))
   assert(type(read["signature"]) == "string" and type(read["text"]) == "string", support.nth(lines, 2))
-  local missing = assert(Doc.records(view({ db }), { "Fs.read", "Nope.unheard" }))
+  local missing = assert(docs.record_lines(view({ db }), { "Fs.read", "Nope.unheard" }))
   assert(not missing.found, "a query that finds nothing fails the run")
 end
 
@@ -1153,7 +1153,7 @@ local function test_records_carry_an_examples_code_and_unlink_text(dir: string)
   }))
   local read = assert(Doc.lookup(view({ db }), "Fs.read"))
   local shown = assert(Doc.render(view({ db }), support.nth(read, 1)))
-  local found = assert(Doc.records(view({ db }), { "file", "back" }))
+  local found = assert(docs.record_lines(view({ db }), { "file", "back" }))
   local code: string? = nil
   for _, line in ipairs(found.lines) do
     local object = assert(Json.decode_object(line))
@@ -1164,7 +1164,7 @@ local function test_records_carry_an_examples_code_and_unlink_text(dir: string)
   for line in code:gmatch("[^\n]+") do
     assert(table.concat(shown, "\n"):find("    " .. line, 1, true), line)
   end
-  local module = assert(Doc.records(view({ db }), { "cosmic.linked" }))
+  local module = assert(docs.record_lines(view({ db }), { "cosmic.linked" }))
   assert(#module.lines > 0, "the module is found")
   for _, line in ipairs(module.lines) do
     assert(not line:find("[`", 1, true), line)
@@ -1176,8 +1176,8 @@ end
 --- for the word.
 local function test_records_list_the_modules_as_the_page_does(dir: string)
   local db = built(dir, fs_tree())
-  local all = assert(Doc.records(view({ db }), {}))
-  local library = assert(Doc.records(view({ db }), { "cosmic" }))
+  local all = assert(docs.record_lines(view({ db }), {}))
+  local library = assert(docs.record_lines(view({ db }), { "cosmic" }))
   assert(all.found and library.found)
   local names: mut {string} = {}
   for _, line in ipairs(all.lines) do
@@ -1198,7 +1198,7 @@ end
 --- query gives a row per function.
 local function test_records_load_as_a_table_sql_can_filter(dir: string)
   local db = built(dir, fs_tree())
-  local records = assert(Doc.records(view({ db }), { "Fs.read", "Fs.write" }))
+  local records = assert(docs.record_lines(view({ db }), { "Fs.read", "Fs.write" }))
   local handle = assert(Sqlite.memory())
   assert(dataset.load_text(handle, "docs", "ndjson",
     table.concat(records.lines, "\n") .. "\n"))
@@ -3149,7 +3149,7 @@ local function test_a_misspelled_word_finds_the_documentation_of_the_word_meant(
   local page = table.concat(answer.lines, "\n")
   assert(answer.found and page:find("Nothing named or documented as 'reconclies'; showing 'reconciles':\n", 1, true) == 1,
     page)
-  local records = assert(Doc.records(seen, { "reconclies" }))
+  local records = assert(docs.record_lines(seen, { "reconclies" }))
   assert(support.nth(records.lines, 1):find('"respelled":"reconciles"', 1, true) ~= nil, support.nth(records.lines, 1))
   -- A word found as given is looked up as given, in whatever form the index stems alike.
   for _, given in ipairs({ "reconciles", "reconciling" }) do

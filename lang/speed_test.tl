@@ -39,6 +39,8 @@ local function test_eight_times_the_input_of_a_quadratic_form_is_over_ten_times(
   -- 64 times the steps: a slow moment on the small side in one pair of samples does not bring it under ten.
   local ok, why = Speed.within(quadratic(50), quadratic(400), 10)
   assert(not ok and why:find("over 10 times", 1, true) ~= nil, why)
+  -- The failure says how many pairs it took and how long, so that a failure of a loaded runner can be told from one of the work.
+  assert(why:find(" pairs, ", 1, true) ~= nil and why:find(" ms of wall time)", 1, true) ~= nil, why)
 end
 
 local function test_a_sample_of_work_that_takes_almost_no_time_is_still_read()

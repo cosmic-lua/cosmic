@@ -11,6 +11,14 @@ local test_child = require("build.test_child")
 --- The program itself, started with `-e`.
 Test.policy{ profiles = { "cosmic" } }
 
+--- What a child that did not succeed did: how it ended, then what it printed. A failure line a log cuts short
+--- still says whether the child timed out, was killed or exited with a status.
+local function ended(r: Child.Result): string
+  local how = if r.timed_out then "timed out" elseif r.signal ~= nil then "killed by signal " .. tostring(r.signal)
+    else "exited with status " .. tostring(r.code) end
+  return how .. "; stderr: " .. tostring(r.stderr) .. "; stdout: " .. tostring(r.stdout)
+end
+
 --- Prints the names of the modules loaded, on one line.
 local function print_loaded()
   local names: mut {string} = {}
@@ -49,7 +57,7 @@ local function test_e_loads_none_of_the_verbs(tmp: string)
   local started = Test.cosmic(test_child.words(tmp, "build.dispatch_tool_test", "loaded"),
     { env = {}, cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
-  assert(r.ok, tostring(r.stdout) .. tostring(r.stderr))
+  assert(r.ok, ended(r))
   local loaded = " " .. (r.stdout or "") .. " "
   for _, name in ipairs({ "build.dispatch", "build.exit_status", "build.standalone" }) do
     assert(loaded:find(" " .. name .. " ", 1, true), name .. " is not among " .. loaded)
@@ -64,7 +72,7 @@ local function test_a_verb_loads_its_own_cli_module_alone(tmp: string)
   local started = Test.cosmic(test_child.words(tmp, "build.dispatch_tool_test", "verb_loaded"),
     { env = {}, cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
-  assert(r.ok, tostring(r.stdout) .. tostring(r.stderr))
+  assert(r.ok, ended(r))
   local loaded = " " .. ((r.stdout or ""):gsub("\n", " ")) .. " "
   local clis: mut {string} = {}
   for name in loaded:gmatch("%S+") do
@@ -91,7 +99,7 @@ end
 --- The one-liner of the command-line guide takes the library as a file does, by a literal `require`.
 local function test_e_runs_a_chunk_that_requires_the_library(tmp: string)
   local r = evaluate(tmp, 'local Json = require("cosmic.json") print(assert(Json.encode({ 1, 2 })))')
-  assert(r.ok and r.stdout == "[1,2]\n", tostring(r.stdout) .. tostring(r.stderr))
+  assert(r.ok and r.stdout == "[1,2]\n", ended(r))
 end
 
 --- A chunk requires a module of the working directory's tree, as a file at its root does: the module is checked with
@@ -99,7 +107,7 @@ end
 local function test_e_requires_a_module_of_the_working_directory(tmp: string)
   assert(Fs.write(tmp .. "/util.tl", "local record U\nend\nfunction U.twice(n: integer): integer return n * 2 end\nreturn U\n"))
   local r = evaluate(tmp, 'local U = require("util") print(U.twice(21))')
-  assert(r.ok and r.stdout == "42\n", tostring(r.stdout) .. tostring(r.stderr))
+  assert(r.ok and r.stdout == "42\n", ended(r))
   assert(Fs.write(tmp .. "/util.tl", "local record U\nend\nfunction U.twice(n: integer): integer return \"x\" end\nreturn U\n"))
   local broken = evaluate(tmp, 'local U = require("util") print(U.twice(21))')
   assert(broken.code == 4 and says(broken, "util.tl:3:"), tostring(broken.stderr))
