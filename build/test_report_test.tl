@@ -35,11 +35,19 @@ local function test_failures_sort_and_keep_reruns_and_output_together()
 end
 
 local function test_a_module_s_skips_for_one_reason_are_one_line()
-  local lines = test_report.skips({ "m test_b: no socket", "m test_a: no socket", "m test_c: no tty", "n test_a: no socket" })
+  local lines = test_report.skips({ "m test_b: no socket", "m test_a: no socket", "m test_c: no tty", "n test_a: no pipe" })
   assert(table.concat(lines, "\n") ==
       "test: SKIP  m test_c: no tty\n" ..
       "test: SKIP  m: 2 tests, no socket\n" ..
-      "test: SKIP  n test_a: no socket", table.concat(lines, "\n"))
+      "test: SKIP  n test_a: no pipe", table.concat(lines, "\n"))
+end
+
+local function test_a_reason_several_modules_gave_is_one_line()
+  local lines = test_report.skips({ "m test_b: no socket", "m test_a: no socket", "m test_c: no tty", "n test_a: no socket",
+    "o test_a: no tty" })
+  assert(table.concat(lines, "\n") ==
+      "test: SKIP  2 tests in 2 modules, no tty\n" ..
+      "test: SKIP  3 tests in 2 modules, no socket", table.concat(lines, "\n"))
 end
 
 local function test_a_pass_with_no_assert_is_told_of_skip()

@@ -157,7 +157,54 @@ end
 --- in one line, so a host that lacks what a module checks says so once. A test whose reason no other test of its
 --- module gave keeps its own line.
 function test_report.skips(skips: {string}): {string}
-  return counted(skips, "test: SKIP  ", true)
+  -- A reason that more than one module gave is one line for all of them, with the count of modules; the modules are in
+  -- the run's records: a module name is no help to a host that lacks what the reason names.
+  local modules: mut {string: mut {string: boolean}} = {}
+  local tests: mut {string: integer} = {}
+  local rest: mut {string} = {}
+  for _, entry in ipairs(skips) do
+    local module, why = entry:match("^(%S+) %S+: (.*)$")
+    if module ~= nil and why ~= nil then
+      local of = modules[why]
+      if of == nil then
+        modules[why] = { [module] = true }
+      else
+        of[module] = true
+      end
+      tests[why] = (tests[why] or 0) + 1
+    else
+      rest[#rest + 1] = entry
+    end
+  end
+  local across: mut {string: boolean} = {}
+  for why, of in pairs(modules) do
+    local n = 0
+    for _ in pairs(of) do n = n + 1 end
+    if n > 1 then
+      across[why] = true
+    end
+  end
+  local kept: mut {string} = {}
+  local lines: mut {string} = {}
+  for _, entry in ipairs(skips) do
+    local why = entry:match("^%S+ %S+: (.*)$")
+    if why ~= nil and across[why] == true then
+      -- Counted below, once.
+    else
+      kept[#kept + 1] = entry
+    end
+  end
+  for _, line in ipairs(counted(kept, "test: SKIP  ", true)) do
+    lines[#lines + 1] = line
+  end
+  for why in pairs(across) do
+    local n = 0
+    for _ in pairs(modules[why] or {}) do n = n + 1 end
+    lines[#lines + 1] = "test: SKIP  " .. plural.count(tests[why] or 0, "test") .. " in " .. plural.count(n, "module") ..
+      ", " .. why
+  end
+  table.sort(lines)
+  return lines
 end
 
 --- Each test that passed having made no call to `assert`, sorted as the
