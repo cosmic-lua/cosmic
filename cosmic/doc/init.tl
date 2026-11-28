@@ -836,8 +836,23 @@ local BRIEF_NOTE <const> = 100
 --- would show whole and at length. `found` is false when there is no line; `said` counts them.
 --- Nil and a [`Failure`] when a database cannot be read.
 function Doc.brief(view: Doc.View, words: {string}): (Doc.Answer) | (nil, Failure)
-  local found, why = lookup_text(view, table.concat(words, " "))
-  if found == nil then return nil, Failure.new(why) end
+  -- Several by_name names are each looked up as alone, as [`Doc.answer`] does; other words are one query.
+  local by_name = #words > 1
+  for _, word in ipairs(words) do
+    if word:find(".", 1, true) == nil then by_name = false end
+  end
+  local queries: mut {string} = {}
+  if by_name then
+    for _, word in ipairs(words) do queries[#queries + 1] = word end
+  else
+    queries[1] = table.concat(words, " ")
+  end
+  local found: mut {Types.Entry} = {}
+  for _, query in ipairs(queries) do
+    local part, why = lookup_text(view, query)
+    if part == nil then return nil, Failure.new(why) end
+    for _, entry in ipairs(part) do found[#found + 1] = entry end
+  end
   local lines: mut {string} = {}
   local seen: mut {string: boolean} = {}
   for _, entry in ipairs(found) do
