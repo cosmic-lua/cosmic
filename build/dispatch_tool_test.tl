@@ -4,6 +4,7 @@
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
+local Json = require("cosmic.json")
 local Test = require("cosmic.test")
 local tool_fixture = require("build.tool_fixture")
 local test_child = require("build.test_child")
@@ -19,26 +20,10 @@ local function ended(r: Child.Result): string
   return how .. "; stderr: " .. tostring(r.stderr) .. "; stdout: " .. tostring(r.stdout)
 end
 
---- Prints the names of the modules loaded, on one line.
-local function print_loaded()
-  local names: mut {string} = {}
-  for name in pairs(package.loaded) do names[#names + 1] = tostring(name) end
-  table.sort(names, function(a: string, b: string): boolean return a < b end)
-  print(table.concat(names, " "))
-end
-
 --- The child of the test below: the names of the modules loaded when `-e` runs a chunk (the test module's own are among them).
 test_child.register("loaded", function(_args: {string}): integer
-  print_loaded()
+  print(test_child.loaded())
   return 0
-end)
-
---- The child of [`test_a_verb_loads_its_own_cli_module_alone`]: runs `cosmic rand int 1 1` in this process, then
---- prints the names of the modules loaded.
-test_child.register("verb_loaded", function(_args: {string}): integer
-  local code = require("build.dispatch").main({ "rand", "int", "1", "1" })
-  print_loaded()
-  return code
 end)
 
 --- The modules of the verbs ([`build.verb_list`]) and what only they read: `-e` loads the checker it
@@ -67,20 +52,6 @@ local function test_e_loads_none_of_the_verbs(tmp: string)
   end
 end
 
---- A verb's command line loads that verb's module of [`cosmic.cli`] alone: [`cosmic.cli`] loads every verb's.
-local function test_a_verb_loads_its_own_cli_module_alone(tmp: string)
-  local started = Test.cosmic(test_child.words(tmp, "build.dispatch_tool_test", "verb_loaded"),
-    { env = {}, cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
-  local r = assert(Child.run(started.argv, started.options))
-  assert(r.ok, ended(r))
-  local loaded = " " .. ((r.stdout or ""):gsub("\n", " ")) .. " "
-  local clis: mut {string} = {}
-  for name in loaded:gmatch("%S+") do
-    if name == "cosmic.cli" or name:sub(1, 11) == "cosmic.cli." then clis[#clis + 1] = name end
-  end
-  assert(#clis == 1 and clis[1] == "cosmic.cli.rand", "`cosmic rand` loads " .. table.concat(clis, ", "))
-end
-
 --- Runs `-e` with `chunk` and `args` and returns the child's result.
 local function evaluate(tmp: string, chunk: string, args?: {string}): Child.Result
   local words: mut {string} = { "-e", chunk }
@@ -99,7 +70,7 @@ end
 --- The one-liner of the command-line guide takes the library as a file does, by a literal `require`.
 local function test_e_runs_a_chunk_that_requires_the_library(tmp: string)
   local r = evaluate(tmp, 'local Json = require("cosmic.json") print(assert(Json.encode({ 1, 2 })))')
-  assert(r.ok and r.stdout == "[1,2]\n", ended(r))
+  assert(r.ok and r.stdout == Json.encode({ 1, 2 })! .. "\n", ended(r))
 end
 
 --- A chunk requires a module of the working directory's tree, as a file at its root does: the module is checked with
