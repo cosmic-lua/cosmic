@@ -278,13 +278,12 @@ local function spelled(root: string, spec: declared_key.Spec): string
   return key_parts.key_part("i", spec.id, "") .. "\n" .. preimage
 end
 
-local function test_distinct_specs_spell_distinct_preimages(tmp: string)
+local function fuzz_distinct_specs_spell_distinct_preimages(tmp: string): Fuzz.Target
   local root, host = tmp .. "/tree", tmp .. "/host"
   assert(Fs.mkdirs(root))
   assert(Fs.mkdirs(host))
-  Fuzz.run({
+  return Fuzz.target({
     name = "declared key preimage",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       local one = draw_spec(src)
       local shifted = src:int(0, 1) == 0

@@ -456,10 +456,9 @@ end
 
 -- The properties --------------------------------------------------------------------------------------
 
-local function test_a_type_is_below_itself_and_never_is_below_every_type_and_only_it(tmp: string)
-  Fuzz.run({
+local function fuzz_a_type_is_below_itself_and_never_is_below_every_type_and_only_it(): Fuzz.Target
+  return Fuzz.target({
     name = "relation reflexive and bottom",
-    dir = tmp,
     gen = gen_draws,
     check = function(input: string): boolean, string
       local w = Programs.world()
@@ -497,10 +496,9 @@ local function admits_nil(t: Type): boolean
   return (t.tag == "union") and t.nilable
 end
 
-local function test_only_nil_and_a_type_with_the_nil_flag_admit_nil(tmp: string)
-  Fuzz.run({
+local function fuzz_only_nil_and_a_type_with_the_nil_flag_admit_nil(): Fuzz.Target
+  return Fuzz.target({
     name = "relation nil",
-    dir = tmp,
     gen = gen_draws,
     check = function(input: string): boolean, string
       local w = Programs.world()
@@ -539,10 +537,9 @@ local function test_only_nil_and_a_type_with_the_nil_flag_admit_nil(tmp: string)
   })
 end
 
-local function test_a_mut_collection_is_invariant_and_a_view_is_not_below_it(tmp: string)
-  Fuzz.run({
+local function fuzz_a_mut_collection_is_invariant_and_a_view_is_not_below_it(): Fuzz.Target
+  return Fuzz.target({
     name = "relation mut",
-    dir = tmp,
     gen = gen_draws,
     check = function(input: string): boolean, string
       local w = Programs.world()
@@ -596,10 +593,9 @@ local function test_a_mut_collection_is_invariant_and_a_view_is_not_below_it(tmp
   })
 end
 
-local function test_the_laws_of_a_union_hold(tmp: string)
-  Fuzz.run({
+local function fuzz_the_laws_of_a_union_hold(): Fuzz.Target
+  return Fuzz.target({
     name = "relation union",
-    dir = tmp,
     gen = gen_draws,
     check = function(input: string): boolean, string
       local w = Programs.world()
@@ -650,10 +646,9 @@ local function test_the_laws_of_a_union_hold(tmp: string)
   })
 end
 
-local function test_the_relation_is_transitive(tmp: string)
-  Fuzz.run({
+local function fuzz_the_relation_is_transitive(): Fuzz.Target
+  return Fuzz.target({
     name = "relation transitive",
-    dir = tmp,
     gen = gen_draws,
     check = function(input: string): boolean, string
       local w = Programs.world()
@@ -685,10 +680,9 @@ local function test_the_relation_is_transitive(tmp: string)
   })
 end
 
-local function test_a_weakening_is_above_a_type_and_a_strengthening_below_it(tmp: string)
-  Fuzz.run({
+local function fuzz_a_weakening_is_above_a_type_and_a_strengthening_below_it(): Fuzz.Target
+  return Fuzz.target({
     name = "relation weakening",
-    dir = tmp,
     gen = gen_draws,
     check = function(input: string): boolean, string
       local w = Programs.world()
@@ -767,10 +761,9 @@ local function malformed(w: World, r: Relation.Refusal): string
   return ""
 end
 
-local function test_a_reason_agrees_with_the_answer_and_names_a_pair_that_is_not_related(tmp: string)
-  Fuzz.run({
+local function fuzz_a_reason_agrees_with_the_answer_and_names_a_pair_that_is_not_related(): Fuzz.Target
+  return Fuzz.target({
     name = "relation reasons",
-    dir = tmp,
     gen = gen_draws,
     check = function(input: string): boolean, string
       local w = Programs.world()
@@ -820,10 +813,9 @@ local function crowded(origin: Types.Store): Types.Store
   return store
 end
 
-local function test_a_judge_that_has_settled_other_pairs_and_another_store_agree(tmp: string)
-  Fuzz.run({
+local function fuzz_a_judge_that_has_settled_other_pairs_and_another_store_agree(): Fuzz.Target
+  return Fuzz.target({
     name = "relation caches and stores",
-    dir = tmp,
     gen = gen_draws,
     check = function(input: string): boolean, string
       local w = Programs.world()
@@ -1022,10 +1014,9 @@ local function replay(
   return a, b, ""
 end
 
-local function test_the_path_of_a_refusal_leads_to_the_pair_it_names(tmp: string)
-  Fuzz.run({
+local function fuzz_the_path_of_a_refusal_leads_to_the_pair_it_names(): Fuzz.Target
+  return Fuzz.target({
     name = "relation refusal paths",
-    dir = tmp,
     gen = gen_long,
     check = function(input: string): boolean, string
       local w = Programs.world()
@@ -1093,10 +1084,9 @@ local function leave_all(j: Relation.Judge, count: integer)
   end
 end
 
-local function test_a_pair_with_variables_is_settled_for_its_binders_and_the_relation_stays_transitive(tmp: string)
-  Fuzz.run({
+local function fuzz_a_pair_with_variables_is_settled_for_its_binders_and_the_relation_stays_transitive(): Fuzz.Target
+  return Fuzz.target({
     name = "relation variables under binders",
-    dir = tmp,
     gen = gen_long,
     check = function(input: string): boolean, string
       local w = Programs.world()
@@ -1170,10 +1160,9 @@ end
 
 -- A mistake -----------------------------------------------------------------------------------------------
 
-local function test_a_type_with_a_mistake_in_it_is_related_without_raising_and_explained_as_any_other(tmp: string)
-  Fuzz.run({
+local function fuzz_a_type_with_a_mistake_in_it_is_related_without_raising_and_explained_as_any_other(): Fuzz.Target
+  return Fuzz.target({
     name = "relation invalid",
-    dir = tmp,
     gen = gen_long,
     check = function(input: string): boolean, string
       local w = Programs.world()

@@ -234,6 +234,13 @@ local default_timeout_s = 30
 --- The variable a fuzz property's seconds of drawing are read from
 --- (cosmic/fuzz.tl).
 local fuzz_seconds_variable <const>: Env.Name = "FUZZ_SECONDS"
+--- The variable a fuzz property's count of inputs is read from (cosmic/fuzz.tl).
+local fuzz_iters_variable <const>: Env.Name = "FUZZ_ITERS"
+--- How many inputs `--fuzz-deep` asks each property for, unless FUZZ_ITERS says, as the weekly fuzz job does.
+local fuzz_deep_iters <const> = "10000"
+--- How many seconds `--fuzz-deep` lets each property draw inputs for, unless FUZZ_SECONDS says: a property whose
+--- inputs cost a tenth of a second or more stops there (cosmic/fuzz.tl).
+local fuzz_deep_seconds <const> = "120"
 --- How many times FUZZ_SECONDS a test's deadline is where FUZZ_SECONDS is
 --- set and no deadline is named: room to draw, shrink what failed (up to
 --- 2000 more checks) and report it, as fuzz.yml's 1200 s does for 120.
@@ -2441,7 +2448,7 @@ local function limits_of(values: {string:string}): State.Limits?, string
   -- A fuzz property may draw for FUZZ_SECONDS, then shrink what failed
   -- and report it (cosmic/fuzz.tl): a deadline under that ends the
   -- test before it says what it found.
-  local read_seconds = math.tointeger(tonumber(Env.read(fuzz_seconds_variable) or ""))
+  local read_seconds = math.tointeger(tonumber(test_key.worker_view()[fuzz_seconds_variable] or ""))
   if read_seconds ~= nil and read_seconds > 0 then
     local fuzz_seconds = math.min(read_seconds, most_seconds // fuzz_deadline_factor)
     local wanted = math.max(fuzz_seconds * fuzz_deadline_factor, default_timeout_s)
@@ -2581,6 +2588,8 @@ local record Run
   --- What `--bench` asks: each bench's batches take at least `target_ns` and `rounds` of them are timed, and
   --- `json` prints a JSON object per bench in place of the table; nil for a run that times nothing.
   mut bench?: BenchAsk
+  --- Whether `--fuzz-deep` asks for a deep fuzz run, of only the fuzz properties it selects.
+  mut fuzz_deep?: boolean
 
   -- The checkout ([`hold_checkout`]).
   mut started?: integer
@@ -2670,6 +2679,19 @@ local function read_command(ctx: Run): integer?
   if parsed == nil then
     log:complain("test: " .. parse_trouble)
     return 2
+  end
+  -- A deep fuzz run asks each property for many inputs, for a while each, unless the environment says how many
+  -- and how long; its workers are given them as if they were set by hand, before the limits read FUZZ_SECONDS.
+  if parsed.set["--fuzz-deep"] == true then
+    if parsed.set["--bench"] == true then
+      log:complain("test: --fuzz-deep and --bench are runs of their own: ask for one")
+      return 2
+    end
+    test_key.set_worker_variables({
+      FUZZ_ITERS = Env.read(fuzz_iters_variable) or fuzz_deep_iters,
+      FUZZ_SECONDS = Env.read(fuzz_seconds_variable) or fuzz_deep_seconds,
+    })
+    ctx.fuzz_deep = true
   end
   local limits, limits_trouble = limits_of(parsed.values)
   if limits == nil then
@@ -2805,6 +2827,9 @@ local function read_command(ctx: Run): integer?
     ctx.bench = { target_ns = target_ms * 1000000, rounds = rounds, json = parsed.set["--json"] == true }
     ctx.forced = true
     limits.jobs = 1
+  elseif ctx.fuzz_deep == true then
+    -- A deep fuzz run checks what it selects whatever verdict stands: its verdicts are of other inputs.
+    ctx.forced = true
   else
     for _, flag in ipairs({ "--rounds", "--target-ms", "--json", "--against", "--binary" }) do
       if parsed.values[flag] ~= nil or parsed.set[flag] == true then
@@ -3118,8 +3143,12 @@ local function select_tests(ctx: Run): integer?
             wanted = true
           end
         end
-        -- A bench run chooses only benches.
-        if wanted and (ctx.bench == nil or test_names.is_bench(name)) then
+        -- A bench run chooses only benches, and a deep fuzz run only fuzz properties: the `fuzz_*` functions, and
+        -- every test of a `*_fuzz_test.tl` file, which calls [`Fuzz.run`] itself.
+        local kind_wanted = if ctx.bench ~= nil then test_names.is_bench(name)
+          elseif ctx.fuzz_deep == true then test_names.is_fuzz(name) or m.file:match("_fuzz_test%.tl$") ~= nil
+          else true end
+        if wanted and kind_wanted then
           chosen[#chosen + 1] = name
         end
       end
@@ -3169,6 +3198,12 @@ local function select_tests(ctx: Run): integer?
       log:complain("test: no test in " .. m.path .. " is named " .. name .. "; it has " ..
           table.concat(near, ", ") .. (if #m.tests > #near then ", ..." else "" end))
     end
+    return 1
+  end
+  if ctx.fuzz_deep == true and #selected_modules == 0 then
+    local _, _ = work.close(assert(ctx.handle))
+    log:complain("test: --fuzz-deep: no fuzz property in " .. (if #selectors == 0 then "the tree" else table.concat(selectors, ", ") end) ..
+        ": a fuzz property is a top-level `local function fuzz_*(): Fuzz.Target` of a *_test.tl file (cosmic docs cosmic.fuzz)")
     return 1
   end
   if ctx.bench ~= nil and #selected_modules == 0 then

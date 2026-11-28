@@ -74,10 +74,9 @@ local function total(tz: string): boolean, string
   return true, ""
 end
 
-local function test_reading_a_tz_string_is_total(tmp: string)
-  Fuzz.run({
+local function fuzz_reading_a_tz_string_is_total(): Fuzz.Target
+  return Fuzz.target({
     name = "posix tz read total",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       if src:int(0, 5) == 0 then return Fuzz.bytes(src, 40) end
       return Fuzz.mutate(src, Fuzz.pick(src, samples), 4)
@@ -158,10 +157,9 @@ local function reads_back(input: string): boolean, string
   return true, ""
 end
 
-local function test_a_written_tz_string_reads_back(tmp: string)
-  Fuzz.run({
+local function fuzz_a_written_tz_string_reads_back(): Fuzz.Target
+  return Fuzz.target({
     name = "posix tz reads back",
-    dir = tmp,
     gen = drawn,
     check = reads_back,
     requires = { "read", "daylight saving time" },

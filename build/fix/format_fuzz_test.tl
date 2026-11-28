@@ -162,10 +162,9 @@ local function spoilt(laid: string): {Spoilt}
   return out
 end
 
-local function test_a_layout_that_loses_a_token_or_a_comment_or_moves_a_comment_across_code_is_refused(tmp: string)
-  Fuzz.run({
+local function fuzz_a_layout_that_loses_a_token_or_a_comment_or_moves_a_comment_across_code_is_refused(): Fuzz.Target
+  return Fuzz.target({
     name = "format refuses a spoilt layout",
-    dir = tmp,
     gen = gen_dressed,
     check = function(input: string): boolean, string
       local laid = Format.format(input, "f.tl").text
@@ -189,10 +188,9 @@ local function test_a_layout_that_loses_a_token_or_a_comment_or_moves_a_comment_
   })
 end
 
-local function test_format_of_a_program_written_with_comments_and_blank_lines_is_the_same_and_a_fixed_point(tmp: string)
-  Fuzz.run({
+local function fuzz_format_of_a_program_written_with_comments_and_blank_lines_is_the_same_and_a_fixed_point(): Fuzz.Target
+  return Fuzz.target({
     name = "format keeps a program",
-    dir = tmp,
     gen = gen_dressed,
     check = function(input: string): boolean, string
       return holds(input, "f.tl")
@@ -202,10 +200,9 @@ local function test_format_of_a_program_written_with_comments_and_blank_lines_is
   })
 end
 
-local function test_format_of_a_program_with_a_few_tokens_changed_is_refused_as_a_syntax_error_or_is_the_same(tmp: string)
-  Fuzz.run({
+local function fuzz_format_of_a_program_with_a_few_tokens_changed_is_refused_as_a_syntax_error_or_is_the_same(): Fuzz.Target
+  return Fuzz.target({
     name = "format keeps a mutated program",
-    dir = tmp,
     gen = gen_mutated,
     check = function(input: string): boolean, string
       return holds(input, "f.tl")
@@ -215,10 +212,9 @@ local function test_format_of_a_program_with_a_few_tokens_changed_is_refused_as_
   })
 end
 
-local function test_format_of_any_run_of_tokens_is_refused_as_a_syntax_error_or_is_the_same(tmp: string)
-  Fuzz.run({
+local function fuzz_format_of_any_run_of_tokens_is_refused_as_a_syntax_error_or_is_the_same(): Fuzz.Target
+  return Fuzz.target({
     name = "format keeps any tokens",
-    dir = tmp,
     gen = Programs.pieces,
     check = function(input: string): boolean, string
       return holds(input, "f.tl")
@@ -228,10 +224,9 @@ local function test_format_of_any_run_of_tokens_is_refused_as_a_syntax_error_or_
   })
 end
 
-local function test_format_of_a_program_read_as_a_declaration_file_is_the_same_or_refused_as_a_syntax_error(tmp: string)
-  Fuzz.run({
+local function fuzz_format_of_a_program_read_as_a_declaration_file_is_the_same_or_refused_as_a_syntax_error(): Fuzz.Target
+  return Fuzz.target({
     name = "format keeps a declaration file",
-    dir = tmp,
     gen = gen_dressed,
     check = function(input: string): boolean, string
       reached(input)

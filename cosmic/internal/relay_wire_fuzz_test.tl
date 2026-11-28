@@ -405,10 +405,9 @@ local function authority_of(host: string, kind: string, port: integer): string
   return (if kind == "ipv6" then "[" .. host .. "]" else host end) .. ":" .. tostring(port)
 end
 
-local function test_a_request_built_from_an_answer_reads_back_the_same(tmp: string)
-  Fuzz.run({
+local function fuzz_a_request_built_from_an_answer_reads_back_the_same(): Fuzz.Target
+  return Fuzz.target({
     name = "connect head round trip",
-    dir = tmp,
     gen = gen_connect,
     requires = { "name", "ipv4", "ipv6", "authorization", "rebuilt" },
     shares = { name = 0.05, ipv4 = 0.02, ipv6 = 0.02, authorization = 0.02 },
@@ -437,10 +436,9 @@ local function test_a_request_built_from_an_answer_reads_back_the_same(tmp: stri
   })
 end
 
-local function test_a_socks_request_built_from_an_answer_reads_back_the_same(tmp: string)
-  Fuzz.run({
+local function fuzz_a_socks_request_built_from_an_answer_reads_back_the_same(): Fuzz.Target
+  return Fuzz.target({
     name = "socks request round trip",
-    dir = tmp,
     gen = gen_socks_request,
     requires = { "name", "ipv4", "ipv6", "rebuilt" },
     shares = { name = 0.05, ipv4 = 0.02, ipv6 = 0.02 },
@@ -480,10 +478,9 @@ local function test_a_socks_request_built_from_an_answer_reads_back_the_same(tmp
   })
 end
 
-local function test_a_hello_built_from_an_answer_reads_back_the_same(tmp: string)
-  Fuzz.run({
+local function fuzz_a_hello_built_from_an_answer_reads_back_the_same(): Fuzz.Target
+  return Fuzz.target({
     name = "client hello round trip",
-    dir = tmp,
     gen = gen_hello,
     requires = { "name", "rebuilt" },
     shares = { name = 0.05 },
@@ -504,10 +501,9 @@ local function test_a_hello_built_from_an_answer_reads_back_the_same(tmp: string
   })
 end
 
-local function test_a_username_and_password_built_from_an_answer_reads_back_the_same(tmp: string)
-  Fuzz.run({
+local function fuzz_a_username_and_password_built_from_an_answer_reads_back_the_same(): Fuzz.Target
+  return Fuzz.target({
     name = "socks auth round trip",
-    dir = tmp,
     gen = gen_auth,
     requires = { "rebuilt" },
     shares = { rebuilt = 0.02 },
@@ -529,10 +525,9 @@ local function test_a_username_and_password_built_from_an_answer_reads_back_the_
   })
 end
 
-local function test_a_refusal_reply_is_one_status_line_of_visible_text(tmp: string)
-  Fuzz.run({
+local function fuzz_a_refusal_reply_is_one_status_line_of_visible_text(): Fuzz.Target
+  return Fuzz.target({
     name = "connect refusal reply",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       return Fuzz.pack({ tostring(src:int(400, 599)), if src:int(0, 5) == 0 then ("x"):rep(src:int(190, 220)) else Fuzz.bytes(src, 30) end })
     end,
@@ -561,10 +556,9 @@ local function test_a_refusal_reply_is_one_status_line_of_visible_text(tmp: stri
   })
 end
 
-local function test_a_hello_with_an_encrypted_server_name_is_never_named(tmp: string)
-  Fuzz.run({
+local function fuzz_a_hello_with_an_encrypted_server_name_is_never_named(): Fuzz.Target
+  return Fuzz.target({
     name = "client hello encrypted server name",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       local kinds: {integer} = { 0xfe0d, 0xffce, 0xff02, 0xff03 }
       local sizes: mut {integer} = {}

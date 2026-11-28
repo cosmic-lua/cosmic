@@ -111,10 +111,9 @@ end
 -- span within the representation, and a span or unsatisfiable only for
 -- one well-formed range: where its counts fit an integer, the span the
 -- RFC's arithmetic gives.
-local function test_reading_a_range_is_total_and_within_the_representation(tmp: string)
-  Fuzz.run({
+local function fuzz_reading_a_range_is_total_and_within_the_representation(): Fuzz.Target
+  return Fuzz.target({
     name = "http range total",
-    dir = tmp,
     gen = gen_range,
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
@@ -218,10 +217,9 @@ end
 -- A tag matches itself in every list of well-formed tags, weak or
 -- strong, and only where its opaque part is in the list; any header,
 -- edited or not, is read without raising.
-local function test_none_match_finds_a_tag_in_any_list_of_tags(tmp: string)
-  Fuzz.run({
+local function fuzz_none_match_finds_a_tag_in_any_list_of_tags(): Fuzz.Target
+  return Fuzz.target({
     name = "http none_match",
-    dir = tmp,
     gen = gen_none_match,
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
@@ -267,10 +265,9 @@ local function test_none_match_finds_a_tag_in_any_list_of_tags(tmp: string)
 end
 
 -- Any bytes as an If-None-Match header are read without raising.
-local function test_none_match_is_total_over_any_header(tmp: string)
-  Fuzz.run({
+local function fuzz_none_match_is_total_over_any_header(): Fuzz.Target
+  return Fuzz.target({
     name = "http none_match total",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       local base = '"v1", W/"x,y" , *'
       return if src:int(0, 1) == 0 then Fuzz.mutate(src, base, 6) else Fuzz.bytes(src, 24) end

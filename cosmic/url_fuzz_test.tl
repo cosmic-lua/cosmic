@@ -30,10 +30,9 @@ local function gen_text(src: Fuzz.Source): string
   return table.concat(out)
 end
 
-local function test_escape_writes_only_unreserved_bytes_and_unescape_takes_it_back(tmp: string)
-  Fuzz.run({
+local function fuzz_escape_writes_only_unreserved_bytes_and_unescape_takes_it_back(): Fuzz.Target
+  return Fuzz.target({
     name = "url escape round trip",
-    dir = tmp,
     gen = gen_text,
     requires = { "escaped", "unreserved" },
     shares = { escaped = 0.3 },
@@ -56,10 +55,9 @@ local function test_escape_writes_only_unreserved_bytes_and_unescape_takes_it_ba
   })
 end
 
-local function test_unescape_is_total_and_exact(tmp: string)
-  Fuzz.run({
+local function fuzz_unescape_is_total_and_exact(): Fuzz.Target
+  return Fuzz.target({
     name = "url unescape total",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       local text = gen_text(src)
       if src:int(0, 2) == 0 then
@@ -127,10 +125,9 @@ local function gen_path(src: Fuzz.Source): string
   return Fuzz.pack(parts)
 end
 
-local function test_segments_answer_no_climb_and_read_back_escaped_names(tmp: string)
-  Fuzz.run({
+local function fuzz_segments_answer_no_climb_and_read_back_escaped_names(): Fuzz.Target
+  return Fuzz.target({
     name = "url segments",
-    dir = tmp,
     gen = gen_path,
     requires = { "segments", "root", "refused", "climb refused" },
     shares = { segments = 0.1, refused = 0.1 },
@@ -187,12 +184,11 @@ local function test_segments_answer_no_climb_and_read_back_escaped_names(tmp: st
   })
 end
 
-local function test_parse_is_total(tmp: string)
+local function fuzz_parse_is_total(): Fuzz.Target
   local samples <const> = { "http://example.com/", "https://u:p@[::1]:8443/a%20b?q=1#f", "HTTP://H:0",
     "x-y+z.w://host:65535/p?", "http://a@b/c#", "file:///" }
-  Fuzz.run({
+  return Fuzz.target({
     name = "url parse total",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       if src:int(0, 3) == 0 then return gen_text(src) end
       return Fuzz.mutate(src, Fuzz.pick(src, samples), 4)
@@ -236,10 +232,9 @@ local HOSTS <const> = { "example.com", "EXAMPLE.org", "127.0.0.1", "[::1]", "[20
   "h-1.x_y~z", "a!$&'()*+,;=b" }
 local PORTS <const> = { "0", "80", "008080", "65535", "" }
 
-local function test_parse_reads_back_the_parts_a_url_was_built_from(tmp: string)
-  Fuzz.run({
+local function fuzz_parse_reads_back_the_parts_a_url_was_built_from(): Fuzz.Target
+  return Fuzz.target({
     name = "url parse parts",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       local function maybe(choice: string): string
         return if src:int(0, 1) == 0 then "" else choice end
@@ -296,10 +291,9 @@ local function gen_pairs(src: Fuzz.Source): string
   return Fuzz.pack(fields)
 end
 
-local function test_encode_query_decodes_back_to_the_same_pairs(tmp: string)
-  Fuzz.run({
+local function fuzz_encode_query_decodes_back_to_the_same_pairs(): Fuzz.Target
+  return Fuzz.target({
     name = "url query round trip",
-    dir = tmp,
     gen = gen_pairs,
     requires = { "pairs", "repeated" },
     shares = { pairs = 0.5 },
@@ -347,10 +341,9 @@ local function test_encode_query_decodes_back_to_the_same_pairs(tmp: string)
   })
 end
 
-local function test_decode_query_is_total_and_keeps_what_it_reads(tmp: string)
-  Fuzz.run({
+local function fuzz_decode_query_is_total_and_keeps_what_it_reads(): Fuzz.Target
+  return Fuzz.target({
     name = "url query total",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       local pieces: mut {string} = {}
       while Fuzz.more(src, #pieces, 12) do

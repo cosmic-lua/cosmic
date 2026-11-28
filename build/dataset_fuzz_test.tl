@@ -64,10 +64,9 @@ local function rows_from(input: string): {dataset.Row}
 end
 
 -- Any rows load, into distinct columns, and each row reads back whole.
-local function test_a_loaded_row_reads_back_through_json(tmp: string)
-  Fuzz.run({
+local function fuzz_a_loaded_row_reads_back_through_json(): Fuzz.Target
+  return Fuzz.target({
     name = "dataset load round trip",
-    dir = tmp,
     gen = gen_rows,
     requires = { "renamed", "plain", "no rows", "refused" },
     shares = { renamed = 0.05, refused = 0.02 },
@@ -150,10 +149,9 @@ local function gen_text(src: Fuzz.Source): string
 end
 
 -- Any text is rows or a message, never a raise, and rows always load.
-local function test_a_reader_is_total_on_any_text(tmp: string)
-  Fuzz.run({
+local function fuzz_a_reader_is_total_on_any_text(): Fuzz.Target
+  return Fuzz.target({
     name = "dataset read total",
-    dir = tmp,
     gen = gen_text,
     requires = { "read", "refused" },
     shares = { read = 0.15, refused = 0.15 },
@@ -198,10 +196,9 @@ end
 
 -- Whatever the key, `SELECT "<column>"` reads back its value from each
 -- row: what the quoting and the renaming exist for.
-local function test_each_key_reads_back_by_its_column(tmp: string)
-  Fuzz.run({
+local function fuzz_each_key_reads_back_by_its_column(): Fuzz.Target
+  return Fuzz.target({
     name = "dataset column read back",
-    dir = tmp,
     gen = gen_rows,
     requires = { "renamed", "quoted", "read" },
     shares = { renamed = 0.05, quoted = 0.15 },
@@ -294,12 +291,11 @@ end
 --- table `read` and `load` make of it, cell for cell, with the same
 --- columns, renamings and `_json` members; and what one refuses the other
 --- refuses with the same words.
-local function test_load_text_makes_the_table_read_and_load_make(tmp: string)
+local function fuzz_load_text_makes_the_table_read_and_load_make(tmp: string): Fuzz.Target
   local Fs = require("cosmic.fs")
   local path = tmp .. "/rows"
-  Fuzz.run({
+  return Fuzz.target({
     name = "dataset load_text agrees with read and load",
-    dir = tmp,
     gen = gen_delimited,
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)

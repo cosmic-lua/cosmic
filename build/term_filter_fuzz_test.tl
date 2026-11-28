@@ -200,10 +200,9 @@ local function linear_holds(input: string): boolean, string
   return true, ""
 end
 
-local function test_the_output_is_safe(tmp: string)
-  Fuzz.run({
+local function fuzz_the_output_is_safe(): Fuzz.Target
+  return Fuzz.target({
     name = "term filter output is safe",
-    dir = tmp,
     gen = gen_stream,
     check = safe_holds,
     requires = { "answered", "a sequence passed", "a mode passed", "an osc", "a sequence dropped",
@@ -211,20 +210,18 @@ local function test_the_output_is_safe(tmp: string)
   })
 end
 
-local function test_pieces_agree_with_the_whole(tmp: string)
-  Fuzz.run({
+local function fuzz_pieces_agree_with_the_whole(): Fuzz.Target
+  return Fuzz.target({
     name = "term filter split feeding",
-    dir = tmp,
     gen = gen_stream,
     check = split_holds,
     requires = { "passed", "answered", "utf-8" },
   })
 end
 
-local function test_the_work_is_linear(tmp: string)
-  Fuzz.run({
+local function fuzz_the_work_is_linear(): Fuzz.Target
+  return Fuzz.target({
     name = "term filter linear work",
-    dir = tmp,
     gen = gen_stream,
     check = linear_holds,
     requires = { "fed" },

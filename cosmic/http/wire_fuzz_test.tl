@@ -262,10 +262,9 @@ end
 
 -- Reading any bytes ends, in a head or a refusal the server sends,
 -- with no body past its limit.
-local function test_reading_requests_is_total_and_bounded(tmp: string)
-  Fuzz.run({
+local function fuzz_reading_requests_is_total_and_bounded(): Fuzz.Target
+  return Fuzz.target({
     name = "http wire total",
-    dir = tmp,
     gen = gen_bytes,
     check = function(input: string): boolean, string
       local data, sizes = bytes_and_sizes(input)
@@ -278,10 +277,9 @@ local function test_reading_requests_is_total_and_bounded(tmp: string)
 end
 
 -- The same bytes read the same however they arrive.
-local function test_any_chunking_reads_the_same(tmp: string)
-  Fuzz.run({
+local function fuzz_any_chunking_reads_the_same(): Fuzz.Target
+  return Fuzz.target({
     name = "http wire chunking",
-    dir = tmp,
     gen = gen_bytes,
     check = function(input: string): boolean, string
       local data, sizes = bytes_and_sizes(input)
@@ -301,10 +299,9 @@ local function test_any_chunking_reads_the_same(tmp: string)
 end
 
 -- A request written out is read back as it was written.
-local function test_a_written_request_reads_back(tmp: string)
-  Fuzz.run({
+local function fuzz_a_written_request_reads_back(): Fuzz.Target
+  return Fuzz.target({
     name = "http wire round trip",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       local fields: mut {string} = {}
       draw_request(src, fields)
@@ -390,10 +387,9 @@ local LENGTH_NAMES <const> = { "Content-Length", "content-length", "CONTENT-LENG
 -- A reply carries no body where it may not, and its Content-Length is
 -- the bytes sent after its head, one the handler gave held to them; a
 -- reply cut short closes.
-local function test_a_reply_is_framed_as_its_status_and_method_say(tmp: string)
-  Fuzz.run({
+local function fuzz_a_reply_is_framed_as_its_status_and_method_say(): Fuzz.Target
+  return Fuzz.target({
     name = "http wire reply",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       local status = if src:int(0, 2) == 0 then src:int(100, 999) else
         Fuzz.pick(src, { 100, 200, 201, 204, 304, 404, 500 }) end

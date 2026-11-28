@@ -289,10 +289,9 @@ end
 
 -- The properties --------------------------------------------------------------------------------
 
-local function test_making_a_type_again_finds_it_and_adds_none(tmp: string)
-  Fuzz.run({
+local function fuzz_making_a_type_again_finds_it_and_adds_none(): Fuzz.Target
+  return Fuzz.target({
     name = "types intern",
-    dir = tmp,
     gen = gen_draws,
     check = function(input: string): boolean, string
       local draws = Programs.numbers(input)
@@ -363,10 +362,9 @@ local function shuffled(list: {Types.Type}, by: integer): {Types.Type}
   return odd
 end
 
-local function test_a_union_does_not_depend_on_the_order_grouping_or_store_of_its_members(tmp: string)
-  Fuzz.run({
+local function fuzz_a_union_does_not_depend_on_the_order_grouping_or_store_of_its_members(): Fuzz.Target
+  return Fuzz.target({
     name = "union order",
-    dir = tmp,
     gen = gen_draws,
     check = function(input: string): boolean, string
       local draws = Programs.numbers(input)
@@ -451,10 +449,9 @@ local function test_a_union_does_not_depend_on_the_order_grouping_or_store_of_it
   })
 end
 
-local function test_text_decodes_to_the_same_type_in_its_store_and_in_another(tmp: string)
-  Fuzz.run({
+local function fuzz_text_decodes_to_the_same_type_in_its_store_and_in_another(): Fuzz.Target
+  return Fuzz.target({
     name = "types decode",
-    dir = tmp,
     gen = gen_draws,
     check = function(input: string): boolean, string
       local draws = Programs.numbers(input)
@@ -498,10 +495,9 @@ local function test_text_decodes_to_the_same_type_in_its_store_and_in_another(tm
   })
 end
 
-local function test_the_display_of_a_type_parses_and_lowers_to_the_same_type(tmp: string)
-  Fuzz.run({
+local function fuzz_the_display_of_a_type_parses_and_lowers_to_the_same_type(): Fuzz.Target
+  return Fuzz.target({
     name = "types display parses",
-    dir = tmp,
     gen = gen_draws,
     check = function(input: string): boolean, string
       local draws = Programs.numbers(input)
@@ -541,10 +537,9 @@ local function gen_mutated_text(src: Fuzz.Source): string
   return Fuzz.mutate(src, Types.encode(t), 4)
 end
 
-local function test_text_with_a_few_bytes_changed_decodes_to_a_type_in_normal_form_or_is_refused(tmp: string)
-  Fuzz.run({
+local function fuzz_text_with_a_few_bytes_changed_decodes_to_a_type_in_normal_form_or_is_refused(): Fuzz.Target
+  return Fuzz.target({
     name = "types decode mutated text",
-    dir = tmp,
     gen = gen_mutated_text,
     check = function(input: string): boolean, string
       -- A store with no declaration, which loads them from the fixture's as the text meets them.
