@@ -175,6 +175,7 @@ local command: Flags.Command = {
     ["--run"] = { value = "path", about = "grant a path to read and run (rx)" },
     ["--write"] = { value = "path", about = "grant a path to read, write and create in (rwc)" },
     ["--path"] = { value = "letters:path", about = "grant a path the letters of rwxcu, in that order" },
+    ["--cap"] = { value = "letters:path", about = "hold the other grants to r or rx at a path and beneath it" },
     ["--system"] = { about = "the libraries and files a host's programs read" },
     ["--programs"] = { about = "run the host's programs from the program, as a shell does" },
     ["--database"] = { value = "path", about = "run this program on a sealed database: only its modules load",

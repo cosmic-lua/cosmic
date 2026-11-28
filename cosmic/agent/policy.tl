@@ -78,13 +78,20 @@
 --- nest: there a command that sandboxes itself again is refused. On
 --- both, a command may make no unix socket.
 ---
---- In a git worktree, whose .git is a file ("gitdir: path"), the
---- gitdir it names and the common git dir that gitdir's commondir
---- names are granted as the working directory is, so git status, diff
---- and stash work as in a plain checkout (read alone under --sandbox
---- read). Each is granted only as git links them: the gitdir is
---- <common>/worktrees/<name>, and its gitdir file names this .git
---- back; anything else grants nothing.
+--- The repository is read alone: under --sandbox write, the working
+--- directory's .git is capped to r, so no command or snippet writes a
+--- hook, a filter or a core.fsmonitor that would run when you next run
+--- git. Host.git's add and commit write it, served by the agent's own
+--- process. In a git worktree, whose .git is a file ("gitdir: path"),
+--- the gitdir it names and the common git dir that gitdir's commondir
+--- names are granted and capped as .git is, so git status and diff
+--- work as in a plain checkout. Each is granted only as git links them:
+--- the gitdir is <common>/worktrees/<name>, and its gitdir file names
+--- this .git back; anything else grants nothing.
+---
+--- The program that runs the agent is read and run: where the working
+--- directory holds it (./bin/cosmic), what holds it there (./bin) is
+--- capped to rx, so a snippet cannot change what the next run runs.
 ---
 --- A command's process group ends when it ends, times out, or the turn
 --- is stopped; on Linux, so does what it started outside the group,
@@ -131,6 +138,16 @@ local record Policy
     --- own root (as a company's does) is trusted as the user's are. It
     --- must be a file, outside `kept_out`; one not there is not given.
     cert_file?: string
+    --- The program that runs the agent (Proc.executable). Where a
+    --- writable grant holds it, the entry beneath that grant which holds
+    --- it is capped to rx, so a snippet cannot patch what the next run
+    --- runs; where no grant holds it, it is granted rx, so the commands
+    --- can run `cosmic` by its path. What starts it is not held: a
+    --- launcher script in the tree (a checkout's bin/cosmic, and what it
+    --- reads) and the sources a tool rebuilds itself from stay as
+    --- writable as the tree, so an agent run on its own checkout holds
+    --- the next run no better than the tree.
+    executable?: string
   end
 
   --- What the agent's own process needs beside what it starts, for
@@ -351,8 +368,18 @@ function Policy.of(cwd: string, config: Policy.Config): Sandbox.Policy?, string
   local letters = if config.mode == "write" then "rwxc" else "rx" end
   local grants: mut {Sandbox.Grant} = { { path = root, letters = letters } }
   -- A worktree reaches its repository as a plain checkout reaches its .git.
+  local repository: mut {string} = {}
   for _, dir in ipairs(worktree_dirs(root)) do
     grants[#grants + 1] = { path = dir, letters = letters }
+    repository[#repository + 1] = dir
+  end
+  -- The repository is read alone: a hook, a filter or core.fsmonitor
+  -- written there would run when a person next runs git. Host.git's add
+  -- and commit are served by the agent's own process, outside this.
+  local dotgit, _ = Fs.status(root .. "/.git")
+  if dotgit ~= nil and dotgit.exists then table.insert(repository, 1, root .. "/.git") end
+  if config.mode == "write" then
+    for _, dir in ipairs(repository) do grants[#grants + 1] = { at_most = dir, letters = "r" } end
   end
   for _, path in ipairs(READS) do
     local real, _ = Fs.absolute(path)
@@ -368,6 +395,28 @@ function Policy.of(cwd: string, config: Policy.Config): Sandbox.Policy?, string
       end
     end
     grants[#grants + 1] = g
+  end
+  local executable = config.executable
+  if executable ~= nil then
+    local real, _ = Fs.absolute(executable)
+    local held: Sandbox.Path? = nil
+    for _, g in ipairs(grants) do
+      if g is Sandbox.Path and Fs.within(real or executable, g.path) and
+          (held == nil or #g.path > #held.path) then held = g end
+    end
+    if real == nil then
+      -- Not there by its name: nothing to grant or cap.
+    elseif held == nil then
+      grants[#grants + 1] = { path = real, letters = "rx" }
+    elseif held.letters:find("[wc]") ~= nil then
+      -- The entry beneath the grant, not the file alone: a directory
+      -- renamed away with the file in it leaves its name to be made anew.
+      local entry = real
+      while Fs.dirname(entry) ~= held.path and Fs.dirname(entry) ~= entry do
+        entry = Fs.dirname(entry)
+      end
+      if entry ~= held.path then grants[#grants + 1] = { at_most = entry, letters = "rx" } end
+    end
   end
   local guarded: mut {string} = { root }
   for _, dir in ipairs(program_dirs(config.path or "", config.user_home, guarded, config.kept_out or {})) do
@@ -467,6 +516,13 @@ function Policy.session(tools: Sandbox.Policy, session: Policy.Session): Sandbox
       grants[#grants + 1] = { profile = profile }
     end
   end
+  -- What a cap holds the tools to read the agent itself still writes:
+  -- it serves Host.git's add and commit in the repository the tools only
+  -- read. The cap that leaves the agent's own program `rx` stays: the agent
+  -- runs it, for the worker, and has no cause to write it.
+  for _, cap in ipairs(Sandbox.caps(tools)) do
+    if cap.letters == "r" then grants[#grants + 1] = { path = cap.at_most, letters = "rwc" } end
+  end
   for _, dir in ipairs(session.keeps) do grants[#grants + 1] = { path = dir, letters = "rwc" } end
   for _, file in ipairs(session.reads) do grants[#grants + 1] = { path = file, letters = "r" } end
   for _, target in ipairs(session.connect) do grants[#grants + 1] = { connect = target } end
@@ -521,6 +577,13 @@ function Policy.describe(p: Sandbox.Policy, home?: string): {string}
     return a.path < b.path
   end)
   for _, g in ipairs(grants) do out[#out + 1] = string.format("  %-5s %s", g.letters, g.path) end
+  local caps = Sandbox.caps(p)
+  if #caps > 0 then
+    out[#out + 1] = "caps (no more than these letters, there and beneath):"
+    for _, cap in ipairs(caps) do
+      out[#out + 1] = string.format("  %-5s %s", cap.letters, cap.at_most)
+    end
+  end
   local profiles = Sandbox.profiles(p)
   if #profiles > 0 then out[#out + 1] = "profiles: " .. table.concat(profiles, " ") end
   if setup.tmp == true then

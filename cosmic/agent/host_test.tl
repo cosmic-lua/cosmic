@@ -117,8 +117,8 @@ local function test_the_helpers_do_as_their_commands_do(tmp: string)
   assert(target == "e.txt", target)
 end
 
---- A snippet reads and changes a repository through Host.git_*, with no git program: a commit of one file leaves the
---- other changes alone, a diff is the working tree against HEAD, and the files of `.git` are not written.
+--- A snippet reads a repository through Host.git_*, with no git program: a diff is the working tree against HEAD,
+--- a commit of one file leaves the other changes alone, and the files of `.git` are not written by Host.write.
 local function test_git_calls_commit_one_file_and_guard_dot_git(tmp: string)
   local sys = require("cosmic.sys")
   local Git = require("cosmic.git")
@@ -145,8 +145,9 @@ local function test_git_calls_commit_one_file_and_guard_dot_git(tmp: string)
     local diff = Host.git_diff({ "a.txt" })
     assert(diff:find("+more", 1, true) ~= nil and diff:find("a/a.txt", 1, true) ~= nil and
         diff:find("b.txt", 1, true) == nil, diff)
-    Host.git_add({ "a.txt" })
-    local oid = Host.git_commit("a: add more")
+    -- Host.git_add and Host.git_commit are served by the agent (build/agent_git_test.tl).
+    assert(repo:add({ "a.txt" }))
+    local oid = assert(repo:commit({ message = "a: add more", author = who, committer = who }))
     local log = Host.git_log(2)
     assert(#log == 2 and log[1]!.oid == oid and log[1]!.message == "a: add more\n", "log")
     local after = Host.git_status()

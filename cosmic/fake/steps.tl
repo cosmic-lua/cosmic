@@ -532,12 +532,12 @@ function Steps.find_writable(root: string): integer?
 end
 
 --- Runs `argv` as a child isolated to its own files, granted to run
---- `argv[1]` and read `.`, and `loopback` where given: says
+--- `argv[1]` and `letters` on `.` ("r" where nil), and `loopback` where given: says
 --- `exit <status>` and what it printed, or why it did not start, to
 --- stdout.
-function Steps.run_isolated(argv: {string}, loopback?: {string}): integer?
+function Steps.run_isolated(argv: {string}, loopback?: {string}, letters?: string): integer?
   if #argv == 0 then return Steps.fail("run-isolated", "no program") end
-  local grants: mut {Sandbox.Grant} = { { path = argv[1]!, letters = "rx" }, { path = ".", letters = "r" } }
+  local grants: mut {Sandbox.Grant} = { { path = argv[1]!, letters = "rx" }, { path = ".", letters = letters or "r" } }
   for _, address in ipairs(loopback or {}) do grants[#grants + 1] = { loopback = address } end
   local result, trouble = Child.run(argv, { timeout_ns = Child.FOREVER, policy = {
     isolate = { "file" }, grants = grants }, stdout = "capture", stderr = "stdout" })
