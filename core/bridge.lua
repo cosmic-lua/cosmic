@@ -22,9 +22,9 @@
 --
 --   * `compiler`: stage two's Lua for the seed's files, keyed by the digests of the seed's Lua, of the files' sources,
 --     of the seed list and of this file.
---   * `modules`: the Lua of every module loaded up to [`build.boot`], keyed by the compiler's key and the digest of
---     every `.tl` and `.h` under the root (`manifest`). A row is kept only if the tree is, after the load, the tree the
---     key names.
+--   * `modules`: the Lua of every module loaded until [`build.boot`]'s function returns, keyed by the compiler's key
+--     and the digest of every `.tl` and `.h` under the root (`manifest`). A row is kept only if the tree is, after the
+--     run, the tree the key names.
 --
 -- A row also holds the digest of the declarations it was made with, which `declare` has to reproduce before a module is
 -- taken from it. A row's Lua runs, so the file is trusted only as [`Fs.cache_dir`] and [`shared_compiles.open`] trust
@@ -699,8 +699,8 @@ end
 
 -- `stage_two`, the entry that `bootstrap` returned, makes the searcher for `require`: every module loaded is taken
 -- from the `modules` row where one stands (see the top of this file), without reading or compiling it. Otherwise it is
--- compiled, and what is compiled up to the loading of [`build.boot`] -- the whole of its closure, which it requires at
--- its top -- is kept as the row. A module loaded after that is compiled and not kept.
+-- compiled, and what is loaded until [`build.boot`]'s function returns -- the whole of its closure, which it requires at
+-- its top, and every module it requires as it runs -- is kept as the row.
 --
 -- `variables`, when given, is the variables `COSMIC_BUILD_CACHE`, `XDG_CACHE_HOME` and `HOME` are read from, in place
 -- of the process's own.
@@ -742,14 +742,29 @@ local function searcher_for(stage_two, variables)
     return checked
   end
 
-  -- Writes the row once [`build.boot`] has loaded, unless it was hit or the tree is no longer the one the key names.
+  -- Writes the row once [`build.boot`] has run, unless the row was hit and this run compiled nothing, or the tree is no
+  -- longer the one the key names.
+  -- A row hit with a module it lacks (one a later boot's mode loads alone) is written again with the module added and
+  -- those of the row this boot did not load kept, so the row grows to what every mode loads and stops changing.
   local function seal()
     if sealed then return end
     sealed = true
-    trace(string.format('build.boot loaded: %d modules compiled in %.2f s', compiled, compile_ns / 1e9))
-    if key and (not from or rewrite) and manifest(root) == tree then
+    trace(string.format('build.boot ran: %d modules compiled in %.2f s', compiled, compile_ns / 1e9))
+    if key and (not from or rewrite or compiled > 0) and manifest(root) == tree then
       local file = cache_file(variables, true)
       if file then
+        if from then
+          local loaded = {}
+          for _, record in ipairs(made) do loaded[record.name] = true end
+          local rest = {}
+          for name in pairs(from) do
+            if not loaded[name] then rest[#rest + 1] = name end
+          end
+          table.sort(rest)
+          for _, name in ipairs(rest) do
+            made[#made + 1] = { name = name, file = from[name].file, code = from[name].code }
+          end
+        end
         keep(file, 'modules', key, declared_digest(), pack_records(made))
       end
     end
@@ -793,11 +808,26 @@ local function searcher_for(stage_two, variables)
       remember(name, module.file, module.code)
     end
     if name == 'build.boot' then
+      -- The row is written once build.boot's function returns or raises, so that it holds the modules the boot loads
+      -- as it runs (the parser and the checker a stage requires when it needs them) as well as build.boot's closure.
       local loader = chunk
       chunk = function(...)
-        local results = table.pack(loader(...))
-        seal()
-        return table.unpack(results, 1, results.n)
+        local loaded = table.pack(loader(...))
+        trace(string.format('build.boot loaded: %d modules compiled in %.2f s', compiled, compile_ns / 1e9))
+        local run = loaded[1]
+        if type(run) == 'function' then
+          loaded[1] = function(...)
+            local results = table.pack(pcall(run, ...))
+            -- The row is a cache: a failure to write it is traced, and never takes the place of the run's own result.
+            local sealed_ok, seal_err = pcall(seal)
+            if not sealed_ok then trace('the row was not written: ' .. tostring(seal_err)) end
+            if not results[1] then error(results[2], 0) end
+            return table.unpack(results, 2, results.n)
+          end
+        else
+          seal()
+        end
+        return table.unpack(loaded, 1, loaded.n)
       end
     end
     return chunk, file
