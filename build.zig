@@ -980,6 +980,12 @@ pub fn build(b: *std.Build) void {
     const sources: Sources = .{ .own = own, .lua = lua, .sqlite = sqlite, .sqlite_ext = sqlite_ext, .miniz = miniz, .monocypher = monocypher, .nanopb = nanopb, .mbedtls = mbedtls, .bzip2 = bzip2, .xz = xz, .zstd = zstd, .cares = cares, .curl = curl, .yyjson = yyjson, .simdutf = simdutf, .expat = expat, .sha1dc = sha1dc, .config = config };
 
     const host_name = hostName(b);
+    // Every target's release vendor libraries, as a prerelease publishes them
+    // (build/vendor_libs.tl packs them).
+    const vendor_libs = b.step("vendor-libs", "build every target's release vendor libraries into vendor-libs/");
+    // A bundle of the host's, unpacked and checked by bin/zig, which the
+    // host's release core links in place of compiling them.
+    const prebuilt_dir = b.option([]const u8, "vendor-libs", "a directory of the host's prebuilt release vendor libraries; bin/zig passes it");
     for (targets) |t| {
         // The zstd decode stub of this target ([`unzstdStub`]), built
         // apart from the core and installed beside it. Only the host's is
@@ -994,7 +1000,18 @@ pub fn build(b: *std.Build) void {
         if (std.mem.eql(u8, t.name, host_name)) boot.dependOn(&stub_out.step);
 
         const resolved = b.resolveTargetQuery(t.query);
-        const vendor = vendorLibraries(b, t, release_configuration, resolved, sources);
+        const compiled = vendorLibraries(b, t, release_configuration, resolved, sources);
+        for (compiled) |library| {
+            const lib_out = b.addInstallFile(
+                library.getEmittedBin(),
+                b.fmt("vendor-libs/{s}/lib{s}.a", .{ t.name, library.name }),
+            );
+            vendor_libs.dependOn(&lib_out.step);
+        }
+        const vendor = if (prebuilt_dir != null and std.mem.eql(u8, t.name, host_name))
+            prebuiltVendor(b, prebuilt_dir.?)
+        else
+            emitted(b, compiled);
         const exe = observedCore(b, mapper, cores, t, release_configuration, resolved, sources, vendor);
         const out = b.addInstallFile(
             exe.getEmittedBin(),
@@ -1082,7 +1099,7 @@ pub fn build(b: *std.Build) void {
     sanitized.dependOn(analyzed);
     const checked_target = hostTarget(b);
     const checked_host = baselineTarget(b, checked_target.query);
-    const checked_vendor = vendorLibraries(b, checked_target, sanitized_configuration, checked_host, sources);
+    const checked_vendor = emitted(b, vendorLibraries(b, checked_target, sanitized_configuration, checked_host, sources));
     const checked = observedCore(b, mapper, sanitized, checked_target, sanitized_configuration, checked_host, sources, checked_vendor);
     const checked_install = b.addInstallFile(
         checked.getEmittedBin(),
@@ -1599,7 +1616,7 @@ fn observedCore(
     configuration: Configuration,
     target: std.Build.ResolvedTarget,
     sources: Sources,
-    vendor: []const *std.Build.Step.Compile,
+    vendor: []const std.Build.LazyPath,
 ) *std.Build.Step.Compile {
     const first = core(b, target_record, configuration, target, sources, vendor, false, .first_link);
     const write_map = b.addRunArtifact(mapper);
@@ -2241,7 +2258,46 @@ fn vendorLibraries(
         .files = &curl_sources,
         .flags = &curl_flags,
     });
+    if (libraries.items.len != vendor_library_names.len) {
+        std.debug.print("build.zig: vendor_library_names and vendorLibraries name a different number of libraries\n", .{});
+        std.process.exit(1);
+    }
+    for (libraries.items, vendor_library_names) |library, name| {
+        if (!std.mem.eql(u8, library.name, b.fmt("cosmic-{s}", .{name}))) {
+            std.debug.print("build.zig: vendor_library_names names {s} where vendorLibraries makes {s}\n", .{ name, library.name });
+            std.process.exit(1);
+        }
+    }
     return libraries.items;
+}
+
+/// The vendored libraries of one core, in the order [`vendorLibraries`] makes
+/// them and the core links them: the archives' names are `libcosmic-<name>.a`,
+/// in the build directory's `vendor-libs/<target>/` and in a bundle a
+/// prerelease publishes (build/vendor_libs.tl).
+const vendor_library_names = [_][]const u8{
+    "sqlite", "sqlite-ext", "yyjson", "simdutf", "expat", "lua",   "miniz", "sha1dc",
+    "nanopb", "monocypher", "bzip2",  "xz",      "zstd",  "mbedtls", "cares", "curl",
+};
+
+/// The archive of each library of `compiles`, in order.
+fn emitted(b: *std.Build, compiles: []const *std.Build.Step.Compile) []const std.Build.LazyPath {
+    const out = b.allocator.alloc(std.Build.LazyPath, compiles.len) catch @panic("OOM");
+    for (compiles, out) |library, *path| path.* = library.getEmittedBin();
+    return out;
+}
+
+/// The archives of [`vendor_library_names`] in `dir`, a directory of a
+/// bundle build/vendor_libs.tl unpacked and checked: what the host's release
+/// core links in place of the libraries it would compile. `dir` is named by
+/// the bundle's sha256, so the option's value keys zig's configuration cache
+/// as the bundle's bytes do.
+fn prebuiltVendor(b: *std.Build, dir: []const u8) []const std.Build.LazyPath {
+    const out = b.allocator.alloc(std.Build.LazyPath, vendor_library_names.len) catch @panic("OOM");
+    for (vendor_library_names, out) |name, *path| {
+        path.* = .{ .cwd_relative = b.pathJoin(&.{ dir, b.fmt("libcosmic-{s}.a", .{name}) }) };
+    }
+    return out;
 }
 
 /// The include directories of the vendored libraries' public headers, which
@@ -2296,7 +2352,7 @@ fn core(
     configuration: Configuration,
     target: std.Build.ResolvedTarget,
     sources: Sources,
-    vendor: []const *std.Build.Step.Compile,
+    vendor: []const std.Build.LazyPath,
     portable_startup_test_hooks: bool,
     native_coverage: NativeCoverage,
 ) *std.Build.Step.Compile {
@@ -2348,7 +2404,7 @@ fn core(
     mod.addIncludePath(sources.config.mbedtls);
     // As archives, not `linkLibrary`, which would add each library's (empty)
     // tree of installed headers to the include path of every file here.
-    for (vendor) |library| mod.addObjectFile(library.getEmittedBin());
+    for (vendor) |library| mod.addObjectFile(library);
 
     // The core sees the library through the same configuration it was
     // built with, or the headers would describe another library.

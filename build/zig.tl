@@ -1236,13 +1236,27 @@ function Zig.enter(argv: {string}, script: string): integer
           log:complain(patch_trouble)
           return nil
         end
+        local options: mut {string} = { "-Dpatched=" .. manifest,
+          -- Keyed in zig's configuration cache as an option (build.zig
+          -- seedCompiler says why); the seed compile reads the variable.
+          "-Dbootstrap=" .. (zig_env["COSMIC_BOOTSTRAP"] or "") }
+        if Zig.boots(given) and (Env.get("COSMIC_ZIG") or "") == "" and
+            (Env.get("ZIG_LIB_DIR") or "") == "" then
+          -- A boot whose vendor inputs match the pinned prerelease's links
+          -- its prebuilt vendor libraries (build/vendor_libs.tl); any
+          -- trouble there only means they are compiled here as before.
+          -- A zig or zig library the caller names compiles its own.
+          local ready, _ = standalone(root, "build/vendor_libs.tl",
+            { "ready", root, manifest }, zig_env)
+          local dir = ""
+          if ready ~= nil and ready.ok then
+            dir = (ready.stdout or ""):gsub("\n$", "")
+          end
+          if dir ~= "" then options[#options + 1] = "-Dvendor-libs=" .. dir end
+        end
         local build_argv: mut {string} = { program }
         for _, a in ipairs(Zig.build_args(root, project, output,
-            given, Proc.cpu_count(),
-            { "-Dpatched=" .. manifest,
-                -- Keyed in zig's configuration cache as an option (build.zig
-                -- seedCompiler says why); the seed compile reads the variable.
-                "-Dbootstrap=" .. (zig_env["COSMIC_BOOTSTRAP"] or "") })) do
+            given, Proc.cpu_count(), options)) do
           build_argv[#build_argv + 1] = a
         end
         return build_argv

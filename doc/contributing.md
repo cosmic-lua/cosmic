@@ -42,7 +42,11 @@ conflict with the parent's squash.
    `COSMIC_AUTO_BOOT=0`, as CI sets, it refuses and names the boot), and
    the tests that need every core are reported skipped with `all_cores`. zig's caches and the Teal compile cache
    (`COSMIC_BUILD_CACHE` names another file, `0` none) are shared by
-   every checkout, so a fresh worktree compiles little. only
+   every checkout, so a fresh worktree compiles little. A boot that
+   builds the core with zig links the vendored libraries prebuilt by a
+   prerelease where `bin/vendor-libs.pin` names one built from the same
+   inputs ([`build/vendor_libs.tl`]; `COSMIC_VENDOR_LIBS=0` compiles
+   them). only
    the tree's own tool rebuilds or boots: another cosmic (a release) run
    in a stale tree refuses and exits 3. a tool built from another path
    (a worktree's copied build directory, a moved checkout) refuses the
@@ -358,6 +362,7 @@ the tool named can be older than the tree's generator.
 [`build/seed.tl`]: ../build/seed.tl
 [`build/seed.txt`]: ../build/seed.txt
 [`build/seeded_boot.tl`]: ../build/seeded_boot.tl
+[`build/vendor_libs.tl`]: ../build/vendor_libs.tl
 [`build/zig.tl`]: ../build/zig.tl
 [`ci/bootstrap-files.txt`]: ../ci/bootstrap-files.txt
 [`ci/cosmic-driver.pin`]: ../ci/cosmic-driver.pin
