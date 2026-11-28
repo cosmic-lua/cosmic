@@ -405,10 +405,9 @@ local function iterations(): integer
   return math.tointeger(tonumber(Env.get("FUZZ_ITERS") or "")) or 24
 end
 
-local function test_the_checker_refuses_exactly_the_programs_that_read_before_they_assign(tmp: string)
-  Fuzz.run({
+local function fuzz_the_checker_refuses_exactly_the_programs_that_read_before_they_assign(): Fuzz.Target
+  return Fuzz.target({
     name = "new checker definite assignment",
-    dir = tmp,
     iters = iterations(),
     gen = draw_bytes,
     check = check,

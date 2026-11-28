@@ -30,10 +30,9 @@ local function wide(number: string, width: integer): string
   return (assert(Bigint.pad(number, width)))
 end
 
-local function test_arithmetic_for_secrets_agrees_with_the_plain_functions(tmp: string)
-  Fuzz.run({
+local function fuzz_arithmetic_for_secrets_agrees_with_the_plain_functions(): Fuzz.Target
+  return Fuzz.target({
     name = "bigint secrets agree",
-    dir = tmp,
     requires = { "odd modulus", "even modulus", "operand above the modulus", "wrapped difference" },
     -- A modulus and two operands, each behind a byte of its length.
     gen = function(src: Fuzz.Source): string

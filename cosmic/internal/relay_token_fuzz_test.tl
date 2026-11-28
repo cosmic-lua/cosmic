@@ -72,10 +72,9 @@ local function gen(src: Fuzz.Source): string
   return Fuzz.mutate(src, text, if src:int(0, 4) == 0 then 2 else 0 end)
 end
 
-local function test_no_bytes_but_the_token_reach_the_upstream(tmp: string)
-  Fuzz.run({
+local function fuzz_no_bytes_but_the_token_reach_the_upstream(): Fuzz.Target
+  return Fuzz.target({
     name = "a token relay serves nothing without the token",
-    dir = tmp,
     gen = gen,
     requires = { "http", "socks", "answered" },
     shares = { http = 0.1, socks = 0.1, answered = 0.1 },

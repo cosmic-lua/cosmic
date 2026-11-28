@@ -35,10 +35,9 @@ local function thousandths(text: string): integer
 end
 
 -- A result is a coding offered, "identity" or nil, whatever the bytes.
-local function test_encoding_is_total_over_any_header(tmp: string)
-  Fuzz.run({
+local function fuzz_encoding_is_total_over_any_header(): Fuzz.Target
+  return Fuzz.target({
     name = "http encoding total",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       return if src:int(0, 1) == 0 then Fuzz.mutate(src, "gzip;q=0.5, zstd, *;q=0, identity", 6) else Fuzz.bytes(src, 24) end
     end,
@@ -59,10 +58,9 @@ end
 -- by its own element or `*`; identity unless refused), no coding offered
 -- weighs more, and the result is "identity" only where no coding is
 -- acceptable or identity is named with a weight above every coding's.
-local function test_encoding_follows_the_weights(tmp: string)
-  Fuzz.run({
+local function fuzz_encoding_follows_the_weights(): Fuzz.Target
+  return Fuzz.target({
     name = "http encoding weights",
-    dir = tmp,
     gen = gen_header,
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)

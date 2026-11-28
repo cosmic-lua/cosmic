@@ -91,10 +91,9 @@ end
 
 --- [`Codec.unbase64_lines`] judges text as [`Codec.unbase64`] judges it
 --- with every CR and LF taken out: the same bytes, or a refusal of both.
-local function test_unbase64_lines_is_unbase64_without_line_breaks(tmp: string)
-  Fuzz.run({
+local function fuzz_unbase64_lines_is_unbase64_without_line_breaks(): Fuzz.Target
+  return Fuzz.target({
     name = "base64 lines",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       local text = if src:int(0, 1) == 0 then Codec.base64(Fuzz.bytes(src, 200)) else gen_text(src) end
       local out: mut {string} = {}

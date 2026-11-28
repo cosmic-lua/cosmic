@@ -159,10 +159,9 @@ local function trail(input: string): string
   return table.concat(lines, "\n")
 end
 
-local function test_the_reader_is_total_on_mutated_archives(tmp: string)
-  Fuzz.run({
+local function fuzz_the_reader_is_total_on_mutated_archives(): Fuzz.Target
+  return Fuzz.target({
     name = "zip reader total",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       local archive = write(gen_entries(src)) or ""
       return Fuzz.mutate(src, archive, 8)
@@ -373,10 +372,9 @@ local function gen_laid_out(src: Fuzz.Source): string
   return table.concat(out)
 end
 
-local function test_the_reader_is_total_on_hostile_records(tmp: string)
-  Fuzz.run({
+local function fuzz_the_reader_is_total_on_hostile_records(): Fuzz.Target
+  return Fuzz.target({
     name = "zip reader total on records",
-    dir = tmp,
     gen = gen_laid_out,
     check = walk,
     requires = { "opened", "entry", "body read", "zstd body read", "local header refused",
@@ -384,10 +382,9 @@ local function test_the_reader_is_total_on_hostile_records(tmp: string)
   })
 end
 
-local function test_what_the_writer_writes_the_reader_reads_back(tmp: string)
-  Fuzz.run({
+local function fuzz_what_the_writer_writes_the_reader_reads_back(): Fuzz.Target
+  return Fuzz.target({
     name = "zip round trip",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       return Fuzz.pack(gen_entries(src))
     end,

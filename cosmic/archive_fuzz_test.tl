@@ -167,13 +167,12 @@ local function links_under(dir: string, found: mut {string})
   end
 end
 
-local function test_extraction_stays_inside_its_destination(tmp: string)
+local function fuzz_extraction_stays_inside_its_destination(tmp: string): Fuzz.Target
   local tmp_absolute, _ = Fs.absolute(tmp)
   local base = tmp_absolute or tmp
   local case = base .. "/case"
-  Fuzz.run({
+  return Fuzz.target({
     name = "archive extraction contained",
-    dir = tmp,
     gen = gen_extraction,
     -- "linked": links are what containment is most about, and an
     -- archive of several hostile entries almost never makes one.
@@ -261,11 +260,10 @@ end
 
 --- Lists `input` as a file, where the format is detected: fails only
 --- when an outcome is one no archive could mean.
-local function test_opening_any_bytes_is_total(tmp: string)
+local function fuzz_opening_any_bytes_is_total(tmp: string): Fuzz.Target
   local file = tmp .. "/input"
-  Fuzz.run({
+  return Fuzz.target({
     name = "archive open total",
-    dir = tmp,
     requires = { "listed" },
     gen = function(src: Fuzz.Source): string
       local magic = Fuzz.pick(src, { "", "\31\139", "\253" .. "7zXZ\0", "BZh9", "PK\3\4", "PK\5\6" })
@@ -355,11 +353,10 @@ end
 --- `open` of a stream returns what `open` of a path does for the same bytes, however the
 --- stream splits them: the same entries and the same end, a tar or a
 --- compressed tar alike, and a zip refused rather than misread.
-local function test_open_of_a_stream_answers_as_open_does_for_the_same_bytes(tmp: string)
+local function fuzz_open_of_a_stream_answers_as_open_does_for_the_same_bytes(tmp: string): Fuzz.Target
   local file = tmp .. "/input"
-  Fuzz.run({
+  return Fuzz.target({
     name = "archive stream and path parity",
-    dir = tmp,
     requires = { "walked" },
     gen = function(src: Fuzz.Source): string
       local magic = Fuzz.pick(src, { "", "\31\139", "\253" .. "7zXZ\0", "BZh9", "PK\3\4", "PK\5\6" })
@@ -442,13 +439,12 @@ end
 -- TODO: fuzz the verb's staged extraction too (`resolve_in` and the
 -- move into a destination that already holds files) against a direct
 -- extract into the same destination; only its unit tests reach it now.
-local function test_extract_of_a_reader_answers_as_extract_does_for_the_same_bytes(tmp: string)
+local function fuzz_extract_of_a_reader_answers_as_extract_does_for_the_same_bytes(tmp: string): Fuzz.Target
   local tmp_absolute, _ = Fs.absolute(tmp)
   local base = tmp_absolute or tmp
   local case = base .. "/case"
-  Fuzz.run({
+  return Fuzz.target({
     name = "archive extract of a reader parity",
-    dir = tmp,
     gen = gen_extraction,
     requires = { "both wrote", "both refused" },
     check = function(input: string): boolean, string
@@ -584,13 +580,12 @@ end
 --- Extraction under `max_entry_bytes` and `max_bytes` refuses exactly the
 --- first file that passes one, leaves the files before it whole and no
 --- trace of it, and never has written more than a limit allows.
-local function test_extraction_stays_under_its_byte_limits(tmp: string)
+local function fuzz_extraction_stays_under_its_byte_limits(tmp: string): Fuzz.Target
   local tmp_absolute, _ = Fs.absolute(tmp)
   local base = tmp_absolute or tmp
   local case = base .. "/case"
-  Fuzz.run({
+  return Fuzz.target({
     name = "archive extraction byte limits",
-    dir = tmp,
     gen = gen_capped,
     requires = { "extracted", "refused by entry limit", "refused by total limit" },
     shares = { ["refused by entry limit"] = 0.15, ["refused by total limit"] = 0.04 },

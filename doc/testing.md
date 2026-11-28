@@ -986,10 +986,20 @@ holds one piece of work to a multiple of another ([`lang.speed`]) reads
 
 ## fuzz tests
 
-A parser that reads untrusted bytes gets a `*_fuzz_test.tl` beside it,
-driving [`cosmic.fuzz`]'s `run`. A generator draws each input from a
-seeded source. A check must hold for all of them. The module doc of
-[`cosmic.fuzz`] has the full contract.
+A parser that reads untrusted bytes gets a `*_fuzz_test.tl` beside it.
+Each property is a top-level `local function fuzz_<name>(): Fuzz.Target`
+that returns [`Fuzz.target`] of the property; it may take the test's
+`tmp` as a test does. A generator draws each input from a seeded source.
+A check must hold for all of them. The module doc of [`cosmic.fuzz`] has
+the full contract.
+
+- `cosmic test` checks each property as a test, at `FUZZ_ITERS` inputs.
+- `cosmic test --fuzz-deep [selector...]` checks only the properties
+  (and the other tests of a `*_fuzz_test.tl` file), whatever verdict
+  stands, at `FUZZ_ITERS=10000` and `FUZZ_SECONDS=120` unless the
+  environment says other numbers. The weekly `fuzz.yml` runs it.
+- A test that calls [`Fuzz.run`] itself, for a property it builds in a
+  loop, still runs; `--fuzz-deep` reaches it by its file's name.
 
 - `FUZZ_SEED` and `FUZZ_ITERS` (64 by default) choose the inputs.
 - `FUZZ_SECONDS` bounds the seconds a property spends drawing (none by
@@ -1022,8 +1032,8 @@ seeded source. A check must hold for all of them. The module doc of
   may say memory ran out, and `check` must hold again after it. Other
   cores skip it.
 - CI runs that gate a merge set `FUZZ_ITERS=0` and draw nothing. The
-  weekly `fuzz.yml` fuzzes every property on the checked core with a
-  seed of its own. A failure is a red run whose summary lists it.
+  weekly `fuzz.yml` runs `cosmic test --fuzz-deep` on the checked core
+  with a seed of its own. A failure is a red run whose summary lists it.
 - Once a failure is fixed, keep its input in
   `testdata/fuzz/<property>/` as the report says. `run` checks that
   corpus before it draws.
@@ -1479,6 +1489,8 @@ Other rules:
 [`Fs.mkdtemp`]: ../cosmic/fs.tl
 [`Fuzz.label`]: ../cosmic/fuzz.tl
 [`Fuzz.more`]: ../cosmic/fuzz.tl
+[`Fuzz.run`]: ../cosmic/fuzz.tl
+[`Fuzz.target`]: ../cosmic/fuzz.tl
 [`importer.checked_tool`]: ../build/importer.tl
 [`Json.diff`]: ../cosmic/json.tl
 [`lang.boundary_checks`]: ../lang/boundary_checks.tl

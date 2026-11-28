@@ -63,10 +63,9 @@ end
 local KNOWN_CODES <const>: {string:boolean} = { required = true, integer = true, number = true, boolean = true,
   one_of = true, type = true, unknown = true, repeated = true }
 
-local function test_binding_never_raises_and_answers_a_value_or_every_error(tmp: string)
-  Fuzz.run({
+local function fuzz_binding_never_raises_and_answers_a_value_or_every_error(): Fuzz.Target
+  return Fuzz.target({
     name = "web form binder",
-    dir = tmp,
     gen = gen_pairs,
     requires = { "bound", "invalid", "many_errors" },
     shares = { bound = 0.02, invalid = 0.2 },
@@ -115,12 +114,11 @@ local function test_binding_never_raises_and_answers_a_value_or_every_error(tmp:
   })
 end
 
-local function test_a_content_type_of_any_bytes_parses(tmp: string)
+local function fuzz_a_content_type_of_any_bytes_parses(): Fuzz.Target
   local HEADS <const>: {string} = { "application/json", "multipart/form-data; boundary=", "text/plain;charset=",
     'a/b; c="', "a/b;;;", ";", "", "a/b; c=d; e=\"f\\", "\"", "a/b ; c = d" }
-  Fuzz.run({
+  return Fuzz.target({
     name = "web media type",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       if src:int(0, 2) == 0 then return Fuzz.bytes(src, 24) end
       return Fuzz.mutate(src, Fuzz.pick(src, HEADS), 4)
@@ -149,7 +147,7 @@ local record Doc
 end
 local DOC <const> = Shape.record_of("Doc")
 
-local function test_json_refusals_point_at_the_field_they_name(tmp: string)
+local function fuzz_json_refusals_point_at_the_field_they_name(): Fuzz.Target
   local TEXTS <const>: {string} = { '{"title":"t","qty":1}', '{"qty":"x"}', '{"title":null}', "[]", "null", '"s"',
     '{"title":1,"qty":1.5,"tags":[1]}', '{"address":{"city":3}}', "{", "", '{"tags":{"a":1}}',
     '{"title":"t","qty":1,"address":{"city":"c","zip":"z"}}' }
@@ -158,9 +156,8 @@ local function test_json_refusals_point_at_the_field_they_name(tmp: string)
     last = Input.json_into(req, DOC)
     return Web.empty()
   end) }, sink = { line = function(_self: Web.Sink, _text: string) end } }
-  Fuzz.run({
+  return Fuzz.target({
     name = "web json pointer",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       return Fuzz.mutate(src, Fuzz.pick(src, TEXTS), 3)
     end,
