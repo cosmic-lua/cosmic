@@ -53,6 +53,11 @@ local record CeilingsBase
   --- Holds the markers the tree at `root` `held` to the markers of the files at the base `env` names, or that `git` finds:
   --- a file may hold no more markers of a code than it did there.
   check: function(root: string, env: {string:string}, git: Git, held?: Held): Verdict
+
+  --- What `check` asks `git` of the tree at `root` to find its base, and what it hears, as one text; a fetch is not asked
+  --- but said to be. All else `check` reads is the files on disk and those of the base, which the base's commit names, so
+  --- two trees with the same files and the same text are held alike ([`build.fix.verdict`]).
+  inputs: function(root: string, env: {string:string}, git: Git): string
 end
 
 --- How long one git call may take: a local lookup, or a fetch of one commit.
@@ -327,13 +332,14 @@ local function marks_rise(root: string, base: string, held: CeilingsBase.Held, g
   return out, ""
 end
 
-function CeilingsBase.check(root: string, env: {string:string}, git: CeilingsBase.Git, held?: CeilingsBase.Held):
-    CeilingsBase.Verdict
+--- The base `check` holds the tree at `root` to, and nil; or nil and the verdict where there is none to hold it to. All
+--- that git is asked here is asked of `git`, which [`CeilingsBase.inputs`] hears.
+local function based(root: string, env: {string:string}, git: CeilingsBase.Git): string?, CeilingsBase.Verdict?
   local in_ci = env["GITHUB_ACTIONS"] == "true"
   local base = named(env, { "COSMIC_CEILINGS_BASE" })
   if base ~= "" and not full_hash(base) then
     if in_ci then
-      return failed("the base CI names is `" .. base .. "`, no full commit hash (COSMIC_CEILINGS_BASE; " ..
+      return nil, failed("the base CI names is `" .. base .. "`, no full commit hash (COSMIC_CEILINGS_BASE; " ..
           "`unknown` is a base GitHub could not name); run the job again, or fix where the workflow finds the base")
     end
     base = ""
@@ -341,19 +347,19 @@ function CeilingsBase.check(root: string, env: {string:string}, git: CeilingsBas
   if base == "" then
     if in_ci then
       if mains_own(env) then
-        return skipped("this is a run of main itself, whose changes the merge queue held to their base")
+        return nil, skipped("this is a run of main itself, whose changes the merge queue held to their base")
       end
-      return failed("CI names no base (COSMIC_CEILINGS_BASE) for this run, which holds a change; " ..
+      return nil, failed("CI names no base (COSMIC_CEILINGS_BASE) for this run, which holds a change; " ..
           "a run that cannot find its base fails and is run again, since skipping the check there would let a raise through")
     end
     local inside, _ = git(root, { "rev-parse", "--git-dir" })
     if inside ~= 0 then
-      return skipped("this tree is no git checkout, so it has no base to grow from; CI holds the markers on every branch")
+      return nil, skipped("this tree is no git checkout, so it has no base to grow from; CI holds the markers on every branch")
     end
     local found, out = git(root, { "merge-base", "HEAD", "origin/main" })
     local sha = out:match("^(%x+)")
     if found ~= 0 or sha == nil then
-      return skipped("this checkout has no merge base with origin/main (no such branch fetched, or too shallow a clone); " ..
+      return nil, skipped("this checkout has no merge base with origin/main (no such branch fetched, or too shallow a clone); " ..
           "`git fetch origin main` to hold the markers here, as CI does on every branch")
     end
     base = sha
@@ -363,7 +369,7 @@ function CeilingsBase.check(root: string, env: {string:string}, git: CeilingsBas
     local _, _ = git(root, { "fetch", "--quiet", "--no-tags", "--depth=1", "origin", base })
     present, _ = git(root, { "cat-file", "-e", base .. "^{commit}" })
     if present ~= 0 then
-      return failed("the base " .. base .. " is not in this checkout and `git fetch origin " .. base .. "` did not bring it")
+      return nil, failed("the base " .. base .. " is not in this checkout and `git fetch origin " .. base .. "` did not bring it")
     end
   end
   -- A shallow checkout (a branch push's holds HEAD and the fetched base alone) cannot say whether one commit is another's
@@ -372,9 +378,33 @@ function CeilingsBase.check(root: string, env: {string:string}, git: CeilingsBas
   if shallow:match("^false") ~= nil then
     local ancestor, _ = git(root, { "merge-base", "--is-ancestor", base, "HEAD" })
     if ancestor ~= 0 then
-      return failed("the base " .. base .. " is not an ancestor of HEAD, so it is not where this change grew from")
+      return nil, failed("the base " .. base .. " is not an ancestor of HEAD, so it is not where this change grew from")
     end
   end
+  return base, nil
+end
+
+function CeilingsBase.inputs(root: string, env: {string:string}, git: CeilingsBase.Git): string
+  local heard: mut {string} = {}
+  local base, _ = based(root, env, function(at: string, args: {string}, input?: string): integer, string
+    -- A fetch changes the checkout, so it is not asked: the base it would bring is missing, which the answer before it says.
+    if args[1] == "fetch" then
+      heard[#heard + 1] = "fetch not asked"
+      return -1, ""
+    end
+    local status, out = git(at, args, input)
+    local said = table.concat(args, " ") .. "\0" .. tostring(status) .. "\0" .. out
+    heard[#heard + 1] = said
+    return status, out
+  end)
+  heard[#heard + 1] = "base " .. (base or "none")
+  return table.concat(heard, "\n")
+end
+
+function CeilingsBase.check(root: string, env: {string:string}, git: CeilingsBase.Git, held?: CeilingsBase.Held):
+    CeilingsBase.Verdict
+  local base, verdict = based(root, env, git)
+  if base == nil then return assert(verdict) end
   local lines: mut {string} = {}
   if held ~= nil and next(held) ~= nil then
     local rose, rose_why = marks_rise(root, base, held, git)

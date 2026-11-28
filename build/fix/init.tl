@@ -84,6 +84,8 @@ local tree = require("build.tree")
 local tree_checks = require("build.tree_checks")
 local Ceilings = require("build.ceilings")
 local CeilingsBase = require("build.ceilings_base")
+local Verdict = require("build.fix.verdict")
+local Proc = require("cosmic.proc")
 local Markers = require("build.markers")
 local Env = require("cosmic.env")
 local Sqlite = require("cosmic.sqlite")
@@ -2293,6 +2295,29 @@ local function report(ctx: Fix): integer
   return 0
 end
 
+--- The key of a run of `fix --check` over the whole of cosmic's own tree ([`build.fix.verdict`]), read where the run
+--- starts and again where it passes; nil for any other run, or where the key cannot be read.
+local function whole_key(ctx: Fix): string?
+  if ctx.checking ~= true or ctx.rename ~= nil or ctx.changes_only == true then return nil end
+  local paths = assert(ctx.paths)
+  if #paths > 1 or (#paths == 1 and paths[1] ~= ".") then return nil end
+  local environment = Env.all()
+  if Verdict.off(environment) then return nil end
+  local root = assert(ctx.root)
+  local standing, _ = tree.standing(root)
+  if standing == nil or not standing.own then return nil end
+  local tool, _ = Proc.executable()
+  if tool == nil then return nil end
+  local git = ignored.answer(root) .. "\n" .. CeilingsBase.inputs(root, environment, CeilingsBase.live_git())
+  local key, _ = Verdict.key({ root = root, argv = ctx.argv, environment = environment, tool = tool, git = git })
+  return key
+end
+
+--- Where the keys of the runs that passed are kept: the build directory of the tree at `root`.
+local function verdicts_path(root: string): string
+  return build_paths.resolve(root).directory .. "/fix-verdicts"
+end
+
 --- `cosmic fix [--check] [path...]`. Each phase above does one part, in
 --- order, and the first to return an exit code ends the run.
 --- @param argv {string} The command line, the verb at slot 1
@@ -2306,6 +2331,13 @@ local function fix_verb(argv: {string}): integer
   -- it rebuilds itself first and re-enters this command line.
   code = reboot.stale_exit(argv)
   if code ~= nil then return code end
+  -- A run over the whole tree that reads what one that passed read finds what it found ([`build.fix.verdict`]).
+  local key = whole_key(ctx)
+  if key ~= nil and Verdict.held(verdicts_path(assert(ctx.root)), key) then
+    local _, _ = logger.summary("fix", "the whole tree, as a run that passed read it (" .. key:sub(1, 12) ..
+        "), 0 to fix, " .. clock.took(ctx.started) .. "; COSMIC_FIX_VERDICT=0 checks it again")
+    return 0
+  end
   code = choose_files(ctx)
   if code ~= nil then return code end
   if ctx.rename ~= nil then
@@ -2363,7 +2395,12 @@ local function fix_verb(argv: {string}): integer
   check_links(ctx)
   phase:next("fix: report")
   say_notes(ctx)
-  return report(ctx)
+  code = report(ctx)
+  -- Kept only where nothing changed while the run read it.
+  if code == 0 and key ~= nil and whole_key(ctx) == key then
+    local _, _ = Verdict.keep(verdicts_path(assert(ctx.root)), key)
+  end
+  return code
 end
 
 --- [`fix_verb`] under Lua's generational collector, and the incremental

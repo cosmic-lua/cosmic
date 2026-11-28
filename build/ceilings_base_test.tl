@@ -324,3 +324,26 @@ local function test_a_code_held_at_the_base_in_another_stage_is_not_told_to_have
       "never added and a count only falls"), verdict.lines[1])
   assert(not has(verdict.lines[1], "no exceptions"), verdict.lines[1])
 end
+
+-- What a verdict on the whole tree keys on ([`build.fix.verdict`]): the questions `check` asks to find its base, never a fetch.
+local function test_the_inputs_hear_what_the_check_asks_to_find_its_base_and_never_fetch(tmp: string)
+  local root = tree_with(tmp)
+  local answers = holding()
+  answers.status["rev-parse --git-dir"] = 0
+  answers.status["merge-base HEAD origin/main"] = 0
+  answers.printed["merge-base HEAD origin/main"] = BASE .. "\n"
+  local asked: Asked = { calls = {} }
+  local heard = CeilingsBase.inputs(root, {}, git_of(answers, asked))
+  assert(has(heard, "base " .. BASE), heard)
+  local checked: Asked = { calls = {} }
+  local _ = CeilingsBase.check(root, {}, git_of(answers, checked))
+  for i, call in ipairs(asked.calls) do
+    assert(checked.calls[i] == call, "the check asks " .. tostring(checked.calls[i]) .. " where the inputs ask " .. call)
+  end
+  answers.printed["merge-base HEAD origin/main"] = BASE:reverse() .. "\n"
+  assert(CeilingsBase.inputs(root, {}, git_of(answers, { calls = {} })) ~= heard, "another base is another text")
+  local lacking: Asked = { calls = {} }
+  local missing = CeilingsBase.inputs(root, { COSMIC_CEILINGS_BASE = BASE }, git_of(nothing(), lacking))
+  assert(has(missing, "fetch not asked") and has(missing, "base none"), missing)
+  for _, call in ipairs(lacking.calls) do assert(call:sub(1, 6) ~= "fetch ", call) end
+end

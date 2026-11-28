@@ -16,6 +16,10 @@ local Env = require("cosmic.env")
 local Proc = require("cosmic.proc")
 
 local record ignored
+  --- What [`ignored.of`] hears from git for the tree at `root`, as one text: whether git ran, its status, and what it
+  --- listed and said. Two runs that hear the same text leave the same paths alone, so a verdict on the tree keys on it
+  --- ([`build.fix.verdict`]).
+  answer: function(root: string): string
 end
 
 --- How long asking git may take: a local listing of the tree.
@@ -37,14 +41,20 @@ local function clean_env(): {string: string}
   return out
 end
 
---- Whether the untracked, ignored paths of the tree at `root` can be had from git, and what they are: files by their path
---- from `root`, and directories (which git lists whole) by theirs.
-local function listed(root: string, say?: function(string)): {string: boolean}?, {string: boolean}?
+--- What git answers when asked for the untracked, ignored paths of the tree at `root`; nil where it is not installed.
+local function ask(root: string): Child.Result?
   local git, _ = Proc.find("git")
-  if git == nil then return nil, nil end
+  if git == nil then return nil end
   local result, _ = Child.run({ git, "-C", root, "ls-files", "-z", "--others", "--ignored",
     "--exclude-per-directory=.gitignore", "--directory" }, { env = clean_env(), stdin = "null",
       stdout = "capture", stderr = "capture", timeout_ns = git_timeout_ns })
+  return result
+end
+
+--- Whether the untracked, ignored paths of the tree at `root` can be had from git, and what they are: files by their path
+--- from `root`, and directories (which git lists whole) by theirs.
+local function listed(root: string, say?: function(string)): {string: boolean}?, {string: boolean}?
+  local result = ask(root)
   if result == nil or result.timed_out then return nil, nil end
   if not result.ok then
     if say ~= nil and (result.stderr or ""):find("dubious ownership", 1, true) ~= nil then
@@ -63,6 +73,13 @@ local function listed(root: string, say?: function(string)): {string: boolean}?,
     end
   end
   return files, directories
+end
+
+function ignored.answer(root: string): string
+  local result = ask(root)
+  if result == nil then return "no git" end
+  return table.concat({ tostring(result.ok), tostring(result.code), tostring(result.timed_out), result.stdout or "",
+    result.stderr or "" }, "\0")
 end
 
 --- A test of whether a path under `root`, given from it, is left alone. Git is asked once, at the first path. `say` is
