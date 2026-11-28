@@ -66,7 +66,7 @@ local _ = require("build.error_catalog")
 local type Module = Plans.Module
 
 -- A build lowers each [`Template.text`] of a literal before it checks the module ([`build.template_lower`]).
-Driver.lowering(TemplateLower.lower)
+Driver.lowering({ lower = TemplateLower.lower, takers = TemplateLower.takers })
 
 local record Pipeline
   --- Whether [`Pipeline.build`] refused the tree for what it holds, rather than for a trouble reading it.

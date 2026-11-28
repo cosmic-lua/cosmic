@@ -2,7 +2,10 @@
 --- a lone file is, against the declarations the tool carries, a template's field is checked against the value it is
 --- given, a template the compiler refuses is a syntax error at its literal, and every place keeps the line and column
 --- it has in the text written.
+local Lexer = require("lang.lexer")
+local Parser = require("lang.parser")
 local Pipeline = require("build.pipeline")
+local TemplateLower = require("build.template_lower")
 local standalone = require("build.standalone")
 -- The modules the snippets below require: the store carries their stubs for a test that names them.
 local type _ = require("cosmic.html")
@@ -51,6 +54,16 @@ local function test_a_place_after_a_template_on_its_line_keeps_its_column()
   assert(told:find("t.tl:2:67: ", 1, true) ~= nil, told)
 end
 
+local function test_a_literal_alone_is_its_text_and_a_slot_in_it_is_refused()
+  local plain = checked(HEAD .. 'return Template.text("3 files")\n')
+  local got = run(plain)
+  assert(got == "3 files", tostring(got))
+  local slot = checked(HEAD .. 'return Template.text("{{.n}} files")\n')
+  local told = table.concat(slot.lines, "\n")
+  assert(slot.code == nil and told:find("t.tl:2:22: ", 1, true) ~= nil and told:find("slots and no data", 1, true) ~= nil,
+    told)
+end
+
 local function test_a_template_the_compiler_refuses_is_a_syntax_error_at_its_literal()
   local made = checked(HEAD .. 'return Template.text("{{if .x}}", { x = 1 })\n')
   local told = table.concat(made.lines, "\n")
@@ -82,4 +95,28 @@ local function test_a_quoted_literal_whose_lines_are_not_the_templates_keeps_the
       'return s .. n\n')
   local told = table.concat(made.lines, "\n")
   assert(told:find("t.tl:4:20: ", 1, true) ~= nil, told)
+end
+
+local function test_a_template_module_bound_inside_a_function_is_lowered_there()
+  local made = checked('local function f(): string\n  local Template = require("cosmic.template")\n' ..
+      '  return Template.text("{{.a}}!", { a = "x" })\nend\nreturn f()\n')
+  local got = run(made)
+  assert(got == "x!", tostring(got))
+end
+
+local function test_a_function_takes_a_template_where_its_first_parameter_is_declared_a_source()
+  local text = 'local T = require("cosmic.template")\nlocal M = {}\n' ..
+    'function M.say(text: T.Source, data?: any) end\n' ..
+    'function M.plain(text: string, data?: any) end\n' ..
+    'function M.more(text: T.Source, data?: any, n?: integer) end\n' ..
+    'function M.needs(text: T.Source, data: any) end\nreturn M\n'
+  local chunk = Parser.parse(Lexer.lex(text, "m.tl"), "m.tl", "tl").chunk
+  local takers = TemplateLower.takers("m", chunk)
+  assert(takers["say"] == true and takers["plain"] == nil and takers["more"] == nil and
+      takers["needs"] == nil)
+  -- The module of templates names its own record.
+  local own = 'local record Template type Source = string end\n' ..
+    'function Template.text(src: Template.Source, data?: any): string return "" end\nreturn Template\n'
+  local of_own = TemplateLower.takers("cosmic.template", Parser.parse(Lexer.lex(own, "t.tl"), "t.tl", "tl").chunk)
+  assert(of_own["text"] == true)
 end
