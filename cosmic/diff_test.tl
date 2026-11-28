@@ -1,3 +1,4 @@
+local Bench = require("cosmic.bench")
 local Diff = require("cosmic.diff")
 
 --- How many random texts each property draws.
@@ -229,6 +230,106 @@ end
 
 local function test_crlf_against_lf_is_a_change()
   assert(Diff.unified(Diff.lines("a\r\n", "a\n")) == "--- a\n+++ b\n@@ -1 +1 @@\n-a\r\n+a\n")
+end
+
+--- `n` lines of code-like text: some `end`, some blank, the rest unique.
+local function code(draw: function(integer): integer, n: integer): {string}
+  local out: mut {string} = {}
+  for i = 1, n do
+    local r = draw(100)
+    if r <= 15 then
+      out[#out + 1] = "end"
+    elseif r <= 25 then
+      out[#out + 1] = ""
+    else
+      out[#out + 1] = "  local v" .. tostring(draw(1000000)) .. " = f(" .. tostring(draw(100)) .. ", \"" .. tostring(i) ..
+        "\")"
+    end
+  end
+  return out
+end
+
+--- `lines` with about `permille` in a thousand of them removed, changed or given a line before.
+local function edited(draw: function(integer): integer, lines: {string}, permille: integer): {string}
+  local out: mut {string} = {}
+  for _, line in ipairs(lines) do
+    local r = draw(1000)
+    if r <= permille / 3 then
+      -- removed
+    elseif r <= permille * 2 / 3 then
+      out[#out + 1] = line .. " -- x"
+    elseif r <= permille then
+      out[#out + 1] = "  new line " .. tostring(draw(1000000000))
+      out[#out + 1] = line
+    else
+      out[#out + 1] = line
+    end
+  end
+  return out
+end
+
+--- Times [`Diff.unified`] of [`Diff.lines`] on `old` and `new`, at the bytes of both.
+local function time_diff(b: Bench.B, old: string, new: string)
+  b.bytes = #old + #new
+  b.reset()
+  for _ = 1, b.n do local _ = Diff.unified(Diff.lines(old, new)) end
+end
+
+--- `n` code-like lines, and the same with about `permille` in a thousand of them edited.
+local function edited_pair(n: integer, permille: integer): string, string
+  local draw = drawer(2026)
+  local old = code(draw, n)
+  return table.concat(old, "\n") .. "\n", table.concat(edited(draw, old, permille), "\n") .. "\n"
+end
+
+--- Bench: 2000 lines, 2 percent of them edited.
+local function bench_2k_lines(b: Bench.B)
+  local old, new = edited_pair(2000, 20)
+  time_diff(b, old, new)
+end
+
+--- Bench: 20000 lines, 1 percent of them edited.
+local function bench_20k_lines(b: Bench.B)
+  local old, new = edited_pair(20000, 10)
+  time_diff(b, old, new)
+end
+
+--- Bench: 200000 lines, half a percent of them edited.
+local function bench_200k_lines(b: Bench.B)
+  local old, new = edited_pair(200000, 5)
+  time_diff(b, old, new)
+end
+
+--- Bench: two unrelated texts of 20000 lines, where the cost bound stops the search.
+local function bench_20k_unrelated_lines(b: Bench.B)
+  local draw = drawer(2026)
+  time_diff(b, table.concat(code(draw, 20000), "\n") .. "\n", table.concat(code(draw, 20000), "\n") .. "\n")
+end
+
+--- Times [`Diff.apply`] of the hunks from `old` to `new` on `old`, at the bytes of `old`.
+local function time_apply(b: Bench.B, old: string, new: string)
+  local hunks = Diff.lines(old, new)
+  b.bytes = #old
+  b.reset()
+  for _ = 1, b.n do assert(Diff.apply(old, hunks).text ~= nil) end
+end
+
+--- Bench: apply the edits of 2000 lines, 2 percent of them edited.
+local function bench_apply_2k_lines(b: Bench.B)
+  local old, new = edited_pair(2000, 20)
+  time_apply(b, old, new)
+end
+
+--- Bench: apply the edits of 20000 lines, 1 percent of them edited.
+local function bench_apply_20k_lines(b: Bench.B)
+  local old, new = edited_pair(20000, 10)
+  time_apply(b, old, new)
+end
+
+--- Bench: apply the edits of 200000 lines, half a percent of them edited.
+local function bench_apply_200k_lines(b: Bench.B)
+  local old, new = edited_pair(200000, 5)
+  time_apply(b, old, new)
 end
 
 local function test_parse_reads_back_what_unified_writes()

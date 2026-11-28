@@ -8,6 +8,7 @@ local Der = require("cosmic.internal.der")
 local Key = require("cosmic.key")
 local Rand = require("cosmic.rand")
 local rsa_fixture = require("build.rsa_fixture")
+local Bench = require("cosmic.bench")
 
 --- A P-256 key as `openssl ecparam -genkey` writes it: the curve's own
 --- block, then SEC 1.
@@ -299,4 +300,13 @@ local function test_an_ed25519_pkcs_8_key_whose_seed_is_no_octet_string_is_refus
   local key, why = Key.read("-----BEGIN PRIVATE KEY-----\n" .. Codec.base64(der) .. "\n-----END PRIVATE KEY-----\n")
   assert(key == nil, "refused")
   assert(why.message:find("an ed25519 private key is an OCTET STRING of its secret", 1, true) ~= nil, why.message)
+end
+
+--- Benches. A key pair made, of each curve.
+local function bench_generate_p256(b: Bench.B)
+  for _ = 1, b.n do local _ = Key.generate("p256") end
+end
+
+local function bench_generate_ed25519(b: Bench.B)
+  for _ = 1, b.n do local _ = Key.generate("ed25519") end
 end

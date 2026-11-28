@@ -69,7 +69,7 @@ local record Tools
     --- The files a snippet of run changed through Host.edit and Host.write, in order, for a person to see: the model
     --- reads none of it. A snippet stopped, or past its time, answers none.
     mut changes?: {Change}
-    --- What a snippet of run gave by [`Host.answer`], where it ran to its end: the turn ends with it, as the model's
+    --- What a snippet of run gave by [`Host.reply`], where it ran to its end: the turn ends with it, as the model's
     --- reply, and no request asks the model for one.
     mut answer?: string
   end
@@ -141,7 +141,7 @@ local record Tools
     --- JSON, else as a string, and an error result raises in the
     --- snippet. `raw` is not read. A raise fails the call.
     amend?: function(name: string, input: Object, result: Result): Result
-    --- What a snippet gave by [`Host.answer`] as its answer to the user, where it gave one: the turn ends with it.
+    --- What a snippet gave by [`Host.reply`] as its answer to the user, where it gave one: the turn ends with it.
     mut answered?: string
   end
 

@@ -199,6 +199,12 @@ local record Codes
   record Rewrite
     before: string
     after: string
+    --- Where the place's own text is replaced by this text, between `before` and `after`: the rewrite of `c and x or y`
+    --- to its `if` expression replaces the place. Nil where the place's text stays.
+    text?: string
+    --- The place the rewrite edits where it is not the error's: the declaration of a view that is written, not the
+    --- write. Nil for the error's place.
+    place?: Scopes.Place
   end
 
   --- An error: the scope builder's, with the types it is about.

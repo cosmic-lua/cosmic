@@ -87,10 +87,9 @@ local function check_program(input: string): boolean, string
   return check_source(adapt.adapted(input) or input)
 end
 
-local function test_a_program_the_flow_takes_does_not_fail_at_a_narrowed_read(tmp: string)
-  Fuzz.run({
+local function fuzz_a_program_the_flow_takes_does_not_fail_at_a_narrowed_read(): Fuzz.Target
+  return Fuzz.target({
     name = "flow sound",
-    dir = tmp,
     -- Half the default: a draw is a program of the generator of the fork's shapes, put in the new grammar, checked and run.
     iters = iterations(32),
     gen = drawn.well_formed,
@@ -103,10 +102,9 @@ end
 --- The programs whose narrowing must stay refused, and some that must keep running, that the soundness property found once
 --- (`testdata/fuzz/checker-sound`), in the new grammar and checked: refused, or run to its end or to a failed `assert`. The
 --- programs are not drawn again.
-local function test_the_corpus_of_programs_found_unsound_is_refused_or_runs_clean(tmp: string)
-  Fuzz.run({
+local function fuzz_the_corpus_of_programs_found_unsound_is_refused_or_runs_clean(): Fuzz.Target
+  return Fuzz.target({
     name = "flow sound corpus",
-    dir = tmp,
     iters = 0,
     corpus = "testdata/fuzz/checker-sound",
     gen = drawn.well_formed,
@@ -528,10 +526,9 @@ local function check_fixed(source: string): boolean, string
   return ok, why
 end
 
-local function test_a_program_over_fixed_fields_the_flow_takes_does_not_fail_at_a_narrowed_path(tmp: string)
-  Fuzz.run({
+local function fuzz_a_program_over_fixed_fields_the_flow_takes_does_not_fail_at_a_narrowed_path(): Fuzz.Target
+  return Fuzz.target({
     name = "flow sound fixed fields",
-    dir = tmp,
     -- Under 3 s with coverage; a replaced record is drawn so often that the mutant that stops it ending a test is found by
     -- the 8th draw.
     iters = iterations(24),
@@ -542,10 +539,9 @@ local function test_a_program_over_fixed_fields_the_flow_takes_does_not_fail_at_
   })
 end
 
-local function test_a_program_over_locals_the_flow_takes_does_not_fail_at_a_narrowed_read(tmp: string)
-  Fuzz.run({
+local function fuzz_a_program_over_locals_the_flow_takes_does_not_fail_at_a_narrowed_read(): Fuzz.Target
+  return Fuzz.target({
     name = "flow sound locals",
-    dir = tmp,
     gen = gen_locals,
     check = check_locals,
     requires = { "accepted", "ran", "refused", "narrowed read", "ran with while", "ran with for", "ran with repeat",
@@ -841,10 +837,9 @@ end
 --- The corpus is `testdata/fuzz/flow-sound-arrays`: one program for each rule that keeps a length fact too long, which fails at
 --- run time when the checker has the rule, and runs clean otherwise. The inputs are programs, not draws, so they run at
 --- every budget, `FUZZ_ITERS=0` of the merge gate included.
-local function test_a_program_over_arrays_the_flow_takes_does_not_read_nil_where_a_length_fact_said_it_was_not(tmp: string)
-  Fuzz.run({
+local function fuzz_a_program_over_arrays_the_flow_takes_does_not_read_nil_where_a_length_fact_said_it_was_not(): Fuzz.Target
+  return Fuzz.target({
     name = "flow sound arrays",
-    dir = tmp,
     iters = iterations(32),
     gen = gen_arrays,
     check = check_arrays,
@@ -1209,10 +1204,9 @@ local function check_shapes(source: string): boolean, string
     "\n--- lua ---\n" .. x.lua
 end
 
-local function test_a_program_of_enum_class_tag_and_closure_shapes_the_flow_takes_does_not_fail_at_a_narrowed_read(tmp: string)
-  Fuzz.run({
+local function fuzz_a_program_of_enum_class_tag_and_closure_shapes_the_flow_takes_does_not_fail_at_a_narrowed_read(): Fuzz.Target
+  return Fuzz.target({
     name = "flow sound shapes",
-    dir = tmp,
     gen = gen_shapes,
     check = check_shapes,
     requires = { "accepted", "ran", "refused", "narrowed read", "ran with enum", "ran with class", "ran with tag", "ran with table",

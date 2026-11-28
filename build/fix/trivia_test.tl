@@ -271,10 +271,9 @@ local function test_the_stream_gives_back_the_source_on_chosen_sources()
   end
 end
 
-local function test_the_stream_gives_back_any_source_the_lexer_fuzz_draws(tmp: string)
-  Fuzz.run({
+local function fuzz_the_stream_gives_back_any_source_the_lexer_fuzz_draws(): Fuzz.Target
+  return Fuzz.target({
     name = "trivia gives back the source",
-    dir = tmp,
     gen = Sources.source,
     check = function(input: string): boolean, string
       local stream, tokens = stream_of(input)

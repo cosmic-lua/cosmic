@@ -14,7 +14,7 @@ followed its own layout and runner:
 - examples: the record `Example` that `<module>_example.tl` returns, run
   by `cosmic test` and shown by `cosmic docs`;
 - benches: `bench.case` calls in a script under `bench/`, run by hand as
-  `bin/cosmic bench/<suite>.tl` on [`bench/harness.tl`], and by nothing else.
+  `bin/cosmic bench/<suite>.tl` on `bench/harness.tl`, and by nothing else.
 
 A new module (cosmic.git) needed all four, in three layouts and three
 runners. A bench ran by no test rots: a renamed function breaks it, and
@@ -45,22 +45,38 @@ body and what it keeps of the call.
    It prints the fastest and the median ns per operation of each, or one
    JSON object per bench with `--json`. Selectors, the sandbox, policies,
    deadlines and reruns are `cosmic test`'s.
-4. **Fuzz properties are functions by prefix too** (next): a top-level
-   `local function fuzz_<name>(): Fuzz.Property` returns the property.
-   `cosmic test` checks it at a few inputs (`FUZZ_ITERS`, 64), and
-   `cosmic test --fuzz-deep` draws many. A generator is a value
-   ([`Fuzz.Property`]'s `gen`) another body can draw from: a bench can
-   time a seeded draw, and a corpus input is a fixed case. A fuzz failure
-   is kept in the corpus, so it is a test and a bench input both.
+4. **Fuzz properties are functions by prefix too.** A top-level
+   `local function fuzz_<name>(): Fuzz.Target` returns
+   [`Fuzz.target`] of the property; the runner checks it with
+   [`Fuzz.run_target`] in the test's directory. `cosmic test` checks it
+   at a few inputs (`FUZZ_ITERS`, 64), and `cosmic test --fuzz-deep`
+   draws many (10000, for at most `FUZZ_SECONDS` 120 each), whatever
+   verdict stands; the weekly `fuzz.yml` runs it. The target is a class
+   that only cosmic.fuzz makes and reads, since the checker narrows a
+   class with `is` only inside its module and refuses a cast from the
+   `any` a worker is returned. A generator is a value
+   ([`Fuzz.Property`]'s `gen`) another body can draw from:
+   [`Fuzz.inputs`] returns a property's corpus and the first `n` inputs
+   a run draws, so a bench of the same file times the module on them. A fuzz failure
+   is kept in the corpus, so it is a test and a bench input both. A test
+   that builds its properties in a loop still calls [`Fuzz.run`];
+   `--fuzz-deep` takes every test of a `*_fuzz_test.tl` file for it.
 5. **Examples keep their own file.** An example is documentation that
    `cosmic docs` shows and a built program carries; it stays the record
    `Example` that `<module>_example.tl` returns, run as a test as it is
    today. A function of a test file is not shipped, so an `example_*`
    prefix there would show nothing.
-6. **One results store** (later): a bench's timings go in the same
-   records as test times, keyed by the binary, so `cosmic test --bench
-   --against <old-binary>` compares two builds' stored runs, and a run
-   keeps a history of each bench.
+6. **`cosmic test --bench --against <old-binary>` compares two builds.**
+   Each binary runs its own copy of the chosen test files, copied out of
+   the checkout with the tree modules they require and the testdata/ they
+   name, so each side's `require("cosmic.*")` is its own built-in
+   standard library. The two alternate, a child each a round, for
+   `--rounds` rounds (20, at least 6), and [`Bench.compare`] pairs the
+   rounds into a ratio, a 95% band and a verdict. `--binary` names the
+   new side, this program by default.
+7. **One results store** (later): a bench's timings go in the same
+   records as test times, keyed by the binary, so `--against` can compare
+   stored runs, and a run keeps a history of each bench.
 
 The layout a module follows, then: `<module>.tl`; `<module>_test.tl` for
 its `test_*`, `bench_*` and `fuzz_*`; `<module>_<topic>_test.tl` where one
@@ -85,9 +101,10 @@ say); `<module>_example.tl` for what the docs show.
 
 ## consequences
 
-- `bench/` empties into the modules' test files, and [`bench/harness.tl`]'s
+- `bench/` empties into the modules' test files, and `bench/harness.tl`'s
   statistics move to [`cosmic.bench`], where a project's own benches use
-  them too.
+  them too. Its `--against` is `cosmic test --bench --against`
+  ([`build/test_against.tl`]).
 - A bench that needs a fixture declares it with the module's
   [`Test.policy`], like any test; a bench can no longer read the tree
   without saying so.
@@ -96,8 +113,12 @@ say); `<module>_example.tl` for what the docs show.
   file's top level, where it would cost every test of the file.
 - Comparing two binaries needs both to have `cosmic test --bench`.
 
-[`bench/harness.tl`]: ../../bench/harness.tl
+[`Bench.compare`]: ../../cosmic/bench.tl
+[`build/test_against.tl`]: ../../build/test_against.tl
 [`cosmic.bench`]: ../../cosmic/bench.tl
+[`Fuzz.inputs`]: ../../cosmic/fuzz.tl
 [`Fuzz.Property`]: ../../cosmic/fuzz.tl
+[`Fuzz.run_target`]: ../../cosmic/fuzz.tl
 [`Fuzz.run`]: ../../cosmic/fuzz.tl
+[`Fuzz.target`]: ../../cosmic/fuzz.tl
 [`Test.policy`]: ../../cosmic/test.tl

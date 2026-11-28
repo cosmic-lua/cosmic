@@ -68,3 +68,22 @@ local function test_a_bench_is_handed_one_operation_and_a_directory_in_a_plain_r
   bench_timing_of_twenty_samples(b)
   assert(reset)
 end
+
+local function test_a_compared_line_names_both_bests_the_ratios_the_band_and_the_verdict()
+  local c = Bench.compare(Bench.timing("x", 1, samples(20, 100, 1.1)), Bench.timing("x", 1, samples(20, 50, 1.1)))
+  local line = Bench.compared_line(c, 4)
+  assert(line:sub(1, 5) == "x    ", line)
+  assert(line:find("100", 1, true) and line:find("50.0", 1, true) and line:find("[0.500, 0.500]", 1, true), line)
+  assert(line:sub(-6) == "faster", line)
+  assert(Bench.compared_header(20, 4):find("best of 20", 1, true) ~= nil)
+end
+
+local function test_a_compared_record_holds_each_side_with_its_binary()
+  local c = Bench.compare(Bench.timing("x", 4, samples(6, 100, 1)), Bench.timing("x", 8, samples(6, 130, 1)))
+  local text = Bench.compared_record(c, "/old", "/new")
+  assert(text:find("\n", 1, true) == nil, text)
+  local value = assert(Json.decode_object(text))
+  assert(value["name"] == "x" and value["rounds"] == 6 and value["verdict"] == "slower", text)
+  local old, new = Json.object_of(value["old"])!, Json.object_of(value["new"])!
+  assert(old["binary"] == "/old" and old["n"] == 4 and new["binary"] == "/new" and new["n"] == 8, text)
+end

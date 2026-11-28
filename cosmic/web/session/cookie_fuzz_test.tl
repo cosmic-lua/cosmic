@@ -10,12 +10,11 @@ local KEY <const> = "k3Jf9Lq0Zx7Rw2Ub8Tn5Vc1Hd6Ym4Ga0Pe7Sx2Wq9Ac"
 
 local store = SessionCookie.store{ keys = { KEY } }
 
-local function test_an_arbitrary_token_never_loads_and_never_raises(tmp: string)
+local function fuzz_an_arbitrary_token_never_loads_and_never_raises(): Fuzz.Target
   local good = assert(store:save("", { values = { user = "ada" }, created = 1, expires = 100 },
     { set = {}, removed = {} }, 1, "session"))
-  Fuzz.run({
+  return Fuzz.target({
     name = "session cookie token",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       local kind = src:int(0, 3)
       if kind == 0 then return Fuzz.bytes(src, 60) end
@@ -40,10 +39,9 @@ local function test_an_arbitrary_token_never_loads_and_never_raises(tmp: string)
   })
 end
 
-local function test_what_the_store_signs_it_loads_back(tmp: string)
-  Fuzz.run({
+local function fuzz_what_the_store_signs_it_loads_back(): Fuzz.Target
+  return Fuzz.target({
     name = "session cookie round trip",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       return Fuzz.pack({ Fuzz.bytes(src, 20), tostring(src:int(1, 1000)) })
     end,

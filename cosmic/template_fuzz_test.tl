@@ -226,10 +226,9 @@ end
 -- Whatever the bytes, `compile` returns module source with the template's
 -- lines or a reason that names a place; it never raises, and returns one
 -- thing each time.
-local function test_compile_is_total_and_keeps_the_lines_on_any_bytes(tmp: string)
-  Fuzz.run({
+local function fuzz_compile_is_total_and_keeps_the_lines_on_any_bytes(): Fuzz.Target
+  return Fuzz.target({
     name = "template total",
-    dir = tmp,
     gen = gen_template,
     requires = { "compiled", "syntax", "slot", "arms", "block", "text mode", "multiline", "bound" },
     shares = { compiled = 0.05, syntax = 0.05, slot = 0.01 },
@@ -303,10 +302,9 @@ end
 
 -- A template with no action renders its text, byte for byte, whatever the
 -- bytes: the module, with its types struck out, is run.
-local function test_literal_text_is_rendered_byte_for_byte(tmp: string)
-  Fuzz.run({
+local function fuzz_literal_text_is_rendered_byte_for_byte(): Fuzz.Target
+  return Fuzz.target({
     name = "template literal",
-    dir = tmp,
     gen = gen_literal,
     requires = { "newline", "quote", "control", "high byte", "html", "text" },
     shares = { newline = 0.1, quote = 0.2, html = 0.3, text = 0.3 },
@@ -368,10 +366,9 @@ end
 -- The two modes read the same syntax: what `html` compiles, `text` does,
 -- with the same lines; and a template `text` refuses, `html` does, for
 -- the same reason (a slot's or a branch's refusal comes only from `html`).
-local function test_modes_agree_on_syntax_and_text_takes_what_html_does(tmp: string)
-  Fuzz.run({
+local function fuzz_modes_agree_on_syntax_and_text_takes_what_html_does(): Fuzz.Target
+  return Fuzz.target({
     name = "template modes",
-    dir = tmp,
     gen = gen_body,
     requires = { "both refuse", "html refuses", "both compile" },
     shares = { ["both compile"] = 0.1, ["html refuses"] = 0.03, ["both refuse"] = 0.05 },
@@ -790,10 +787,9 @@ end
 -- is given (markup characters, quotes, a script URL), the output holds no
 -- raw `<`, `>`, quote or space of the data in a place it was escaped for,
 -- and a slot that is a URL went through `href`.
-local function test_a_value_cannot_get_out_of_where_a_slot_puts_it(tmp: string)
-  Fuzz.run({
+local function fuzz_a_value_cannot_get_out_of_where_a_slot_puts_it(): Fuzz.Target
+  return Fuzz.target({
     name = "template sound",
-    dir = tmp,
     gen = gen_sound,
     requires = { "refused", "text", "rtext", "ftext", "attr", "url", "part", "assembled part", "part after url", "block", "assembled url", "root", "range binding" },
     shares = { refused = 0.01, text = 0.05, rtext = 0.01, ftext = 0.01, attr = 0.01, url = 0.01, part = 0.01 },
@@ -1015,10 +1011,9 @@ end
 -- unsplit reading; waits on an HTML parser in the tree that reports the
 -- tokenizer state at a given byte (the html5lib tokenizer test holds a
 -- reference tokenizer for the data state only).
-local function test_a_cut_in_the_text_does_not_move_where_a_slot_lands(tmp: string)
-  Fuzz.run({
+local function fuzz_a_cut_in_the_text_does_not_move_where_a_slot_lands(): Fuzz.Target
+  return Fuzz.target({
     name = "template cut",
-    dir = tmp,
     gen = gen_cut,
     requires = { "agreed", "cut refused", "raw text", "script slot refused", "range", "with", "arms", "string" },
     shares = { agreed = 0.2, ["raw text"] = 0.3, ["cut refused"] = 0.05, ["script slot refused"] = 0.02 },
@@ -1086,10 +1081,9 @@ end
 -- complete a scheme, whatever the slot's value: the text, with the blocks
 -- struck out and the bytes a URL parser drops removed, begins with neither
 -- `/` nor `\`, and holds no `:` or `&` before its first `/`, `?` or `#`.
-local function test_a_url_suffix_cannot_make_the_assembled_value_leave_the_policy(tmp: string)
-  Fuzz.run({
+local function fuzz_a_url_suffix_cannot_make_the_assembled_value_leave_the_policy(): Fuzz.Target
+  return Fuzz.target({
     name = "template url suffix",
-    dir = tmp,
     gen = gen_suffix,
     requires = { "compiled", "refused" },
     shares = { compiled = 0.1, refused = 0.1 },
@@ -1140,10 +1134,9 @@ end
 -- whatever they hold: braces, quotes, backslashes, newlines (kept outside
 -- them), control and high bytes. Where else a string action may cut text
 -- is the cut property's to check, against the text whole.
-local function test_a_string_action_renders_the_bytes_it_quotes(tmp: string)
-  Fuzz.run({
+local function fuzz_a_string_action_renders_the_bytes_it_quotes(): Fuzz.Target
+  return Fuzz.target({
     name = "template string",
-    dir = tmp,
     gen = gen_quoted,
     requires = { "brace", "escape", "newline", "slot" },
     shares = { brace = 0.1, escape = 0.1 },
@@ -1400,10 +1393,9 @@ end
 -- the tag where each other does, which the text after reads alike, as
 -- `<b{{if .a}}r>{{else}}>{{end}}` does. Every way it runs, each slot is
 -- escaped for where the tag puts it, and none stands where nothing escapes.
-local function test_a_block_in_a_tag_adds_only_the_attributes_it_writes(tmp: string)
-  Fuzz.run({
+local function fuzz_a_block_in_a_tag_adds_only_the_attributes_it_writes(): Fuzz.Target
+  return Fuzz.target({
     name = "template tag block",
-    dir = tmp,
     gen = gen_tag_block,
     requires = { "compiled", "refused", "added", "else", "range", "slot", "font in svg", "meta" },
     shares = { added = 0.05, refused = 0.1 },
@@ -1569,10 +1561,9 @@ local function in_identifier(text: string): boolean
   return true
 end
 
-local function test_a_selector_slot_never_leaves_the_identifier_it_stands_in(tmp: string)
-  Fuzz.run({
+local function fuzz_a_selector_slot_never_leaves_the_identifier_it_stands_in(): Fuzz.Target
+  return Fuzz.target({
     name = "selector slot",
-    dir = tmp,
     gen = gen_selector,
     requires = { "escaped", "plain", "high" },
     shares = { escaped = 0.2 },
@@ -1628,10 +1619,9 @@ local function gen_json(src: Fuzz.Source): string
     Fuzz.pick(src, { '"', "'" }), Fuzz.pick(src, { "k", "js:alert(1)", "javascript:x", "}", "\"" }) })
 end
 
-local function test_a_json_slot_is_the_attribute_value_it_was_given(tmp: string)
-  Fuzz.run({
+local function fuzz_a_json_slot_is_the_attribute_value_it_was_given(): Fuzz.Target
+  return Fuzz.target({
     name = "json slot",
-    dir = tmp,
     gen = gen_json,
     requires = { "encoded", "quoted" },
     shares = { quoted = 0.2 },
@@ -1703,10 +1693,9 @@ local function gen_script_attr(src: Fuzz.Source): string
     Fuzz.pick(src, { "{{.a}}", "x{{.a}}", "{{.a}}x", "/{{.a}}", "{{if .b}}{{.a}}{{end}}" }) })
 end
 
-local function test_a_slot_in_an_attribute_that_is_script_is_refused_whatever_its_spelling(tmp: string)
-  Fuzz.run({
+local function fuzz_a_slot_in_an_attribute_that_is_script_is_refused_whatever_its_spelling(): Fuzz.Target
+  return Fuzz.target({
     name = "script attribute",
-    dir = tmp,
     gen = gen_script_attr,
     requires = { "data", "use" },
     shares = { data = 0.2, use = 0.2 },

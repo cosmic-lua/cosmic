@@ -149,4 +149,31 @@ function Bench.record(t: Bench.Timing): string
   return assert(Json.encode(out))
 end
 
+--- The header of [`Bench.compared_line`]'s table, for `rounds` rounds.
+function Bench.compared_header(rounds: integer, width?: integer): string
+  return string.format("%-" .. tostring(width or 32) .. "s %12s %12s  %7s  %7s  %-16s  %s",
+    "bench (ns/op, best of " .. tostring(rounds) .. ")", "old", "new", "best", "paired", "95% band", "verdict")
+end
+
+--- One comparison's line of a table: its name, padded to `width` (32 by default), each side's fastest ns per
+--- operation, the ratio of the bests, the paired ratio, its 95% band and the verdict.
+function Bench.compared_line(c: Bench.Comparison, width?: integer): string
+  return string.format("%-" .. tostring(width or 32) .. "s %12s %12s  %7.3f  %7.3f  %-16s  %s", c.name,
+    Bench.ns(c.old.best), Bench.ns(c.new.best), c.ratio, c.paired, string.format("[%.3f, %.3f]", c.low, c.high),
+    c.verdict)
+end
+
+--- One comparison as a JSON object on one line: `name`, `unit`, `rounds`, `old` and `new` (each its `binary`,
+--- `best`, `median`, `n` and `samples`), `ratio`, `paired`, `low`, `high` and `verdict`.
+function Bench.compared_record(c: Bench.Comparison, old_binary: string, new_binary: string): string
+  local function side(t: Bench.Timing, binary: string): Json.Value
+    local samples: mut {Json.Value} = {}
+    for i, v in ipairs(t.samples) do samples[i] = v end
+    return { binary = binary, best = t.best, median = t.median, n = t.n, samples = Json.array(samples) }
+  end
+  return assert(Json.encode({ name = c.name, unit = "ns/op", rounds = #c.new.samples,
+    old = side(c.old, old_binary), new = side(c.new, new_binary), ratio = c.ratio, paired = c.paired,
+    low = c.low, high = c.high, verdict = c.verdict }))
+end
+
 return Bench

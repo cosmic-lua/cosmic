@@ -87,6 +87,8 @@ local record Env
     "COSMIC_VERDICT_CACHE"
     --- `<property>:<case>`, the one input to check.
     "FUZZ_CASE"
+    --- The inputs a fuzz property draws (64 by default).
+    "FUZZ_ITERS"
     --- The seconds a fuzz property may draw inputs for.
     "FUZZ_SECONDS"
     --- "1" makes an unheld sandbox a failure.

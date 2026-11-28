@@ -92,7 +92,7 @@ local function test_the_loop_runs_tools_until_the_turn_ends()
   assert(again ~= nil and #again == 5)
 end
 
---- A tool result that holds an answer (a snippet's Host.answer) ends the turn with it as the model's reply: no
+--- A tool result that holds an answer (a snippet's Host.reply) ends the turn with it as the model's reply: no
 --- request asks the model for one, and the next turn reads it as the model's.
 local function test_an_answer_from_a_tool_ends_the_turn()
   local a, send = api({ { content = { say_call("t1", "made") }, stop_reason = "tool_use" }, text_reply("again") })

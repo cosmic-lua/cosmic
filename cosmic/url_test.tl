@@ -1,6 +1,7 @@
 local Array = require("cosmic.array")
 local Url = require("cosmic.url")
 local StringList = require("build.string_list_fixture")
+local Bench = require("cosmic.bench")
 
 local function test_escape_keeps_only_the_unreserved_bytes()
   for byte = 0, 255 do
@@ -368,4 +369,55 @@ local function test_resolve_reaches_the_corners_of_5_2()
   assert(Url.resolve("/xl/workbook.xml?q", "#s") == "/xl/workbook.xml?q#s")
   assert(Url.resolve("/xl/workbook.xml", "//h/p") == "//h/p")
   assert(Url.resolve("mailto:", "x") == "mailto:x")
+end
+
+--- Benches. 1000 addresses parsed and resolved, and a query string decoded, encoded and escaped.
+local function sample_addresses(): {string}
+  local out: mut {string} = {}
+  for i = 1, 1000 do
+    out[i] = ("https://user@example.com:8443/a/b/c%d/index.html?x=%d&y=a%%20b&z=%%e2%%82%%ac#frag"):format(i, i)
+  end
+  return out
+end
+
+local function bench_parse_1000_urls(b: Bench.B)
+  local addresses = sample_addresses()
+  b.reset()
+  for _ = 1, b.n do
+    for _, a in ipairs(addresses) do local _ = Url.parse(a)! end
+  end
+end
+
+local function bench_resolve_1000_urls(b: Bench.B)
+  local addresses = sample_addresses()
+  b.reset()
+  for _ = 1, b.n do
+    for _, a in ipairs(addresses) do
+      local _ = Url.resolve("https://example.com/a/b/", "../c/d.html?q=" .. tostring(#a))
+    end
+  end
+end
+
+local function bench_decode_query_200_pairs(b: Bench.B)
+  local query = "a=1&b=two%20words&c=%e2%82%ac&" .. string.rep("k=v&", 200) .. "last=1"
+  b.bytes = #query
+  b.reset()
+  for _ = 1, b.n do local _ = Url.decode_query(query)! end
+end
+
+local function bench_encode_query_200_pairs(b: Bench.B)
+  local list: mut {Url.Pair} = {}
+  for i = 1, 200 do
+    local pair: Url.Pair = { name = "key" .. tostring(i), value = "a value & more " .. tostring(i) }
+    list[#list + 1] = pair
+  end
+  b.reset()
+  for _ = 1, b.n do local _ = Url.encode_query(list) end
+end
+
+local function bench_escape_45_kb(b: Bench.B)
+  local plain = string.rep("The quick brown fox jumps over the lazy dog. ", 1000)
+  b.bytes = #plain
+  b.reset()
+  for _ = 1, b.n do local _ = Url.escape(plain) end
 end

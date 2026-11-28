@@ -97,6 +97,7 @@ local cases: {string: function(at: integer, fd: integer)} = {
   fsync = function(_: integer, fd: integer) sys.fsync(fd) end,
   full_fsync = function(_: integer, fd: integer) sys.full_fsync(fd) end,
   ftruncate = function(_: integer, fd: integer) sys.ftruncate(fd, 0) end,
+  fchmod = function(_: integer, fd: integer) sys.fchmod(fd, 384) end,
   flock = function(_: integer, fd: integer) sys.flock(fd, "exclusive") end,
   flock_kind = function(_: integer, fd: integer) sys.flock_kind(fd) end,
   set_nonblocking = function(_: integer, fd: integer) sys.set_nonblocking(fd, false) end,

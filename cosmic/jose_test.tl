@@ -9,6 +9,8 @@ local Json = require("cosmic.json")
 local Rand = require("cosmic.rand")
 local Key = require("cosmic.key")
 local Test = require("cosmic.test")
+local Bench = require("cosmic.bench")
+local Clock = require("cosmic.clock")
 
 --- The key that checks what `key` signs, as a provider publishes it.
 local function verifier(key: Key.Secret, kid?: string): Jose.Jwk
@@ -271,3 +273,28 @@ local function test_an_x25519_key_signs_no_token_and_is_published_as_no_jwk()
   Test.raises(function() Jose.sign(key, { sub = "ada" }) end, "jose: an X25519 key signs nothing")
   Test.raises(function() Jose.jwk(key.public) end, "jose: an X25519 key signs nothing")
 end
+
+--- Benches. A JWT signed and verified with P-256 and with Ed25519.
+local function sample_claims(): {string: Json.Value}
+  return { iss = "https://id.example.com", sub = "ada", aud = "my-app", exp = Clock.now_ns() // 1000000000 + 3600 }
+end
+
+local function signing(b: Bench.B, curve: Key.Alg)
+  local key, claims = Key.generate(curve), sample_claims()
+  b.reset()
+  for _ = 1, b.n do local _ = Jose.sign(key, claims) end
+end
+
+local function verifying(b: Bench.B, curve: Key.Alg)
+  local key = Key.generate(curve)
+  local signed = Jose.sign(key, sample_claims(), { typ = "JWT", kid = "k" })
+  local keys = Jose.keys({ keys = Json.array({ Jose.jwk(key.public, "k") }) })!
+  local jwt: Jose.JwtOptions = { issuer = "https://id.example.com", audience = "my-app" }
+  b.reset()
+  for _ = 1, b.n do local _ = Jose.verify_jwt(signed, keys, jwt)! end
+end
+
+local function bench_sign_p256(b: Bench.B) signing(b, "p256") end
+local function bench_sign_ed25519(b: Bench.B) signing(b, "ed25519") end
+local function bench_verify_jwt_p256(b: Bench.B) verifying(b, "p256") end
+local function bench_verify_jwt_ed25519(b: Bench.B) verifying(b, "ed25519") end

@@ -86,10 +86,9 @@ local function moment_round_trips(input: string): boolean, string
   return true, ""
 end
 
-local function test_reading_a_time_is_total(tmp: string)
-  Fuzz.run({
+local function fuzz_reading_a_time_is_total(): Fuzz.Target
+  return Fuzz.target({
     name = "input total",
-    dir = tmp,
     gen = gen_input,
     check = input_is_total,
     requires = { "read", "refused", "epoch", "local", "date" },
@@ -97,10 +96,9 @@ local function test_reading_a_time_is_total(tmp: string)
   })
 end
 
-local function test_a_moment_reads_back_from_its_text(tmp: string)
-  Fuzz.run({
+local function fuzz_a_moment_reads_back_from_its_text(): Fuzz.Target
+  return Fuzz.target({
     name = "moment round trip",
-    dir = tmp,
     gen = gen_moment,
     check = moment_round_trips,
     requires = { "zoned text", "epoch text" },

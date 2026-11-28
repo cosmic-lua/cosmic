@@ -436,7 +436,7 @@ local function edits_of(made: Pipeline.Alone, width: integer): {Rewrite.Edit}
   for _, e in ipairs(made.edits or {}) do
     if e.offset > width then
       out[#out + 1] = { code = e.code, y = e.y, x = if e.y == 1 then e.x - width else e.x end, offset = e.offset - width,
-        length = e.length, before = e.before, after = e.after }
+        length = e.length, before = e.before, after = e.after, text = e.text }
     end
   end
   return out

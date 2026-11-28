@@ -136,10 +136,9 @@ local function walk(input: string): boolean, string
   return true, ""
 end
 
-local function test_the_reader_is_total_on_mutated_archives(tmp: string)
-  Fuzz.run({
+local function fuzz_the_reader_is_total_on_mutated_archives(): Fuzz.Target
+  return Fuzz.target({
     name = "tar reader total",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       local archive = write(gen_entries(src)) or ""
       return Fuzz.mutate(src, archive, 8)
@@ -151,12 +150,11 @@ end
 
 -- Nearly every input here is refused at its first header, whose
 -- checksum random bytes never match: this checks that refusal and a
--- short read's, and [`test_the_reader_is_total_on_drawn_headers`] reaches
+-- short read's, and [`fuzz_the_reader_is_total_on_drawn_headers`] reaches
 -- what lies behind them.
-local function test_the_reader_is_total_on_arbitrary_bytes(tmp: string)
-  Fuzz.run({
+local function fuzz_the_reader_is_total_on_arbitrary_bytes(): Fuzz.Target
+  return Fuzz.target({
     name = "tar reader total on bytes",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       return Fuzz.bytes(src, 1600)
     end,
@@ -335,10 +333,9 @@ local function gen_archive(src: Fuzz.Source): string
   return table.concat(out)
 end
 
-local function test_the_reader_is_total_on_drawn_headers(tmp: string)
-  Fuzz.run({
+local function fuzz_the_reader_is_total_on_drawn_headers(): Fuzz.Target
+  return Fuzz.target({
     name = "tar reader total on headers",
-    dir = tmp,
     gen = gen_archive,
     check = walk,
     requires = { "entry", "body read", "long path", "ended", "refused" },
@@ -349,10 +346,9 @@ local function strip_slash(path: string): string
   return (path:gsub("/+$", ""))
 end
 
-local function test_what_the_writer_writes_the_reader_reads_back(tmp: string)
-  Fuzz.run({
+local function fuzz_what_the_writer_writes_the_reader_reads_back(): Fuzz.Target
+  return Fuzz.target({
     name = "tar round trip",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       return Fuzz.pack(gen_entries(src))
     end,

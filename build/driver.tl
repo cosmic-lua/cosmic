@@ -414,6 +414,17 @@ local function error_of(result: Driver.Outcome, stage: string, code: string, msg
     -- and has no rewrite, which would edit text that is not there.
     local at = SourceParse.placed(splices, result.source.text, offset, length)
     if at.inside then rewrite = nil end
+    local into = if rewrite ~= nil then rewrite.place else nil end
+    if rewrite ~= nil and into ~= nil then
+      -- A rewrite of another place is at that place of the text written, and none where the place is in what a lowering wrote.
+      local moved = SourceParse.placed(splices, result.source.text, into.offset, into.length)
+      if moved.inside then
+        rewrite = nil
+      else
+        rewrite = { before = rewrite.before, after = rewrite.after, text = rewrite.text,
+          place = { y = moved.y, x = moved.x, offset = moved.offset, length = moved.length } }
+      end
+    end
     y, x, offset, length = at.y, at.x, at.offset, at.length
     if other ~= nil then
       local o = SourceParse.placed(splices, result.source.text, other.offset, other.length)
@@ -503,6 +514,48 @@ function Driver.new(options: Driver.Options): Driver.Build
   --- replaces, those retired among them, whose syntax tree is gone.
   local needs: mut {string: {string}} = {}
   local scratches: mut {Driver.Build} = {}
+  --- The fields of each module read that are functions that take a template, by every name the module goes by: kept
+  --- after the module is retired, for the lowering of a module read after it.
+  local takers: mut {string: {string: boolean}} = {}
+  --- The modules being read, by every name asked for: a module that requires one of them while it is read (a cycle)
+  --- finds no function of it that takes a template.
+  local reading: mut {string: boolean} = {}
+  --- What reads a module for [`SourceParse.Takes`]: `prepare`, once it is made.
+  local record Later
+    mut prepare: function(name: string): Entry?
+  end
+  local later: Later = { prepare = function(_: string): Entry? return nil end }
+
+  --- [`SourceParse.Takes`] over the modules of the build: a module not read yet is read for it.
+  local function takes(module: string, field: string): boolean
+    if takers[module] == nil and reading[module] ~= true then
+      local entry = later.prepare(module)
+      local own = if entry ~= nil then takers[entry.result.module] else nil end
+      if own ~= nil then
+        takers[module] = own
+      end
+    end
+    local held = takers[module]
+    return held ~= nil and held[field] == true
+  end
+
+  --- `source` read, with the functions that take a template of the modules it requires, and its own kept.
+  local function read_of(source: Driver.Source, written?: string): Read
+    reading[source.module] = true
+    for _, name in ipairs(source.aliases) do
+      reading[name] = true
+    end
+    local read = read_source(source, written, takes)
+    reading[source.module] = nil
+    for _, name in ipairs(source.aliases) do
+      reading[name] = nil
+    end
+    takers[source.module] = read.takers
+    for _, name in ipairs(source.aliases) do
+      takers[name] = read.takers
+    end
+    return read
+  end
 
   local function find(module: string): Driver.Source?
     for _, provider in ipairs(providers) do
@@ -681,13 +734,16 @@ function Driver.new(options: Driver.Options): Driver.Build
     held = entries[source.module]
     if held == nil then
       local started = Clock.monotonic_ns()
-      held = entry_of(read_source(source))
+      reading[name] = true
+      held = entry_of(read_of(source))
+      reading[name] = nil
       timing.prepare = timing.prepare + Clock.monotonic_ns() - started
       entries[source.module] = held
     end
     entries[name] = held
     return held
   end
+  later.prepare = prepare
 
   --- Makes `program` provide the modules a `require` names from the entries.
   local function attach()
@@ -732,7 +788,7 @@ function Driver.new(options: Driver.Options): Driver.Build
         start()
         local source = find(name)
         if source ~= nil then
-          return entry_of(read_source(source)).result
+          return entry_of(read_of(source)).result
         end
       end
       return nil
@@ -882,7 +938,7 @@ function Driver.new(options: Driver.Options): Driver.Build
     local source = make(old.module, old.filename, text, old.dialect, old.checked, old.aliases, old.tests, old.pinned,
       old.entry)
     local started = Clock.monotonic_ns()
-    local fresh = entry_of(read_source(source, text))
+    local fresh = entry_of(read_of(source, text))
     timing.prepare = timing.prepare + Clock.monotonic_ns() - started
     if build.program.modules[old.module] == nil then
       -- The program has not met the module, so nothing in it depends on the text that goes: the text that replaces it

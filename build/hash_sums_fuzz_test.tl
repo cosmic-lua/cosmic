@@ -24,10 +24,9 @@ local function gen_entries(src: Fuzz.Source): string
 end
 
 -- Every name formats to a line that parses to itself, alone and among others.
-local function test_a_formatted_line_reads_back(tmp: string)
-  Fuzz.run({
+local function fuzz_a_formatted_line_reads_back(): Fuzz.Target
+  return Fuzz.target({
     name = "sums round trip",
-    dir = tmp,
     gen = gen_entries,
     requires = { "escaped name", "plain name", "several lines" },
     check = function(input: string): boolean, string
@@ -91,10 +90,9 @@ end
 
 -- Any bytes are a sums file, never a raise; each entry has a digest of
 -- the right size and a name, and formats and reads back as itself.
-local function test_parse_sums_is_total_on_any_bytes(tmp: string)
-  Fuzz.run({
+local function fuzz_parse_sums_is_total_on_any_bytes(): Fuzz.Target
+  return Fuzz.target({
     name = "sums total",
-    dir = tmp,
     gen = gen_text,
     requires = { "entry", "refused", "escaped name", "skipped" },
     shares = { entry = 0.1, refused = 0.1 },

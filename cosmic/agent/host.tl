@@ -49,6 +49,14 @@
 ---       for i = 1, 3 do local _ = Poll.spawn(function() got[i] = notes.get({ id = i }).text end) end
 ---     end)
 ---
+--- A repository is read and committed with [`Host.git_status`], [`Host.git_diff`], [`Host.git_log`], [`Host.git_add`]
+--- and [`Host.git_commit`], which run [`cosmic.git`] in the worker: no git program runs, and no hook or filter does.
+--- A snippet does not write the files of `.git` by [`Host.write`] or [`Host.edit`], so it sets no hook, filter or
+--- identity a git program run later would obey:
+---
+---     Host.git_add({ "text.tl" })
+---     print(Host.git_commit("text: note the trim rule"))
+---
 --- [`Host.find`], [`Host.grep`] and [`Host.lines`] are [`cosmic.shell`]'s calls, run in the snippet's own process,
 --- raising where they fail. For the rest of what a command does (sed, wc, sort, uniq, sqlite3, sha256sum), a snippet
 --- requires the module of the same work: [`cosmic.shell`], [`cosmic.sqlite`], [`cosmic.hash`]. A file is read with
@@ -64,12 +72,15 @@ local Csv = require("cosmic.csv")
 local Failure = require("cosmic.failure")
 local type Doc = require("cosmic.doc")
 local Fs = require("cosmic.fs")
+local Diff = require("cosmic.diff")
+local Git = require("cosmic.git")
 local Proc = require("cosmic.proc")
 local Shell = require("cosmic.shell")
 local Json = require("cosmic.json")
 local McpModule = require("cosmic.agent.mcp_module")
 local Sqlite = require("cosmic.sqlite")
 local String = require("cosmic.string")
+local Template = require("cosmic.template")
 
 local record Host
   --- A row of [`Host.history`]: each column's name and its cell. An integer or a real is a number, NULL is
@@ -554,6 +565,33 @@ function Host.read(path: string): string
   return text
 end
 
+--- Raises where `path` (or the file `file` a link at it names) is inside a `.git` directory: the agent changes a
+--- repository through [`Host.git_add`] and [`Host.git_commit`], never by writing its files, so it cannot set a
+--- hook, a filter or an identity (`.git/config`, `.git/hooks`) that a git program run later would obey. This
+--- checks the names a call is given, as a tool does; it is not the sandbox, which grants the working directory whole.
+local function refuse_git(verb: string, path: string, file: string)
+  -- The directory the name reaches through its links too: `g/config` where `g` links to `.git`.
+  local reached, _ = Fs.absolute(Fs.dirname(file))
+  local names: mut {string} = { path, file }
+  if reached ~= nil then names[#names + 1] = reached end
+  for _, name in ipairs(names) do
+    local parts: mut {string} = {}
+    for part in name:gmatch("[^/]+") do
+      if part == ".." then
+        if #parts > 0 then parts[#parts] = nil end
+      elseif part ~= "." then
+        parts[#parts + 1] = part
+      end
+    end
+    for _, part in ipairs(parts) do
+      if part:lower() == ".git" then
+        error("host: " .. verb .. ": " .. path .. " is inside .git, which Host.git_add and Host.git_commit change and " ..
+            "a snippet does not write (no hooks, no config)", 3)
+      end
+    end
+  end
+end
+
 --- The file a link at `path` names, through each link in turn, or `path` where it is none: so an edit changes what a
 --- link names and leaves the link.
 local function linked(path: string): string
@@ -574,6 +612,7 @@ end
 ---     Host.edit("notes.md", { { old = "teh", new = "the" }, { old = "## Todo", new = "## Done" } })
 function Host.edit(path: string, edits: {Host.Replacement}): integer
   local file = linked(path)
+  refuse_git("edit", path, file)
   local raw, why = Fs.read(file)
   if raw == nil then error("host: edit: " .. tostring(why), 2) end
   local edited, made = AgentEdit.apply(raw, edits, path, "old", 1)
@@ -714,6 +753,112 @@ function Host.rename(old: string, new: string): Host.Ran
   return cosmic_ran("fix", { "--rename", old .. "=" .. new })
 end
 
+--- The repository whose worktree holds the working directory; raises where there is none.
+local function repo_here(verb: string): Git.Repo
+  local repo, why = Git.open(".")
+  if repo == nil then error("host: " .. verb .. ": " .. tostring(why), 3) end
+  return repo
+end
+
+--- What `git status` reports of the repository here ([`Git.Status`]): the branch, `staged` (what a commit would
+--- record), `unstaged`, `untracked` (ignore rules applied) and `filtered` (tracked files whose attributes ask for a
+--- conversion this module does not run, which [`Host.git_add`] refuses). It runs no git program. Raises where the
+--- directory is in no repository.
+function Host.git_status(): Git.Status
+  local status, why = repo_here("git_status"):status()
+  if status == nil then error("host: git_status: " .. tostring(why), 2) end
+  return status
+end
+
+--- The newest `limit` commits (all where none) from HEAD, or from the revision `from` (`main`, `HEAD~2`), newest first,
+--- as [`Git.Commit`]: `message`, `author.name`, `parents`. Raises where there is no such revision.
+function Host.git_log(limit?: integer, from?: string): {Git.Commit}
+  local commits, why = repo_here("git_log"):log({ limit = limit, from = from })
+  if commits == nil then error("host: git_log: " .. tostring(why), 2) end
+  return commits
+end
+
+--- The text of the file `path` (from the top of the worktree) at HEAD, or nil where HEAD has none.
+local function head_text(repo: Git.Repo, path: string): string?
+  local head, _ = repo:head()
+  if head == nil or head == false then return nil end
+  local commit, _ = repo:commit_info(head)
+  if commit == nil then return nil end
+  local oid = commit.tree
+  for name in path:gmatch("[^/]+") do
+    local entries, _ = repo:tree(oid)
+    local found: string? = nil
+    for _, entry in ipairs(entries or {}) do
+      if entry.name == name then found = entry.oid end
+    end
+    if found == nil then return nil end
+    oid = found
+  end
+  local blob, _ = repo:read(oid)
+  if blob == nil or blob.kind ~= "blob" then return nil end
+  return blob.data
+end
+
+--- A unified diff of each changed file (those of `paths` where named; each path is from the top of the worktree)
+--- of the working tree against HEAD, as `git diff HEAD` writes it, for text files: a file that is binary is named in
+--- a line of its own, a new one has `/dev/null` for its old side. Untracked files are not in it (they are in
+--- `Host.git_status().untracked`). Raises where the directory is in no repository.
+function Host.git_diff(paths?: {string}): string
+  local repo = repo_here("git_diff")
+  local status, why = repo:status()
+  if status == nil then error("host: git_diff: " .. tostring(why), 2) end
+  local changed: mut {string: boolean} = {}
+  for _, c in ipairs(status.staged) do changed[c.path] = true end
+  for _, c in ipairs(status.unstaged) do changed[c.path] = true end
+  local wanted: {string} = {}
+  if paths ~= nil and #paths > 0 then
+    wanted = paths
+  else
+    local all: mut {string} = {}
+    for path in pairs(changed) do all[#all + 1] = path end
+    table.sort(all)
+    wanted = all
+  end
+  local out: mut {string} = {}
+  for _, path in ipairs(wanted) do
+    if changed[path] ~= nil then
+      local old = head_text(repo, path)
+      local new, _ = Fs.read(repo.worktree .. "/" .. path)
+      if (old ~= nil and old:find("\0", 1, true) ~= nil) or (new ~= nil and new:find("\0", 1, true) ~= nil) then
+        out[#out + 1] = "Binary file " .. path .. " differs\n"
+      else
+        local hunks = Diff.lines(old or "", new or "")
+        if #hunks > 0 then
+          local names: Diff.Names = {
+            old_name = if old == nil then "/dev/null" else "a/" .. path end,
+            new_name = if new == nil then "/dev/null" else "b/" .. path end,
+          }
+          out[#out + 1] = "diff --git a/" .. path .. " b/" .. path .. "\n" .. Diff.unified(hunks, names)
+        end
+      end
+    end
+  end
+  return table.concat(out)
+end
+
+--- Stages `paths` (each from the top of the worktree: a file, a link, or a path deleted from the tree), as
+--- `git add` does; a directory is refused (name its files), and so is a file whose attributes ask for a conversion
+--- cosmic does not run (an LFS pattern, ident, a line-ending conversion of a file with a carriage return).
+--- Raises where it refuses, and then stages nothing.
+function Host.git_add(paths: {string})
+  local ok, why = repo_here("git_add"):add(paths)
+  if ok == nil then error("host: git_add: " .. tostring(why), 2) end
+end
+
+--- Commits what is staged on top of HEAD, as `git commit -m message` does with no hook run, as the identity of the
+--- repository's config (`user.name`, `user.email`); returns the new commit's oid. Raises where nothing is
+--- staged or there is no identity.
+function Host.git_commit(message: string): string
+  local oid, why = repo_here("git_commit"):commit({ message = message })
+  if oid == nil then error("host: git_commit: " .. tostring(why), 2) end
+  return oid
+end
+
 --- Runs the tests of `paths` (the test files, or the directories that hold them; the whole tree where none), as
 --- `cosmic test` runs them, in the snippet's sandbox: what it printed, and `ok` where every test passed. It runs
 --- with commands or without, as only cosmic itself may run.
@@ -733,6 +878,7 @@ end
 --- in a newline. It writes text: where the text is not UTF-8 (a raw digest, say), it raises naming the first byte that
 --- is not, and writes nothing; Fs.write writes any bytes. Raises too where it cannot be written.
 function Host.write(path: string, text: string | {string})
+  refuse_git("write", path, linked(path))
   local body = if text is string then text elseif #text == 0 then "" else table.concat(text, "\n") .. "\n" end
   local _, bad = utf8.len(body)
   if bad ~= nil then
@@ -899,10 +1045,14 @@ function Host.store(key: string, value?: Json.Value)
 end
 
 --- Ends the turn with `text` as the reply to the user, once the snippet has run to its end: no request asks the model
---- for one, so a snippet that has what the user asked for saves a turn. A snippet that raises gives no answer, and the
---- last answer given is the one. Raises where it fails.
-function Host.answer(text: string)
-  local _, why = Host.call("answer", { text = text })
+--- for one, so a snippet that has what the user asked for saves a turn. `text` is a template, as [`Template.text`]
+--- takes one, filled from `data`: `Host.reply("{{.n}} files, {{.big}} over 1 MB", { n = #files, big = big })`. Given
+--- as a string literal, the build checks its slots against `data` before the snippet runs, and refuses a slot where
+--- there is no data. Text that is no literal is replied as it is where it has no `{{`, and raises where it has one.
+--- A snippet that raises gives no answer, and the last answer given is the one. Raises where it fails. (The agent's
+--- call for it is named `answer`.)
+function Host.reply(text: Template.Source, data?: any)
+  local _, why = Host.call("answer", { text = Template.text(text, data) })
   if why ~= nil then error(tostring(why), 2) end
 end
 

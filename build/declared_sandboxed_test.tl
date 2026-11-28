@@ -50,7 +50,7 @@ local function test_a_sandboxed_and_an_unenforced_verdict_stand_apart(tmp: strin
   local code, first = ran.code, ran.text
   assert(code == 0, first)
   if not first:find("; sandboxed", 1, true) then
-    Test.skip(confine.unsandboxed_reason(first))
+    Test.skip(confine.unsandboxed_reason(first), "nest")
     return
   end
   assert(first:find("2 ran, 0 stood", 1, true), first)
