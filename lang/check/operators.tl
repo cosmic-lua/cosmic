@@ -108,6 +108,7 @@ end
 --- of `n` bytes, to the range as long as the string: the whole test written again. Nil where the range counts from both ends.
 local function short_range_rewrite(ctx: Ctx, node: Ast.Binary, range: Ast.MethodCall, i: integer, j: integer,
                                    n: integer): Codes.Rewrite?
+  if Context.holds_comment(ctx, node) then return nil end
   local object = full_text(ctx, range.object)
   local made: string
   if i > 0 then
@@ -242,6 +243,11 @@ function Operators.disjunction(ctx: Ctx, node: Ast.Binary, left: Type, expected:
     if is_bool(right) or right.tag == "never" or right.tag == "invalid" then
       return store.boolean
     end
+    -- The left answers only where it is true, so a right that is `true` or nil (`ok`, an effect's `true?`) makes the
+    -- `or` a `true?`, a condition as the right is.
+    if nilable(right) and store:non_nil(right).tag == "true" then
+      return right
+    end
     report(ctx, "or_mix", node, subject(ctx, node.left) .. " is a boolean and " .. subject(ctx, node.right) .. " is " ..
         tq(ctx, right) .. ": `or` of a boolean and another type answers either",
       "write the test: `if " .. text_of(ctx, node.left) .. " then ... else ... end`, or make both operands booleans",
@@ -274,7 +280,9 @@ end
 --- `right`, is never false or nil: the two then answer alike. Nil where `x` may be false or nil, which the `if` expression
 --- answers differently.
 function Operators.ternary_rewrite(ctx: Ctx, node: Ast.Binary, parent: Ast.Binary, right: Type): Codes.Rewrite?
-  if Types.may_be_false(right) or not Types.present(right) then return nil end
+  if Types.may_be_false(right) or not Types.present(right) or Context.holds_comment(ctx, parent) then
+    return nil
+  end
   return { before = "", after = "", text = "if " .. full_text(ctx, node.left) .. " then " .. full_text(ctx, node.right) ..
       " else " .. full_text(ctx, parent.right) .. " end" }
 end
@@ -286,6 +294,12 @@ function Operators.conjunction(ctx: Ctx, node: Ast.Binary, left: Type, expected:
   if left_kind == "bad" then
     local _ = ctx.walk.expr(ctx, node.right, nil)
     return ctx.invalid
+  end
+  if left_kind == "true" then
+    -- The left is always there, so `and` answers the right.
+    local answered = ctx.walk.expr(ctx, node.right, expected)
+    ctx.right_types[node.id] = answered
+    return answered
   end
   -- A `never` left cannot occur, so it is no boolean: the result is the right operand or nil, as for a `T?` left.
   local boolean = left_kind == "bool" and left.tag ~= "never"

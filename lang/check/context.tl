@@ -498,6 +498,19 @@ function Context.full_text(ctx: Ctx, node: Ast.Node): string
   return table.concat(parts)
 end
 
+--- Whether a comment stands between the tokens of `node`: a rewrite that writes the node again from [`full_text`] would
+--- drop it, so none is offered there.
+function Context.holds_comment(ctx: Ctx, node: Ast.Node): boolean
+  local b = base_of(node)
+  local comments = ctx.tokens.comments
+  for i = b.first + 1, b.last do
+    if comments[i] ~= nil then
+      return true
+    end
+  end
+  return false
+end
+
 function Context.subject(ctx: Ctx, node: Ast.Node): string
   return quoted(text_of(ctx, node))
 end
