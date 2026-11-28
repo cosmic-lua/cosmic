@@ -2387,9 +2387,35 @@ local function test_the_gate_needs_every_job_and_compares_the_legs_products()
   local _, shas = text:gsub("needs%.sweep%.outputs%.head_sha || github%.event%.workflow_run%.head_sha", "")
   local _, bare = text:gsub("{{ github%.event%.workflow_run%.id }}", "")
   local _, bare_shas = text:gsub("{{ github%.event%.workflow_run%.head_sha }}", "")
-  assert(ids == 3 and shas == 4 and bare == 1 and bare_shas == 1,
+  -- The publish job reads the run in its three downloads of the products
+  -- and its one of the vendor library bundles, and the commit in its
+  -- stage, its publish and its vendor libraries' publish.
+  assert(ids == 4 and shas == 5 and bare == 1 and bare_shas == 1,
     "prerelease.yml's publish reads other than the run workflow_run or sweep names: " ..
       tostring(ids) .. " ids, " .. tostring(shas) .. " commits, " .. tostring(bare) .. " bare ids")
+  -- The vendor library bundles are published from the artifact a full
+  -- run's linux-x86_64 leg uploads, and neither the pack nor the
+  -- download can fail the run or the prerelease.
+  local pack: Step? = nil
+  local upload: Step? = nil
+  for _, step in ipairs(job_of(ci_workflow().jobs, "platform").steps) do
+    if step.id == "vendor-libs" then pack = step end
+    if step.name == "upload the vendor library bundles" then upload = step end
+  end
+  assert(pack ~= nil and upload ~= nil, "ci.yml packs or uploads no vendor library bundles")
+  assert(pack["continue-on-error"] == true, "a failed vendor libraries' pack fails ci.yml's run")
+  assert((pack["if"] or ""):find("github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'", 1,
+    true) ~= nil and (pack["if"] or ""):find("matrix.leg == 'linux-x86_64'", 1, true) ~= nil,
+    "ci.yml packs the vendor libraries other than in a full run's linux-x86_64 leg")
+  assert((upload.with or {})["name"] == "vendor-libs", "ci.yml uploads the bundles under another name")
+  local downloads = 0
+  for _, step in ipairs(publish_job.steps) do
+    if (step.with or {})["name"] == "vendor-libs" then
+      downloads = downloads + 1
+      assert(step["continue-on-error"] == true, "a failed download of the vendor libraries fails the publish")
+    end
+  end
+  assert(downloads == 1, "prerelease.yml downloads the vendor libraries " .. tostring(downloads) .. " times")
   local sweep = job_of(prerelease.jobs, "sweep")
   assert(map_of(sweep.permissions)["contents"] == "read" and map_of(sweep.permissions)["actions"] == "write" and
       sweep["if"] == "github.repository == 'cosmic-lua/cosmic' && (github.event_name == 'schedule' || " ..

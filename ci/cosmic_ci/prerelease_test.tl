@@ -468,7 +468,13 @@ local function serve_upload(r: Repo, request: GithubApi.Request): GithubApi.Repl
   local expected: {string:string} = { ["source.json"] = "application/json",
     SHA256SUMS = "text/plain", cosmic = "application/octet-stream" }
   local content_type = request.headers["Content-Type"]
-  assert(content_type == expected[name], name .. " is uploaded as " .. tostring(content_type))
+  local wanted_type = expected[name]
+  if name == "vendor-libs.pin" then
+    wanted_type = "text/plain"
+  elseif name:match("^vendor%-libs%-[%w_%-]+%.tar%.zst$") then
+    wanted_type = "application/octet-stream"
+  end
+  assert(content_type == wanted_type, name .. " is uploaded as " .. tostring(content_type))
   if content_type ~= nil then r.uploaded[name] = content_type end
   table.insert(rel.assets, { name = name, id = r.assets, data = assert(request.body) })
   return reply(201, '{"id":' .. tostring(r.assets) .. ',"name":' .. json(name) .. ',"state":"uploaded"}')
@@ -1053,4 +1059,123 @@ local function test_driver_stages_and_refuses_to_publish_without_a_token(tmp: st
     { timeout_ns = Child.FOREVER, cwd = project, env = env, stdout = "capture", stderr = "capture" }))
   assert(usage.code == 1 and output(usage.stderr):find("usage: driver.tl prerelease-stage", 1, true) ~= nil,
     usage.stderr)
+end
+
+local vendor_key <const> = string.rep("a", 64)
+local vendor_tag <const> = "vendor-libs-" .. vendor_key
+
+--- A directory as ci.yml's "pack the vendor library bundles" leaves it:
+--- two bundles and the pin naming them.
+local function vendor_dir(dir: string, key?: string): string
+  local k = key or vendor_key
+  assert(Fs.mkdirs(dir))
+  local lines: mut {string} = { "key " .. k }
+  for _, target in ipairs({ "aarch64-macos", "x86_64-linux" }) do
+    local name = "vendor-libs-" .. target .. ".tar.zst"
+    local data = "bundle of " .. target
+    write(dir .. "/" .. name, data)
+    lines[#lines + 1] = target .. " https://github.com/" .. repository .. "/releases/download/vendor-libs-" ..
+      k .. "/" .. name .. " " .. Hash.hex_sha256(data)
+  end
+  write(dir .. "/vendor-libs.pin", table.concat(lines, "\n") .. "\n")
+  return dir
+end
+
+local function test_vendor_assets_hold_the_bundles_to_their_pin(tmp: string)
+  local dir = vendor_dir(tmp .. "/good")
+  local assets = Prerelease.vendor_assets(dir, repository)
+  assert(assets.key == vendor_key)
+  assert(table.concat(assets.names, " ") ==
+      "vendor-libs-aarch64-macos.tar.zst vendor-libs-x86_64-linux.tar.zst vendor-libs.pin", table.concat(assets.names, " "))
+  local changed = vendor_dir(tmp .. "/changed")
+  write(changed .. "/vendor-libs-x86_64-linux.tar.zst", "other bytes")
+  refused("is not the bytes", function() Prerelease.vendor_assets(changed, repository) end)
+  local extra = vendor_dir(tmp .. "/extra")
+  write(extra .. "/notes.md", "notes")
+  refused("holds 4 files", function() Prerelease.vendor_assets(extra, repository) end)
+  refused("names https://github.com/owner/repo/", function()
+    Prerelease.vendor_assets(vendor_dir(tmp .. "/other-repo"), "other/repo")
+  end)
+  local headless = vendor_dir(tmp .. "/headless")
+  write(headless .. "/vendor-libs.pin", "x86_64-linux u " .. string.rep("0", 64) .. "\n")
+  refused("does not start with", function() Prerelease.vendor_assets(headless, repository) end)
+end
+
+local function test_publish_vendor_libs_makes_the_release_of_the_key(tmp: string)
+  local r = repo(tmp)
+  local dir = vendor_dir(tmp .. "/vendor")
+  local p = publisher(r)
+  assert(Prerelease.publish_vendor_libs(p, dir) == "vendor libraries published and verified: " .. vendor_tag)
+  assert(r.tags[vendor_tag] == commit)
+  local rel = assert(r.releases[1])
+  assert(rel.tag == vendor_tag and not rel.draft and rel.prerelease and #rel.assets == 3, logged(r))
+  for _, asset in ipairs(rel.assets) do
+    assert(asset.data == read(dir .. "/" .. asset.name), asset.name)
+  end
+  assert(r.uploaded["vendor-libs.pin"] == "text/plain")
+  -- A second full run of the same key, on a runner of its own, finds it
+  -- and changes nothing.
+  r.temp = tmp .. "/runner-second"
+  assert(Fs.mkdirs(r.temp))
+  local before = #r.log
+  assert(Prerelease.publish_vendor_libs(publisher(r), dir) ==
+      "vendor libraries already published and verified: " .. vendor_tag)
+  assert(#r.releases == 1)
+  for i = before + 1, #r.log do
+    local line = assert(r.log[i])
+    assert(not line:match("^POST") and not line:match("^UPLOAD") and not line:match("^PATCH"), line)
+  end
+  -- Other bytes of the same key are a warning, not a failure.
+  local other = vendor_dir(tmp .. "/other")
+  write(other .. "/vendor-libs-x86_64-linux.tar.zst", "rebuilt")
+  local pin = read(other .. "/vendor-libs.pin"):gsub(Hash.hex_sha256("bundle of x86_64-linux"),
+    Hash.hex_sha256("rebuilt"))
+  write(other .. "/vendor-libs.pin", pin)
+  r.temp = tmp .. "/runner-third"
+  assert(Fs.mkdirs(r.temp))
+  local warned = Prerelease.publish_vendor_libs(publisher(r), other)
+  assert(warned:match("^::warning::") and warned:find("not the same bytes", 1, true), warned)
+end
+
+local function test_publish_vendor_libs_resumes_a_draft(tmp: string)
+  local r = repo(tmp)
+  local dir = vendor_dir(tmp .. "/vendor")
+  -- The draft and its tag are an earlier commit's, of the same key.
+  r.tags[vendor_tag] = string.rep("e", 40)
+  r.assets = r.assets + 1
+  local rel: Release = { id = 1, tag = vendor_tag, draft = true, prerelease = true, title = vendor_tag, notes = "",
+    assets = { { name = "vendor-libs.pin", id = r.assets, data = read(dir .. "/vendor-libs.pin") } } }
+  r.releases[1] = rel
+  assert(Prerelease.publish_vendor_libs(publisher(r), dir) == "vendor libraries published and verified: " .. vendor_tag)
+  assert(count(r, "UPLOAD ") == 2 and count(r, "POST") == 0, logged(r))
+  assert(not rel.draft and #rel.assets == 3)
+  -- A draft holding other bytes is refused, not overwritten.
+  local r2 = repo(tmp .. "/second")
+  r2.tags[vendor_tag] = commit
+  r2.releases[1] = { id = 1, tag = vendor_tag, draft = true, prerelease = true, title = vendor_tag, notes = "",
+    assets = { { name = "vendor-libs-x86_64-linux.tar.zst", id = 500, data = "other" } } }
+  refused("differs from", function() Prerelease.publish_vendor_libs(publisher(r2), dir) end)
+  assert(count(r2, "UPLOAD ") == 0 and count(r2, "PATCH ") == 0, logged(r2))
+end
+
+--- Two runs of a key each made a draft and one was published: the
+--- published release is verified, and the other draft is left alone.
+local function test_publish_vendor_libs_takes_the_published_of_two_releases(tmp: string)
+  local r = repo(tmp)
+  local dir = vendor_dir(tmp .. "/vendor")
+  r.tags[vendor_tag] = string.rep("e", 40)
+  r.releases[1] = { id = 1, tag = vendor_tag, draft = true, prerelease = true, title = vendor_tag, notes = "",
+    assets = {} }
+  local published: Release = { id = 2, tag = vendor_tag, draft = false, prerelease = true, title = vendor_tag,
+    notes = "", assets = {} }
+  for i, name in ipairs({ "vendor-libs-aarch64-macos.tar.zst", "vendor-libs-x86_64-linux.tar.zst",
+      "vendor-libs.pin" }) do
+    local data = read(dir .. "/" .. name)
+    published.assets[#published.assets + 1] = { name = name, id = 600 + i, data = data }
+  end
+  r.releases[#r.releases + 1] = published
+  assert(Prerelease.publish_vendor_libs(publisher(r), dir) ==
+      "vendor libraries already published and verified: " .. vendor_tag, logged(r))
+  assert(count(r, "UPLOAD ") == 0 and count(r, "POST") == 0 and count(r, "PATCH ") == 0, logged(r))
+  assert(assert(r.releases[1]).draft)
 end

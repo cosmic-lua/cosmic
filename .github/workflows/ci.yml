@@ -64,6 +64,10 @@
     # Whether this run's jobs save the caches every run restores: a push
     # to main and the scheduled run, no other. The driver does not read it.
     COSMIC_CI_SAVES: "${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'schedule') }}",
+    # Every boot compiles the vendor libraries from source rather than link
+    # a published bundle (build/vendor_libs.tl), so what a run tests and
+    # releases, the bundles it packs among them, is built from the tree.
+    COSMIC_VENDOR_LIBS: "0",
   },
 
   # A newer manual run supersedes a branch's. Main's pushes run one at a
@@ -655,6 +659,31 @@
             path: "${{ runner.temp }}/cosmic-ci/platform/product",
             "if-no-files-found": "error",
             "retention-days": 7,
+          },
+        },
+        # Every target's vendor libraries, as bundles under the key of
+        # their inputs, for prerelease.yml to publish as that key's release
+        # (cosmic_ci/prerelease.tl's publish_vendor_libs): a full run's alone, on
+        # one leg, after `assemble` compiled them for every core.
+        {
+          name: "pack the vendor library bundles",
+          id: "vendor-libs",
+          # A failed pack costs the key's bundles alone, never the run or
+          # its prerelease.
+          "continue-on-error": true,
+          if: "github.event_name != 'pull_request' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && matrix.leg == 'linux-x86_64' && matrix.part == 'all'",
+          run: "cosmic-driver cosmic_ci/driver.tl platform vendor-libs",
+        },
+        {
+          name: "upload the vendor library bundles",
+          if: "steps.vendor-libs.outcome == 'success'",
+          uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
+          with: {
+            name: "vendor-libs",
+            path: "${{ runner.temp }}/cosmic-ci/platform/vendor-libs",
+            "if-no-files-found": "error",
+            "retention-days": 7,
+            overwrite: true,
           },
         },
         {

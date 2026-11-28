@@ -44,9 +44,12 @@ conflict with the parent's squash.
    (`COSMIC_BUILD_CACHE` names another file, `0` none) are shared by
    every checkout, so a fresh worktree compiles little. A boot that
    builds the core with zig links the vendored libraries prebuilt by a
-   prerelease where `bin/vendor-libs.pin` names one built from the same
+   full run where `bin/vendor-libs.pin` names bundles built from the same
    inputs ([`build/vendor_libs.tl`]; `COSMIC_VENDOR_LIBS=0` compiles
-   them). only
+   them). Each key's bundles are the release `vendor-libs-<key>`, which
+   the first full run of that key publishes. After a change to those
+   inputs lands and its full run publishes, move the pin with
+   `bin/cosmic --standalone build/patch.tl . "$(mktemp -d)" | bin/cosmic --standalone build/vendor_libs.tl pin . -`. only
    the tree's own tool rebuilds or boots: another cosmic (a release) run
    in a stale tree refuses and exits 3. a tool built from another path
    (a worktree's copied build directory, a moved checkout) refuses the
