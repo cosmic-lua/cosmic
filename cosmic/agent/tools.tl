@@ -28,6 +28,7 @@ local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
+local Git = require("cosmic.git")
 local type AgentEdit = require("cosmic.agent.edit")
 local Json = require("cosmic.json")
 local RunText = require("cosmic.agent.run_text")
@@ -124,13 +125,14 @@ local record Tools
     --- What a snippet's call of the agent is asked first (the agent's
     --- `before`, as a call by code): nil lets it run, a string is why
     --- not, raised in the snippet; a raise blocks it too. `name` is the
-    --- call's: history, store.get, store.put, mcp.servers, mcp.tools or
-    --- mcp.call, or the name of a tool code may call ([`Tools.for_code`])
+    --- call's: history, store.get, store.put, git.add, git.commit,
+    --- mcp.servers, mcp.tools or mcp.call, or the name of a tool code may call ([`Tools.for_code`])
     --- that the snippet called by [`Host.use`], a name the snippet chose
     --- only among those. `input` is
     --- the arguments it sent, `{}` where they are no object, unchecked:
     --- history's `{query}`, store's `{key, value?}` (put with no value or
-    --- null lets the key go), mcp's `{server?, tool?, arguments?}`.
+    --- null lets the key go), git.add's `{paths}`, git.commit's
+    --- `{message}`, mcp's `{server?, tool?, arguments?}`.
     --- Calls may come at once, from a snippet's tasks, and while its
     --- time runs.
     guard?: function(name: string, input: Object): string?
@@ -448,8 +450,41 @@ local function ran_cosmic(context: Tools.Context, given: {string: Json.Value}, b
   return out
 end
 
+--- What `git.add` or `git.commit` did, for a snippet of `context`, in the agent's own process: the snippet's policy
+--- holds the repository to read alone (cosmic.agent.policy), so that no hook or filter is written there, and the
+--- agent writes for it what cosmic.git writes, running no git program. Refused where the policy does not let the
+--- snippet write the working directory (--sandbox read).
+local function served_git(context: Tools.Context, name: string, given: {string: Json.Value}): (Json.Value) | (nil, Failure)
+  local policy = context.policy
+  if policy ~= nil then
+    local writes, _ = Sandbox.allows(policy, context.cwd, "w")
+    if not writes then
+      return nil, Failure.new(name .. ": the sandbox lets this session read the working directory alone")
+    end
+  end
+  local repo, open_why = Git.open(context.cwd)
+  if repo == nil then return nil, open_why end
+  if name == "git.add" then
+    local listed, _ = Json.to_array(given["paths"])
+    if listed == nil then return nil, Failure.new("git.add: the call has no list of paths") end
+    local paths: mut {string} = {}
+    for _, path in ipairs(listed) do
+      if not (path is string) then return nil, Failure.new("git.add: a path is no string") end
+      paths[#paths + 1] = path
+    end
+    local added, why = repo:add(paths)
+    if added == nil then return nil, why end
+    return true
+  end
+  local message = given["message"]
+  if not (message is string) then return nil, Failure.new("git.commit: the call has no message") end
+  local oid, why = repo:commit({ message = message })
+  if oid == nil then return nil, why end
+  return oid
+end
+
 --- What serves the calls a snippet of `context` makes of the agent, as they come, with no guard: history (a
---- read-only query of sessions.db), store, and the MCP servers.
+--- read-only query of sessions.db), store, git's add and commit, and the MCP servers.
 local function served_unguarded(context: Tools.Context): Worker.Serve
   return function(name: string, args: Json.Value, budget: Worker.Budget): (Json.Value) | (nil, Failure)
     local fields, _ = Json.to_object(args)
@@ -466,9 +501,10 @@ local function served_unguarded(context: Tools.Context): Worker.Serve
     end
     if name == "store.put" or name == "store.get" then return stored(context, name, given) end
     if name == "cosmic" then return ran_cosmic(context, given, budget) end
+    if name == "git.add" or name == "git.commit" then return served_git(context, name, given) end
     if name ~= "mcp.servers" and name ~= "mcp.tools" and name ~= "mcp.call" then
       return nil, Failure.new("the agent serves no call " .. Json.quote(String.as_utf8(name)) ..
-          ": it serves history, store.put, store.get, cosmic, mcp.servers, mcp.tools, mcp.call and use")
+          ": it serves history, store.put, store.get, cosmic, git.add, git.commit, mcp.servers, mcp.tools, mcp.call and use")
     end
     local set = context.mcp
     if name == "mcp.servers" then
@@ -511,6 +547,7 @@ end
 --- The calls a snippet may make of the agent, each by the name its guard and amend know it by.
 local SERVED <const>: {string: boolean} = {
   ["history"] = true, ["store.get"] = true, ["store.put"] = true, ["cosmic"] = true,
+  ["git.add"] = true, ["git.commit"] = true,
   ["mcp.servers"] = true, ["mcp.tools"] = true, ["mcp.call"] = true,
 }
 
@@ -603,7 +640,7 @@ local function used(context: Tools.Context, args: Json.Value, budget: Worker.Bud
 end
 
 --- What serves the calls a snippet of `context` makes of the agent (history, a read-only query of sessions.db, store.get,
---- store.put, mcp.servers, mcp.tools, mcp.call, and use, a tool's call by [`Host.use`]), each asked of its guard first
+--- store.put, git.add, git.commit, mcp.servers, mcp.tools, mcp.call, and use, a tool's call by [`Host.use`]), each asked of its guard first
 --- and given to its amend after, failed or not; use by the tool's own name. A call of no other name is refused before
 --- either is asked.
 local function served(context: Tools.Context): Worker.Serve
@@ -621,7 +658,8 @@ local function served(context: Tools.Context): Worker.Serve
     end
     if SERVED[name] ~= true then
       return nil, Failure.new("the agent serves no call " .. Json.quote(String.as_utf8(name)) ..
-          ": it serves history, store.put, store.get, cosmic, mcp.servers, mcp.tools, mcp.call, use and answer")
+          ": it serves history, store.put, store.get, cosmic, git.add, git.commit, mcp.servers, mcp.tools, mcp.call, use " ..
+          "and answer")
     end
     local fields, _ = Json.to_object(args)
     local given: {string: Json.Value} = fields or {}

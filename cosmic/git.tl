@@ -1399,6 +1399,30 @@ local record Seen
   recorded?: Recorded
 end
 
+--- The bytes of the file at `path` beneath the worktree `top`, each
+--- directory on the way opened from the one above it and the file from
+--- the last ([`Fs.Dir`]): a link swapped in on the way after a check
+--- fails, so what is read lies in the tree. A process that serves a
+--- sandboxed one reads by this what that one may change.
+local function read_beneath(top: string, path: string): (string) | (nil, Failure)
+  local real, why = sys.realpath(top)
+  if real == nil then return nil, Failure.new(why, top) end
+  local parts: mut {string} = {}
+  for part in path:gmatch("[^/]+") do parts[#parts + 1] = part end
+  local at, trouble = Fs.dir(real)
+  if at == nil then return nil, trouble end
+  for i = 1, #parts - 1 do
+    local inner, next_trouble = at:dir(parts[i]!)
+    at:close()
+    if inner == nil then return nil, next_trouble end
+    at = inner
+  end
+  local data, read_trouble = at:read(parts[#parts]!)
+  at:close()
+  if data == nil then return nil, read_trouble end
+  return data
+end
+
 --- The attributes files read so far for one `add` or `status`.
 local record AttrCache
   --- Rules of the files under the worktree, by directory (`""`, `src/`).
@@ -2005,7 +2029,7 @@ local class Repository is Git.Repo
       return { st = st, blob = target, recorded = { mode = 0xA000, oid = raw_of(oid) } }
     end
     if st.kind ~= "file" then return { st = st } end
-    local data, trouble = Fs.read(full)
+    local data, trouble = read_beneath(self.worktree, path)
     if data == nil then return nil, trouble end
     local mode = 0x81A4
     if config_bool(self.config, "core.filemode", true) then

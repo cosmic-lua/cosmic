@@ -256,6 +256,14 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): (Se
     trouble = add(grant.path, grant.letters)
     if trouble ~= "" then return refuse(trouble) end
   end
+  for _, cap in ipairs(rules.caps(policy)) do
+    local held = paths[cap.at_most]
+    if held == nil or not absolute(held.path) or type(held.directory) ~= "boolean" then
+      return refuse("cap " .. string.format("%q", cap.at_most) .. " has no resolved host path")
+    end
+    directories[held.path] = held.directory
+    grants[#grants + 1] = { at_most = held.path, letters = cap.letters }
+  end
   for _, promise in ipairs(rules.calls(policy)) do grants[#grants + 1] = { calls = promise } end
   for _, name in ipairs(rules.env(policy)) do grants[#grants + 1] = { env = name } end
   local merged, failure = rules.merge({ grants = grants,
@@ -310,6 +318,17 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): (Se
   if setup.tmp == true then
     tmp = TMP_PARAMETER
     allow(text, fattr, "rwc", '(subpath (param "' .. tmp .. '"))')
+  end
+  -- A cap is a deny after every allow, which the last rule to match makes
+  -- the verdict: what a grant above gives, a cap takes back beneath it.
+  for i, cap in ipairs(rules.caps(merged)) do
+    local name = "CAP_" .. tostring(i)
+    parameters[name] = cap.at_most
+    local at = '(' .. (if directories[cap.at_most] == true then "subpath" else "literal" end) .. ' (param "' .. name .. '"))'
+    text[#text + 1] = "(deny file-write* " .. at .. ")"
+    if not cap.letters:find("x", 1, true) then
+      text[#text + 1] = "(deny process-exec " .. at .. ")"
+    end
   end
   local terminal = options and options.terminal
   if terminal ~= nil then
@@ -433,6 +452,15 @@ function Seatbelt.resolve(policy: rules.Policy, base?: string, core?: string, da
     local trouble = look(grant.path, at)
     if trouble ~= "" then
       return refuse("grant " .. string.format("%q", grant.path) .. ": " .. trouble)
+    end
+  end
+  -- A cap holds what its path reaches: the deny names that real path.
+  for _, cap in ipairs(rules.caps(policy)) do
+    local at = cap.at_most
+    if base ~= nil and at:sub(1, 1) ~= "/" then at = base .. "/" .. at end
+    local trouble = look(cap.at_most, at)
+    if trouble ~= "" then
+      return refuse("cap " .. string.format("%q", cap.at_most) .. ": " .. trouble .. "; a cap names what is there")
     end
   end
   local policy_database = setup.database

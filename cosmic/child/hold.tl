@@ -227,6 +227,130 @@ function Hold.copies_granted_core(copy: string, grants: {Rules.Path}, core_grant
   return false, ""
 end
 
+--- `merged` with its relative paths and caps named beneath the real path
+--- of `cwd` (this process's own where nil) and merged again, so a cap and
+--- a grant named one relative and one absolute hold each other; nil and
+--- why where a cap cannot be held. A cap must name a directory or file
+--- that is there by its real path, no link on the way: a bind and a rule
+--- hold the file a name reaches, not the name. One beneath a grant that
+--- gives more ([`Rules.live_caps`]) is held by a read-only bind over that
+--- grant's, which needs `file`, the root of the program's own, and which
+--- does not stop a connect to a socket there, so it may not cut a `u`.
+function Hold.held_caps(merged: Rules.Policy, cwd: string?, file: boolean): Rules.Policy?, string
+  local base, base_trouble = sys.realpath(cwd or ".")
+  if base == nil then return nil, "cwd " .. (cwd or ".") .. ": " .. base_trouble end
+  local grants: mut {Rules.Grant} = {}
+  for _, grant in ipairs(merged.grants or {}) do
+    if grant is Rules.Path then
+      grants[#grants + 1] = { path = named(grant.path, base),
+        from = if grant.from ~= nil then named(grant.from, base) else nil end, letters = grant.letters }
+    elseif grant is Rules.Cap then
+      grants[#grants + 1] = { at_most = named(grant.at_most, base), letters = grant.letters }
+    else
+      grants[#grants + 1] = grant
+    end
+  end
+  local joined, why = Rules.union(Hold.grants_replaced(merged, grants))
+  if joined == nil then return nil, tostring(why) end
+  for _, cap in ipairs(Rules.caps(joined)) do
+    local real, trouble = sys.realpath(cap.at_most)
+    if real == nil then
+      return nil, "cap \"" .. cap.at_most .. "\": " .. trouble .. "; a cap names what is there"
+    end
+    if real ~= cap.at_most then
+      return nil, "cap \"" .. cap.at_most .. "\" is reached through a link, to " .. real ..
+        "; name the real path, which is what a bind holds"
+    end
+  end
+  local live = Rules.live_caps(joined)
+  for _, held in ipairs(live) do
+    local cap = held.cap.at_most
+    if held.over:find("u", 1, true) ~= nil then
+      return nil, "cap \"" .. cap .. "\" is beneath grant \"" .. held.under.path .. "\", which gives u: " ..
+        "a read-only bind does not stop a connect to a socket there; grant the paths beside it instead"
+    end
+    if not file and not Rules.on_macos() then
+      return nil, "cap \"" .. cap .. "\" is beneath grant \"" .. held.under.path .. "\", which gives " ..
+        held.over .. ": Landlock cannot take a grant's letters back beneath it, and a read-only " ..
+        "bind holds it in a root of the program's own; add isolate \"file\""
+    end
+  end
+  local most = if file then MAX_ISOLATED_GRANTS else MAX_GRANTS end
+  local held = #Rules.paths(joined) + #live
+  if held > most then
+    return nil, "grants: the policy holds " .. tostring(held) .. ", its caps' binds included, past " ..
+      "the most a start takes, " .. tostring(most) .. "; grant a directory above them instead"
+  end
+  return joined, ""
+end
+
+--- `binds`, the root's binds of `merged`'s grants at the names `placed`,
+--- with a read-only bind for each cap a grant above gives more than
+--- ([`Rules.live_caps`]): the host path the grant beneath which it lies
+--- shows there, bound over that grant's, noexec where the cap leaves no
+--- `x`, and idmapped as that grant is. Each comes after the grant it
+--- lies under and before any grant beneath it, so a grant within the cap
+--- is bound over the cap's in turn. A cap where a grant is named itself
+--- needs none: the merge (cosmic/sandbox/policy.tl) cut that grant's letters to the cap's.
+local function with_caps(merged: Rules.Policy, base: string, binds: {raw_process.Bind}, placed: {string},
+                         idmap: {integer: boolean}): {raw_process.Bind}
+  local live = Rules.live_caps(merged, base)
+  if #live == 0 then return binds end
+  local paths = Rules.paths(merged)
+  -- A cap that leaves no `x` holds every cap beneath it to none too.
+  local unrun: mut {string} = {}
+  for _, cap in ipairs(Rules.caps(merged)) do
+    if not lettered(cap.letters, "x") then
+      local at = named(cap.at_most, base)
+      unrun[#unrun + 1] = at
+    end
+  end
+  local function runs(at: string, letters: string): boolean
+    if not lettered(letters, "x") then return false end
+    for _, above in ipairs(unrun) do
+      if at:sub(1, #above + 1) == above .. "/" then return false end
+    end
+    return true
+  end
+  local pending: mut {raw_process.Bind} = {}
+  local pending_at: mut {string} = {}
+  for _, held in ipairs(live) do
+    local at = named(held.cap.at_most, base)
+    local named_already = false
+    for _, name in ipairs(placed) do
+      if name == at then named_already = true end
+    end
+    if not named_already then
+      local under_at = named(held.under.path, base)
+      local index = 0
+      for i, grant in ipairs(paths) do
+        if grant == held.under then index = i end
+      end
+      -- A strict ancestor: what follows its name starts with "/", or is all of `at` beneath "/".
+      local suffix = if under_at == "/" then at else at:sub(#under_at + 1) end
+      local source = named(held.under.from or held.under.path, base)
+      if source == "/" then source = "" end
+      pending[#pending + 1] = { path = source .. suffix,
+        at = if held.under.from ~= nil then at else nil end, writable = false,
+        noexec = not runs(at, held.cap.letters), idmap = idmap[index] == true }
+      pending_at[#pending_at + 1] = at
+    end
+  end
+  local out: mut {raw_process.Bind} = {}
+  local next_cap = 1
+  for i, name in ipairs(placed) do
+    -- The grants and the caps are each in the order of their paths, which puts a grant
+    -- above a cap before it and one beneath it after: the two are merged in that order.
+    while next_cap <= #pending and pending_at[next_cap]! < name do
+      out[#out + 1] = pending[next_cap]!
+      next_cap = next_cap + 1
+    end
+    out[#out + 1] = binds[i]!
+  end
+  for j = next_cap, #pending do out[#out + 1] = pending[j]! end
+  return out
+end
+
 --- What `isolate` file builds from a policy's grants, resolved against the
 --- directory `base`: each grant's host path (its `from`, else itself) bound
 --- at its name when that differs, writable where it may be written or
@@ -238,6 +362,7 @@ function Hold.root_of(merged: Rules.Policy, base: string, idmap: {integer: boole
                       tmp_exec: boolean): raw_process.Unveil?, string
   local setup = merged.setup or {}
   local binds: mut {raw_process.Bind} = {}
+  local placed: mut {string} = {}
   local reads: mut {string} = {}
   local proc = true
   for index, grant in ipairs(Rules.paths(merged)) do
@@ -256,11 +381,12 @@ function Hold.root_of(merged: Rules.Policy, base: string, idmap: {integer: boole
     binds[#binds + 1] = { path = named(grant.from or grant.path, base),
       at = if grant.from ~= nil then name else nil end, writable = writable,
       noexec = (writable or nest) and not lettered(grant.letters, "x"), idmap = idmap[index] == true }
+    placed[#placed + 1] = name
   end
   if proc then reads[1] = "/proc" end
   local tmp: integer?
   if setup.tmp == true then tmp = TMP_BYTES end
-  return { reads = reads, writes = {}, binds = binds, tmp = tmp, tmp_exec = tmp_exec or nil }, "" -- checked: or_mix
+  return { reads = reads, writes = {}, binds = with_caps(merged, base, binds, placed, idmap), tmp = tmp, tmp_exec = tmp_exec or nil }, "" -- checked: or_mix
 end
 
 --- Why a `u` grant cannot be held under `isolate` file, or "". Below

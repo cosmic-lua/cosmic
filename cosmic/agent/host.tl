@@ -50,9 +50,10 @@
 ---     end)
 ---
 --- A repository is read and committed with [`Host.git_status`], [`Host.git_diff`], [`Host.git_log`], [`Host.git_add`]
---- and [`Host.git_commit`], which run [`cosmic.git`] in the worker: no git program runs, and no hook or filter does.
---- A snippet does not write the files of `.git` by [`Host.write`] or [`Host.edit`], so it sets no hook, filter or
---- identity a git program run later would obey:
+--- and [`Host.git_commit`], which run [`cosmic.git`]: no git program runs, and no hook or filter does. The sandbox
+--- holds `.git` to read alone, so the agent's own process stages and commits for the snippet. A snippet does not
+--- write the files of `.git`, by [`Host.write`] or any other way, so it sets no hook, filter or identity a git
+--- program run later would obey:
 ---
 ---     Host.git_add({ "text.tl" })
 ---     print(Host.git_commit("text: note the trim rule"))
@@ -568,7 +569,8 @@ end
 --- Raises where `path` (or the file `file` a link at it names) is inside a `.git` directory: the agent changes a
 --- repository through [`Host.git_add`] and [`Host.git_commit`], never by writing its files, so it cannot set a
 --- hook, a filter or an identity (`.git/config`, `.git/hooks`) that a git program run later would obey. This
---- checks the names a call is given, as a tool does; it is not the sandbox, which grants the working directory whole.
+--- checks the names a call is given, as a tool does, and says why; under --sandbox write the sandbox holds `.git` to
+--- read alone too.
 local function refuse_git(verb: string, path: string, file: string)
   -- The directory the name reaches through its links too: `g/config` where `g` links to `.git`.
   local reached, _ = Fs.absolute(Fs.dirname(file))
@@ -846,16 +848,18 @@ end
 --- cosmic does not run (an LFS pattern, ident, a line-ending conversion of a file with a carriage return).
 --- Raises where it refuses, and then stages nothing.
 function Host.git_add(paths: {string})
-  local ok, why = repo_here("git_add"):add(paths)
-  if ok == nil then error("host: git_add: " .. tostring(why), 2) end
+  local _, why = Host.call("git.add", { paths = Json.array(paths) })
+  if why ~= nil then error("host: git_add: " .. tostring(why), 2) end
 end
 
 --- Commits what is staged on top of HEAD, as `git commit -m message` does with no hook run, as the identity of the
 --- repository's config (`user.name`, `user.email`); returns the new commit's oid. Raises where nothing is
 --- staged or there is no identity.
 function Host.git_commit(message: string): string
-  local oid, why = repo_here("git_commit"):commit({ message = message })
-  if oid == nil then error("host: git_commit: " .. tostring(why), 2) end
+  local oid, why = Host.call("git.commit", { message = message })
+  if not (oid is string) then
+    error("host: git_commit: " .. (if why ~= nil then tostring(why) else "the agent answered no oid" end), 2)
+  end
   return oid
 end
 

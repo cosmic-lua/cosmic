@@ -53,6 +53,11 @@ local cases: {string:function({string}): integer} = {
   end,
   -- The program and words that follow, isolated to its own files.
   ["run-isolated"] = function(argv: {string}): integer return Steps.run_isolated(argv) or 0 end,
+  -- As run-isolated, granted to write and create in `.` too.
+  ["run-writing"] = function(argv: {string}): integer
+    return Steps.run_isolated(argv, nil, "rwc") or 0
+  end,
+  rename = function(words: {string}): integer return Steps.rename(words[1]!, words[2]!) or 0 end,
   -- As run-isolated, with a loopback of 127.0.0.1.
   ["run-looped"] = function(argv: {string}): integer
     return Steps.run_isolated(argv, { "127.0.0.1" }) or 0
@@ -83,6 +88,8 @@ local cases: {string:function({string}): integer} = {
     return Steps.mkdirs("/tmp/mine") or Steps.copy(words[1]!, "/tmp/mine/p") or
       Steps.chmod("/tmp/mine/p", "755") or Steps.env_of("TMPDIR") or Steps.run({ "/tmp/mine/p", "print" }) or 0
   end,
+  -- Runs program `argv[1]` with the rest of `argv`.
+  ["run-program"] = function(argv: {string}): integer return Steps.run(argv) or 0 end,
   -- Reads /dev/null, and finds /dev/zero there.
   devices = function(_: {string}): integer
     return Steps.cat("/dev/null") or Steps.present("/dev/zero") or 0

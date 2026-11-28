@@ -385,10 +385,11 @@ local function policy_of(r: Run, got: Flags.Parsed, here: string): Sandbox.Polic
   if got.values["--sandbox"] == "off" and (#grants > 0 or #connect > 0 or got.set["--network"] == true) then
     return nil, "--network, --connect and --grant hold a sandbox, which --sandbox off has none of"
   end
+  local executable, _ = Proc.executable()
   return Policy.of(here, { mode = got.values["--sandbox"] or "write", home = sandbox_home(r),
     path = r.io.env("PATH"), user_home = r.io.env("HOME"), kept_out = kept_out(r, got.values["--mcp"]),
     network = got.set["--network"] == true, connect = connect, grants = grants,
-    cert_file = r.io.env("SSL_CERT_FILE") })
+    cert_file = r.io.env("SSL_CERT_FILE"), executable = executable })
 end
 
 -- What each unit of --budget's time is, in seconds.
