@@ -1262,7 +1262,7 @@ static bool close_range_works (void) {
 }
 #endif
 
-COSMIC_SYSCALL(spawn, 12) {
+COSMIC_SYSCALL(spawn, 13) {
   const char *path = plain_string(L, 1, "path");
   luaL_checktype(L, 2, LUA_TTABLE);
   if (!lua_isnoneornil(L, 3)) luaL_checktype(L, 3, LUA_TTABLE);
@@ -1271,6 +1271,7 @@ COSMIC_SYSCALL(spawn, 12) {
   if (!lua_isnoneornil(L, 12) && lua_type(L, 12) != LUA_TBOOLEAN && lua_type(L, 12) != LUA_TSTRING)
     return luaL_argerror(L, 12, "terminal must be a boolean or the slave's path");
   int terminal = lua_toboolean(L, 12);
+  int ends_with_parent = lua_toboolean(L, 13);
 #if defined(__APPLE__)
   /* Darwin's trampoline opens the terminal by its path to acquire it as the
    * controlling terminal (core/sandbox_rules.c's `cosmic_trampoline`): fd 0 does not name it. */
@@ -1528,6 +1529,7 @@ COSMIC_SYSCALL(spawn, 12) {
     .path = path, .argv = argv, .envp = given, .cwd = cwd, .source = source, .top = top,
     .status_read = status_read, .status_write = status_write,
     .descriptor_limit = descriptor_limit, .process_group = process_group, .terminal = terminal,
+    .ends_with_parent = ends_with_parent,
     .credentials = o.credentials, .user = o.credential_user, .group = o.credential_group,
     .confine = confine,
     .promising = o.promising, .promises = o.promise_bits, .held = held,

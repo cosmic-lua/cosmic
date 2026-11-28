@@ -619,7 +619,7 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
       command = { program, "app.tl" }
     end
     start = function(env: {string:string}): Child.Handle?, string
-      local handle, failed = Child.start(command, { timeout_ns = Child.FOREVER, env = env })
+      local handle, failed = Child.start(command, { timeout_ns = Child.FOREVER, env = env, ends_with_parent = true })
       if handle == nil then return nil, tostring(failed) end
       return handle, ""
     end
@@ -629,8 +629,6 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
   local seen: {string:string} = first
   -- TODO: hold SIGHUP as well once cosmic.signal's guard can: a closed
   -- terminal ends the supervisor at once and leaves the program running.
-  -- TODO: once cosmic.child can start a program with PR_SET_PDEATHSIG, set
-  -- it, so a supervisor ended by SIGKILL does not leave the app orphaned.
   local made, held = Signal.guard()
   if made == nil then return false, "web: dev: " .. tostring(held) end
   local guard: Signal.Guard = made
