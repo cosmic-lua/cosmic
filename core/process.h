@@ -295,11 +295,12 @@ COSMIC_SYSCALL(stream_pair, 0);
  * ---@param sandbox? Sandbox what the child, and every process it starts, is held to from its exec on
  * ---@param credentials? Credentials clear supplementary groups and effective, permitted, inheritable and ambient capabilities, set all IDs, and set no_new_privs before cwd and exec. Excludes sandbox unveil, offline, user and group. Inherited cwd and descriptors remain grants. The capability bounding set is unchanged. ENOSYS off Linux. Child setup failure prevents exec; parent dumpability restoration failure can follow exec and ends the owned child before returning failure
  * ---@param terminal? boolean|string make fd 0 the controlling terminal of a new session before confinement and exec. It must be a terminal slave; failure prevents exec. Internal relay starts only; cosmic.child continues to refuse terminal stdio with a policy except for the pty it opens itself. On macOS the slave's path is given instead of `true`, which the child's trampoline opens as the session's leader to acquire the terminal, before any `seatbelt` profile applies, and a start with a terminal goes through the trampoline whatever the profile
+ * ---@param ends_with_parent? boolean end the child, by SIGKILL, when this process ends, killed or not (PR_SET_PDEATHSIG, set after its credentials, so only a program that gains privilege at exec clears it). A parent already gone when it is set fails the start. Linux; off Linux the child outlives this process, as without it
  * ---@return integer|nil pid the child process id, or nil when setup or exec failed
  * ---@return string error what went wrong, when pid is nil
  * ---@return integer errno the error number, when pid is nil
  */
-COSMIC_SYSCALL(spawn, 12);
+COSMIC_SYSCALL(spawn, 13);
 
 /*
  * --- The Landlock ABI version this kernel gives, 1 and up, which says which rights a ruleset can hold (`spawn`'s `grants` needs 9 for `u`).

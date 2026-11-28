@@ -836,6 +836,19 @@ int enforce_ruleset (int ruleset) {
   return 0;
 }
 
+/* Has the kernel end this process (SIGKILL) when the thread that started
+ * it ends (PR_SET_PDEATHSIG), as [`cosmic_sandbox_init`] does. Set after
+ * the credentials, whose change clears it. A parent already gone by
+ * then is seen on `status_fd`, the write end of the status pipe whose
+ * read end the parent holds until the exec: a pipe with no reader. 0, or
+ * an errno; ESRCH for a parent gone. */
+static int end_with_parent (int status_fd) {
+  if (prctl(PR_SET_PDEATHSIG, SIGKILL, 0, 0, 0) != 0) return errno;
+  struct pollfd parent = { status_fd, POLLOUT, 0 };
+  if (poll(&parent, 1, 0) < 0) return errno;
+  return parent.revents & (POLLERR | POLLHUP) ? ESRCH : 0;
+}
+
 /* The rest of a child's start once its sandbox's namespaces are made
  * ([`spawn_child`]): its process group -- for an unveiled child, a
  * session of its own, and so a group of its own whatever
@@ -854,6 +867,7 @@ static _Noreturn void run_program (const struct spawn_plan *plan, const int *pin
     failure = errno;
   }
   if (!failure && plan->credentials) failure = set_credentials(plan);
+  if (!failure && plan->ends_with_parent) failure = end_with_parent(status_fd);
   if (!failure && plan->cwd != NULL && chdir(plan->cwd) != 0) failure = errno;
   for (int t = 0; !failure && t <= top; t++) {
     if (pinned[t] >= 0) {
