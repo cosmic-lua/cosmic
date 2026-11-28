@@ -12,6 +12,7 @@ local Fake = require("cosmic.fake")
 local _fake = require("build.proc_tool_fake")
 local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
+local Bench = require("cosmic.bench")
 
 --- The program itself, which its tests start to run a chunk (`lua`).
 Test.policy{ profiles = { "cosmic" } }
@@ -151,4 +152,24 @@ local function test_the_relaunch_cwd_is_where_the_program_started(tmp: string)
   assert(r.code == 0, tostring(r.stderr))
   local real = assert(sys.realpath(tmp))
   assert(r.stdout == real .. "\n", r.stdout)
+end
+
+--- Benches. How long this program takes from its start to its exit, for an empty program and for ones that load a
+--- module. `--against` compares two binaries on these, as each runs its own.
+local function starting(b: Bench.B, snippet: string)
+  local started = Test.cosmic({ "-e", snippet }, { env = Test.environment(), cwd = b.dir,
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
+  b.reset()
+  for _ = 1, b.n do
+    local result = assert(Child.run(started.argv, started.options))
+    assert(result.ok, tostring(result.stderr))
+  end
+end
+
+local function bench_startup_empty_program(b: Bench.B) starting(b, "local _ = 1") end
+local function bench_startup_requires_json(b: Bench.B)
+  starting(b, 'local _ = require("cosmic.json")')
+end
+local function bench_startup_requires_http(b: Bench.B)
+  starting(b, 'local _ = require("cosmic.http")')
 end

@@ -14,6 +14,7 @@ local String = require("cosmic.string")
 local Time = require("cosmic.time")
 local Zip = require("cosmic.zip")
 local Test = require("cosmic.test")
+local Bench = require("cosmic.bench")
 
 Test.policy{ cpu_features = true }
 
@@ -1210,4 +1211,30 @@ local function test_a_failed_read_of_the_file_keeps_its_errno_and_path(tmp: stri
   assert(Fs.mkdirs(path))
   local none, why = Zip.open(path)
   assert(none == nil and is_failure(why, "system", sys.EISDIR, path), said(why))
+end
+
+--- Benches. 1000 small files, written to memory and read back.
+local function sample_archive(): string
+  local out = Stream.collect()
+  local w = Zip.writer(out)
+  for i = 1, 1000 do assert(w:add_file("dir/f" .. tostring(i), string.rep(tostring(i), 20))) end
+  assert(w:close())
+  return out:result()
+end
+
+local function bench_writer_1000_files(b: Bench.B)
+  for _ = 1, b.n do local _ = sample_archive() end
+end
+
+local function bench_reader_1000_files(b: Bench.B)
+  local zipped = sample_archive()
+  b.reset()
+  for _ = 1, b.n do
+    local r = Zip.open_string(zipped)!
+    for _, entry in ipairs(r:entries()!) do
+      local body, why = Stream.read_all(entry:open()!)
+      if body == nil then error(tostring(why)) end
+    end
+    assert(r:close())
+  end
 end

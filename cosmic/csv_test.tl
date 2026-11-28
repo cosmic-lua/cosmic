@@ -1,6 +1,7 @@
 local Array = require("cosmic.array")
 local Csv = require("cosmic.csv")
 local Test = require("cosmic.test")
+local Bench = require("cosmic.bench")
 
 --- Records as text, to compare: fields joined by `|`, records by `;`.
 local function show(records: {{string}}): string
@@ -372,4 +373,27 @@ local function test_encode_field_quotes_the_empty_field_only_when_asked()
   assert(Csv.encode_field("", { quote_empty = false }) == "")
   assert(Csv.encode_field("", { quote_empty = true }) == '""')
   assert(Csv.encode_field("a", { quote_empty = true }) == "a", "only the empty field is affected")
+end
+
+--- Bench: 1000 rows of five fields, one of them quoted.
+local function bench_parse_1000_rows(b: Bench.B)
+  local rows: mut {string} = { "id,name,email,score,note" }
+  for i = 1, 1000 do
+    rows[#rows + 1] = tostring(i) .. ",user" .. tostring(i) .. ",u@example.com," .. tostring(i / 7) .. ',"a, b"'
+  end
+  local text = table.concat(rows, "\n") .. "\n"
+  b.bytes = #text
+  b.reset()
+  for _ = 1, b.n do assert(#assert(Csv.parse(text)) == 1001) end
+end
+
+--- Bench: 1000 rows of five fields written, one of them quoted.
+local function bench_encode_1000_rows(b: Bench.B)
+  local rows: mut {{string}} = {}
+  for i = 1, 1000 do
+    local row = { tostring(i), "user" .. tostring(i), "u@example.com", "a, \"quoted\" field", tostring(i / 7) }
+    rows[#rows + 1] = row
+  end
+  b.reset()
+  for _ = 1, b.n do local _ = Csv.encode(rows) end
 end

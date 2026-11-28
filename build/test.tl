@@ -160,6 +160,7 @@ local hashing = require("build.digest")
 local host_names = require("build.host_names")
 local host_requires = require("build.host_requires")
 local worker = require("build.test_worker")
+local test_against = require("build.test_against")
 local test_key = require("build.test_key")
 local type State = require("build.test_state")
 
@@ -2789,13 +2790,23 @@ local function read_command(ctx: Run): integer?
   end
   -- A bench run times what it selects, whatever verdict stands, one worker at a time: two at once time each other.
   if parsed.set["--bench"] == true then
-    local rounds = math.tointeger(tonumber(parsed.values["--rounds"] or "5")) or 5
     local target_ms = math.tointeger(tonumber(parsed.values["--target-ms"] or "50")) or 50
+    local old = parsed.values["--against"]
+    if old ~= nil then
+      return test_against.run({ root = root, selectors = selectors, old = old, binary = parsed.values["--binary"],
+        rounds = math.tointeger(tonumber(parsed.values["--rounds"] or "")) or test_against.DEFAULT_ROUNDS,
+        target_ms = target_ms, json = parsed.set["--json"] == true })
+    end
+    if parsed.values["--binary"] ~= nil then
+      log:complain("test: --binary names the new side of --against")
+      return 2
+    end
+    local rounds = math.tointeger(tonumber(parsed.values["--rounds"] or "5")) or 5
     ctx.bench = { target_ns = target_ms * 1000000, rounds = rounds, json = parsed.set["--json"] == true }
     ctx.forced = true
     limits.jobs = 1
   else
-    for _, flag in ipairs({ "--rounds", "--target-ms", "--json" }) do
+    for _, flag in ipairs({ "--rounds", "--target-ms", "--json", "--against", "--binary" }) do
       if parsed.values[flag] ~= nil or parsed.set[flag] == true then
         log:complain("test: " .. flag .. " is an option of a bench run, which --bench asks for")
         return 2

@@ -7,6 +7,7 @@
 local Fs = require("cosmic.fs")
 local Git = require("cosmic.git")
 local Test = require("cosmic.test")
+local Bench = require("cosmic.bench")
 
 Test.policy{ grants = { { path = "testdata/git", letters = "r" } } }
 
@@ -358,4 +359,88 @@ local function test_commit_waits_for_no_index_lock(tmp: string)
   assert(repo:commit({ message = "unlocked", allow_empty = true }))
   local lock, _ = Fs.read(root .. "/.git/index.lock")
   assert(lock == nil)
+end
+
+--- Benches. A copy of the scratch repository with 100 files more and 30 commits more on `main`, each of one changed
+--- file: opening it, `status`, `log`, a revision, the packed first commit's tree and a blob of it, and an add and a
+--- commit.
+
+--- The bench repository at `dir`/repo, and the repository open.
+local function sample_repo(dir: string): (string, Git.Repo)
+  local root = scratch(dir)
+  local repo = assert(Git.open(root))
+  local paths: mut {string} = {}
+  for i = 1, 100 do
+    local path = "f" .. tostring(i) .. ".txt"
+    put(root, path, "file " .. tostring(i) .. "\n")
+    paths[#paths + 1] = path
+  end
+  assert(repo:add(paths))
+  assert(repo:commit({ message = "files", author = WHO, committer = WHO }))
+  for i = 1, 30 do
+    put(root, "f1.txt", "edit " .. tostring(i) .. "\n")
+    assert(repo:add({ "f1.txt" }))
+    assert(repo:commit({ message = "edit", author = WHO, committer = WHO }))
+  end
+  return root, repo
+end
+
+local function bench_open(b: Bench.B)
+  local root = sample_repo(b.dir)
+  b.reset()
+  for _ = 1, b.n do assert(Git.open(root)) end
+end
+
+local function bench_rev_head_10(b: Bench.B)
+  local _, repo = sample_repo(b.dir)
+  b.reset()
+  for _ = 1, b.n do assert(repo:rev("HEAD~10")) end
+end
+
+local function bench_log_all(b: Bench.B)
+  local _, repo = sample_repo(b.dir)
+  b.reset()
+  for _ = 1, b.n do assert(repo:log({ limit = 200 })) end
+end
+
+local function bench_status(b: Bench.B)
+  local _, repo = sample_repo(b.dir)
+  b.reset()
+  for _ = 1, b.n do assert(repo:status()) end
+end
+
+--- The tree of the repository's first commit, which is in its pack, and a blob of that tree.
+local function packed(repo: Git.Repo): (string, string)
+  local commits = assert(repo:log({ limit = 200 }))
+  local tree = commits[#commits]!.tree
+  local blob = ""
+  for _, entry in ipairs(assert(repo:tree(tree))) do
+    if entry.mode == "100644" then blob = entry.oid end
+  end
+  assert(blob ~= "", "the first tree holds no file")
+  return tree, blob
+end
+
+local function bench_read_tree(b: Bench.B)
+  local _, repo = sample_repo(b.dir)
+  local tree = packed(repo)
+  b.reset()
+  for _ = 1, b.n do assert(repo:tree(tree)) end
+end
+
+local function bench_read_blob(b: Bench.B)
+  local _, repo = sample_repo(b.dir)
+  local _, blob = packed(repo)
+  b.reset()
+  for _ = 1, b.n do assert(repo:read(blob)) end
+end
+
+local function bench_add_and_commit(b: Bench.B)
+  local root, repo = sample_repo(b.dir)
+  b.reset()
+  for i = 1, b.n do
+    put(root, "f2.txt", "edit " .. tostring(i) .. "\n")
+    assert(repo:add({ "f2.txt" }))
+    assert(repo:commit({ message = "edit", author = WHO, committer = WHO }))
+  end
 end

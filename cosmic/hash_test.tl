@@ -8,6 +8,8 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
+local Bench = require("cosmic.bench")
+local Rand = require("cosmic.rand")
 
 Test.policy{ cpu_features = true }
 
@@ -586,4 +588,33 @@ local function test_sha1dc_refuses_both_shattered_prefixes()
     local digest, why = Hash.sha1dc(data)
     assert(digest == nil and why.message:find("collision attack (sha1 f92d74e3874587aaf443d1db961d4e26dde13e9c)", 1, true) ~= nil, why)
   end
+end
+
+--- Benches. 1 MiB of random bytes, hashed: bytes per operation give GB/s.
+local MIB <const> = 1024 * 1024
+
+local function digesting(b: Bench.B, algorithm: Hash.Algorithm)
+  local bytes = Rand.new(2026):bytes(MIB)
+  b.bytes = MIB
+  b.reset()
+  for _ = 1, b.n do local _ = Hash.digest(algorithm, bytes) end
+end
+
+local function bench_sha256_1_mib(b: Bench.B) digesting(b, "sha256") end
+local function bench_sha512_1_mib(b: Bench.B) digesting(b, "sha512") end
+local function bench_sha3_256_1_mib(b: Bench.B) digesting(b, "sha3-256") end
+local function bench_md5_1_mib(b: Bench.B) digesting(b, "md5") end
+
+local function bench_hmac_sha256_1_mib(b: Bench.B)
+  local bytes = Rand.new(2026):bytes(MIB)
+  b.bytes = MIB
+  b.reset()
+  for _ = 1, b.n do local _ = Hash.hmac("sha256", "key", bytes) end
+end
+
+local function bench_siphash_1_mib(b: Bench.B)
+  local bytes = Rand.new(2026):bytes(MIB)
+  b.bytes = MIB
+  b.reset()
+  for _ = 1, b.n do local _ = Hash.siphash(string.rep("k", 16), bytes) end
 end

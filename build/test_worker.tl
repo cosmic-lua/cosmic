@@ -920,19 +920,25 @@ local most_operations <const> = 1 << 30
 
 --- Times the bench `fn` ([`build.test_names`]'s `bench_*`): doubles the `n` it is handed from 1 until a batch takes
 --- `target_ns`, then times `rounds` batches of that `n`. A batch's clock starts after a full collection, and again
---- at each `b.reset()` the body calls, so the work before its loop is not counted. Raises what the body raised.
+--- at each `b.reset()` the body calls, so the work before its loop is not counted. Each batch is handed an empty
+--- directory of its own under `directory`, removed after it, so a body that sets up files there finds none of the
+--- last batch's. Raises what the body raised.
 --- Inlined here, not in cosmic.bench, since a worker loads only the harness's modules ([`worker.loads`]).
 function worker.time_bench(fn: function(...: any): (any...), directory: string, target_ns: integer,
                            rounds: integer): worker.Timing
   local function batch(n: integer): integer, integer
+    local dir = directory .. "/bench-batch"
+    local _, _ = Fs.remove_tree(dir)
+    assert(Fs.mkdirs(dir))
     local started = 0
-    local b: Bench.B = { n = n, bytes = 0, dir = directory, reset = function()
+    local b: Bench.B = { n = n, bytes = 0, dir = dir, reset = function()
       started = monotonic_ns()
     end }
     collectgarbage("collect")
     started = monotonic_ns()
     fn(b)
     local took = monotonic_ns() - started
+    local _, _ = Fs.remove_tree(dir)
     return took, b.bytes
   end
   local n = 1

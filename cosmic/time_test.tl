@@ -3,6 +3,7 @@ local Clock = require("cosmic.clock")
 local Failure = require("cosmic.failure")
 local Time = require("cosmic.time")
 local Test = require("cosmic.test")
+local Bench = require("cosmic.bench")
 
 local NS <const> = 1000000000
 
@@ -512,4 +513,31 @@ end
 local function test_parse_http_reaches_the_ranges_edges()
   assert(assert(Time.parse_http("Fri, 11 Apr 2262 23:47:16 GMT")) == math.maxinteger - math.maxinteger % NS)
   assert(assert(Time.parse_http("Tue, 21 Sep 1677 00:12:44 GMT")) == (math.mininteger // NS + 1) * NS)
+end
+
+--- Benches. RFC 3339 and HTTP dates, written and parsed, and civil fields in a named zone.
+local function bench_format_rfc3339(b: Bench.B)
+  local now = Clock.now_ns()
+  for _ = 1, b.n do local _ = Time.format_rfc3339(now) end
+end
+
+local function bench_parse_rfc3339(b: Bench.B)
+  local stamp = Time.format_rfc3339(Clock.now_ns())
+  for _ = 1, b.n do local _ = Time.parse_rfc3339(stamp)! end
+end
+
+local function bench_format_http(b: Bench.B)
+  local now = Clock.now_ns()
+  for _ = 1, b.n do local _ = Time.format_http(now) end
+end
+
+local function bench_parse_http(b: Bench.B)
+  local http = Time.format_http(Clock.now_ns())
+  for _ = 1, b.n do local _ = Time.parse_http(http)! end
+end
+
+local function bench_civil_in_zone(b: Bench.B)
+  local now, zone = Clock.now_ns(), Time.zone("America/Los_Angeles")!
+  b.reset()
+  for _ = 1, b.n do local _ = Time.civil(now, zone) end
 end

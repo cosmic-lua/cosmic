@@ -13,6 +13,7 @@ Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx
 -- A fixture reads the `cosmic.*` modules it requires out of the store,
 -- which holds a test to its import closure.
 local type _html = require("cosmic.html")
+local Bench = require("cosmic.bench")
 
 local type Call = function(...: any): any...
 
@@ -838,4 +839,23 @@ return Html.href("/a") .. "b"
 ]])
   assert(not ok, "a SafeUrl was concatenated as a string")
   assert(trouble:find("`..` takes strings", 1, true) and trouble:find("SafeUrl", 1, true), trouble)
+end
+
+--- Benches. Text with nothing to escape, and markup that needs it, as text and as an attribute.
+local BENCH_PLAIN <const> = string.rep("The quick brown fox jumps over the lazy dog. ", 1000)
+local BENCH_TAGGED <const> = string.rep("<a href=\"x?a=1&b=2\">Tom & 'Jerry'</a> ", 1000)
+
+local function bench_escape_plain_45_kb(b: Bench.B)
+  b.bytes = #BENCH_PLAIN
+  for _ = 1, b.n do local _ = Html.escape(BENCH_PLAIN) end
+end
+
+local function bench_escape_markup_40_kb(b: Bench.B)
+  b.bytes = #BENCH_TAGGED
+  for _ = 1, b.n do local _ = Html.escape(BENCH_TAGGED) end
+end
+
+local function bench_escape_attr_markup_40_kb(b: Bench.B)
+  b.bytes = #BENCH_TAGGED
+  for _ = 1, b.n do local _ = Html.escape_attr(BENCH_TAGGED) end
 end

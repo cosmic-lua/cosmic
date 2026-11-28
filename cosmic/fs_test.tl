@@ -2,6 +2,8 @@ local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
+local Bench = require("cosmic.bench")
+local Rand = require("cosmic.rand")
 
 --- A read that fails returns nil and a failure that names the path and the errno.
 local function test_read_answers_a_failure_with_the_path_and_the_errno(tmp: string)
@@ -1062,4 +1064,51 @@ local function test_output_writes_a_fifo_in_place(tmp: string)
   -- `/dev/stdout` is the process's own: `create` refuses to replace it.
   local made, made_trouble = Fs.create("/dev/stdout")
   assert(made == nil and tostring(made_trouble):find("own descriptors", 1, true) ~= nil, tostring(made_trouble))
+end
+
+--- Benches. A whole-file read and write of 1 MiB, and a directory of 1000 files listed, walked and stat'd, all in
+--- the bench's own directory.
+local MIB <const> = 1024 * 1024
+
+--- Writes `count` files of one byte to `dir`/many and returns that directory.
+local function many(dir: string, count: integer): string
+  local root = dir .. "/many"
+  assert(Fs.mkdirs(root))
+  for i = 1, count do assert(Fs.write(root .. "/f" .. tostring(i), "x")) end
+  return root
+end
+
+local function bench_read_1_mib(b: Bench.B)
+  local file = b.dir .. "/one"
+  assert(Fs.write(file, Rand.new(2026):bytes(MIB)))
+  b.bytes = MIB
+  b.reset()
+  for _ = 1, b.n do local _ = Fs.read(file)! end
+end
+
+local function bench_write_1_mib(b: Bench.B)
+  local bytes, file = Rand.new(2026):bytes(MIB), b.dir .. "/out"
+  b.bytes = MIB
+  b.reset()
+  for _ = 1, b.n do assert(Fs.write(file, bytes)) end
+end
+
+local function bench_list_1000_files(b: Bench.B)
+  local root = many(b.dir, 1000)
+  b.reset()
+  for _ = 1, b.n do local _ = Fs.list(root)! end
+end
+
+local function bench_walk_1000_files(b: Bench.B)
+  local root = many(b.dir, 1000)
+  b.reset()
+  for _ = 1, b.n do local _ = Fs.walk(root)! end
+end
+
+local function bench_stat_1000_files(b: Bench.B)
+  local root = many(b.dir, 1000)
+  b.reset()
+  for _ = 1, b.n do
+    for i = 1, 1000 do local _ = Fs.stat(root .. "/f" .. tostring(i))! end
+  end
 end

@@ -1,5 +1,7 @@
 local Array = require("cosmic.array")
 local Codec = require("cosmic.codec")
+local Bench = require("cosmic.bench")
+local Rand = require("cosmic.rand")
 
 --- RFC 4648 section 10's test vectors: the input, its base16, and its
 --- base64.
@@ -194,4 +196,85 @@ local function test_unhex_reads_every_byte_in_each_case()
       assert(assert(Codec.unhex(spelled)) == string.char(byte), spelled)
     end
   end
+end
+
+--- Benches. MIME base64, as an email attachment carries it, after Lemire, "Decoding base64 email attachments"
+--- (2026-11-20): one MiB of random bytes, encoded in lines of 76 characters that end in CRLF (1.43 MB of text),
+--- each decoder checked once before it is timed. The post's table runs from 0.61 GB/s (PHP 8.5) to 18.4 GB/s (C++
+--- with simdutf) on one Xeon Gold 6548N core.
+local record Mime
+  bytes: string
+  flat: string
+  body: string
+end
+
+--- The bench input, drawn from a fixed seed.
+local function mime(): Mime
+  local bytes = Rand.new(2026):bytes(1024 * 1024)
+  local flat = Codec.base64(bytes)
+  local lines: mut {string} = {}
+  for i = 1, #flat, 76 do lines[#lines + 1] = flat:sub(i, i + 75) end
+  return { bytes = bytes, flat = flat, body = table.concat(lines, "\r\n") .. "\r\n" }
+end
+
+--- Times `decode` over `input`, checked once against `expect`, in GB/s of `input`.
+local function decoding(b: Bench.B, input: string, expect: string, decode: function(text: string): string)
+  assert(decode(input) == expect, "the wrong result")
+  b.bytes = #input
+  b.reset()
+  for _ = 1, b.n do decode(input) end
+end
+
+--- The decoder for text in lines: the core skips the line breaks itself.
+local function bench_unbase64_lines_mime_1_mib(b: Bench.B)
+  local m = mime()
+  decoding(b, m.body, m.bytes, function(text: string): string
+    return assert(Codec.unbase64_lines(text))
+  end)
+end
+
+--- The way cosmic.acme and cosmic.key decode a wrapped body: strip whitespace, then decode.
+local function bench_strip_space_and_unbase64_mime_1_mib(b: Bench.B)
+  local m = mime()
+  decoding(b, m.body, m.bytes, function(text: string): string
+    return assert(Codec.unbase64((text:gsub("%s", ""))))
+  end)
+end
+
+--- The same with only the CRLF line endings stripped.
+local function bench_strip_crlf_and_unbase64_mime_1_mib(b: Bench.B)
+  local m = mime()
+  decoding(b, m.body, m.bytes, function(text: string): string
+    return assert(Codec.unbase64((text:gsub("\r\n", ""))))
+  end)
+end
+
+--- The strip alone, to split the cost of the two steps above.
+local function bench_strip_space_only_mime_1_mib(b: Bench.B)
+  local m = mime()
+  decoding(b, m.body, m.flat, function(text: string): string return (text:gsub("%s", "")) end)
+end
+
+--- The same bytes with no line endings: the decoder's own speed, the post's "without line endings" case.
+local function bench_unbase64_flat_1_mib(b: Bench.B)
+  local m = mime()
+  decoding(b, m.flat, m.bytes, function(text: string): string
+    return assert(Codec.unbase64(text))
+  end)
+end
+
+--- The encoder, in GB/s of the bytes it reads.
+local function bench_base64_1_mib(b: Bench.B)
+  local m = mime()
+  decoding(b, m.bytes, m.flat, function(text: string): string return Codec.base64(text) end)
+end
+
+local function bench_hex_1_mib(b: Bench.B)
+  local bytes = mime().bytes
+  decoding(b, bytes, Codec.hex(bytes), function(text: string): string return Codec.hex(text) end)
+end
+
+local function bench_unhex_1_mib(b: Bench.B)
+  local bytes = mime().bytes
+  decoding(b, Codec.hex(bytes), bytes, function(text: string): string return Codec.unhex(text)! end)
 end

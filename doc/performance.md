@@ -156,8 +156,9 @@ chunk runs, so `cosmic profile --by require`
 lists the modules by the time each took. A span records the most the Lua
 heap held as one closed, and the totals record the peak resident set.
 
-`bin/cosmic bench/runtime.tl [name...]` times the standard library's hot
-paths (JSON, SQLite, streams, CSV) and prints nanoseconds per operation. It
-measures; no test reads its numbers.
+`bin/cosmic test --bench [selector...]` times the `bench_*` functions of
+the test files, which hold the standard library's hot paths (JSON, SQLite,
+streams, CSV, and more), and prints nanoseconds per operation. It
+measures; no test reads its numbers. doc/testing.md says how to write one.
 
 [`core/profile.h`]: ../core/profile.h
