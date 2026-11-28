@@ -35,6 +35,10 @@ local record test_child
   --- Calls the child `name`, registered by the module the chunk loaded, with `...` as its `args`, and returns its
   --- exit status. Raises for a name nothing registered.
   run: function(name: string, ...: string?): integer
+
+  --- The names of the modules this process has loaded, sorted and joined by spaces: what a test's child prints to
+  --- report what it loaded.
+  loaded: function(): string
 end
 
 local bodies: mut {string: function(args: {string}): integer} = {}
@@ -87,6 +91,13 @@ function test_child.words(dir: string, module: string, name: string, args?: {str
   local words: mut {string} = { "-e", chunk, path }
   for _, word in ipairs(args or {}) do words[#words + 1] = word end
   return words
+end
+
+function test_child.loaded(): string
+  local names: mut {string} = {}
+  for name in pairs(package.loaded) do names[#names + 1] = tostring(name) end
+  table.sort(names, function(a: string, b: string): boolean return a < b end)
+  return table.concat(names, " ")
 end
 
 function test_child.run(name: string, ...: string?): integer

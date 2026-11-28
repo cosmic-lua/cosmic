@@ -264,6 +264,7 @@ local packagers: {string: string} = {
   ["build/link_resolve.tl"] = "refuses a step into `package.loaded` or `package.preload` when it resolves a name",
   ["build/removed_fix.tl"] = "reads the catalog from `package.loaded`",
   ["build/sandbox.tl"] = "asks whether the core preloads a module",
+  ["build/test_child.tl"] = "names the modules a test's child has loaded, for the test that asks what a child loaded",
   ["build/test_worker.tl"] = "holds `require` to a test's closure through the searchers and `package.loaded`",
   ["cosmic/store.tl"] = "reads the store's searcher",
 }
