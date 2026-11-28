@@ -9,7 +9,7 @@ local noon <const> = 1795521600
 --- A client whose `send` returns `runs` for the list of ci.yml's runs,
 --- `releases` for the list of releases, `status` (201 where nil) for a
 --- POST, and records each request as "METHOD path".
-local function fake(runs: string, releases: string, status?: integer): GithubApi.Client, {string}
+local function fake(runs: string, releases: string, status?: integer, answers?: {string:string}): GithubApi.Client, {string}
   local calls: mut {string} = {}
   return {
     base = "https://api.test",
@@ -19,6 +19,9 @@ local function fake(runs: string, releases: string, status?: integer): GithubApi
       if request.method ~= "GET" then
         return { status = status or 201, headers = {}, body = "" }, ""
       end
+      local answer: string? = nil
+      if answers ~= nil then answer = answers[path] end
+      if answer ~= nil then return { status = 200, headers = {}, body = answer }, "" end
       if path:find("^/releases") ~= nil then
         return { status = 200, headers = {}, body = releases }, ""
       end
@@ -95,6 +98,64 @@ local function test_only_a_failed_first_attempt_runs_again(tmp: string)
     assert(said:find("nothing to do", 1, true), said)
     assert(#asked == 1, table.concat(asked, "|"))
   end
+end
+
+--- What jobs of a run say: a failed job of id `job` for run `id`.
+local function jobs_path(id: integer): string
+  return "/actions/runs/" .. tostring(id) .. "/jobs?filter=latest&per_page=100"
+end
+local function jobs_of(...: integer): string
+  local items: mut {string} = {}
+  for _, job in ipairs({ ... }) do
+    local ended = "failure"
+    if job >= 90 then ended = "timed_out" end
+    items[#items + 1] = '{"id":' .. tostring(job) .. ',"conclusion":"' .. ended .. '"}'
+  end
+  return '{"jobs":[' .. table.concat(items, ",") .. "]}"
+end
+local function notes_path(job: integer): string
+  return "/check-runs/" .. tostring(job) .. "/annotations?per_page=100"
+end
+local function notes_of(...: string): string
+  local items: mut {string} = {}
+  for _, message in ipairs({ ... }) do
+    items[#items + 1] = '{"annotation_level":"failure","message":"' .. message .. '"}'
+  end
+  return "[" .. table.concat(items, ",") .. "]"
+end
+
+--- A first attempt that fails as the last failed full run did (every
+--- error it says was said there) is not run again; one that says
+--- something new, or nothing, is.
+local function test_a_repeated_failure_is_not_run_again(tmp: string)
+  local listed = runs_of(run(7, bot, "2026-11-24T06:00:00Z", "completed", "failure", 1),
+    run(5, "whilp", "2026-11-24T02:00:00Z", "completed", "failure", 1))
+  local same: {string:string} = { [jobs_path(7)] = jobs_of(70), [notes_path(70)] = notes_of("test: FAIL  a", "test: FAIL  b"),
+    [jobs_path(5)] = jobs_of(50), [notes_path(50)] = notes_of("test: FAIL  b", "test: FAIL  a", "test: FAIL  c") }
+  local client, calls = fake(listed, "[]", nil, same)
+  local said = PrereleaseSweep.sweep(context(client, tmp .. "/output"))
+  assert(said:find("would fail again", 1, true), said)
+  for _, call in ipairs(calls) do assert(call:find("^POST") == nil, table.concat(calls, "|")) end
+  local fresh: {string:string} = { [jobs_path(7)] = jobs_of(70), [notes_path(70)] = notes_of("test: FAIL  new"),
+    [jobs_path(5)] = jobs_of(50), [notes_path(50)] = notes_of("test: FAIL  a") }
+  client, calls = fake(listed, "[]", nil, fresh)
+  said = PrereleaseSweep.sweep(context(client, tmp .. "/output"))
+  assert(said:find("run again", 1, true), said)
+  local mixed: {string:string} = { [jobs_path(7)] = jobs_of(70, 90), [notes_path(70)] = notes_of("test: FAIL  a"),
+    [jobs_path(5)] = jobs_of(50), [notes_path(50)] = notes_of("test: FAIL  a") }
+  client, calls = fake(listed, "[]", nil, mixed)
+  said = PrereleaseSweep.sweep(context(client, tmp .. "/output"))
+  assert(said:find("run again", 1, true), said)
+  local generic: {string:string} = { [jobs_path(7)] = jobs_of(70), [notes_path(70)] = notes_of("Process completed with exit code 1."),
+    [jobs_path(5)] = jobs_of(50), [notes_path(50)] = notes_of("Process completed with exit code 1.", "test: FAIL  a") }
+  client, calls = fake(listed, "[]", nil, generic)
+  said = PrereleaseSweep.sweep(context(client, tmp .. "/output"))
+  assert(said:find("run again", 1, true), said)
+  local silent: {string:string} = { [jobs_path(7)] = jobs_of(70), [notes_path(70)] = notes_of(),
+    [jobs_path(5)] = jobs_of(50), [notes_path(50)] = notes_of("test: FAIL  a") }
+  client, calls = fake(listed, "[]", nil, silent)
+  said = PrereleaseSweep.sweep(context(client, tmp .. "/output"))
+  assert(said:find("run again", 1, true), said)
 end
 
 --- A refused re-run fails the command, naming the status.
