@@ -45,6 +45,42 @@ needs them is refused there.
 A parser that reads untrusted bytes also gets a fuzz test (below). An
 example (`*_example.tl`) shows use and is held to fewer rules.
 
+## benches
+
+A bench is a top-level `local function bench_<name>(b: Bench.B)` in a
+`*_test.tl` file ([`cosmic.bench`]). Its body runs one operation `b.n`
+times. Work before `b.reset()` is setup and is not timed. Set `b.bytes`
+to the bytes one operation reads for a rate in GB/s.
+
+- A plain `cosmic test` calls each bench once, with `b.n` 1, as a test.
+  It fails when it raises and keeps a verdict like a test. It needs no
+  `assert`: its check is that its body runs.
+- `cosmic test --bench [selector...]` runs only the benches of what the
+  selectors name, whatever verdict stands, one worker at a time. Each
+  runs once as a test. Then, with coverage off, `b.n` doubles until one
+  call takes `--target-ms` (50), and `--rounds` (5) calls of that size
+  are timed. It prints the fastest and the median ns per operation of
+  each bench, or one JSON object per bench with `--json`.
+- `--rounds`, `--target-ms` and `--json` without `--bench` are refused,
+  and so is a `--bench` whose selectors name no bench.
+- `cosmic test --bench --against <old-cosmic> [file or directory...]`
+  compares two binaries. Each runs its own copy of the chosen test files
+  outside the checkout, so each uses its own built-in standard library.
+  They alternate for `--rounds` rounds (20, at least 6). Each bench gets
+  both bests, the paired ratio, its 95% band and a verdict: faster,
+  slower or the same. `--binary` names the new side (this cosmic by
+  default). The old binary must know `--bench`.
+- A bench that needs a fixture declares it with [`Test.policy`], as a test
+  does. Put a costly fixture in the body before `b.reset()`, not at the
+  file's top level, where every test of the file would pay for it.
+- `b.dir` is an empty directory. Each timed batch gets a new, empty one,
+  so a bench that writes files starts each batch from nothing.
+- A helper whose name starts with `bench_` is taken as a bench; name it
+  otherwise (`sample_repo`, not `bench_repo`).
+
+doc/decisions/0002-one-companion-one-runner.md says why a bench is a
+function of a test file.
+
 ## verdicts and when a test reruns
 
 Each test has a key. The key is made of what the test declares: its
@@ -1417,6 +1453,7 @@ Other rules:
 [`Check.Checked.narrowed`]: ../lang/check/init.tl
 [`ci/cosmic_ci/capabilities.json`]: ../ci/cosmic_ci/capabilities.json
 [`ci/README.md`]: ../ci/README.md
+[`cosmic.bench`]: ../cosmic/bench.tl
 [`cosmic.fake.steps`]: ../cosmic/fake/steps.tl
 [`cosmic.fake`]: ../cosmic/fake/init.tl
 [`cosmic.fuzz`]: ../cosmic/fuzz.tl

@@ -1,3 +1,4 @@
+local Bench = require("cosmic.bench")
 local Merge = require("cosmic.merge")
 
 --- A generator of integers in [1, n], the same for a seed on every host.
@@ -189,4 +190,53 @@ end
 local function test_sdiff_cuts_both_columns_to_the_width()
   local text = Merge.sdiff("a\n", "b" .. ("x"):rep(500) .. "\n", { width = 11 })
   assert(#text < 20, text)
+end
+
+--- `n` code-like lines, and the same with about `permille` in a thousand of them removed, changed or given a line before.
+local function edited_pair(n: integer, permille: integer): string, string
+  local draw = drawer(2026)
+  local old: mut {string} = {}
+  for i = 1, n do
+    old[#old + 1] = "  local v" .. tostring(draw(1000000)) .. " = f(" .. tostring(draw(100)) .. ", \"" .. tostring(i) .. "\")"
+  end
+  local new: mut {string} = {}
+  for _, line in ipairs(old) do
+    local r = draw(1000)
+    if r <= permille / 3 then
+      -- removed
+    elseif r <= permille * 2 / 3 then
+      new[#new + 1] = line .. " -- x"
+    elseif r <= permille then
+      new[#new + 1] = "  new line " .. tostring(draw(1000000000))
+      new[#new + 1] = line
+    else
+      new[#new + 1] = line
+    end
+  end
+  return table.concat(old, "\n") .. "\n", table.concat(new, "\n") .. "\n"
+end
+
+--- Bench: side-by-side rows of 2000 lines, 2 percent of them edited.
+local function bench_sdiff_2k_lines(b: Bench.B)
+  local old, new = edited_pair(2000, 20)
+  b.bytes = #old + #new
+  b.reset()
+  for _ = 1, b.n do local _ = Merge.sdiff(old, new) end
+end
+
+--- Bench: first difference of two texts of 20000 lines, 1 percent of them edited.
+local function bench_compare_20k_lines(b: Bench.B)
+  local old, new = edited_pair(20000, 10)
+  b.bytes = #old + #new
+  b.reset()
+  for _ = 1, b.n do local _ = Merge.compare(old, new) end
+end
+
+--- Bench: three-way merge of 2000 lines, where one side adds a line at the end of the other.
+local function bench_merge_2k_lines(b: Bench.B)
+  local old, new = edited_pair(2000, 20)
+  local theirs = new .. "tail\n"
+  b.bytes = #old + #new * 2
+  b.reset()
+  for _ = 1, b.n do local _ = Merge.three(old, new, theirs) end
 end

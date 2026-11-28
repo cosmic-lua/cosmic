@@ -10,6 +10,7 @@ local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local String = require("cosmic.string")
 local Test = require("cosmic.test")
+local Bench = require("cosmic.bench")
 
 Test.policy{ cpu_features = true }
 
@@ -1524,3 +1525,37 @@ local function test_decode_refuses_trailing_bytes_in_every_format()
     assert(failure.message:find("trailing bytes", 1, true) ~= nil, format .. ": " .. failure.message)
   end
 end
+
+--- Benches. Text that repeats, 1 MiB of a JSON table of rows, through each format both ways.
+local MIB <const> = 1024 * 1024
+
+local function repeating_mib(): string
+  local rows: mut {string} = {}
+  for i = 1, 1000 do
+    rows[i] = ('{"id":%d,"name":"user%d","score":%d.5,"at":{"x":%d,"y":%d},"tags":["a","b"]}'):format(i, i, i, i, -i)
+  end
+  local one = "[" .. table.concat(rows, ",") .. "]"
+  return string.rep(one, 1 + MIB // #one):sub(1, MIB)
+end
+
+local function encoding(b: Bench.B, format: Compress.Format)
+  local text = repeating_mib()
+  b.bytes = MIB
+  b.reset()
+  for _ = 1, b.n do local _ = Compress.encode(format, text)! end
+end
+
+local function decoding(b: Bench.B, format: Compress.Format)
+  local text = repeating_mib()
+  local packed = assert(Compress.encode(format, text))
+  b.bytes = MIB
+  b.reset()
+  for _ = 1, b.n do local _ = Compress.decode(format, packed)! end
+end
+
+local function bench_encode_gzip_1_mib(b: Bench.B) encoding(b, "gzip") end
+local function bench_decode_gzip_1_mib(b: Bench.B) decoding(b, "gzip") end
+local function bench_encode_zstd_1_mib(b: Bench.B) encoding(b, "zstd") end
+local function bench_decode_zstd_1_mib(b: Bench.B) decoding(b, "zstd") end
+local function bench_encode_xz_1_mib(b: Bench.B) encoding(b, "xz") end
+local function bench_decode_xz_1_mib(b: Bench.B) decoding(b, "xz") end

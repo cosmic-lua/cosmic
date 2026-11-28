@@ -39,6 +39,7 @@ Test.policy{
     { path = "vendor/miniz/", letters = "r" },
     { path = "vendor/monocypher/", letters = "r" },
     { path = "vendor/nanopb/", letters = "r" },
+    { path = "vendor/sha1dc/", letters = "r" },
     { path = "vendor/sqlite/", letters = "r" },
     { path = "vendor/simdutf/", letters = "r" },
     { path = "vendor/sqlite-ext/", letters = "r" },
@@ -50,7 +51,7 @@ Test.policy{
 
 --- The vendored libraries build.zig compiles C from, each walked whole.
 local LIBRARIES <const> = { "bzip2", "cares", "curl", "expat", "lua", "mbedtls", "miniz",
-  "monocypher", "nanopb", "simdutf", "sqlite", "sqlite-ext", "xz", "yyjson", "zstd" }
+  "monocypher", "nanopb", "sha1dc", "simdutf", "sqlite", "sqlite-ext", "xz", "yyjson", "zstd" }
 
 --- The vendored trees build.zig patches that hold no C: the Teal
 --- compiler, which the core loads as Lua.

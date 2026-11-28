@@ -1,4 +1,5 @@
 local Dns = require("cosmic.dns")
+local Bench = require("cosmic.bench")
 
 --- A response with nothing in it, to put records in.
 local function empty(): Dns.Message
@@ -645,4 +646,15 @@ local function test_decode_never_raises()
     end
   end
   assert(read > 400 and read < 4000, tostring(read))
+end
+
+--- Benches. A query encoded, and its wire form decoded.
+local function bench_encode_query(b: Bench.B)
+  local query = Dns.query("example.com", 1, 7)
+  for _ = 1, b.n do local _ = Dns.encode(query)! end
+end
+
+local function bench_decode_reply(b: Bench.B)
+  local wire = Dns.encode(Dns.query("example.com", 1, 7))!
+  for _ = 1, b.n do local _ = Dns.decode(wire)! end
 end

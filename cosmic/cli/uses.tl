@@ -12,7 +12,8 @@
 --- The symbol may be a file's path instead (doc/writing.md, or
 --- doc/writing.md#heading for one heading), which only links name. It
 --- builds the tree first, as `docs` does, and its summary says where it
---- reads the last build instead. The
+--- reads the last build instead. With `--unused` it lists each exported
+--- function no code outside its own file uses, tests left out. The
 --- tree is found as `test` finds it
 --- @public
 
@@ -20,9 +21,14 @@ local Flags = require("cosmic.flags")
 
 local command: Flags.Command = {
   about = "every place that refers to a symbol",
-  usage = "<symbol> [path...]",
+  usage = "<symbol> [path...] | --unused [path...]",
   examples = {
     { line = "Fs.read", about = "every place that refers to Fs.read" },
+    { line = "--unused", about = "each exported function no other file uses, tests left out" },
+  },
+  spec = {
+    ["--unused"] = { about = "list each exported function that no code outside its own file uses, tests left " ..
+        "out: what could be local or dropped" },
   },
 }
 

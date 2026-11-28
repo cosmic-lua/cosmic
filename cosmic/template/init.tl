@@ -239,4 +239,42 @@ function Template.compile(src: string, name: string, options?: Template.Options)
   return codegen.generate(template)
 end
 
+--- Text made from a template and the value it is given, as dot: `Template.text("{{.n}} files over 1 MB", { n = #big })`.
+--- The template is a `text` one with no header and no `{{define}}`, written as a string literal where the call stands:
+--- a build lowers the call ([`Template.inline`]) to a function the checker types from `data`, so a field the value does
+--- not have is a type error at the call, as it is in a `.tmpl`. Called where nothing lowered it (a template that is no
+--- literal, or a chunk no build read), it raises.
+--- @param src string The template, a string literal
+--- @param data T The value the template reads, as dot and as `$`
+--- @return string The text
+function Template.text<T>(src: string, data: T): string
+  local _ = data
+  error("cosmic.template: Template.text takes its template as a string literal, which the build turns into code; " ..
+      "this one was not: " .. string.format("%q", src:sub(1, 60)), 2)
+end
+
+--- What a lowered [`Template.text`] calls: `render` given `data`. The checker types `render`'s parameter from `data`,
+--- which is how a template's fields are checked; the lowering puts the function where the template was, so the call
+--- keeps its lines.
+--- @param render function The template, lowered
+--- @param data T The value the template reads
+--- @return string The text
+function Template.apply<T>(render: function(d: T): string, data: T): string
+  return render(data)
+end
+
+--- The source of a function literal, `function(d): string ... end`, that makes what `src`, a template given to
+--- [`Template.text`], makes of its dot, with line N of the template on line N of the source.
+--- @param src string The template
+--- @param name string What its reasons are headed with: the file and the line of the call
+--- @return string|nil The function literal
+--- @return Failure The reason, as `name:line:col: ...`, when the template is refused
+function Template.inline(src: string, name: string): (string) | (nil, Failure)
+  local template, why = parse.inline(src, name)
+  if template == nil then
+    return nil, why
+  end
+  return codegen.inline(template)
+end
+
 return Template

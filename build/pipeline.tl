@@ -52,6 +52,7 @@ local Store = require("cosmic.store")
 local String = require("cosmic.string")
 local SyntaxContracts = require("build.syntax_contracts")
 local TreeProgram = require("build.tree_program")
+local TemplateLower = require("build.template_lower")
 local standard_text = require("build.standard_text")
 local StandardMeant = require("build.standard_meant")
 local type Plans = require("build.plans")
@@ -63,6 +64,9 @@ local _ = require("build.reads.pipeline")
 local _ = require("build.code_identity")
 local _ = require("build.error_catalog")
 local type Module = Plans.Module
+
+-- A build lowers each [`Template.text`] of a literal before it checks the module ([`build.template_lower`]).
+Driver.lowering(TemplateLower.lower)
 
 local record Pipeline
   --- Whether [`Pipeline.build`] refused the tree for what it holds, rather than for a trouble reading it.
