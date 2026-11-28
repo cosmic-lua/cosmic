@@ -268,6 +268,7 @@ local function test_the_code_a_shared_row_is_held_under_is_the_closure_of_fix_an
         return "the bytecode of " .. name .. (if name == edited then ", edited" else "" end), ""
       end,
       holds = function(name: string): boolean?, string return graph[name] ~= nil, "" end,
+      source = function(_: string): string?, string return nil, "no source" end,
       core = image,
     })
   end
@@ -282,24 +283,30 @@ end
 
 --- A salt names the code of a module by its bytecode and that of each module it loads, however far, as the tool holds
 --- them, and not by the tree's text of it: an edit to a module loaded only through another moves it, and so does a
---- directory's module (lang/check/). A declaration goes in by its bytes, and a tool that cannot name the code gives a
+--- directory's module (lang/check/), another core and a declaration the tool holds. A declaration of the tree goes in by its bytes, and a tool that cannot name the code gives a
 --- salt no other is.
 local function test_a_salt_moves_with_the_code_each_module_loads(tmp: string)
   local root = tmp .. "/salted"
   assert(Fs.mkdirs(root .. "/lang/check"))
   assert(Fs.write(root .. "/lang/check/init.tl", "-- one\n"))
   assert(Fs.write(root .. "/lang/prelude.d.tl", "-- one\n"))
-  local graph: {string: {string}} = { ["lang.check"] = { "lang.types" }, ["lang.types"] = { "cosmic.fs" },
-    ["cosmic.fs"] = {} }
-  local edited, unread = "", ""
+  local graph: {string: {string}} = { ["lang.check"] = { "lang.types" }, ["lang.types"] = { "cosmic.fs", "cosmic.sys" },
+    ["cosmic.fs"] = {}, ["cosmic.sys"] = {} }
+  local edited, unread, declared_text = "", "", "the declaration of cosmic.sys"
   local reads: check_memo.Reads = {
     requires = function(name: string): {string}?, string return graph[name] or {}, "" end,
     bytecode = function(name: string): string?, string
-      if graph[name] == nil then return nil, "no module '" .. name .. "' in the binary" end
+      if graph[name] == nil or name == "cosmic.sys" then
+        return nil, "no module '" .. name .. "' in the binary"
+      end
       if name == unread then return nil, "its bytecode does not inflate" end
       return "the bytecode of " .. name .. (if name == edited then ", edited" else "" end), ""
     end,
     holds = function(name: string): boolean?, string return graph[name] ~= nil, "" end,
+    source = function(name: string): string?, string
+      if name == "cosmic.sys" then return declared_text, "" end
+      return nil, "no source"
+    end,
     core = "",
   }
   local function salt(): string
@@ -316,6 +323,13 @@ local function test_a_salt_moves_with_the_code_each_module_loads(tmp: string)
   assert(salt() ~= loaded and salt() ~= base, "an edit to the directory's module left the salt as it was")
   edited = ""
   assert(salt() == base)
+  local cored: check_memo.Reads = { requires = reads.requires, bytecode = reads.bytecode, holds = reads.holds,
+    source = reads.source, core = "another core" }
+  assert(check_memo.salt(root, { "lang/check/", "lang/prelude.d.tl" }, "v", cored) ~= base,
+    "another core left the salt as it was")
+  declared_text = "the declaration of cosmic.sys, edited"
+  assert(salt() ~= base, "an edit to a declaration the tool holds left the salt as it was")
+  declared_text = "the declaration of cosmic.sys"
   assert(Fs.write(root .. "/lang/prelude.d.tl", "-- two\n"))
   local declared = salt()
   assert(declared ~= base, "an edit to a declaration left the salt as it was")

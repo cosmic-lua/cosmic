@@ -8,7 +8,8 @@
 --- dialect and the SHA-256 of the file's bytes, so a changed file, a changed
 --- check and another dialect each miss. The salt is the SHA-256 of the
 --- code that made the result ([`salt`]): the bytecode of the modules it names
---- and of every module they load, so no edit to that code leaves a row.
+--- and of every module they load, and the core whose bindings they call, so no
+--- edit to that code leaves a row.
 ---
 --- A memo is an optimization and never required: a read or write that fails
 --- is a miss, and the check runs. A run is one transaction, from [`prepare`]
@@ -40,6 +41,7 @@
 --- `COSMIC_BUILD_CACHE` moves the compiles, so CI, which moves them, keeps
 --- these apart (ci/cosmic_ci/checks_seal.tl); with it `0`, a run shares no
 --- rows, as a test's worker does not.
+local artifact = require("build.artifact")
 local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
@@ -47,6 +49,8 @@ local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local shared_sqlite = require("build.shared_sqlite")
 local store_lookups = require("build.store_lookups")
+local Store = require("cosmic.store")
+local _ = require("build.reads.all")
 local sys = require("cosmic.sys")
 
 local record check_memo
@@ -70,13 +74,16 @@ local record check_memo
   --- and not the source: a tool another compiler wrote from the same source is other code. Nil and why where the tool
   --- cannot say: a module it holds with no bytecode to read, or a query that failed.
   code_of: function(reads: Reads): string?, string
+  --- The running tool as [`check_memo.Reads`] reads it, its `core` "": a caller that names the core sets its own.
+  tool: Reads
 
-  --- How [`check_memo.code_of`] and [`check_memo.salt`] read a tool: `requires`, `bytecode` and `holds` as [`cosmic.store`]'s functions of
+  --- How [`check_memo.code_of`] and [`check_memo.salt`] read a tool: `requires`, `bytecode`, `holds` and `source` as [`cosmic.store`]'s functions of
   --- those names return, and `core`, what names every byte of the tool that is no module.
   record Reads
     requires: function(name: string): {string}?, string
     bytecode: function(name: string): string?, string
     holds: function(name: string): boolean?, string
+    source: function(name: string): string?, string
     core: string
   end
   --- Shares rows through the file at `path` from here on, made when missing, in place of the default; with nil, shares
@@ -97,7 +104,8 @@ local record check_memo
   --- lang/check/ is) goes in by the bytecode of it and of every module it loads, however far, as the running tool
   --- holds them; any other file (a declaration, a C header, a module the tool does not hold) by its bytes under
   --- `root`, where one that cannot be read counts as empty. Where the tool cannot name the code, the salt is one no
-  --- other is, so no row is taken. `reads` reads another tool, for a test ([`check_memo.Reads`]; its `core` is not read).
+  --- other is, so no row is taken. Every salt holds the running core too (its exact bytes), whose bindings the code
+  --- calls. `reads` reads another tool, for a test ([`check_memo.Reads`]).
   salt: function(root: string, files: {string}, version: string, reads?: Reads): string
   --- The SHA-256 of the sources of `modules` and of every module they require, however far, as the projection `db`
   --- holds them (its `imports` and each module's `source_hash`), and of `version`: the code that makes a result, by
@@ -158,8 +166,8 @@ function check_memo.shared_path(environment?: {string:string}): string?
 end
 
 --- The bytecode of `roots` and of every module they require, however far, by `reads`: one part per module, its name
---- and the SHA-256 of its bytecode, sorted, where a binding of the core is `-`. Nil and why where a module the tool
---- holds has no bytecode to read, or a query failed.
+--- and the SHA-256 of its bytecode, sorted, where a declaration goes in by its text and a binding of the core is `-`.
+--- Nil and why where a module the tool holds has neither bytecode nor text to read, or a query failed.
 local function closure_parts(reads: check_memo.Reads, roots: {string}): {string}?, string
   local seen: mut {string: boolean} = {}
   local names: mut {string} = {}
@@ -179,14 +187,22 @@ local function closure_parts(reads: check_memo.Reads, roots: {string}): {string}
   local parts: mut {string} = {}
   for _, name in ipairs(names) do
     local code, code_trouble = reads.bytecode(name)
-    if code == nil then
+    local part = "-"
+    if code ~= nil then
+      part = Hash.hex_sha256(code)
+    else
       -- A name the tool holds neither a module nor a declaration of is a binding of the core, which `core` holds.
-      -- One it holds with no bytecode to read (a declaration, a module that does not inflate) names no code.
+      -- One it holds with no bytecode is a declaration, of a binding of the core, and goes in by its text; one with
+      -- no text to read either (a module that does not inflate) names no code.
       local held, held_trouble = reads.holds(name)
       if held == nil then return nil, name .. ": " .. held_trouble end
-      if held then return nil, name .. ": " .. code_trouble end
+      if held then
+        local text, _ = reads.source(name)
+        if text == nil then return nil, name .. ": " .. code_trouble end
+        part = "declared " .. Hash.hex_sha256(text)
+      end
     end
-    parts[#parts + 1] = name .. " " .. (if code ~= nil then Hash.hex_sha256(code) else "-" end)
+    parts[#parts + 1] = name .. " " .. part
   end
   return parts, ""
 end
@@ -370,9 +386,28 @@ local function module_of(file: string): string?
   return (path:gsub("/", "."))
 end
 
---- How the running tool is read for a salt: its own lookups, and no core, which a salt leaves out.
+--- [`Store.source`], its failure in words: the text of a declaration the tool holds, which names it in a salt.
+local function store_source(name: string): string?, string
+  local text, why = Store.source(name)
+  if text == nil then return nil, tostring(why) end
+  return text, ""
+end
+
+--- How the running tool is read for a salt: its own lookups. Its `core` is read apart, by [`tool_core`].
 local TOOL <const>: check_memo.Reads = { requires = store_lookups.requires, bytecode = store_lookups.bytecode,
-  holds = store_lookups.holds, core = "" }
+  holds = store_lookups.holds, source = store_source, core = "" }
+
+--- The digest of the running core's exact bytes, which its bindings are, read once; nil where the tool cannot say.
+local core_read = false
+local core_digest: string? = nil
+local function tool_core(): string?
+  if not core_read then
+    core_read = true
+    local core, _ = artifact.trusted_core()
+    if core ~= nil then core_digest = Hash.hex_sha256(core.bytes) end
+  end
+  return core_digest
+end
 
 --- The digest of the code of each list of modules the running tool was read for in this process, by the modules
 --- joined: the tool does not change while it runs.
@@ -415,6 +450,13 @@ function check_memo.salt(root: string, files: {string}, version: string, reads?:
     end
     parts[#parts + 1] = "code " .. joined .. " " .. digest
   end
+  -- Every check's code calls the core's bindings, so the core names the code as the bytecode does.
+  local core = if reads ~= nil then reads.core else tool_core() end
+  if core == nil then
+    unnamed = unnamed + 1
+    core = "unnamed " .. tostring(Clock.now_ns()) .. " " .. tostring(unnamed)
+  end
+  parts[#parts + 1] = "core " .. core
   parts[#parts + 1] = version
   return Hash.hex_sha256(table.concat(parts, "\0"))
 end
@@ -501,5 +543,7 @@ function check_memo.decode(text: string): {{string}}
   end
   return rows
 end
+
+check_memo.tool = TOOL
 
 return check_memo

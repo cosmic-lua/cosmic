@@ -6,7 +6,6 @@ local Proc = require("cosmic.proc")
 local fanout = require("build.compile_fanout")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
-local store_lookups = require("build.store_lookups")
 local check_memo = require("build.check_memo")
 local Ast = require("lang.ast")
 local Check = require("lang.check")
@@ -142,8 +141,8 @@ function tree_checked.share_checks(): boolean, string
   local core = Hash.hex_sha256(head)
   local coded: Coded = { code = nil, trouble = "" }
   Store.alone(function()
-    coded.code, coded.trouble = check_memo.code_of({ requires = store_lookups.requires, bytecode = store_lookups.bytecode,
-      holds = store_lookups.holds, core = core })
+    coded.code, coded.trouble = check_memo.code_of({ requires = check_memo.tool.requires, bytecode = check_memo.tool.bytecode,
+      holds = check_memo.tool.holds, source = check_memo.tool.source, core = core })
   end)
   local code = coded.code
   if code == nil then

@@ -90,6 +90,8 @@ local function test_a_key_kept_is_held_and_the_oldest_drop(tmp: string)
   assert(Verdict.keep(path, hex(11)))
   assert(Verdict.held(path, hex(3)), "a key kept again is the newest")
   assert(not Verdict.held(path, hex(4)))
+  assert(Fs.chmod(path, 0x1b0))
+  assert(not Verdict.held(path, hex(3)), "a file others may write holds no key")
 end
 
 local function test_only_zero_turns_it_off()

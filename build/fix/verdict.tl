@@ -32,7 +32,7 @@ local record verdict
 
   --- The key of a run that reads `inputs`, as hexadecimal SHA-256; nil and why where any of it cannot be read.
   key: function(inputs: Inputs): string?, string
-  --- Whether the file at `path` holds `key` as a run that passed.
+  --- Whether the file at `path` holds `key` as a run that passed: a file of this user's that no one else may write.
   held: function(path: string, key: string): boolean
   --- Keeps `key` in the file at `path` as a run that passed, with the [`KEPT`] keys kept last before it: a few, so a
   --- switch between branches finds each. Returns whether it was written, and why not.
@@ -50,8 +50,8 @@ local OFF <const> = "COSMIC_FIX_VERDICT"
 --- How many keys the file keeps.
 local KEPT <const> = 8
 
---- The variables a shell sets for itself, which no check reads: the root stands for `PWD`. [`OFF`] is one too, so a run
---- made in full with it keeps the key a run without it reads.
+--- The variables a shell sets for itself, which no check reads: the root stands for `PWD`. [`OFF`] is one too: it
+--- turns the reuse off and changes nothing a check finds.
 local NOISE <const>: {string: boolean} = { PWD = true, OLDPWD = true, SHLVL = true, _ = true, [OFF] = true }
 
 --- What a file of the tree at `root` adds to the key: its path, its mode and the digest of its bytes.
@@ -131,7 +131,16 @@ local function keys_of(path: string): {string}
   return out
 end
 
+--- Whether the file at `path` is this user's, taken as it is and never through a link, and no one else may write it:
+--- a key planted by another would pass a run unchecked.
+local function private(path: string): boolean
+  local st, _ = sys.lstat(path)
+  if st == nil or st.kind ~= "file" then return false end
+  return st.uid == sys.getuid() and st.mode & 0x12 == 0
+end
+
 function verdict.held(path: string, key: string): boolean
+  if not private(path) then return false end
   for _, kept in ipairs(keys_of(path)) do
     if kept == key then return true end
   end
