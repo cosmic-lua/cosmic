@@ -90,6 +90,19 @@ function Hash.sha256(data: string): string
   return raw.digest("sha256", data)
 end
 
+--- The 20 raw bytes of the SHA-1 of some bytes, with the collision
+--- detection git uses (sha1dc): returns nil and a Failure when the bytes
+--- hold a block of a known SHA-1 near-collision attack (SHAttered and
+--- its kind), which a plain SHA-1 would name the same as other bytes.
+--- @param data string The bytes to hash
+function Hash.sha1dc(data: string): (string) | (nil, Failure)
+  local digest, collision = raw.sha1dc(data)
+  if collision then
+    return nil, Failure.new(("hash: the bytes hold a SHA-1 collision attack (sha1 %s)"):format(Codec.hex(digest)))
+  end
+  return digest
+end
+
 --- The hexadecimal SHA-256 of some bytes, as `sha256sum` prints it,
 --- which is the form the build writes into keys.
 function Hash.hex_sha256(data: string): string

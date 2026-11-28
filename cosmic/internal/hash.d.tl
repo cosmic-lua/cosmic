@@ -23,6 +23,10 @@ local record hash
   -- sha224, sha256, sha384, sha512, sha3-224, sha3-256, sha3-384,
   -- sha3-512). Raises when no algorithm has that name.
   digest: function(algorithm: string, data: string): string
+  -- The raw SHA-1 of data, by sha1dc, and whether data holds a block of
+  -- a known SHA-1 near-collision attack. The digest is plain SHA-1 either
+  -- way.
+  sha1dc: function(data: string): string, boolean
   -- The raw HMAC of data under key, as long as the algorithm's digest.
   -- Raises when no algorithm has that name.
   hmac: function(algorithm: string, key: string, data: string): string

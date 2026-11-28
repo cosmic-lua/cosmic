@@ -495,6 +495,24 @@ local function test_a_test_returning_early_is_refused(dir: string)
   assert(found[2]:find("^build/guard_test.tl:3: test_guarded returns early %(`if ... then return end`%)"), found[2])
 end
 
+--- A test, bench or eval that looks for a program it does not declare is a finding; the baseline, a declared program and
+--- other files are not.
+local function test_undeclared_programs_are_found(dir: string)
+  local function put(file: string, text: string)
+    assert(Fs.mkdirs(dir .. "/" .. (file:match("^(.*)/[^/]*$") or ".")))
+    assert(Fs.write(dir .. "/" .. file, text))
+  end
+  put("build/a_test.tl", "local p = Proc.find(\"curl\")\n")
+  put("build/b_test.tl", "local p = Proc.find(\"sh\")\n")
+  put("build/c_test.tl", "local requires = { \"program:curl\" }\nlocal p = Proc.find(\"curl\")\n")
+  put("bench/d.tl", "local p = Proc.find(\"git\")\n")
+  put("build/e.tl", "local p = Proc.find(\"git\")\n")
+  local found = tree_tests.undeclared_programs(dir)
+  assert(#found == 2, table.concat(found, "\n"))
+  assert(found[1]:find("^bench/d.tl:1: looks for `git`"), found[1])
+  assert(found[2]:find("^build/a_test.tl:1: looks for `curl`"), found[2])
+end
+
 --- The early returns `fix` found in its own parse of a file are the ones the check reports, as a parse of its own would
 --- find them; a parse of other text than the file now holds is not read.
 local function test_early_returns_read_the_parse_fix_made_of_the_same_text(dir: string)

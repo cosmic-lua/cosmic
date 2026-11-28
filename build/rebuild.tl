@@ -306,6 +306,16 @@ function rebuild.stage(root: string, carried?: string): rebuild.Where?, string
   return found, ""
 end
 
+--- As [`here`] for a lookup of the project's own code, `cosmic uses`, whose answer names nothing until a build has
+--- been made: in a directory that looks like a project no build has been made of ([`looks_unbuilt`]), it makes the
+--- first, as `cosmic fix` would; anywhere else it does as a lookup's does.
+function rebuild.here_built(verb: string): boolean, string
+  local at, trouble = Fs.absolute(".")
+  if at == nil then return false, tostring(trouble) end
+  local found, _ = where(at)
+  return project(at, verb, found ~= nil and not found.project and looks_unbuilt(at))
+end
+
 --- Builds the project at `root`, the working directory by default, as
 --- `project` does, for the verb `verb`, which names itself in what it
 --- says: a lookup's, which waits for no other run. With `start`, it

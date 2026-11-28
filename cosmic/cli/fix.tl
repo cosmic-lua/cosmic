@@ -24,6 +24,13 @@
 ---   (`module.member`), one symbol. In Markdown it also writes, at the
 ---   file's end, the definitions GitHub needs to show the link.
 ---
+--- `--rename Old=new` first renames a module's member, or a field of a
+--- record a module declares, where it is declared and at each place
+--- `cosmic uses` finds: code through the module, an alias or a typed
+--- value, and links. The run then lays out and builds the tree as
+--- ever, so a place `uses` does not see, a write to a field or a key
+--- of a table literal, fails the build at its line.
+---
 --- Links and their definitions are all that it writes to a Markdown or
 --- Zig file: it never reflows or re-indents one. `--check` is the dry
 --- run: it writes nothing and reports what a run would change.
@@ -48,12 +55,15 @@ local command: Flags.Command = {
   examples = {
     { line = "tally.tl", about = "lay out a file and check the tree" },
     { line = "--check .", about = "change nothing; fail if a fix would change anything" },
+    { line = "--rename Money.format=render", about = "rename a member where it is declared and used, then fix" },
   },
   spec = {
     ["--check"] = { about = "write nothing; name what a fix would change, and fail if any (a Teal file that is " ..
         "not laid out, or that the formatter refuses, fails it)" },
     ["--changed"] = { about = "in cosmic's own tree, lay out only the paths named, which " ..
         "changed since the whole tree passed; what spans files still covers it all" },
+    ["--rename"] = { value = "old=new", about = "first rename a module's member or a record's field (Money.format=render) " ..
+        "where it is declared and at each place `cosmic uses` finds; a write or a table key it does not see fails the build" },
   },
 }
 

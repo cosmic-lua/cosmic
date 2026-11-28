@@ -6,6 +6,7 @@
 #include "crypto.h"
 #include "fail.h"
 #include "lauxlib.h"
+#include "lib/sha1.h"
 #include "psa/crypto.h"
 
 #define HASHER_TYPE "cosmic.hash.hasher"
@@ -302,7 +303,26 @@ static const luaL_Reg hasher_methods[] = {
   {NULL, NULL},
 };
 
+/* SHA-1 of data with collision detection (sha1dc): the raw digest and
+   whether data holds a block of a known near-collision attack. The
+   digest is plain SHA-1 either way; the safe-hash mode, which changes
+   it on a collision, is off. */
+static int hash_sha1dc (lua_State *L) {
+  size_t len;
+  const char *data = luaL_checklstring(L, 1, &len);
+  SHA1_CTX ctx;
+  SHA1DCInit(&ctx);
+  SHA1DCSetSafeHash(&ctx, 0);
+  SHA1DCUpdate(&ctx, data, len);
+  unsigned char digest[20];
+  int collision = SHA1DCFinal(digest, &ctx);
+  lua_pushlstring(L, (const char *)digest, sizeof digest);
+  lua_pushboolean(L, collision != 0);
+  return 2;
+}
+
 static const luaL_Reg module[] = {
+  {"sha1dc", hash_sha1dc},
   {"digest", hash_digest},
   {"hmac", hash_hmac},
   {"hasher", hash_hasher},
