@@ -661,7 +661,7 @@ end
 --- A tool whose database lists no places (one from before the table) gives none.
 local function test_definition_of_a_binary_module_s_field_is_null_where_the_tool_carries_no_places()
   local root = session_fixture.project()
-  -- The third line is a control: the checker types [`Fs.read`] (its two lists of values are no integer), so the null below is
+  -- The third line is a control: the checker types [`Fs.read`] (its first value, a `string?`, is no integer), so the null below is
   -- the tool's carrying no places and not a checker that could not read the module at all.
   local text = 'local Fs = require("cosmic.fs")\nlocal _ = Fs.read\nlocal wrong: integer = Fs.read("x")\nreturn wrong\n'
   local bare = assert(Sqlite.memory())
@@ -669,7 +669,7 @@ local function test_definition_of_a_binary_module_s_field_is_null_where_the_tool
     at(2, "textDocument/definition", root, "main.tl", 1, 15),
   }, { bare })
   local diagnostics = nth(ran, 1)
-  assert(#diagnostics == 1 and only(diagnostics).message:find("alternatives_as_value", 1, true) ~= nil,
+  assert(#diagnostics == 1 and only(diagnostics).message:find("`string?`", 1, true) ~= nil,
     "the checker does not type Fs.read: " .. table.concat(ran.sent, "\n"))
   assert(defined(ran, 2) == nil)
 end
