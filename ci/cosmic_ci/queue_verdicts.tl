@@ -848,6 +848,73 @@ function QueueVerdicts.ref_caches_command(_argv: {string}): integer
   return QueueVerdicts.ref_caches(env, Github.live(env))
 end
 
+--- What a lookup of a pull request is read for: the commit its branch is at.
+local record PullHead
+  sha: string
+end
+local record PullRow
+  head: PullHead
+end
+local PULL_ROW <const> = Shape.record_of("PullRow")
+
+--- What a comparison's commits are read for.
+local record TriedMessage
+  message: string
+end
+local record TriedCommit
+  sha: string
+  commit: TriedMessage
+end
+local record TriedRow
+  commits: {TriedCommit}
+end
+local TRIED_ROW <const> = Shape.record_of("TriedRow")
+
+--- `driver.tl queue-head`: says on the run's summary page which commits a
+--- merge-queue run tests: the pull request the entry is of, the commit it was put on
+--- (BASE_SHA, the entry ahead or main), the entry's commit (SHA) and the
+--- commits between them, and the commit the pull request's branch is at now. A
+--- run that tested an old copy of a branch (queue run 45399886139 held a
+--- test two pushes old) then shows it at once: the commits it names are not
+--- the branch's. A lookup that fails is said and does not fail the step: this
+--- only reports. 2 where the step names no queue ref, repository or commits, else 0.
+function QueueVerdicts.head(env: {string:string}, host: Github.Host): integer
+  local ref, repository = env["GITHUB_REF"] or "", env["GITHUB_REPOSITORY"] or ""
+  local sha, base = env["SHA"] or "", env["BASE_SHA"] or ""
+  local entry = QueueVerdicts.entry_of(ref)
+  if entry == nil or not repository:match("^[%w._-]+/[%w._-]+$") or not Github.is_commit(sha) or
+      not Github.is_commit(base) then
+    local _, _ = Fs.put(Fs.stderr, "queue-head: GITHUB_REF, GITHUB_REPOSITORY, SHA and BASE_SHA must name a merge-queue " ..
+        "ref, a repository and two commits\n")
+    return 2
+  end
+  local lines: mut {string} = { "merge-queue entry of pull request #" .. entry.pr .. ": commit " .. sha ..
+      " on " .. base }
+  local tried = Github.ask(host, "repos/" .. repository .. "/compare/" .. base .. "..." .. sha, false, LOOKUP_SECONDS)
+  local compared, _ = TRIED_ROW:decode_into((tried or {})[1] or "")
+  if compared == nil then
+    lines[#lines + 1] = "the commits it tests: GitHub did not say"
+  else
+    for _, each in ipairs(compared.commits) do
+      lines[#lines + 1] = "  tests " .. each.sha:sub(1, 12) .. " " .. (each.commit.message:match("^[^\n]*") or "")
+    end
+  end
+  local pulls = Github.ask(host, "repos/" .. repository .. "/pulls/" .. entry.pr, false, LOOKUP_SECONDS)
+  local pull, _ = PULL_ROW:decode_into((pulls or {})[1] or "")
+  if pull == nil then
+    lines[#lines + 1] = "the pull request's branch: GitHub did not say"
+  else
+    lines[#lines + 1] = "the pull request's branch is at " .. pull.head.sha
+  end
+  for _, line in ipairs(lines) do Github.say(host, line) end
+  return 0
+end
+
+function QueueVerdicts.head_command(_argv: {string}): integer
+  local env = Env.all()
+  return QueueVerdicts.head(env, Github.live(env))
+end
+
 --- What main's branch is read for.
 local record RefRow
   object?: any

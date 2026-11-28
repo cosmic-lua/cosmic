@@ -601,7 +601,10 @@ a cache waits on the `queue-ref` job, which restores none and fails a
 queue run whose ref holds one (`driver.tl queue-ref-caches`), and the
 `ci` gate lists them again once every job has run, for a cache written
 while the run ran. A cache GitHub evicted before the second listing goes
-unseen.
+unseen. The same job's last step (`driver.tl queue-head`) writes to the
+run's summary the pull request the entry is of, the commits it tests and
+the commit the pull request's branch is at, so a run that tested a stale
+copy of a branch shows it at once.
 
 A queue leg that failed uploads the rows it used too
 (`queue-tried-verdicts-<job>`, kept a day). A checked shard and the

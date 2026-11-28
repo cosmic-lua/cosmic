@@ -102,6 +102,13 @@
           env: {GH_TOKEN: "${{ github.token }}"},
           run: "cosmic-driver cosmic_ci/driver.tl queue-ref-caches",
         },
+        # What the entry tests, on the run's summary: its commits and the
+        # branch's head, so a stale copy of a branch shows at once.
+        {
+          name: "say which commits the entry tests",
+          env: {GH_TOKEN: "${{ github.token }}", SHA: "${{ github.sha }}", BASE_SHA: "${{ github.event.merge_group.base_sha }}"},
+          run: "cosmic-driver cosmic_ci/driver.tl queue-head",
+        },
       ],
     },
     # A platform leg: the native suite on its host, and, on main's runs,

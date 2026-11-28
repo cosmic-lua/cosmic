@@ -541,3 +541,31 @@ local function test_a_job_that_passed_in_a_failed_try_is_taken()
     assert(GithubFake.text(fake.outputs) == want, case .. ": " .. GithubFake.text(fake.outputs))
   end
 end
+
+--- `queue-head` names the entry's commits and the branch's head on the
+--- summary; a lookup GitHub refuses is said and fails nothing; a step of
+--- no queue ref or commits is refused before it asks.
+local function test_queue_head_says_what_the_entry_tests()
+  local ref = "refs/heads/gh-readonly-queue/main/pr-41-" .. SHA
+  local sha, base = string.rep("b", 40), string.rep("a", 40)
+  local given: mut {string:string} = { GITHUB_REF = ref, GITHUB_REPOSITORY = "o/r", SHA = sha, BASE_SHA = base }
+  local fake = GithubFake.new(function(path: string, _nth: integer): string?
+    if path == "repos/o/r/compare/" .. base .. "..." .. sha then
+      return '{"commits":[{"sha":"' .. sha .. '","commit":{"message":"fix: a thing\\n\\nbody"}}]}'
+    end
+    if path == "repos/o/r/pulls/41" then
+      return '{"head":{"sha":"' .. string.rep("c", 40) .. '"}}'
+    end
+    return nil
+  end)
+  assert(QueueVerdicts.head(given, fake.host) == 0)
+  local said = GithubFake.text(fake.printed)
+  assert(said:find("pull request #41", 1, true) ~= nil, said)
+  assert(said:find("tests bbbbbbbbbbbb fix: a thing", 1, true) ~= nil, said)
+  assert(said:find("branch is at " .. string.rep("c", 40), 1, true) ~= nil, said)
+  local quiet = GithubFake.new(function(_path: string, _nth: integer): string? return nil end)
+  assert(QueueVerdicts.head(given, quiet.host) == 0)
+  assert(GithubFake.text(quiet.printed):find("GitHub did not say", 1, true) ~= nil)
+  given["SHA"] = "HEAD"
+  assert(QueueVerdicts.head(given, quiet.host) == 2)
+end

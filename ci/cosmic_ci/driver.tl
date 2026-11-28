@@ -122,6 +122,8 @@ local commands: {string:Command} = {
     usage = "", handler = QueueVerdicts.find_command },
   ["queue-ref-caches"] = { about = "fail a merge-queue run whose own ref, GITHUB_REF, holds a cache, which only code it ran could have saved",
     usage = "", handler = QueueVerdicts.ref_caches_command },
+  ["queue-head"] = { about = "say which commits a merge-queue run tests (the entry's) and where its pull request's branch is",
+    usage = "", handler = QueueVerdicts.head_command },
   ["queue-tried-run"] = { about = "name the failed merge-queue run of HEAD_REF's pull request that uploaded ARTIFACT, the verdicts its next try takes",
     usage = "", handler = QueueVerdicts.find_tried_command },
   ["verdicts-merge"] = { about = "merge the verdicts in FROM, the merge queue's, into those restored",
