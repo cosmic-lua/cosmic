@@ -60,6 +60,7 @@ local AgentEdit = require("cosmic.agent.edit")
 local AgentFetch = require("cosmic.agent.fetch")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
+local Csv = require("cosmic.csv")
 local Failure = require("cosmic.failure")
 local type Doc = require("cosmic.doc")
 local Fs = require("cosmic.fs")
@@ -589,11 +590,50 @@ function Host.edit(path: string, edits: {Host.Replacement}): integer
   return made
 end
 
---- Checks the Teal file `path` as `cosmic fix` checks a file of its tree, and raises with the checker's lines where it
---- does not pass, so that what follows in the snippet runs only for a file that passes. It reads the modules a snippet
---- may require, and tells the lines of each module of a tree it requires too; it runs no code. Raises too where it
---- cannot be read, or where no checker is here (outside cosmic agent's worker).
+--- true where `text` is JSON values a line each, as [`Json.decode_lines`] reads them; else nil and why.
+local function json_lines(text: string): (true) | (nil, Failure)
+  local _, why = Json.decode_lines(text)
+  if why ~= nil then return nil, why end
+  return true
+end
+
+--- What reads a data file's text, by its type in lower case: true, or nil and why, as its module reads it.
+local data_checks: {string: function(text: string): (true) | (nil, Failure)} = {
+  json = function(text: string): (true) | (nil, Failure) return Json.check(text) end,
+  jsonl = json_lines,
+  ndjson = json_lines,
+  csv = function(text: string): (true) | (nil, Failure)
+    local _, why = Csv.table(text)
+    if why ~= nil then return nil, why end
+    return true
+  end,
+  tsv = function(text: string): (true) | (nil, Failure)
+    local _, why = Csv.table(text, { delimiter = "\t" })
+    if why ~= nil then return nil, why end
+    return true
+  end,
+}
+
+--- Checks the file `path` you wrote by its type, its extension in any case, and raises with what is wrong where it
+--- does not pass, so that what follows in the snippet runs only for a file that passes; it runs no code. A `.tl` file
+--- is checked as `cosmic fix` checks a file of its tree: it reads the modules a snippet may require, and tells the
+--- checker's lines for each module of a tree it requires too. `.json` is one value ([`Json.check`]); `.jsonl` and
+--- `.ndjson` a value a line ([`Json.decode_lines`]); `.csv` and `.tsv` records each as wide as the header
+--- ([`Csv.table`]), where a header alone or no text passes. Each of those raises with the one reason its module gives.
+--- Any other type is refused before it is read; it raises too where the file cannot be read, or for `.tl` where no
+--- checker is here (outside cosmic agent's worker).
 function Host.check(path: string)
+  local kind = (path:match("%.([%w]+)$") or ""):lower()
+  if kind ~= "tl" then
+    local read = data_checks[kind]
+    if read == nil then
+      error("host: check: " .. path .. ": no check for this type; it checks .tl, .json, .jsonl, .ndjson, .csv " ..
+          "and .tsv files", 2)
+    end
+    local _, why = read(Host.read(path))
+    if why ~= nil then error("host: check: " .. path .. " does not pass: " .. tostring(why), 2) end
+    return
+  end
   local text = Host.read(path)
   local check = checks
   if check == nil then
@@ -603,6 +643,83 @@ function Host.check(path: string)
   if #lines > 0 then
     error("host: check: " .. path .. " does not pass:\n" .. table.concat(lines, "\n"), 2)
   end
+end
+
+--- What the agent's call `cosmic` ran (`cosmic <verb> <args>`), as [`Host.Ran`]; raises where it could not run.
+local function cosmic_ran(verb: string, args: {string}): Host.Ran
+  local words: mut {Json.Value} = {}
+  for _, word in ipairs(args) do words[#words + 1] = word end
+  local value, why = Host.call("cosmic", { verb = verb, args = Json.array(words) })
+  if value == nil then error("host: " .. verb .. ": " .. tostring(why), 3) end
+  local fields, _ = Json.to_object(value)
+  local got: {string: Json.Value} = fields or {}
+  local output = Json.string_of(got["output"]) or ""
+  return { output = output, cut = got["cut"] == true, code = Json.integer_of(got["code"]),
+    signal = Json.integer_of(got["signal"]), ok = got["ok"] == true, timed_out = got["timed_out"] == true }
+end
+
+--- Every place under `paths` (all of the tree where none) that refers to `symbol`, as `cosmic uses` finds them: a
+--- name as declared (`Money.format`) or by its last part (`format`), or a file (`doc/a.md`), which only links name.
+--- It reads what the checker resolved, not text, so a word in prose or a field of the same name elsewhere is no
+--- use; a comment's link to it is. Each is a line of [`Host.grep`]'s shape, the file's line as `text`. None where
+--- nothing refers to it; raises where the tree does not build. `uses` builds the tree first where no build has.
+function Host.uses(symbol: string, paths?: {string}): mut {Host.Hit}
+  local args: mut {string} = { symbol }
+  for _, path in ipairs(paths or {}) do args[#args + 1] = path end
+  local ran = cosmic_ran("uses", args)
+  if ran.cut then error("host: uses: its answer was cut; name paths to narrow it", 2) end
+  local hits: mut {Host.Hit} = {}
+  local files: mut {string: {string}} = {}
+  for line in ran.output:gmatch("[^\n]+") do
+    local path, number = line:match("^([^:]+):(%d+): ")
+    local at = if number ~= nil then math.tointeger(tonumber(number)) else nil end
+    if path ~= nil and at ~= nil then
+      local lines = files[path]
+      if lines == nil then
+        local read, _ = Shell.lines(path)
+        lines = read or {}
+        files[path] = lines
+      end
+      hits[#hits + 1] = { path = path, line = at, text = lines[at] or "" }
+    end
+  end
+  -- It exits 1 saying "nothing refers to" where none does; anything else that is not ok is a failure.
+  if not ran.ok and not (ran.code == 1 and ran.output:find("nothing refers to", 1, true) ~= nil) then
+    error("host: uses: " .. ran.output, 2)
+  end
+  return hits
+end
+
+--- Each exported function under `paths` (all of the tree where none) that no code outside its own file uses, tests
+--- left out, as `cosmic uses --unused` finds them: what could be local or dropped, as `Module.name` (`Text.center`),
+--- in file and line order; raises where the tree does not build.
+function Host.unused(paths?: {string}): mut {string}
+  local args: mut {string} = { "--unused" }
+  for _, path in ipairs(paths or {}) do args[#args + 1] = path end
+  local ran = cosmic_ran("uses", args)
+  if not ran.ok or ran.cut then error("host: unused: " .. ran.output, 2) end
+  local names: mut {string} = {}
+  for line in ran.output:gmatch("[^\n]+") do
+    local name = line:match("^[^:]+:%d+: ([%w_.]+)$")
+    if name ~= nil then names[#names + 1] = name end
+  end
+  return names
+end
+
+--- Renames `old`, a module's member or a record's field as [`Host.uses`] names it (`Money.format`,
+--- `Invoice.Line.name`), to `new`, a bare name (`render`), as `cosmic fix --rename old=new` does: at its declaration, at
+--- each place `uses` finds, and at each table key or write the checker refuses by the old name; then it lays out and
+--- builds the tree. A line it could not tell apart is told in `output` and left. `ok` where the tree builds after.
+function Host.rename(old: string, new: string): Host.Ran
+  return cosmic_ran("fix", { "--rename", old .. "=" .. new })
+end
+
+--- Runs the tests of `paths` (the test files, or the directories that hold them; the whole tree where none), as
+--- `cosmic test` runs them, in the snippet's sandbox: what it printed, and `ok` where every test passed. It runs
+--- with commands or without, as only cosmic itself may run.
+function Host.test(paths?: {string}): Host.Ran
+  local ran = cosmic_ran("test", paths or {})
+  return ran
 end
 
 --- The lines of the file `path` ([`Shell.lines`]); raises where it cannot be read.

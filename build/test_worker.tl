@@ -14,6 +14,7 @@
 --- is itself the runner's sign that the test failed. A whole report
 --- passes only if the process then exits successfully.
 
+local type Bench = require("cosmic.bench")
 local type Child = require("cosmic.child")
 local type Sandbox = require("cosmic.sandbox")
 local Coverage = require("cosmic.coverage")
@@ -83,6 +84,19 @@ local record worker
     --- none is. Set where the report is made, so a worker that installed nothing, or lost the
     --- hooks, reports false ([`worker.judge`] fails a checked run's test for it).
     mut checked?: boolean
+    --- What a bench run timed of a `bench_*` function (`COSMIC_TEST_BENCH`), nil for a test, and for
+    --- a bench a plain run called once.
+    mut timing?: Timing
+  end
+
+  --- A bench's timed batches ([`worker.time_bench`]): each batch ran its body with the same `n`.
+  record Timing
+    --- The operations in a batch.
+    n: integer
+    --- What the body set `b.bytes` to: the bytes one operation reads, 0 for none.
+    bytes: integer
+    --- Each batch's nanoseconds, from its start or its last `b.reset()` to its end, in the order taken.
+    batches: {integer}
   end
 
   --- One value that crossed a typed boundary of a checked run
@@ -166,6 +180,10 @@ local record worker
     --- The host directory, absolute, the worker writes its profile into (`COSMIC_PROFILE`), nil for none. A
     --- sandboxed worker has it at [`worker.profile_place`], granted to write.
     profile?: string
+    --- What a bench run asks of each `bench_*` function, as `COSMIC_TEST_BENCH` spells it: the
+    --- nanoseconds a batch takes at least and the batches timed, "<target_ns> <rounds>"; nil for a run that
+    --- times nothing.
+    bench?: string
     --- The tests a forking worker runs, in order, each in a copy of itself
     --- (`--fork`, [`worker.run`]); nil for a worker that runs the one test
     --- `name`.
@@ -282,6 +300,8 @@ local record worker
 
   install_checks: function()
   hooks_held: function(): boolean
+  time_bench: function(fn: function(...: any): (any...), directory: string, target_ns: integer,
+    rounds: integer): Timing
   --- Crosses a boundary by hand, as the Lua of a checked function does by calling the `__cosmic_tc` that [`install_checks`]
   --- defines ([`lang.boundary_checks`]): `text` is the spec ("p" parameters, "r" return values, "f" a field written) and
   --- `values` the values crossing it. It returns nothing, where the global returns the values: a test that needs them keeps
@@ -895,6 +915,40 @@ local function monotonic_ns(): integer
   return reading
 end
 
+--- The most operations a bench's batch is sized to: a body that ignores its `n` never reaches the target.
+local most_operations <const> = 1 << 30
+
+--- Times the bench `fn` ([`build.test_names`]'s `bench_*`): doubles the `n` it is handed from 1 until a batch takes
+--- `target_ns`, then times `rounds` batches of that `n`. A batch's clock starts after a full collection, and again
+--- at each `b.reset()` the body calls, so the work before its loop is not counted. Raises what the body raised.
+--- Inlined here, not in cosmic.bench, since a worker loads only the harness's modules ([`worker.loads`]).
+function worker.time_bench(fn: function(...: any): (any...), directory: string, target_ns: integer,
+                           rounds: integer): worker.Timing
+  local function batch(n: integer): integer, integer
+    local started = 0
+    local b: Bench.B = { n = n, bytes = 0, dir = directory, reset = function()
+      started = monotonic_ns()
+    end }
+    collectgarbage("collect")
+    started = monotonic_ns()
+    fn(b)
+    local took = monotonic_ns() - started
+    return took, b.bytes
+  end
+  local n = 1
+  while (batch(n)) < target_ns do
+    n = n * 2
+    if n > most_operations then
+      error(string.format("with b.n doubled to %d, one call took under %d ns: does its body run b.n times?",
+        most_operations, target_ns), 0)
+    end
+  end
+  local batches: mut {integer} = {}
+  local bytes = 0
+  for round = 1, rounds do batches[round], bytes = batch(n) end
+  return { n = n, bytes = bytes, batches = batches }
+end
+
 --- One more than the most lines a run of a report's hits names ([`worker.decode`] refuses a longer one): no chunk the
 --- core loads holds this many instructions, nor a source this many lines.
 local longest_run <const> = 1 << 24
@@ -1001,6 +1055,13 @@ function worker.encode(report: worker.Report): string
     table.insert(lines, "dropped " .. tostring(dropped))
   end
   if report.checked == true then table.insert(lines, "checked 1") end
+  local timing = report.timing
+  if timing ~= nil then
+    local batches: mut {string} = {}
+    for i, ns in ipairs(timing.batches) do batches[i] = tostring(ns) end
+    table.insert(lines, "timing " .. tostring(timing.n) .. " " .. tostring(timing.bytes) .. " " ..
+        table.concat(batches, ","))
+  end
   lines[#lines + 1] = "end"
   return table.concat(lines, "\n") .. "\n"
 end
@@ -1182,6 +1243,19 @@ function worker.decode(text: string): worker.Report?, string
         local entry: worker.Violation = { kind = kind, at = at, target = target, declared = declared,
           actual = actual, count = math.tointeger(tonumber(count)) or 1 }
         met[#met + 1] = entry -- checked: view_written
+      elseif tag == "timing" then
+        local n, bytes, list = rest:match("^(%d+) (%d+) ([%d,]+)$")
+        local batches: mut {integer} = {}
+        for item in (list or ""):gmatch("%d+") do
+          local ns = math.tointeger(tonumber(item))
+          if ns == nil then return nil, "a malformed timing: " .. line end
+          batches[#batches + 1] = ns
+        end
+        local count, read = math.tointeger(tonumber(n)), math.tointeger(tonumber(bytes))
+        if count == nil or read == nil or #batches == 0 then
+          return nil, "a malformed timing: " .. line
+        end
+        report.timing = { n = count, bytes = read, batches = batches }
       elseif tag == "checked" then
         report.checked = rest == "1"
       elseif tag == "dropped" then
@@ -1405,6 +1479,8 @@ function worker.invocation(given: worker.Invocation): worker.Command
       if value ~= nil and env[name] == nil then env[name] = value end
     end
   end
+  local bench = given.bench
+  if bench ~= nil then env["COSMIC_TEST_BENCH"] = bench end
   local fds: mut {integer:integer | string} = { [worker.report_fd] = "capture" }
   local relayed_to = given.report
   if relayed_to ~= nil then fds[worker.report_fd] = relayed_to end
@@ -2413,12 +2489,19 @@ function worker.run(argv: {string}): integer
       if not (fn is function(...: any): (any...)) then -- checked: is_on_record
         report.message = module_path .. " has no test named " .. chosen
       else
+        -- A bench (`bench_*`) is handed what its body runs `b.n` times, here once: a plain run calls it as a test.
+        local bench = chosen:sub(1, 6) == "bench_"
+        local handed: string | Bench.B = tmp
+        if bench then handed = { n = 1, bytes = 0, dir = tmp, reset = function() end } end
         local test_session, _ = Coverage.start()
         local started = monotonic_ns()
         Assertions.reset()
-        local ran = confine.call(function(argument: any): any -- checked: not_assignable
-          return held(fn, argument)
-        end, tmp, own, sandboxed)
+        -- What the hold calls: the body, and then, in a bench run, the loop that times it.
+        local body: function(...: any): (any...) = fn
+        local under_hold = function(...: any): (any...)
+          return held(body, (...))
+        end
+        local ran = confine.call(under_hold, handed, own, sandboxed)
         local finished = monotonic_ns()
         if test_session ~= nil then
           local hits, _ = Coverage.stop(test_session)
@@ -2436,8 +2519,26 @@ function worker.run(argv: {string}): integer
         end
         report.skipped = table.concat(reasons, "; ")
         report.asserted = Assertions.count()
+        -- A bench's check is that its body runs: one that calls no `assert` is not listed as checking nothing.
+        if bench and report.asserted == 0 then report.asserted = 1 end
         report.deliberate = handed_over.deliberate
         report.elapsed_ns = finished - started
+        -- A bench run times a bench that passed once, with coverage off, under the same hold as its call.
+        local target, rounds = (env_get("COSMIC_TEST_BENCH") or ""):match("^(%d+) (%d+)$")
+        local target_ns, round_count = math.tointeger(tonumber(target)), math.tointeger(tonumber(rounds))
+        if bench and report.passed and target_ns ~= nil and round_count ~= nil then
+          local timing: worker.Timing? = nil
+          body = function(...: any): (any...)
+            timing = worker.time_bench(fn, tmp, target_ns, round_count)
+          end
+          local timed = confine.call(under_hold, nil, own, sandboxed)
+          if timed.ok and timing ~= nil then
+            report.timing = timing
+          else
+            report.passed = false
+            report.message = "bench: timing it: " .. tostring(timed.produced)
+          end
+        end
       end
     end
     if children ~= nil then

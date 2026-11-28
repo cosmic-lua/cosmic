@@ -35,12 +35,14 @@
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Failure = require("cosmic.failure")
+local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
 local String = require("cosmic.string")
 local Sandbox = require("cosmic.sandbox")
 local Stream = require("cosmic.stream")
+local sys = require("cosmic.sys")
 
 local record Worker
   --- The most bytes of a snippet's output a result holds: 64KB.
@@ -150,6 +152,76 @@ function Worker.close(set: Worker.Set)
   if handle ~= nil then local _, _ = handle:close() end
 end
 
+--- The policy `given` holds the worker to, and what it runs ([`Worker.program`]): without `runs` (commands), no fork
+--- and no grant of `x`; with `program`, fork, and `x` of that file alone, so that only it runs, again and again. With
+--- `core` too, the program is this program, which runs as that core: the core is the file granted `x`, and the
+--- program's file is read alone.
+local function held_to(given: Sandbox.Policy, runs: boolean, program?: string,
+                       core?: string): (Sandbox.Policy) | (nil, Failure)
+  local run = core or program
+  -- TODO: copy `merged` whole, changing its calls alone, once a record can be copied with a field changed: a field
+  -- Sandbox.Policy gains is left out of this copy, and so given to the worker as nothing.
+  local merged, why = Sandbox.union(given)
+  if merged == nil then return nil, Failure.new("worker: " .. tostring(why)) end
+  local promises: mut {Sandbox.Promise} = {}
+  for _, promise in ipairs(Sandbox.calls(merged)) do
+    if promise ~= "nest" and (runs or program ~= nil or promise ~= "fork") then
+      promises[#promises + 1] = promise
+    end
+  end
+  local grants: mut {Sandbox.Grant} = {}
+  -- On macOS `x` lets dyld map a library as well as run a file, so it stays: with no `fork` the worker starts no
+  -- process there either, though it could still become another program.
+  -- TODO: hold an x grant on macOS as map-only (Seatbelt's file-map-executable alone) once a grant can say so.
+  local strip = (not runs or program ~= nil) and not Sandbox.on_macos()
+  if program ~= nil and not runs and Sandbox.on_macos() then
+    -- There every `x` stays and `fork` is given with the program, so what a snippet wrote could run any of them.
+    return nil, Failure.new("worker: cosmic runs from a snippet without --commands only on Linux, where its x grants go")
+  end
+  for _, grant in ipairs(Sandbox.paths(merged)) do
+    -- With no commands, no grant runs a file. The worker is this program, which its start runs as its core
+    -- whatever the policy grants. The core holds its policy again at boot without that `rx` (under `isolate` file
+    -- by the names the root binds): with no grant left with `x` the exec filter holds too, so the worker cannot
+    -- become another program, nor run itself again. A grant of `x` alone is then no grant.
+    local letters = if not strip then grant.letters else (grant.letters:gsub("x", "")) end
+    if run ~= nil and letters:find("w", 1, true) ~= nil then
+      -- Each by its real path, as the kernel holds them: a link from elsewhere into the grant is the file it names.
+      -- Under `isolate` a grant's `from` is where it reaches; its path is a name there.
+      local over = false
+      for _, place in ipairs({ grant.path, grant.from or grant.path }) do
+        local reach, _ = Fs.absolute(place)
+        if reach ~= nil then
+          local real, _ = sys.realpath(reach)
+          if Fs.within(run, real or reach) then over = true end
+        end
+      end
+      if over then
+        -- A snippet that could write the program could run what it wrote.
+        return nil, Failure.new("worker: " .. run .. " lies where a snippet may write (" .. grant.path ..
+            "): start cosmic agent with a cosmic outside it, such as one on PATH")
+      end
+    end
+    if letters ~= "" then
+      grants[#grants + 1] = { path = grant.path, letters = letters, from = grant.from }
+    end
+  end
+  for _, promise in ipairs(promises) do grants[#grants + 1] = { calls = promise } end
+  for _, target in ipairs(Sandbox.connects(merged)) do
+    grants[#grants + 1] = { connect = target }
+  end
+  for _, address in ipairs(Sandbox.loopback(merged)) do
+    grants[#grants + 1] = { loopback = address }
+  end
+  for _, name in ipairs(Sandbox.env(merged)) do grants[#grants + 1] = { env = name } end
+  if core ~= nil and program ~= nil then
+    grants[#grants + 1] = { path = core, letters = "rx" }
+    grants[#grants + 1] = { path = program, letters = "r" }
+  elseif program ~= nil then
+    grants[#grants + 1] = { path = program, letters = "rx" }
+  end
+  return { grants = grants, isolate = merged.isolate, setup = merged.setup, limits = merged.limits }
+end
+
 --- The worker of `set`, started under `opts` where none runs.
 local function started(set: Worker.Set, opts: Worker.Options): (Stream.Lines) | (nil, Failure)
   local lines = set.lines
@@ -163,41 +235,9 @@ local function started(set: Worker.Set, opts: Worker.Options): (Stream.Lines) | 
   local policy: Sandbox.Policy? = nil
   local given = opts.policy
   if given ~= nil then
-    -- TODO: copy `merged` whole, changing its calls alone, once a record can be copied with a field changed: a field
-    -- Sandbox.Policy gains is left out of this copy, and so given to the worker as nothing.
-    local merged, why = Sandbox.union(given)
-    if merged == nil then return nil, Failure.new("worker: " .. tostring(why)) end
-    local promises: mut {Sandbox.Promise} = {}
-    local runs = commands
-    for _, promise in ipairs(Sandbox.calls(merged)) do
-      if promise ~= "nest" and (runs or promise ~= "fork") then
-        promises[#promises + 1] = promise
-      end
-    end
-    local grants: mut {Sandbox.Grant} = {}
-    -- On macOS `x` lets dyld map a library as well as run a file, so it stays: with no `fork` the worker starts no
-    -- process there either, though it could still become another program.
-    -- TODO: hold an x grant on macOS as map-only (Seatbelt's file-map-executable alone) once a grant can say so.
-    local strip = not runs and not Sandbox.on_macos()
-    for _, grant in ipairs(Sandbox.paths(merged)) do
-      -- With no commands, no grant runs a file. The worker is this program, which its start runs as its core
-      -- whatever the policy grants. The core holds its policy again at boot without that `rx` (under `isolate` file
-      -- by the names the root binds): with no grant left with `x` the exec filter holds too, so the worker cannot
-      -- become another program, nor run itself again. A grant of `x` alone is then no grant.
-      local letters = if not strip then grant.letters else (grant.letters:gsub("x", "")) end
-      if letters ~= "" then
-        grants[#grants + 1] = { path = grant.path, letters = letters, from = grant.from }
-      end
-    end
-    for _, promise in ipairs(promises) do grants[#grants + 1] = { calls = promise } end
-    for _, target in ipairs(Sandbox.connects(merged)) do
-      grants[#grants + 1] = { connect = target }
-    end
-    for _, address in ipairs(Sandbox.loopback(merged)) do
-      grants[#grants + 1] = { loopback = address }
-    end
-    for _, name in ipairs(Sandbox.env(merged)) do grants[#grants + 1] = { env = name } end
-    policy = { grants = grants, isolate = merged.isolate, setup = merged.setup, limits = merged.limits }
+    local held, why = held_to(given, commands, nil)
+    if held == nil then return nil, why end
+    policy = held
   end
   local base = set.base
   local argv: mut {string} = {}
@@ -507,5 +547,48 @@ function Worker.run(set: Worker.Set, code: string, opts: Worker.Options): (Worke
 end
 
 Worker.OUTPUT_BYTES = 64 * 1024
+
+--- Runs this program, as `set` starts its worker (its `argv` but the closing `agent worker`), with `words` (a verb of
+--- cosmic and its arguments) in `cwd`, for at most `timeout_ns`: its standard output and standard error together. Under
+--- `policy` it is held as the worker is, but that it may start a process, and run this program alone: so
+--- `cosmic test` runs, and the processes it starts of itself, but no other program, with commands or without. What
+--- runs is this program's core ([`Child.core`]), so the program's file may lie where a snippet may write.
+function Worker.program(set: Worker.Set, words: {string}, cwd: string, policy?: Sandbox.Policy,
+                        timeout_ns?: integer): (Child.Result) | (nil, Failure)
+  local given = set.argv
+  local kept = #given
+  if kept >= 3 and given[kept] == "worker" and given[kept - 1] == "agent" then kept = kept - 2 end
+  if given[1] == nil then return nil, Failure.new("worker: it is started by no program") end
+  -- Granted by its path, the program is named whole: a bare name would resolve where the snippet runs.
+  local named, unresolved = Fs.absolute(given[1])
+  if named == nil then return nil, unresolved end
+  -- By its real path, which the sandbox grants and the kernel runs: a link is the file it names.
+  local real, _ = sys.realpath(named)
+  local program = real or named
+  local held: Sandbox.Policy? = nil
+  if policy ~= nil then
+    -- This program starts as its core, so the core is what is granted `x`: the program's own file runs not, and
+    -- may lie where a snippet writes (a tree that carries its tool). A host program runs as its file.
+    local core: string? = nil
+    local own, _ = Proc.executable()
+    if own ~= nil then
+      local own_real, _ = sys.realpath(own)
+      if own_real == program then core = Child.core() end
+    end
+    local made, why = held_to(policy, false, program, core)
+    if made == nil then return nil, why end
+    held = made
+  end
+  local argv: mut {string} = {}
+  argv[1] = program
+  for at, word in ipairs(given) do
+    if at > 1 and at <= kept then argv[#argv + 1] = word end
+  end
+  for _, word in ipairs(words) do argv[#argv + 1] = word end
+  local base = set.base
+  return Child.run(argv, { cwd = cwd, stdin = "null", stdout = "capture", stderr = "stdout", policy = held,
+    timeout_ns = timeout_ns or Child.FOREVER, env = if base ~= nil then base.env else nil end,
+    fds = if base ~= nil then base.fds else nil end })
+end
 
 return Worker

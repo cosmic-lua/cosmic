@@ -56,7 +56,13 @@ local record Parser
   visible: mut {string: types.Token}
   --- How many blocks the parse is inside: a `{{define}}` stands at 0.
   mut depth: integer
+  --- Whether the template is one given to [`Template.text`], which has no header and no `{{define}}`.
+  inline: boolean
 end
+
+--- What a template given to [`Template.text`] says in place of a header or a `{{define}}`.
+local INLINE_HEADER <const> = "a template given to Template.text takes the value it is given, as dot, and makes text: " ..
+  "it has no {{type}}, {{mode}}, {{use}} or {{define}}"
 
 --- `name:line:col: reason`.
 local function refuse(p: Parser, line: integer, col: integer, reason: string): Failure
@@ -418,6 +424,8 @@ nodes = function(p: Parser): ({types.Node}) | (nil, Failure)
       local first_token = item.tokens[1]
       if word == "else" or word == "end" then
         return out
+      elseif p.inline and (word == "define" or word == "type" or word == "mode" or word == "use") then
+        return nil, refuse(p, item.line, item.col, INLINE_HEADER)
       elseif word == "define" then
         if p.depth > 0 then
           return nil, refuse(p, item.line, item.col, "{{define}} stands at the top level, after the body, in no block")
@@ -595,7 +603,7 @@ function Parse.parse(src: string, name: string, registry: {string: types.Def}): 
   if lexed == nil then
     return nil, lerr
   end
-  local p: Parser = { items = lexed.items, pos = 1, name = name, visible = {}, depth = 0 }
+  local p: Parser = { items = lexed.items, pos = 1, name = name, visible = {}, depth = 0, inline = false }
   if blank_text(p.items[p.pos]) then
     p.pos = p.pos + 1
   end
@@ -690,6 +698,32 @@ function Parse.parse(src: string, name: string, registry: {string: types.Def}): 
   end
   return { type_name = declared.name, import_path = declared.import_path, line = head.line, mode = mode,
     dialects = dialects, body = body, body_end_line = body_end_line, body_end_col = body_end_col, defines = defines,
+    lines = lexed.lines }
+end
+
+--- A template given to [`Template.text`]: no header, a `text` template whose dot is the value it is given, and no
+--- `{{define}}`. Its `type_name` and `import_path` are empty and its `line` is 1.
+function Parse.inline(src: string, name: string): (types.Template) | (nil, Failure)
+  local lexed, lerr = lex.lex(src, name)
+  if lexed == nil then
+    return nil, lerr
+  end
+  local p: Parser = { items = lexed.items, pos = 1, name = name, visible = {}, depth = 0, inline = true }
+  local body, berr = nodes(p)
+  if body == nil then
+    return nil, berr
+  end
+  local stray = p.items[p.pos]
+  if stray ~= nil then
+    return nil, refuse(p, stray.line, stray.col, "{{" .. keyword(stray) .. "}} without a block to close")
+  end
+  local called = called_defines(p, body, {})
+  if called ~= nil then
+    return nil, called
+  end
+  local _, newlines = src:gsub("\n", "")
+  return { type_name = "", import_path = "", line = 1, mode = "text", dialects = {}, body = body,
+    body_end_line = newlines + 1, body_end_col = #src - (src:match(".*()\n") or 0) + 1, defines = {},
     lines = lexed.lines }
 end
 

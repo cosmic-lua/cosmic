@@ -635,4 +635,40 @@ function Codegen.generate(template: types.Template): string
     table.concat(body) .. "\n"
 end
 
+--- Teal source for `template`, a template given to [`Template.text`] ([`Parse.inline`]): a function literal of one
+--- parameter, dot, which the checker takes the type of from where it stands, returning the text. Its requires and
+--- helpers are locals of its body, and line N of the template is line N of the source, as in [`Codegen.generate`].
+--- @param template types.Template The tree of a `text` template with no header and no `{{define}}`
+--- @return string A function literal, `function(d): string ... end`
+function Codegen.inline(template: types.Template): string
+  local g: Gen = { pieces = {}, patched = {}, line = 1, started = false, mode = "text",
+    imports = { order = {}, alias_of = {}, taken = {}, as_value = {} }, html = "", helpers = {}, staged = false,
+    tested = false, dots = 0, root = { name = "d", used = false }, vars = {}, bound = {}, defines = {} }
+  emit(g, template.body, g.root)
+  to_line(g, template.lines)
+  put(g, "return table.concat(parts) end")
+  local head: mut {string} = { "function(" .. (if g.root.used then "d" else "_" end) .. "): string" }
+  for _, path in ipairs(g.imports.order) do
+    local alias = assert(g.imports.alias_of[path], "alias_for names every path it orders")
+    head[#head + 1] = "local " .. alias .. " = require(\"" .. path .. "\")"
+  end
+  if g.staged then
+    head[#head + 1] = "local function _one<T>(v: T): T return v end"
+  end
+  if g.tested then
+    head[#head + 1] = "local function _sure<T>(v: T?): T return (assert(v)) end"
+  end
+  for _, ctx in ipairs(HELPER_ORDER) do
+    if g.helpers[ctx] == true then
+      head[#head + 1] = helper(g, ctx)
+    end
+  end
+  head[#head + 1] = PIECES
+  local body: mut {string} = {}
+  for i, piece in ipairs(g.pieces) do
+    body[#body + 1] = g.patched[i] or piece
+  end
+  return table.concat(head, " ") .. " " .. table.concat(body)
+end
+
 return Codegen

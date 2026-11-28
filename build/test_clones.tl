@@ -12,6 +12,7 @@
 --- and the order of the tokens are, so two helpers are the same where they are written alike token for token, and a
 --- copy whose names were changed is not found.
 local Ast = require("lang.ast")
+local TestNames = require("build.test_names")
 local Node = require("build.syntax_node")
 
 local record TestClones
@@ -61,7 +62,7 @@ function TestClones.scan(text: string): TestClones.Scan
   local heads: mut {TestClones.Head} = {}
   for i, line in ipairs(lines) do
     local name, rest = line:match("^local function ([%w_]+)(.*)$")
-    if name ~= nil and rest ~= nil and name:match("^test_") == nil then
+    if name ~= nil and rest ~= nil and not TestNames.called(name) then
       local key = rest:gsub("%s*%-%-.*$", "")
       local taken = 0
       for j = i + 1, math.min(#lines, i + 12) do

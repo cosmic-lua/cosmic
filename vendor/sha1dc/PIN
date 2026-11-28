@@ -1,0 +1,11 @@
+version 2025-10-30-a06f1ad
+url https://github.com/cr-marcstevens/sha1collisiondetection/archive/a06f1adbe5522f3c939cd6a3f13d5ec7f4c1a988.tar.gz
+sha256 e696bcfd738986751211c4f6267c02bdd88ffe93297825d01273f1ee5cedc9af
+strip sha1collisiondetection-a06f1adbe5522f3c939cd6a3f13d5ec7f4c1a988/
+keep LICENSE.txt
+keep lib/sha1.c
+keep lib/sha1.h
+keep lib/ubc_check.c
+keep lib/ubc_check.h
+license MIT
+notice LICENSE.txt
