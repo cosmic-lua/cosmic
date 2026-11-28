@@ -90,6 +90,9 @@ local record SourceParse
     errors: {Parser.Error}
     --- The places a lowering replaced, in order: none where it replaced nothing.
     splices: {Splice}
+    --- The fields of the module whose function takes a template, by the field ([`SourceParse.Lowering.takers`]):
+    --- none where no lowering is set.
+    takers: {string: boolean}
   end
 
   --- A source as a build reads it, and no more: its text lexed and parsed.
@@ -120,15 +123,25 @@ local record SourceParse
 
   --- `source` lexed and parsed, from `written` in place of its text when given, and lowered where a lowering is set
   --- ([`SourceParse.lowering`]): the text and the tree are then the lowered ones, the places replaced are its
-  --- `splices`, and a template the lowering refused is a syntax error at its literal.
-  read: function(source: Source, written?: string): Read
+  --- `splices`, and a template the lowering refused is a syntax error at its literal. `takes` says which functions of
+  --- the modules it requires take a template; where it is not given, none does.
+  read: function(source: Source, written?: string, takes?: Takes): Read
 
   --- What lowers a module before it is checked, which [`build.pipeline`] sets to [`build.template_lower`]'s: a build
   --- from the seed has none, and its code calls no [`Template.text`].
   lowering: function(lower: Lowering)
 
-  --- `text`, whose tree is `chunk`, lowered: nil where there is nothing to lower.
-  type Lowering = function(text: string, name: string, chunk: Ast.Chunk): Lowered?
+  --- What lowers a module, and what it reads of the modules a module requires.
+  record Lowering
+    --- `text`, whose tree is `chunk`, lowered: nil where there is nothing to lower. `takes` says whether the field
+    --- of a module it requires is a function that takes a template.
+    lower: function(text: string, name: string, chunk: Ast.Chunk, takes: Takes): Lowered?
+    --- The fields of `module`, whose tree is `chunk`, that are functions that take a template.
+    takers: function(module: string, chunk: Ast.Chunk): {string: boolean}
+  end
+
+  --- Whether the field `field` of the module `module` (as `require` names it) is a function that takes a template.
+  type Takes = function(module: string, field: string): boolean
 
   --- The place of `length` bytes at `offset` of a text lowered by `splices`, in `written`, the text it was lowered
   --- from: a byte after a splice moves back by what the splices before it grew by, and a place that begins or ends in
@@ -243,16 +256,26 @@ function SourceParse.lowering(lower: SourceParse.Lowering)
   hooks.lower = lower
 end
 
-function SourceParse.read(source: SourceParse.Source, written?: string): SourceParse.Read
+local function takes_none(_module: string, _field: string): boolean
+  return false
+end
+
+local none: {string: boolean} = {}
+
+function SourceParse.read(source: SourceParse.Source, written?: string, takes?: SourceParse.Takes): SourceParse.Read
   local text = written or source.text
   local parsed = Parser.parse(Lexer.lex(text, source.filename), source.filename, source.dialect)
   local lower = hooks.lower
-  if lower == nil or source.dialect ~= "tl" or #parsed.errors > 0 then
-    return { source = source, text = text, chunk = parsed.chunk, errors = parsed.errors, splices = {} }
+  if lower == nil or #parsed.errors > 0 then
+    return { source = source, text = text, chunk = parsed.chunk, errors = parsed.errors, splices = {}, takers = none }
   end
-  local lowered = lower(text, source.filename, parsed.chunk)
+  local takers = lower.takers(source.module, parsed.chunk)
+  if source.dialect ~= "tl" then
+    return { source = source, text = text, chunk = parsed.chunk, errors = parsed.errors, splices = {}, takers = takers }
+  end
+  local lowered = lower.lower(text, source.filename, parsed.chunk, takes or takes_none)
   if lowered == nil then
-    return { source = source, text = text, chunk = parsed.chunk, errors = parsed.errors, splices = {} }
+    return { source = source, text = text, chunk = parsed.chunk, errors = parsed.errors, splices = {}, takers = takers }
   end
   local again = Parser.parse(Lexer.lex(lowered.text, source.filename), source.filename, source.dialect)
   local errors: mut {Parser.Error} = {}
@@ -265,7 +288,8 @@ function SourceParse.read(source: SourceParse.Source, written?: string): SourceP
     errors[#errors + 1] = { filename = source.filename, code = "template_refused", msg = r.message,
       fix = "write the template as the reason says", y = r.y, x = r.x, offset = r.offset, length = r.length }
   end
-  return { source = source, text = lowered.text, chunk = again.chunk, errors = errors, splices = lowered.splices }
+  return { source = source, text = lowered.text, chunk = again.chunk, errors = errors, splices = lowered.splices,
+    takers = takers }
 end
 
 --- Where byte `offset` of a lowered text is in the text written, and whether it is in what a splice wrote.
@@ -308,7 +332,8 @@ function SourceParse.remembered(source: SourceParse.Source): SourceParse.Read
   local held = remembered.reads[source.filename]
   if held ~= nil and held.text == source.text and held.source.dialect == source.dialect and
       held.source.module == source.module then
-    return { source = source, text = held.text, chunk = held.chunk, errors = held.errors, splices = held.splices }
+    return { source = source, text = held.text, chunk = held.chunk, errors = held.errors, splices = held.splices,
+      takers = held.takers }
   end
   local read = SourceParse.read(source)
   remembered.reads[source.filename] = read

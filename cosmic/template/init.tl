@@ -211,6 +211,17 @@ local record Template
     --- (`htmx`): each is the data [`dialect/htmx.tl`] holds. The built-in ones where absent.
     dialects: {string: Template.Dialect}?
   end
+
+  --- A template filled from the value it reads, as a lowered call makes it ([`Template.fill`]): its `text`.
+  record Filled
+    --- The text the template made.
+    text: string
+  end
+
+  --- What a parameter that takes a template is declared as: the template, or what a build lowered it to. A function
+  --- whose first parameter is one, and whose second is the value the template reads, takes a template as
+  --- [`Template.text`] does: a build checks a string literal given to it against the value.
+  type Source = string | Filled
 end
 
 --- Compiles a template to the source of a Teal module that exports
@@ -241,27 +252,29 @@ end
 
 --- Text made from a template and the value it is given, as dot: `Template.text("{{.n}} files over 1 MB", { n = #big })`.
 --- The template is a `text` one with no header and no `{{define}}`, written as a string literal where the call stands:
---- a build lowers the call ([`Template.inline`]) to a function the checker types from `data`, so a field the value does
---- not have is a type error at the call, as it is in a `.tmpl`. Called where nothing lowered it (a template that is no
---- literal, or a chunk no build read), it gives `src` as it is where `src` has no `{{`, and raises otherwise.
---- @param src string The template, a string literal
+--- a build lowers the call ([`Template.inline`]) to one given what [`Template.fill`] makes of it and the value, which
+--- the checker types from `data`, so a field the value does not have is a type error at the call, as it is in a
+--- `.tmpl`. Called where nothing lowered it (a template that is no literal, or a chunk no build read), it gives `src`
+--- as it is where `src` has no `{{`, and raises otherwise.
+--- @param src Template.Source The template, a string literal
 --- @param data? any The value the template reads, as dot and as `$`; none where the template has no slot
 --- @return string The text
-function Template.text(src: string, data?: any): string
+function Template.text(src: Template.Source, data?: any): string
   local _ = data
+  if src is Template.Filled then return src.text end
   if src:find("{{", 1, true) == nil then return src end
   error("cosmic.template: Template.text takes its template as a string literal, which the build turns into code; " ..
       "this one was not: " .. string.format("%q", src:sub(1, 60)), 2)
 end
 
---- What a lowered [`Template.text`] calls: `render` given `data`. The checker types `render`'s parameter from `data`,
---- which is how a template's fields are checked; the lowering puts the function where the template was, so the call
---- keeps its lines.
+--- What a lowered call that takes a template is given in place of its template: `render` given `data`. The checker
+--- types `render`'s parameter from `data`, which is how a template's fields are checked; the lowering puts the
+--- function where the template was, so the call keeps its lines.
 --- @param render function The template, lowered
 --- @param data T The value the template reads
---- @return string The text
-function Template.apply<T>(render: function(d: T): string, data: T): string
-  return render(data)
+--- @return Template.Filled The text
+function Template.fill<T>(render: function(d: T): string, data: T): Template.Filled
+  return { text = render(data) }
 end
 
 --- The source of a function literal, `function(d): string ... end`, that makes what `src`, a template given to

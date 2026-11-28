@@ -1,17 +1,20 @@
---- The lowering of [`Template.text`] before a module is checked: each call `T.text("...", data)`, where `T` is bound to
---- `require("cosmic.template")` and the template is one string literal, becomes `T.apply(function(d): string ... end,
---- data)`, the function being what [`Template.inline`] makes of the template. The checker then types `d` from `data`,
---- so a field the value has not got is a type error at the call, as in a `.tmpl`, and nothing reads a template when the
---- program runs. A call of the literal alone, `T.text("...")`, stays as written where the literal has no `{{`, and is
---- refused where it has one, since a slot needs data.
+--- The lowering of a call that takes a template, before a module is checked. A function takes a template where its
+--- first parameter is declared [`Template.Source`] and its second is the value the template reads ([`Template.text`],
+--- [`Host.reply`]). Each call `M.f("...", data)` of one, where `M` is bound to the `require` of its module and the
+--- template is one string literal, becomes `M.f(require("cosmic.template").fill(function(d): string ... end, data))`,
+--- the function being what [`Template.inline`] makes of the template. The checker then types `d` from `data`, so a field
+--- the value has not got is a type error at the call, as in a `.tmpl`, and nothing reads a template when the program
+--- runs. A call of the literal alone, `M.f("...")`, stays as written where the literal has no `{{`, and is refused
+--- where it has one, since a slot needs data.
 ---
---- [`Lower.takers`] lists the functions that take a template so: [`Template.text`] and [`Host.reply`],
---- each with the function its call becomes. A module that takes a template the same way is added there.
+--- Which functions take a template is read from the declarations of the modules a module requires ([`Lower.takers`]),
+--- so a module that takes a template the same way declares it, and nothing here names it.
 ---
---- Only two places of a call change: the field `text` becomes `apply`, and the literal becomes the function, on as
---- many lines as the literal took. Every other byte stays where it was, so a line of the module is the line it was,
---- and a place after a call on its line moves by what the call grew by ([`SourceParse.original`] gives it back). A template
---- that is refused is a problem at the literal, and the call is left as written: it raises if it runs.
+--- Only three places of a call change: `require("cosmic.template").fill(` goes before the literal, the literal becomes
+--- the function, on as many lines as the literal took, and `)` goes after the data. Every other byte stays where it
+--- was, so a line of the module is the line it was, and a place after a call on its line moves by what the call grew by
+--- ([`SourceParse.original`] gives it back). A template that is refused is a problem at the literal, and the call is
+--- left as written: it raises if it runs.
 local Ast = require("lang.ast")
 local Lexer = require("lang.lexer")
 local Scopes = require("lang.scopes")
@@ -19,44 +22,45 @@ local Scopes = require("lang.scopes")
 local type SourceParse = require("build.source_parse")
 
 local record Lower
-  --- A function that takes a template as its first argument, a string literal, and the value it reads as its second.
-  record Taker
-    --- The module that has it, as `require` names it.
-    module: string
-    --- Its field in the module.
-    field: string
-    --- The field a lowered call calls in its place: it takes the template's function and the value.
-    lowered: string
-  end
-  --- The functions that take a template ([`Lower.Taker`]).
-  takers: {Lower.Taker}
 end
 
-Lower.takers = {
-  { module = "cosmic.template", field = "text", lowered = "apply" },
-  { module = "cosmic.agent.host", field = "reply", lowered = "reply_apply" },
-}
+--- The module of templates, which declares [`Template.Source`].
+local TEMPLATE <const> = "cosmic.template"
 
---- The module `e` requires, where `e` is `require("...")` of a module that has a taker; nil otherwise.
-local function required_taker(e: Ast.Exp): string?
+--- The module `e` requires, where `e` is `require("...")`; nil otherwise.
+local function required(e: Ast.Exp): string?
   if not (e.kind == "Call") then return nil end
   local callee, named = e.callee, e.args[1]
-  if not (callee.kind == "Name" and callee.text == "require" and #e.args == 1 and named ~= nil and
-      named.kind == "String") then
-    return nil
-  end
-  for _, t in ipairs(Lower.takers) do
-    if t.module == named.value then return named.value end
+  if callee.kind == "Name" and callee.text == "require" and #e.args == 1 and named ~= nil and named.kind == "String" then
+    return named.value
   end
   return nil
 end
 
---- The taker of `module` named `field`, where there is one.
-local function taker_of(module: string, field: string): Lower.Taker?
-  for _, t in ipairs(Lower.takers) do
-    if t.module == module and t.field == field then return t end
+--- The fields of `module`, whose tree is `chunk`, that are functions that take a template: each a top-level
+--- `function M.f(p: T.Source, data...)`, where `T` is bound to `require("cosmic.template")` (or is the module's own
+--- record, in [`cosmic.template`]), with two parameters.
+function Lower.takers(module: string, chunk: Ast.Chunk): {string: boolean}
+  local out: mut {string: boolean} = {}
+  local templates: mut {string: boolean} = {}
+  for _, s in ipairs(chunk.body.stats) do
+    if s.kind == "Local" then
+      for i, b in ipairs(s.bindings) do
+        local v = s.values[i]
+        if v ~= nil and required(v) == TEMPLATE then templates[b.name] = true end
+      end
+    elseif s.kind == "Function" and #s.path == 2 and #s.fn.params == 2 then
+      local first = s.fn.params[1]
+      local ty = first.type
+      if ty ~= nil and ty.kind == "TypeName" and #ty.path == 2 and ty.path[2] == "Source" then
+        local t = ty.path[1]
+        if templates[t] == true or (module == TEMPLATE and t == s.path[1].text) then
+          out[s.path[2].text] = true
+        end
+      end
+    end
   end
-  return nil
+  return out
 end
 
 --- Calls `visit` with each node under `root`, `root` first.
@@ -91,35 +95,56 @@ local function source_place(tokens: Lexer.Tokens, at: integer, line: integer, co
   return y + line - 1, column
 end
 
---- `text`, whose tree is `chunk`, with each [`Template.text`] call of a literal lowered; nil where the module has none.
---- Only a module that requires [`cosmic.template`] is looked at. `name` heads the reasons.
-function Lower.lower(text: string, name: string, chunk: Ast.Chunk): SourceParse.Lowered?
-  local wanted = false
-  for _, r in ipairs(chunk.requires) do
-    for _, t in ipairs(Lower.takers) do
-      if r.module == t.module then wanted = true end
+--- `text`, whose tree is `chunk`, with each call of a literal to a function that takes a template lowered; nil where
+--- the module has none. `takes` says which functions of the modules it requires take one. `name` heads the reasons.
+function Lower.lower(text: string, name: string, chunk: Ast.Chunk, takes: SourceParse.Takes): SourceParse.Lowered?
+  -- A call of a string literal to a field of a name bound to a `require`, or of a `require` itself, by the names: what
+  -- is looked at before the scopes are built, which most modules need not.
+  local requires: mut {string: string} = {}
+  for _, s in ipairs(chunk.body.stats) do
+    if s.kind == "Local" then
+      for i, b in ipairs(s.bindings) do
+        local v = s.values[i]
+        local module = if v ~= nil then required(v) else nil end
+        if module ~= nil then requires[b.name] = module end
+      end
     end
   end
-  if not wanted then return nil end
+  --- The module a call's callee object names, by its text alone: nil where it names none.
+  local function named(object: Ast.Exp): string?
+    if object.kind == "Name" then
+      return requires[object.text]
+    elseif object.kind == "Paren" then
+      return required(object.inner)
+    end
+    return nil
+  end
+  local found = false
+  walk(chunk, function(node: Ast.Node)
+    if found or not (node.kind == "Call") then return end
+    local callee, literal = node.callee, node.args[1]
+    if callee.kind == "Field" and (#node.args == 1 or #node.args == 2) and literal ~= nil and literal.kind == "String" then
+      local module = named(callee.object)
+      if module ~= nil and takes(module, callee.name) then found = true end
+    end
+  end)
+  if not found then return nil end
   Scopes.build(chunk, name, {})
-  -- The bindings that hold the module.
-  -- The bindings that hold a module with a taker, and the module each holds.
+  -- The bindings that hold a module, and the module each holds.
   local holders: mut {integer: string} = {}
   walk(chunk, function(node: Ast.Node)
     if node.kind == "Local" then
       for i, b in ipairs(node.bindings) do
         local v = node.values[i]
-        local module = if v ~= nil then required_taker(v) else nil end
+        local module = if v ~= nil then required(v) else nil end
         if module ~= nil then holders[b.id] = module end
       end
     end
   end)
-  --- A call to lower: the token of its field, the field it becomes, its literal, and whether it has no data.
+  --- A call to lower: its literal, its data, if it has any.
   local record Site
-    field: integer
-    lowered: string
     literal: Ast.String
-    alone: boolean
+    data?: Ast.Exp
   end
   local calls: mut {Site} = {}
   walk(chunk, function(node: Ast.Node)
@@ -132,12 +157,11 @@ function Lower.lower(text: string, name: string, chunk: Ast.Chunk): SourceParse.
       local binding = object.binding
       module = if binding ~= nil then holders[binding] else nil end
     elseif object.kind == "Paren" then
-      module = required_taker(object.inner)
+      module = required(object.inner)
     end
-    local taker = if module ~= nil then taker_of(module, callee.name) else nil end
     local literal = node.args[1]
-    if taker ~= nil and literal ~= nil and literal.kind == "String" then
-      calls[#calls + 1] = { field = callee.last, lowered = taker.lowered, literal = literal, alone = #node.args == 1 }
+    if module ~= nil and literal ~= nil and literal.kind == "String" and takes(module, callee.name) then
+      calls[#calls + 1] = { literal = literal, data = node.args[2] }
     end
   end)
   if #calls == 0 then return nil end
@@ -147,12 +171,13 @@ function Lower.lower(text: string, name: string, chunk: Ast.Chunk): SourceParse.
   local refused: mut {SourceParse.Refused} = {}
   for _, call in ipairs(calls) do
     local literal = call.literal
+    local data = call.data
     local at = literal.first
     local y = Lexer.y(tokens, at)
     local made, why = Template.inline(literal.value, name .. ":" .. tostring(y))
-    if call.alone and literal.value:find("{{", 1, true) == nil then
-      -- No slot and no data: the text is the reply as it is, and the call stays as written.
-    elseif call.alone then
+    if data == nil and literal.value:find("{{", 1, true) == nil then
+      -- No slot and no data: the text is the template as it is, and the call stays as written.
+    elseif data == nil then
       refused[#refused + 1] = { message = "the template has slots and no data: give the value its slots read " ..
           "as the second argument", y = y, x = Lexer.x(tokens, at), offset = Lexer.offset(tokens, at),
         length = Lexer.length(tokens, at) }
@@ -174,10 +199,10 @@ function Lower.lower(text: string, name: string, chunk: Ast.Chunk): SourceParse.
         -- literal's newlines, so the lines after the call stay where they were.
         body = made:gsub("\n", " ") .. string.rep("\n", lines)
       end
-      local field = call.field
-      splices[#splices + 1] = { offset = Lexer.offset(tokens, field), length = Lexer.length(tokens, field),
-        text = call.lowered }
-      splices[#splices + 1] = { offset = Lexer.offset(tokens, at), length = Lexer.length(tokens, at), text = body }
+      splices[#splices + 1] = { offset = Lexer.offset(tokens, at), length = Lexer.length(tokens, at),
+        text = 'require("' .. TEMPLATE .. '").fill(' .. body }
+      local after = Lexer.offset(tokens, data.last) + Lexer.length(tokens, data.last)
+      splices[#splices + 1] = { offset = after, length = 0, text = ")" }
     end
   end
   table.sort(splices, function(a: SourceParse.Splice, b: SourceParse.Splice): boolean

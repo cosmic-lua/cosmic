@@ -2,7 +2,10 @@
 --- a lone file is, against the declarations the tool carries, a template's field is checked against the value it is
 --- given, a template the compiler refuses is a syntax error at its literal, and every place keeps the line and column
 --- it has in the text written.
+local Lexer = require("lang.lexer")
+local Parser = require("lang.parser")
 local Pipeline = require("build.pipeline")
+local TemplateLower = require("build.template_lower")
 local standalone = require("build.standalone")
 -- The modules the snippets below require: the store carries their stubs for a test that names them.
 local type _ = require("cosmic.html")
@@ -92,4 +95,19 @@ local function test_a_quoted_literal_whose_lines_are_not_the_templates_keeps_the
       'return s .. n\n')
   local told = table.concat(made.lines, "\n")
   assert(told:find("t.tl:4:20: ", 1, true) ~= nil, told)
+end
+
+local function test_a_function_takes_a_template_where_its_first_parameter_is_declared_a_source()
+  local text = 'local T = require("cosmic.template")\nlocal M = {}\n' ..
+    'function M.say(text: T.Source, data?: any) end\n' ..
+    'function M.plain(text: string, data?: any) end\n' ..
+    'function M.more(text: T.Source, data?: any, n?: integer) end\nreturn M\n'
+  local chunk = Parser.parse(Lexer.lex(text, "m.tl"), "m.tl", "tl").chunk
+  local takers = TemplateLower.takers("m", chunk)
+  assert(takers["say"] == true and takers["plain"] == nil and takers["more"] == nil)
+  -- The module of templates names its own record.
+  local own = 'local record Template type Source = string end\n' ..
+    'function Template.text(src: Template.Source, data?: any): string return "" end\nreturn Template\n'
+  local of_own = TemplateLower.takers("cosmic.template", Parser.parse(Lexer.lex(own, "t.tl"), "t.tl", "tl").chunk)
+  assert(of_own["text"] == true)
 end
