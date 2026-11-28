@@ -70,12 +70,14 @@ local Array = require("cosmic.array")
 local Child = require("cosmic.child")
 local Verb = require("cosmic.cli.sandbox")
 local Flags = require("cosmic.flags")
+local type Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Proc = require("cosmic.proc")
 local Sandbox = require("cosmic.sandbox")
 local PolicyJson = require("cosmic.policy")
 local Store = require("cosmic.store")
+local Tailscale = require("cosmic.tailscale")
 local sys = require("cosmic.sys")
 local Defer = require("cosmic.defer")
 local Compiled = require("cosmic.internal.compiled")
@@ -732,6 +734,21 @@ local function explained(argv: {string}, opts: Child.Options): string?, string
   return table.concat(lines, "\n") .. "\n", ""
 end
 
+--- The machine's own tailscaled, which a policy's tailnet `connect`
+--- targets (`--connect tag:db:5432`) are resolved through: connected to
+--- only when a start asks it for the node's status, so a policy with no
+--- such target never touches it.
+local class MachineTailnet is Tailscale.Source
+  --- The status of the machine's own daemon ([`Tailscale.connect`]).
+  function status(self): (Tailscale.Status) | (nil, Failure)
+    local client, why = Tailscale.connect()
+    if client == nil then return nil, why end
+    return client:status()
+  end
+end
+
+local machine_tailnet: MachineTailnet = {}
+
 local standard: verb.Io = { err = bare.err, run = run_here }
 
 --- [`verb.run`], with the directories it makes for a sealed database put
@@ -794,7 +811,7 @@ local function execute(argv: {string}, io: verb.Io?, held: mut {string}): intege
   end
   if request.explain then
     local text, explain_why = explained(request.argv, {
-      policy = policy, fds = request.fds, timeout_ns = Child.FOREVER, cwd = request.cwd,
+      policy = policy, fds = request.fds, timeout_ns = Child.FOREVER, cwd = request.cwd, tailscale = machine_tailnet,
     })
     if text == nil then
       complain((explain_why:gsub("^child: layers: ", "", 1):gsub("^sandbox: ", "", 1)))
@@ -815,7 +832,7 @@ local function execute(argv: {string}, io: verb.Io?, held: mut {string}): intege
   -- which the relay says once at its start, on the same line.
   local result, started = run(request.argv, {
     policy = policy, fds = request.fds, timeout_ns = request.timeout_ns or Child.FOREVER, cwd = request.cwd,
-    relay_log = "inherit",
+    relay_log = "inherit", tailscale = machine_tailnet,
   })
   if result == nil then
     -- [`request_of`] gives the program a slot, or this process's own file.

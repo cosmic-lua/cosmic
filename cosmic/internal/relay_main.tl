@@ -12,7 +12,7 @@
 ---   bound at one port of 127.0.0.1 and ::1 ([`cosmic.internal.relay_start`]'s
 ---   `loopback_listeners`), each for both protocols, which it serves
 ---   behind the config's token, refusing a config without one;
---- - standard input: one line of JSON, a [`cosmic.internal.relay_config`] `Config`,
+--- - standard input: one line of query text, a [`cosmic.internal.relay_config`] `Config`,
 ---   and then nothing more until the process is to end. The grants, a
 ---   proxy's password and the rest are never in the arguments or the
 ---   environment, which other users' processes can read.

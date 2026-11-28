@@ -694,7 +694,7 @@ local record Types
     --- With "serve" or "funnel", the capabilities the daemon passes on
     --- for [`Web.require_cap`], by name.
     caps?: {string}
-    --- The name to serve, one of [`cosmic.tailscale.Status.cert_domains`]:
+    --- The name to serve, one of [`cosmic.tailscale.node.Status.cert_domains`]:
     --- the node's first by default.
     domain?: string
   end
