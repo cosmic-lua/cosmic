@@ -675,7 +675,7 @@ local function apply(ctx: Ctx, n: Ast.Exp, t: Type, expected: Type?, wants_lists
     if wants_lists then
       return ctx.invalid, alts
     end
-    return first_value(ctx, n, alts), nil
+    return ValueLists.kept_value(ctx, n, alts), nil
   elseif (n.kind == "MethodCall") then
     local saved = ctx.lenient
     ctx.lenient = 0
@@ -686,7 +686,7 @@ local function apply(ctx: Ctx, n: Ast.Exp, t: Type, expected: Type?, wants_lists
     if wants_lists then
       return ctx.invalid, alts
     end
-    return first_value(ctx, n, alts), nil
+    return ValueLists.kept_value(ctx, n, alts), nil
   elseif (n.kind == "IsTest") then
     return Operators.is_test(ctx, n, t), nil
   elseif (n.kind == "Cast") then
@@ -827,7 +827,16 @@ local function check_counts(ctx: Ctx, node: Ast.Node, n: integer, vals: Values, 
   local given = #vals.types
   local open = vals.tail ~= nil or vals.lists ~= nil
   local several, last = vals.lists, vals.last
-  if several ~= nil and last ~= nil and n == 1 then
+  if several ~= nil and last ~= nil and n == 1 and written == 1 then
+    -- One name keeps the first value alone: `string?` from `Fs.read(path)`, or refused where the lists are not told apart.
+    local first = ValueLists.kept_value(ctx, last, several)
+    if first.tag == "invalid" then
+      return false
+    end
+    vals.types[1] = first
+    vals.lists = nil
+    return true
+  elseif several ~= nil and last ~= nil and n == 1 then
     local _ = first_value(ctx, last, several)
     return false
   end

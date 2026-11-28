@@ -469,7 +469,7 @@ Codes.catalog = {
   {
     code = "alternatives_as_value", rule = "multiple returns are a matched call",
     why = "a function that answers one of several value lists is told apart by `match`; used as a value it would " ..
-      "answer none of them",
+      "answer none of them, except where a nil first value tells them apart: then its first value alone is optional",
     fix = "bind its values and test the first (`local v, why = <call>`), or match the call: `match <call> do | ... end`",
   },
   {
