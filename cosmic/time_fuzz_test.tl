@@ -79,10 +79,9 @@ local function round_trips(input: string): boolean, string
   return true, ""
 end
 
-local function test_format_then_parse_is_the_same_moment(tmp: string)
-  Fuzz.run({
+local function fuzz_format_then_parse_is_the_same_moment(): Fuzz.Target
+  return Fuzz.target({
     name = "rfc3339 round trip",
-    dir = tmp,
     gen = gen_stamp,
     check = round_trips,
     requires = { "offset", "cut" },
@@ -122,10 +121,9 @@ local function parse_holds(input: string): boolean, string
   return true, ""
 end
 
-local function test_parse_is_total(tmp: string)
-  Fuzz.run({
+local function fuzz_parse_is_total(): Fuzz.Target
+  return Fuzz.target({
     name = "rfc3339 parse total",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       if src:int(0, 3) == 0 then return Fuzz.bytes(src, 40) end
       return Fuzz.mutate(src, Fuzz.pick(src, SAMPLES), 3)
@@ -185,10 +183,9 @@ local function http_round_trips(input: string): boolean, string
   return true, ""
 end
 
-local function test_http_and_date_text_round_trip(tmp: string)
-  Fuzz.run({
+local function fuzz_http_and_date_text_round_trip(): Fuzz.Target
+  return Fuzz.target({
     name = "http date round trip",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string return string.pack("<i8", gen_moment(src)) end,
     check = http_round_trips,
     requires = { "rfc850", "one-digit day" },
@@ -243,10 +240,9 @@ local function text_parse_holds(input: string): boolean, string
   return true, ""
 end
 
-local function test_http_and_date_parse_are_total(tmp: string)
-  Fuzz.run({
+local function fuzz_http_and_date_parse_are_total(): Fuzz.Target
+  return Fuzz.target({
     name = "http date parse total",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       if src:int(0, 3) == 0 then return Fuzz.bytes(src, 40) end
       return Fuzz.mutate(src, Fuzz.pick(src, TEXT_SAMPLES), 3)
@@ -306,10 +302,9 @@ local function between_holds(input: string): boolean, string
   return true, ""
 end
 
-local function test_between_adds_back_to_the_second_moment(tmp: string)
-  Fuzz.run({
+local function fuzz_between_adds_back_to_the_second_moment(): Fuzz.Target
+  return Fuzz.target({
     name = "between round trip",
-    dir = tmp,
     gen = gen_pair,
     check = between_holds,
     requires = { "negative", "positive", "months", "days", "a zone with changes" },

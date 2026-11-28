@@ -61,7 +61,7 @@ local function gen(programs: {string}): function(Fuzz.Source): string
   end
 end
 
-local function test_split_is_total(tmp: string)
+local function fuzz_split_is_total(): Fuzz.Target
   local prefix = assert(artifact.prefix(records, { x86 = core }))
   local database = "SQLite format 3\0" .. ("d"):rep(40)
   local programs = { -- checked: arms_differ
@@ -69,9 +69,8 @@ local function test_split_is_total(tmp: string)
     assert(artifact.host_program({ bytes = core, digest = Hash.sha256(core), target_id = 1,
       configuration_id = 1 }, database)),
   }
-  Fuzz.run({
+  return Fuzz.target({
     name = "artifact split",
-    dir = tmp,
     gen = gen(programs),
     check = function(input: string): boolean, string
       local parts, trouble = artifact.split(input)

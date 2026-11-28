@@ -369,28 +369,25 @@ local function check_strict(input: string): boolean, string
   return strictly(r, WIDE)
 end
 
-local function test_into_is_total_and_its_answer_fits_its_shape(tmp: string)
-  Fuzz.run({
+local function fuzz_into_is_total_and_its_answer_fits_its_shape(): Fuzz.Target
+  return Fuzz.target({
     name = "shape into total",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string return Fuzz.bytes(src, 200) end,
     check = check_total,
   })
 end
 
-local function test_a_fitting_value_survives_json(tmp: string)
-  Fuzz.run({
+local function fuzz_a_fitting_value_survives_json(): Fuzz.Target
+  return Fuzz.target({
     name = "shape through json",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string return Fuzz.bytes(src, 200) end,
     check = check_json,
   })
 end
 
-local function test_a_strict_record_refuses_an_unknown_key(tmp: string)
-  Fuzz.run({
+local function fuzz_a_strict_record_refuses_an_unknown_key(): Fuzz.Target
+  return Fuzz.target({
     name = "shape strict record",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string return Fuzz.bytes(src, 200) end,
     check = check_strict,
   })

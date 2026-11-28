@@ -178,10 +178,9 @@ end
 --- a name, an address and some no host holds.
 local HOST_CHARS <const> = { "a", "b", "z", "0", "9", "-", ".", ".", ":", "x", "F", "_", "\0", "\255" }
 
-local function test_a_request_the_client_writes_is_read_back_by_the_relay(tmp: string)
-  Fuzz.run({
+local function fuzz_a_request_the_client_writes_is_read_back_by_the_relay(): Fuzz.Target
+  return Fuzz.target({
     name = "client request round trip",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       local host: mut {string} = {}
       local kind = src:int(0, 3)
@@ -245,10 +244,9 @@ local function test_a_request_the_client_writes_is_read_back_by_the_relay(tmp: s
   })
 end
 
-local function test_a_username_and_password_the_client_writes_are_read_back_by_the_relay(tmp: string)
-  Fuzz.run({
+local function fuzz_a_username_and_password_the_client_writes_are_read_back_by_the_relay(): Fuzz.Target
+  return Fuzz.target({
     name = "client auth round trip",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       local function field(): string
         -- Mostly sound lengths, with the edges (empty, 255, 256) drawn often.

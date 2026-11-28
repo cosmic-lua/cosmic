@@ -11,12 +11,11 @@ local seed <const> = "\xa6\x01\x02\x20\x58\x20" .. ("\x11"):rep(32) ..
   "\x63key\x9f\x01\xf9\x3e\x00\xf5\xff\x64text\xc1\x1a\x00\x01\x00\x00\x02\x5f\x41\x01\x42\x02\x03\xff" ..
   "\x1b\xff\xff\xff\xff\xff\xff\xff\xff\xbf\x61\x61\xf6\xff"
 
-local function test_decode_is_total_and_reads_back(tmp: string)
+local function fuzz_decode_is_total_and_reads_back(): Fuzz.Target
   local seeded, seed_why = Cbor.decode(seed)
   assert(seeded ~= nil, tostring(seed_why))
-  Fuzz.run({
+  return Fuzz.target({
     name = "decode a changed item",
-    dir = tmp,
     requires = { "decoded" },
     gen = function(src: Fuzz.Source): string
       if src:int(0, 7) == 0 then return Fuzz.bytes(src, 200) end

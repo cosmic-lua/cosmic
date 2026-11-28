@@ -92,10 +92,9 @@ local function gen_text(src: Fuzz.Source): string
   return text
 end
 
-local function test_decode_is_total_and_refuses_under_its_name(tmp: string)
-  Fuzz.run({
+local function fuzz_decode_is_total_and_refuses_under_its_name(): Fuzz.Target
+  return Fuzz.target({
     name = "sandbox decode total",
-    dir = tmp,
     gen = gen_text,
     requires = { "decoded", "refused" },
     shares = { decoded = 0.05, refused = 0.2 },
@@ -115,10 +114,9 @@ local function test_decode_is_total_and_refuses_under_its_name(tmp: string)
   })
 end
 
-local function test_a_decoded_policy_encodes_to_text_that_encodes_the_same(tmp: string)
-  Fuzz.run({
+local function fuzz_a_decoded_policy_encodes_to_text_that_encodes_the_same(): Fuzz.Target
+  return Fuzz.target({
     name = "sandbox encode round trip",
-    dir = tmp,
     gen = gen_text,
     requires = { "merged", "round tripped" },
     shares = { merged = 0.02 },

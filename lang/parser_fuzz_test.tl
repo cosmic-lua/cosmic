@@ -37,10 +37,9 @@ local function holds(input: string, dialect: Ast.Dialect): boolean, string
   return true, ""
 end
 
-local function test_a_program_of_the_grammar_parses_with_no_error_and_the_same_tree_every_time(tmp: string)
-  Fuzz.run({
+local function fuzz_a_program_of_the_grammar_parses_with_no_error_and_the_same_tree_every_time(): Fuzz.Target
+  return Fuzz.target({
     name = "parser reads the grammar",
-    dir = tmp,
     gen = Programs.valid,
     check = function(input: string): boolean, string
       local first = parse(input, "tl")
@@ -80,10 +79,9 @@ local function test_a_program_of_the_grammar_parses_with_no_error_and_the_same_t
   })
 end
 
-local function test_a_program_with_a_few_tokens_changed_parses_to_a_tree_over_its_tokens(tmp: string)
-  Fuzz.run({
+local function fuzz_a_program_with_a_few_tokens_changed_parses_to_a_tree_over_its_tokens(): Fuzz.Target
+  return Fuzz.target({
     name = "parser tiles a mutated program",
-    dir = tmp,
     gen = Programs.mutated,
     check = function(input: string): boolean, string
       return holds(input, dialect_of(input))
@@ -93,10 +91,9 @@ local function test_a_program_with_a_few_tokens_changed_parses_to_a_tree_over_it
   })
 end
 
-local function test_any_run_of_tokens_parses_to_a_tree_over_its_tokens(tmp: string)
-  Fuzz.run({
+local function fuzz_any_run_of_tokens_parses_to_a_tree_over_its_tokens(): Fuzz.Target
+  return Fuzz.target({
     name = "parser tiles any tokens",
-    dir = tmp,
     gen = Programs.pieces,
     check = function(input: string): boolean, string
       return holds(input, dialect_of(input))
@@ -106,10 +103,9 @@ local function test_any_run_of_tokens_parses_to_a_tree_over_its_tokens(tmp: stri
   })
 end
 
-local function test_any_bytes_parse_to_a_tree_over_their_tokens(tmp: string)
-  Fuzz.run({
+local function fuzz_any_bytes_parse_to_a_tree_over_their_tokens(): Fuzz.Target
+  return Fuzz.target({
     name = "parser tiles any bytes",
-    dir = tmp,
     gen = Programs.bytes,
     check = function(input: string): boolean, string
       return holds(input, dialect_of(input))

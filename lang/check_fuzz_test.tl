@@ -384,20 +384,18 @@ local function is_refused(input: string): boolean, string
   return true, ""
 end
 
-local function test_a_program_drawn_from_the_typed_generator_checks_clean(tmp: string)
-  Fuzz.run({
+local function fuzz_a_program_drawn_from_the_typed_generator_checks_clean(): Fuzz.Target
+  return Fuzz.target({
     name = "check of a typed program",
-    dir = tmp,
     gen = gen_clean,
     check = checks_clean,
     requires = { "clean" },
   })
 end
 
-local function test_the_same_program_with_one_mistake_is_refused(tmp: string)
-  Fuzz.run({
+local function fuzz_the_same_program_with_one_mistake_is_refused(): Fuzz.Target
+  return Fuzz.target({
     name = "check of a mistaken program",
-    dir = tmp,
     gen = gen_mistaken,
     check = is_refused,
     requires = { "refused", "not_assignable", "nil_not_allowed", "field_fixed", "concat_type", "condition_type",

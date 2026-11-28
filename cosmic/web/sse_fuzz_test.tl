@@ -54,10 +54,9 @@ local function carried(value: string): boolean
   return not value:find("[\r\n%z]")
 end
 
-local function test_format_event_makes_one_event_with_the_fields_given_and_no_other(tmp: string)
-  Fuzz.run({
+local function fuzz_format_event_makes_one_event_with_the_fields_given_and_no_other(): Fuzz.Target
+  return Fuzz.target({
     name = "sse format_event",
-    dir = tmp,
     gen = gen_event,
     requires = { "formatted", "refused", "injection attempt" },
     shares = { formatted = 0.3, refused = 0.05 },

@@ -148,10 +148,9 @@ local function settles<T>(codec: Schema.Codec<T>, input: string, opts?: Schema.D
   return true, ""
 end
 
-local function test_a_record_that_drops_reads_any_bytes_and_round_trips_what_it_accepts(tmp: string)
-  Fuzz.run({
+local function fuzz_a_record_that_drops_reads_any_bytes_and_round_trips_what_it_accepts(): Fuzz.Target
+  return Fuzz.target({
     name = "protobuf schema, dropping",
-    dir = tmp,
     gen = gen_bytes,
     check = function(input: string): boolean, string
       return settles(EVERY, input)
@@ -159,10 +158,9 @@ local function test_a_record_that_drops_reads_any_bytes_and_round_trips_what_it_
   })
 end
 
-local function test_a_record_that_keeps_reads_any_bytes_and_round_trips_what_it_accepts(tmp: string)
-  Fuzz.run({
+local function fuzz_a_record_that_keeps_reads_any_bytes_and_round_trips_what_it_accepts(): Fuzz.Target
+  return Fuzz.target({
     name = "protobuf schema, keeping",
-    dir = tmp,
     gen = gen_bytes,
     check = function(input: string): boolean, string
       return settles(KEPT, input)
@@ -170,10 +168,9 @@ local function test_a_record_that_keeps_reads_any_bytes_and_round_trips_what_it_
   })
 end
 
-local function test_a_record_that_keeps_loses_no_field_it_does_not_name(tmp: string)
-  Fuzz.run({
+local function fuzz_a_record_that_keeps_loses_no_field_it_does_not_name(): Fuzz.Target
+  return Fuzz.target({
     name = "protobuf schema, unknown fields",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       return (assert(gen_writer(src, 0):encode()))
     end,
@@ -194,10 +191,9 @@ local function test_a_record_that_keeps_loses_no_field_it_does_not_name(tmp: str
   })
 end
 
-local function test_a_lenient_decode_reads_any_bytes_and_round_trips_what_it_accepts(tmp: string)
-  Fuzz.run({
+local function fuzz_a_lenient_decode_reads_any_bytes_and_round_trips_what_it_accepts(): Fuzz.Target
+  return Fuzz.target({
     name = "protobuf schema, lenient",
-    dir = tmp,
     gen = gen_bytes,
     check = function(input: string): boolean, string
       local dropped, why = settles(EVERY, input, { lenient = true })
@@ -208,10 +204,9 @@ local function test_a_lenient_decode_reads_any_bytes_and_round_trips_what_it_acc
   })
 end
 
-local function test_a_lenient_decode_reads_what_a_strict_one_reads_as_it_does(tmp: string)
-  Fuzz.run({
+local function fuzz_a_lenient_decode_reads_what_a_strict_one_reads_as_it_does(): Fuzz.Target
+  return Fuzz.target({
     name = "protobuf schema, lenient and strict",
-    dir = tmp,
     gen = gen_bytes,
     check = function(input: string): boolean, string
       local strict = EVERY:decode(input)
