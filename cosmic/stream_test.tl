@@ -9,6 +9,8 @@ local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
+local Bench = require("cosmic.bench")
+local Rand = require("cosmic.rand")
 
 --- The next chunk of `reader`: raises where it ended or failed.
 local function chunk_of(reader: Stream.Reader, max_bytes?: integer): string
@@ -1440,4 +1442,44 @@ local function test_sticky_closes_once_with_its_trailer()
   assert(sink:close("again"))
   assert(sink:abort())
   assert(c:result() == "body.end", c:result())
+end
+
+--- Benches. 1 MiB of text in 16384 lines.
+local function lines_mib(): string
+  local parts: mut {string} = {}
+  for i = 1, 16384 do parts[i] = string.rep("x", 60 + i % 7) end
+  return table.concat(parts, "\n") .. "\n"
+end
+
+local function bench_lines_1_mib(b: Bench.B)
+  local text = lines_mib()
+  b.bytes = #text
+  b.reset()
+  for _ = 1, b.n do
+    local count = 0
+    for _ in Stream.lines(Stream.from_string(text)):each() do count = count + 1 end
+    assert(count == 16384)
+  end
+end
+
+local function bench_read_all_1_mib(b: Bench.B)
+  local text = lines_mib()
+  b.bytes = #text
+  b.reset()
+  for _ = 1, b.n do assert(#assert(Stream.read_all(Stream.from_string(text))) == #text) end
+end
+
+--- Bench: 1 MiB of random bytes read in chunks of 4 KiB.
+local function bench_from_string_chunks_1_mib(b: Bench.B)
+  local bytes = Rand.new(2026):bytes(1024 * 1024)
+  b.bytes = #bytes
+  b.reset()
+  for _ = 1, b.n do
+    local r = Stream.from_string(bytes, 4096)
+    while true do
+      local chunk, why = r:read(4096)
+      if chunk == nil then error(tostring(why)) end
+      if chunk == false then break end
+    end
+  end
 end

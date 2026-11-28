@@ -5,6 +5,7 @@
 local Cbor = require("cosmic.cbor")
 local Codec = require("cosmic.codec")
 local Test = require("cosmic.test")
+local Bench = require("cosmic.bench")
 
 local function hex(h: string): string
   return (assert(Codec.unhex(h)))
@@ -207,4 +208,28 @@ local function test_what_cannot_be_written_raises()
   Test.raises(function() Cbor.encode({ kind = "tag", tag = -1, of = Cbor.integer(1) }) end, "cannot be written")
   Test.raises(function() Cbor.encode({ kind = "float" }) end, "no number")
   Test.raises(function() Cbor.text("\xff") end, "UTF-8")
+end
+
+--- Benches. 1000 rows as an array of maps.
+local function sample_rows(): Cbor.Item
+  local items: mut {Cbor.Item} = {}
+  for i = 1, 1000 do
+    items[i] = Cbor.map({ { Cbor.text("id"), Cbor.integer(i) }, { Cbor.text("name"), Cbor.text("user" .. tostring(i)) },
+      { Cbor.text("score"), Cbor.float(i + 0.5) }, { Cbor.text("tags"), Cbor.array({ Cbor.text("a"), Cbor.text("b") }) } })
+  end
+  return Cbor.array(items)
+end
+
+local function bench_encode_1000_rows(b: Bench.B)
+  local item = sample_rows()
+  b.bytes = #Cbor.encode(item)
+  b.reset()
+  for _ = 1, b.n do local _ = Cbor.encode(item) end
+end
+
+local function bench_decode_1000_rows(b: Bench.B)
+  local text = Cbor.encode(sample_rows())
+  b.bytes = #text
+  b.reset()
+  for _ = 1, b.n do local _ = Cbor.decode(text)! end
 end

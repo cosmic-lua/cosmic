@@ -11,6 +11,7 @@ local Stream = require("cosmic.stream")
 local String = require("cosmic.string")
 local Tar = require("cosmic.tar")
 local type Failure = require("cosmic.failure")
+local Bench = require("cosmic.bench")
 
 -- The next entry of `r`, which must be there.
 local function entry_of(r: Tar.Reader): Tar.Entry
@@ -717,4 +718,33 @@ local function test_a_body_whose_source_times_out_keeps_the_kind_in_the_writer()
   local ok, why = w:add_file("f", failing_after("", Failure.timeout()), { size = 3 })
   assert(not ok and is_failure(why, "timeout", 0), said(why))
   assert(tostring(why) == "tar: add_file: timed out", tostring(why))
+end
+
+--- Benches. 1000 small files, written to memory and read back.
+local function sample_archive(): string
+  local out = Stream.collect()
+  local w = Tar.writer(out, { deterministic = true })
+  for i = 1, 1000 do assert(w:add_file("dir/f" .. tostring(i), string.rep(tostring(i), 20))) end
+  assert(w:close())
+  return out:result()
+end
+
+local function bench_writer_1000_files(b: Bench.B)
+  for _ = 1, b.n do local _ = sample_archive() end
+end
+
+local function bench_reader_1000_files(b: Bench.B)
+  local tarred = sample_archive()
+  b.reset()
+  for _ = 1, b.n do
+    local r = Tar.reader(Stream.from_string(tarred))
+    while true do
+      local entry, trouble = r:next()
+      assert(entry ~= nil, tostring(trouble))
+      if entry == false then break end
+      local body, why = Stream.read_all(entry:open()!)
+      if body == nil then error(tostring(why)) end
+    end
+    assert(r:close())
+  end
 end

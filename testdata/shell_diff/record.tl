@@ -1,7 +1,7 @@
 --- Records what the system's `wc -l`, `grep -n -F`, `sed s///g`, `LC_ALL=C sort`, `uniq -c` and `find -type f`
 --- print on the fixtures cosmic/shell_diff_test.tl replays, into testdata/shell_diff/cases.json:
 ---
----     bin/cosmic bench/shell_record.tl
+---     bin/cosmic testdata/shell_diff/record.tl
 ---
 --- The fixtures are drawn from a fixed seed, so a run on another host draws the same ones; the answers are the
 --- host's commands' (GNU coreutils, grep, sed and findutils are the guide of cosmic.shell). The test keeps to what
