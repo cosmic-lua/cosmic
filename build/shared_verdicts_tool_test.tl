@@ -56,7 +56,9 @@ end
 --- unprivileged runners nest them.
 local function skip_unless_shared(text: string)
   if text:find("; sandboxed", 1, true) ~= nil then return end
-  if assert(sys.uname()).sysname == "Linux" then Test.skip(confine.unsandboxed_reason(text)) end
+  if assert(sys.uname()).sysname == "Linux" then
+    Test.skip(confine.unsandboxed_reason(text), "nest")
+  end
   Test.skip("this platform sandboxes no worker")
 end
 

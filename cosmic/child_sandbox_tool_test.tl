@@ -53,7 +53,7 @@ local function test_a_timeout_ends_a_sandboxed_child_that_catches_nothing(tmp: s
   local sandboxed, trouble = Child.run(lua(sleeping(100000), nil,
     { cwd = tmp, timeout_ns = Clock.ms(200), sandbox = { unveil = { reads = reads }, offline = true } }))
   if sandboxed == nil then
-    Test.skip("no sandbox for the child: " .. tostring(trouble))
+    Test.skip("no sandbox for the child: " .. tostring(trouble), "sandbox")
     return
   end
   assert(sandboxed.timed_out and sandboxed.signal == sys.SIGTERM,
@@ -84,7 +84,7 @@ local function test_a_sandboxed_child_has_only_what_it_unveils(tmp: string)
     { timeout_ns = Child.FOREVER, cwd = "/given", stdout = "capture", stderr = "stdout",
       sandbox = { unveil = { reads = reads, at = { [given] = "/given" } }, offline = true } }))
   if r == nil then
-    Test.skip("no sandbox for the child: " .. tostring(trouble))
+    Test.skip("no sandbox for the child: " .. tostring(trouble), "sandbox")
     return
   end
   assert(r.ok and r.stdout == "in\n/given\nhidden-absent\nno-own-name\n", tostring(r.stdout))

@@ -38,7 +38,7 @@ Test.policy{
 --- `map_ids`). CI's unprivileged runners nest them.
 local function skip_if_unsandboxed(text: string)
   if text:find("no worker can be sandboxed here", 1, true) then
-    Test.skip(confine.unsandboxed_reason(text))
+    Test.skip(confine.unsandboxed_reason(text), "nest")
   end
   local why = text:match("could not be supervised: (child: start: [^\n]*)")
   if why == nil then return end
