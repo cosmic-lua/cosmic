@@ -28,9 +28,16 @@ end
 
 local function lines_of(text: string): {string}
   local out: mut {string} = {}
-  for line in text:gmatch("([^\n]*)\n?") do out[#out + 1] = line end
-  -- The pattern matches once more at the end; awk and grep have no line there.
-  if #out > 0 and out[#out] == "" then out[#out] = nil end
+  local at = 1
+  while at <= #text do
+    local stop = text:find("\n", at, true)
+    if stop == nil then
+      out[#out + 1] = text:sub(at)
+      break
+    end
+    out[#out + 1] = text:sub(at, stop - 1)
+    at = stop + 1
+  end
   return out
 end
 
@@ -452,14 +459,15 @@ tasks["rename-shared"] = function()
 end
 
 tasks["write-wordfreq"] = function()
-  local names: mut {string} = {}
+  -- As `cat doc/guides/*.md` joins them: a file with no last newline runs into the next one.
+  local joined: mut {string} = {}
   for _, path in ipairs(assert(Fs.walk("doc/guides"))) do
-    if path:find("/", 1, true) == nil and path:match("%.md$") ~= nil then
-      for found in text_of("doc/guides/" .. path):lower():gmatch("[a-z]+") do
-        names[#names + 1] = found
-      end
+    if path:find("/", 1, true) == nil and path:sub(1, 1) ~= "." and path:match("%.md$") ~= nil then
+      joined[#joined + 1] = text_of("doc/guides/" .. path)
     end
   end
+  local names: mut {string} = {}
+  for found in table.concat(joined):lower():gmatch("[a-z]+") do names[#names + 1] = found end
   show(ranked(counted(names), 5))
 end
 

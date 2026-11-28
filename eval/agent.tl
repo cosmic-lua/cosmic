@@ -653,7 +653,7 @@ Agent.tasks = {
     prompt = "Rename the constant MAX_BYTES to BYTES_MOST in every .tl file under cosmic/ that has it, " ..
       "everywhere it appears as a whole word, and change nothing else.",
     truth = "\"$tool\" - rename-many < \"$shared/truth.tl\"",
-    check = "for f in $(grep -rlw --include='*.tl' 'BYTES_MOST' cosmic | sort); do echo \"$f\"; cat \"$f\"; done | " ..
+    check = "for f in $(grep -rlw --include='*.tl' 'BYTES_MOST' cosmic | LC_ALL=C sort); do echo \"$f\"; cat \"$f\"; done | " ..
       "sha256sum | cut -c1-64",
   },
   {
@@ -783,7 +783,7 @@ Agent.tasks = {
     held = true,
     prompt = "Add the line `-- end` at the end of each non-test .tl file directly in cosmic/agent/, and change nothing else.",
     truth = "\"$tool\" - append-many < \"$shared/truth.tl\"",
-    check = "for f in $(find cosmic/agent -maxdepth 1 -name '*.tl' ! -name '*_test.tl' | sort); do " ..
+    check = "for f in $(find cosmic/agent -maxdepth 1 -name '*.tl' ! -name '*_test.tl' | LC_ALL=C sort); do " ..
       "echo \"$f\"; cat \"$f\"; done | sha256sum | cut -c1-64",
   },
   {
@@ -821,7 +821,7 @@ Agent.tasks = {
       "everywhere it is defined, called or named as `Cookies.format` in the .tl files, and change nothing else, " ..
       "comment prose too: other functions named format (Csp.format, Json.format, Example.format, string.format) stay.",
     truth = "\"$tool\" - rename-shared < \"$shared/truth.tl\"",
-    check = "for f in $(find cosmic -name '*.tl' | sort); do echo \"$f\"; cat \"$f\"; done | sha256sum | cut -c1-64",
+    check = "for f in $(find cosmic -name '*.tl' | LC_ALL=C sort); do echo \"$f\"; cat \"$f\"; done | sha256sum | cut -c1-64",
   },
   {
     name = "write-wordfreq",
