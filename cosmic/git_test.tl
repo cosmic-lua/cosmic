@@ -121,6 +121,27 @@ local function test_status_agrees_with_git(tmp: string)
   assert(table.concat(unstaged, ",") == "deleted dir-x/c.txt,modified dir/b.txt", table.concat(unstaged, ","))
 end
 
+--- `ignored` lists what the tree's own `.gitignore` files ignore: files by path, a whole directory once as `dir/`, a
+--- tracked file never, and a rule a deeper file negates not at all. No `info/exclude` is read.
+local function test_ignored_lists_what_the_trees_gitignore_files_ignore(tmp: string)
+  local root = scratch(tmp)
+  put(root, ".gitignore", "*.log\nout/\n")
+  put(root, "dir/.gitignore", "!keep.log\n")
+  put(root, "x.log", "x\n")
+  put(root, "dir/y.log", "y\n")
+  put(root, "dir/keep.log", "k\n")
+  put(root, "out/gen.txt", "g\n")
+  put(root, "src/other.txt", "o\n")
+  assert(Fs.write(root .. "/.git/info/exclude", "src/\n"))
+  put(root, "vendor/lib/a.log", "nested\n")
+  assert(Fs.mkdirs(root .. "/vendor/lib/.git/objects"))
+  assert(Fs.mkdirs(root .. "/vendor/lib/.git/refs"))
+  put(root, "vendor/lib/.git/HEAD", "ref: refs/heads/main\n")
+  local repo = assert(Git.open(root, true))
+  local found = assert(repo:ignored())
+  assert(table.concat(found, ",") == "dir/y.log,out/,x.log", table.concat(found, ","))
+end
+
 --- Add and commit make the commit git makes of the same change with the
 --- same names and dates: the same id, so the same bytes in each object.
 --- Status is clean after it, HEAD's reflog names it, and a second
@@ -149,6 +170,33 @@ local function test_commit_is_one_git_accepts(tmp: string)
   assert(repo:add({ "a.txt" }))
   local after = assert(repo:commit({ message = "after", author = WHO, committer = WHO }))
   assert(repo:rev("HEAD~1")! == oid and repo:head()! == after)
+end
+
+--- `merge_base` names the newest commit two histories share, `is_shallow` reads the `shallow` file, and `files` lists
+--- every file of a commit by its path.
+local function test_merge_base_shallow_and_files(tmp: string)
+  local root = scratch(tmp)
+  local repo = assert(Git.open(root))
+  assert(repo:merge_base("HEAD", "HEAD~2")! == FIRST)
+  assert(repo:merge_base("HEAD~2", "HEAD")! == FIRST)
+  assert(repo:merge_base("HEAD", "HEAD")! == THIRD)
+  -- A branch that left at the second commit, and a commit on main after it.
+  put(root, ".git/refs/heads/side", SECOND .. "\n")
+  put(root, "a.txt", "main moved\n")
+  assert(repo:add({ "a.txt" }))
+  local moved = assert(repo:commit({ message = "moved", author = WHO, committer = WHO }))
+  assert(repo:merge_base("main", "side")! == SECOND)
+  assert(repo:merge_base("side", moved)! == SECOND)
+  assert(not repo:is_shallow())
+  put(root, ".git/shallow", FIRST .. "\n")
+  local cut = assert(Git.open(root))
+  assert(cut:is_shallow())
+  local files = assert(repo:files("HEAD~3"))
+  assert(files["a.txt"]!.oid == FIRST_A and files["a.txt"]!.mode == "100644" and files["a.txt"]!.name == "a.txt")
+  local now = assert(repo:files("HEAD"))
+  assert(now["dir/b.txt"] ~= nil and now["dir-x/c.txt"] ~= nil and now["dir"] == nil)
+  local refused, _ = repo:merge_base("HEAD", "no-such-branch")
+  assert(refused == nil)
 end
 
 --- The first commit of an unborn branch has no parent and an initial

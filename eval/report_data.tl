@@ -168,6 +168,10 @@ local record Data
     bands: {Band}
     --- Each task.
     tasks: {Task}
+    --- The tools run with run text bullets left out, as "name: bullets; ...", when any.
+    drop?: string
+    --- Says that the earlier round (`--against`) has no tool of the names this round gives, and what names it has.
+    against_note?: string
     --- Says the fixture's AGENTS.md and CLAUDE.md were left out, when they were.
     agents_md?: string
     --- Each tool's refusals by root cause, for the tools that had any.
