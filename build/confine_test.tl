@@ -103,13 +103,13 @@ local function sandboxed_worker(tmp: string): {string}
   if pid == nil then
     sys.close(output)
     if assert(sys.uname()).sysname == "Linux" then
-      Test.skip("no sandbox for the worker: " .. tostring(trouble))
+      Test.skip("no sandbox for the worker: " .. tostring(trouble), "sandbox")
     end
     -- Only as a kernel that cannot confine refuses, never for a path
     -- the set left out.
     assert(errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or
         errno == sys.EINVAL or errno == sys.ENOSPC, trouble)
-    Test.skip("no sandbox for the worker: " .. tostring(trouble))
+    Test.skip("no sandbox for the worker: " .. tostring(trouble), "sandbox")
     return {}
   end
   local status = assert(process.waitpid(pid, false))

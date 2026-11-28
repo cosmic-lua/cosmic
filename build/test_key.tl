@@ -2656,6 +2656,19 @@ function test_key.judge(rec: Recording, job: Job, result: Child.Result?,
       " checks through error or pcall calling assert; where this host cannot check it," ..
       " declare `requires` or call Test.skip(reason)"
   end
+  -- A skip that names a requirement the leg promises is a failure of a held run, as a module that requires it
+  -- is: the leg promised the host has what the test found missing.
+  if passed and skipped ~= "" and rec.held then
+    for need in (judgement.skip_needs or ""):gmatch("[^,]+") do
+      if host_names.promised(rec.promises, need) then
+        passed = false
+        message = "skipped for " .. need .. ", which " .. (if rec.leg == "" then "this run" else "the leg " .. rec.leg end) ..
+          " promises, and a held run fails what its leg promised (" .. skipped .. ")"
+        skipped = ""
+        break
+      end
+    end
+  end
   -- A checked run keeps no verdict of a test that met a violation: it runs again every time, so every run
   -- reports it: the count of violations a standing run prints is then the whole run's.
   local report = judgement.report

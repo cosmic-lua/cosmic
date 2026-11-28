@@ -3304,7 +3304,7 @@ local function make_recording(ctx: Run)
     parameter_checks = assert(ctx.result).parameter_checks, violation_met = {}, violators = {}, violator_ns = {},
     ran_ns = {}, failures = failures, errors = errors, outputs = {}, reruns = {},
     show_output = ctx.show_output == true, shown = {}, printed = 0,
-    failed = {}, skips = {}, unchecked = {}, deliberate = {}, stopped = {}, held = ctx.held == true, nas = {}, unmet = {}, answered = {},
+    failed = {}, skips = {}, unchecked = {}, deliberate = {}, stopped = {}, held = ctx.held == true, promises = ctx.promises or {}, leg = ctx.leg or "", nas = {}, unmet = {}, answered = {},
     hits = hits, by_test = by_test, unowned = unowned,
     identities = test.identities(assert(ctx.result).modules), stale = {}, timed = false, own_tree = ctx.own_tree == true, tally = tally, not_run = 0,
     owed = { kept = {}, used = {}, failed = {}, stores = {} }, shared_keys = {},

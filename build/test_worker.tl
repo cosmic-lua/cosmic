@@ -66,6 +66,9 @@ local record worker
     --- Why its test is skipped ([`Test.skip`]): each reason it was given,
     --- once, joined by "; "; "" or nil where it called none.
     mut skipped?: string
+    --- The requirements its skips named ([`Test.skip`]'s `need`), once each, joined by ","; "" or nil
+    --- where none did.
+    mut skip_needs?: string
     --- How many calls to `assert` the test made while it ran, through
     --- every helper and fixture it called: 0 for one that did not run.
     --- A test that passes with none made no call to `assert`
@@ -236,6 +239,8 @@ local record worker
     mut passed: boolean
     mut message: string
     mut skipped?: string
+    --- The requirements the skips of a test that passed named ([`Report.skip_needs`]), "" for none.
+    mut skip_needs?: string
     --- Whether it passed, and was not skipped, without one call to `assert`
     --- ([`Report.asserted`]): it ran and made no call to `assert`, which a held run
     --- fails and no run keeps a verdict of.
@@ -1047,6 +1052,10 @@ function worker.encode(report: worker.Report): string
   if skipped ~= nil and skipped ~= "" then
     table.insert(lines, "skipped " .. hex(skipped))
   end
+  local skip_needs = report.skip_needs
+  if skip_needs ~= nil and skip_needs ~= "" then
+    table.insert(lines, "skip-needs " .. hex(skip_needs))
+  end
   table.insert(lines, "asserted " .. tostring(report.asserted or 0))
   local deliberate = report.deliberate
   if deliberate ~= nil and deliberate ~= "" then
@@ -1229,6 +1238,10 @@ function worker.decode(text: string): worker.Report?, string
         local decoded = unhex(rest)
         if decoded == nil or decoded == "" then return nil, "a malformed skip: " .. line end
         report.skipped = decoded
+      elseif tag == "skip-needs" then
+        local decoded = unhex(rest)
+        if decoded == nil or decoded == "" then return nil, "a malformed skip-needs: " .. line end
+        report.skip_needs = decoded
       elseif tag == "deliberate" then
         local decoded = unhex(rest)
         if decoded == nil or decoded == "" then return nil, "a malformed deliberate: " .. line end
@@ -1617,6 +1630,7 @@ function worker.judge(judging: worker.Judging): worker.Judgement
   end
   -- Only a pass is skipped instead: a failure is one, skip or not.
   judgement.skipped = (if judgement.passed then report.skipped else nil end) or ""
+  judgement.skip_needs = (if judgement.passed then report.skip_needs else nil end) or ""
   judgement.deliberate = ""
   -- A test that also asserted checked something: it is no deliberate non-check.
   if judgement.passed and judgement.skipped == "" and report.asserted == 0 then
@@ -2415,6 +2429,7 @@ function worker.run(argv: {string}): integer
   local handed_over: Given = { deliberate = "" }
   -- Each reason the test gives [`Test.skip`], once, in order.
   local reasons: mut {string} = {}
+  local skip_needs: mut {string} = {}
   -- What [`Test.skip`] raises to end its test. Only this table counts as
   -- a skip; any other error is a failure, and a test cannot make this one.
   local ended_by_skip: {string:string} = {}
@@ -2433,12 +2448,19 @@ function worker.run(argv: {string}): integer
     -- The running test's own directory, where a process of this program
     -- it starts makes its temporary files ([`Test.environment`]).
     directory = tmp,
-    skipped = function(reason: string): {string:string}
+    skipped = function(reason: string, need?: string): {string:string}
       local seen = false
       for _, given in ipairs(reasons) do
         if given == reason then seen = true end
       end
       if not seen then reasons[#reasons + 1] = reason end
+      if need ~= nil then
+        local named = false
+        for _, given in ipairs(skip_needs) do
+          if given == need then named = true end
+        end
+        if not named then skip_needs[#skip_needs + 1] = need end
+      end
       return ended_by_skip
     end,
   }
@@ -2524,6 +2546,7 @@ function worker.run(argv: {string}): integer
           report.message = report.message .. unseen_note(report.message, ran.unseen)
         end
         report.skipped = table.concat(reasons, "; ")
+        report.skip_needs = table.concat(skip_needs, ",")
         report.asserted = Assertions.count()
         -- A bench's check is that its body runs: one that calls no `assert` is not listed as checking nothing.
         if bench and report.asserted == 0 then report.asserted = 1 end

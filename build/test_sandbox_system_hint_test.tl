@@ -97,7 +97,9 @@ end
   local text = assert(Fs.read(output))
   assert(result ~= nil and not result.ok, tostring(trouble) .. text)
   if text:find("no worker can be sandboxed here", 1, true) then
-    if assert(sys.uname()).sysname == "Linux" then Test.skip(confine.unsandboxed_reason(text)) end
+    if assert(sys.uname()).sysname == "Linux" then
+      Test.skip(confine.unsandboxed_reason(text), "nest")
+    end
     return
   end
   --- What the run said of `test`'s failure, up to where it says to rerun it.

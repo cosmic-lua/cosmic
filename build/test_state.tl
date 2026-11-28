@@ -189,6 +189,10 @@ local record test_state
     stopped: mut {string}
     --- Whether the run is held ([`Run.held`]).
     held: boolean
+    --- The requirements the run's leg promises and the leg's name ([`Run.promises`], [`Run.leg`]), which a
+    --- held run fails a test for skipping with ([`Test.skip`]'s `need`).
+    promises: {string}
+    leg: string
     --- Each not applicable test's id and why, in the same shape.
     nas: mut {string}
     --- The modules whose requirements ([`host_requires`]) are not all

@@ -719,6 +719,14 @@ passes having checked nothing.
   socket by path, a mode with a setuid bit) carries a `TODO:` beside
   it naming what it waits on.
 
+`Test.skip(reason, need)` names the requirement the skip stands for:
+one of the `requires` names, such as `"nest"`. In a held run
+(`COSMIC_SANDBOX=must`, `COSMIC_CI_REQUIRE_SANDBOX=1` or
+`COSMIC_TEST_SANDBOX=1`), the test fails when the leg promises that
+name in ci/cosmic_ci/capabilities.json. A skip for a promised host
+fact cannot hide lost coverage. A skip with no `need`, or for a name
+the leg does not promise, stays a skip.
+
 Where a fact of the host alone decides, use `requires`, not a skip.
 Where no name stands for it (a native start with nothing to relaunch,
 a test of what only another platform does), skip.

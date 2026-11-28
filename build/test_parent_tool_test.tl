@@ -83,7 +83,7 @@ local function test_a_sandboxed_worker_reads_a_file_above_the_project(tmp: strin
   assert(Fs.write(base .. "/dir/sibling.txt", "beside"))
   local ran = fixture.run(root, base .. "/sandboxed", run_environment(nil))
   if ran.text:find("no worker can be sandboxed here", 1, true) ~= nil then
-    Test.skip(confine.unsandboxed_reason(ran.text))
+    Test.skip(confine.unsandboxed_reason(ran.text), "nest")
   end
   assert(not ran.ok and ran.text:find("read|/tree-up/dir/up.txt|above|false|end", 1, true) ~= nil, ran.text)
   -- A file the plan gives already, the module's own, is bound at one place

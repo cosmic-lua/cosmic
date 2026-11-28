@@ -48,7 +48,7 @@ end
 --- the kernel lets root nest one only two deep (core/sandbox_root.c's
 --- `map_ids`). CI's unprivileged runners nest them.
 local function skip_unsandboxed(text: string)
-  Test.skip(confine.unsandboxed_reason(text))
+  Test.skip(confine.unsandboxed_reason(text), "nest")
 end
 
 --- Ends the running test as skipped ([`Test.skip`]) where the run that
