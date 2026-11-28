@@ -769,7 +769,7 @@ local function from_alias(j: Relation.Judge, a: Type, b: Type, why: boolean): Re
   -- A record, a class or an interface is never an arm of an alias: a record with an array part is below `{T}`, but it may have fields and methods
   -- besides (an encoder meets a table that mixes keys), so only the arrays and maps an alias names stand for it. A record
   -- inferred for a literal of named items, or one in braces, has its fields and no others, so it is the read-only map
-  -- of them it is below elsewhere ([`from_named`]): `{ id = "x", usage = { n = 1 } }` is a `Json.Value`.
+  -- of them it is below elsewhere ([`from_named`]): `{ id = "x", usage = { n = 1 } }` is a [`Json.Value`].
   if b_alias and (a.tag == "named") and (a.decl.kind == "record" or a.decl.kind == "class" or a.decl.kind == "interface") and
       not (a.decl.kind == "record" and not a.value and (Types.inferred_record(a.decl) or Types.shape_record(a.decl))) then
     return leaf(j, why, "mismatch", a, b)

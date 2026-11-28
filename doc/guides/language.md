@@ -653,7 +653,7 @@ A literal whose value is `nil` or of a type parameter has no record to make, and
 type where the literal is made.
 
 The record made for a literal has its fields and no others, so it is also a value of a recursive alias whose arms
-are maps of strings, such as `Json.Value`: `local warm = { id = "x", usage = { n = 1 } }` is passed to `Json.encode`
+are maps of strings, such as [`Json.Value`]: `local warm = { id = "x", usage = { n = 1 } }` is passed to [`Json.encode`]
 as it is. A declared record is not, since a value of it may hold other fields.
 
 An empty literal with no type (`local rows = {}`, or one of several locals: `local total, rows = 0, {}`) takes its
@@ -1094,6 +1094,8 @@ true	/no/such/file: No such file or directory
 [`Fs.read`]: ../../cosmic/fs.tl
 [`Fs.Scratch`]: ../../cosmic/fs.tl
 [`Http.open`]: ../../cosmic/http/init.tl
+[`Json.encode`]: ../../cosmic/json.tl
+[`Json.Value`]: ../../cosmic/json.tl
 [`Signal.guard`]: ../../cosmic/signal.tl
 [`Sqlite.Handle`]: ../../cosmic/sqlite.tl
 [`Sqlite.memory`]: ../../cosmic/sqlite.tl
