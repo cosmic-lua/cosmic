@@ -223,4 +223,6 @@ local function test_a_config_that_is_none_is_refused_naming_why()
     "upstream.addresses[1]")
   says(head .. "listeners=3", "listeners is not 1 or 2")
   says(head .. "token=a&token=b", "token is given more than once")
+  local raised, why = pcall(RelayConfig.encode, { grants = { "" }, own_addresses = {}, log = "null" })
+  assert(not raised and tostring(why):find("grants[1] is empty", 1, true) ~= nil, tostring(why))
 end

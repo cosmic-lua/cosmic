@@ -347,13 +347,17 @@ local function add_one(out: mut {Url.Pair}, name: string, value: string)
 end
 
 --- `list`'s entries added to `out` under `name`, or one empty value
---- for an empty list, so that the field is always there.
+--- for an empty list, so that the field is always there. An empty entry
+--- is the starter's error, and raised: it would read back as no entry.
 local function add_list(out: mut {Url.Pair}, name: string, list: {string})
   if #list == 0 then
     out[#out + 1] = { name = name, value = "" }
     return
   end
-  for _, entry in ipairs(list) do out[#out + 1] = { name = name, value = entry } end
+  for i, entry in ipairs(list) do
+    if entry == "" then error("relay_config: " .. name .. "[" .. tostring(i) .. "] is empty", 3) end
+    out[#out + 1] = { name = name, value = entry }
+  end
 end
 
 --- `config` as one line of query text (`grants=a%3A443&grants=...`,
