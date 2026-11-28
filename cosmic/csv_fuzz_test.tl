@@ -93,10 +93,9 @@ local function same(a: {{string}}, b: {{string}}): boolean
 end
 
 -- Whatever the fields hold, parse(encode(records)) is the records.
-local function test_what_is_written_parse_reads_back(tmp: string)
-  Fuzz.run({
+local function fuzz_what_is_written_parse_reads_back(): Fuzz.Target
+  return Fuzz.target({
     name = "csv round trip",
-    dir = tmp,
     gen = gen_records,
     requires = { "quoted", "plain", "multiline", "empty field", "no records" },
     shares = { quoted = 0.3, multiline = 0.1 },
@@ -145,10 +144,9 @@ end
 
 -- Any bytes are records or a message that names a place, never a raise;
 -- what is read writes and reads back the same; `table` agrees with `parse`.
-local function test_parse_and_table_are_total_on_any_bytes(tmp: string)
-  Fuzz.run({
+local function fuzz_parse_and_table_are_total_on_any_bytes(): Fuzz.Target
+  return Fuzz.target({
     name = "csv total",
-    dir = tmp,
     gen = gen_text,
     requires = { "read", "refused", "ragged" },
     shares = { read = 0.2, refused = 0.1 },
@@ -227,10 +225,9 @@ end
 
 -- A quote put in an unquoted field, a quote left open and a record of
 -- another length are each refused at the line (and column) they were put.
-local function test_a_defect_is_refused_at_the_place_it_was_put(tmp: string)
-  Fuzz.run({
+local function fuzz_a_defect_is_refused_at_the_place_it_was_put(): Fuzz.Target
+  return Fuzz.target({
     name = "csv malformed",
-    dir = tmp,
     gen = gen_defect,
     requires = { "stray", "unclosed", "ragged" },
     shares = { stray = 0.15, unclosed = 0.15, ragged = 0.15 },
@@ -297,10 +294,9 @@ end
 
 -- A one-column file the writer wrote gives back exactly the records after
 -- the header, in order, an empty one included, `""` keeping a last one.
-local function test_a_one_column_file_reads_back_its_rows(tmp: string)
-  Fuzz.run({
+local function fuzz_a_one_column_file_reads_back_its_rows(): Fuzz.Target
+  return Fuzz.target({
     name = "csv one column",
-    dir = tmp,
     gen = gen_column,
     requires = { "empty row", "last empty", "rows", "no rows" },
     shares = { ["empty row"] = 0.2, ["last empty"] = 0.05 },
@@ -338,10 +334,9 @@ end
 
 -- Interior and trailing blank lines: the rows are the lines up to the last
 -- nonblank one, blanks among them empty; a two-column header skips them.
-local function test_blank_lines_count_by_the_headers_width(tmp: string)
-  Fuzz.run({
+local function fuzz_blank_lines_count_by_the_headers_width(): Fuzz.Target
+  return Fuzz.target({
     name = "csv blank lines",
-    dir = tmp,
     gen = gen_lines,
     requires = { "interior", "trailing", "wide" },
     shares = { interior = 0.2, trailing = 0.2 },
@@ -393,10 +388,9 @@ end
 -- Each row's line is the one its record was written to begin on, counting
 -- the line breaks quoted in the fields before it, CRLF and blank lines
 -- alike; so the lines rise, and each holds the start of its first field.
-local function test_each_row_is_at_the_line_its_record_was_written_on(tmp: string)
-  Fuzz.run({
+local function fuzz_each_row_is_at_the_line_its_record_was_written_on(): Fuzz.Target
+  return Fuzz.target({
     name = "csv lines",
-    dir = tmp,
     gen = gen_located,
     requires = { "rows", "quoted break", "blank", "crlf" },
     shares = { rows = 0.2, ["quoted break"] = 0.03 },
@@ -483,14 +477,13 @@ end
 --- row and cell for cell, and it refuses what `table` refuses: one reading
 --- of CSV, whichever reader reads it. Text holding a NUL, which SQLite's
 --- CSV table cannot read, it refuses.
-local function test_load_reads_what_table_reads(tmp: string)
+local function fuzz_load_reads_what_table_reads(tmp: string): Fuzz.Target
   local Sqlite = require("cosmic.sqlite")
   local Fs = require("cosmic.fs")
   local db = assert(Sqlite.memory())
   local path = tmp .. "/load.csv"
-  Fuzz.run({
+  return Fuzz.target({
     name = "csv load agrees with table",
-    dir = tmp,
     gen = gen_load,
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)

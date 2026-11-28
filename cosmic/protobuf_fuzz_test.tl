@@ -240,10 +240,9 @@ local function gen_input(src: Fuzz.Source): string
   return Fuzz.mutate(src, gen_message(src), if kind == 4 then 0 else 3 end)
 end
 
-local function test_decode_is_total_and_what_it_reads_is_written_back(tmp: string)
-  Fuzz.run({
+local function fuzz_decode_is_total_and_what_it_reads_is_written_back(): Fuzz.Target
+  return Fuzz.target({
     name = "protobuf decode",
-    dir = tmp,
     gen = gen_input,
     check = function(input: string): boolean, string
       local message, why = Protobuf.decode(input)
@@ -289,10 +288,9 @@ local function test_decode_is_total_and_what_it_reads_is_written_back(tmp: strin
   })
 end
 
-local function test_describe_is_total_and_answers_where_decode_does(tmp: string)
-  Fuzz.run({
+local function fuzz_describe_is_total_and_answers_where_decode_does(): Fuzz.Target
+  return Fuzz.target({
     name = "protobuf describe",
-    dir = tmp,
     gen = gen_input,
     check = function(input: string): boolean, string
       local bounds: {Protobuf.Options} = { {}, { indent = "  " }, { max_depth = 3, max_fields = 3 } }
@@ -327,10 +325,9 @@ local function test_describe_is_total_and_answers_where_decode_does(tmp: string)
   })
 end
 
-local function test_what_a_writer_writes_is_read_as_written(tmp: string)
-  Fuzz.run({
+local function fuzz_what_a_writer_writes_is_read_as_written(): Fuzz.Target
+  return Fuzz.target({
     name = "protobuf writer round trip",
-    dir = tmp,
     gen = gen_message,
     check = function(input: string): boolean, string
       local message, why = Protobuf.decode(input)
@@ -346,10 +343,9 @@ local function test_what_a_writer_writes_is_read_as_written(tmp: string)
   })
 end
 
-local function test_read_varint_is_total_and_reads_what_varint_writes(tmp: string)
-  Fuzz.run({
+local function fuzz_read_varint_is_total_and_reads_what_varint_writes(): Fuzz.Target
+  return Fuzz.target({
     name = "protobuf varint",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       local kind = src:int(0, 3)
       if kind == 0 then return Fuzz.bytes(src, 14) end

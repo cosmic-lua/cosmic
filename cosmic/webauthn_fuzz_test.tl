@@ -147,11 +147,10 @@ local function client_wrong(client: string, kind: string): string
   return ""
 end
 
-local function test_a_changed_registration_is_answered_and_never_raises(tmp: string)
+local function fuzz_a_changed_registration_is_answered_and_never_raises(): Fuzz.Target
   local p = registration_parts
-  Fuzz.run({
+  return Fuzz.target({
     name = "verify a changed registration",
-    dir = tmp,
     requires = { "json", "parts", "registered", "refused" },
     gen = function(src: Fuzz.Source): string
       return changed(src, { "client", "object", "raw_id" }, { p.client, p.object, p.raw_id },
@@ -200,10 +199,9 @@ local function wrongly_taken(r: {string: Json.Value}): string
   return ""
 end
 
-local function test_a_login_is_taken_only_as_it_was_signed(tmp: string)
-  Fuzz.run({
+local function fuzz_a_login_is_taken_only_as_it_was_signed(): Fuzz.Target
+  return Fuzz.target({
     name = "verify a changed login",
-    dir = tmp,
     requires = { "json", "parts", "resigned", "refused", "taken" },
     shares = { taken = 0.05 },
     gen = function(src: Fuzz.Source): string

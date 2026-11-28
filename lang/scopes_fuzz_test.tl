@@ -268,10 +268,9 @@ local function listed(scoped: Scopes.Scoped): {string}
   return out
 end
 
-local function test_every_name_of_a_program_resolves_as_the_reference_says(tmp: string)
-  Fuzz.run({
+local function fuzz_every_name_of_a_program_resolves_as_the_reference_says(): Fuzz.Target
+  return Fuzz.target({
     name = "scopes resolve as the reference",
-    dir = tmp,
     gen = gen_program,
     check = function(input: string): boolean, string
       local parsed = parse(input)
@@ -381,10 +380,9 @@ local function holds(input: string): boolean, string
   return true, ""
 end
 
-local function test_a_program_with_a_few_tokens_changed_builds_consistent_scopes(tmp: string)
-  Fuzz.run({
+local function fuzz_a_program_with_a_few_tokens_changed_builds_consistent_scopes(): Fuzz.Target
+  return Fuzz.target({
     name = "scopes of a mutated program",
-    dir = tmp,
     gen = gen_mutated,
     check = holds,
     requires = { "clean", "refused", "unknown_variable", "shadows" },
@@ -392,10 +390,9 @@ local function test_a_program_with_a_few_tokens_changed_builds_consistent_scopes
   })
 end
 
-local function test_any_run_of_tokens_builds_consistent_scopes(tmp: string)
-  Fuzz.run({
+local function fuzz_any_run_of_tokens_builds_consistent_scopes(): Fuzz.Target
+  return Fuzz.target({
     name = "scopes of any tokens",
-    dir = tmp,
     gen = gen_pieces,
     check = holds,
     requires = { "refused", "unknown_variable" },

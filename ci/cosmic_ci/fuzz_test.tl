@@ -48,18 +48,6 @@ end
 
 local function read(path: string): string return (assert(Fs.read(path))) end
 
-local function test_discover_prunes_top_level_trees_and_sorts(tmp: string)
-  for _, path in ipairs({ "b/z_fuzz_test.tl", "a/y_fuzz_test.tl",
-      "a/b/x_fuzz_test.tl", "o/p_fuzz_test.tl", "vendor/v_fuzz_test.tl",
-      "ci/c_fuzz_test.tl", "a/plain_test.tl", "a/fuzz_test.tl",
-      "a/_fuzz_test.tl", "deep/o/kept_fuzz_test.tl" }) do
-    write(tmp .. "/" .. path, "")
-  end
-  local found = table.concat(Fuzz.discover(tmp), " ")
-  assert(found == "./a/_fuzz_test.tl ./a/b/x_fuzz_test.tl ./a/y_fuzz_test.tl" ..
-      " ./b/z_fuzz_test.tl ./deep/o/kept_fuzz_test.tl", found)
-end
-
 local function test_header_names_the_seed_and_iterations()
   assert(Fuzz.header("42", "2000") == "FUZZ_SEED=42 FUZZ_ITERS=2000\n\n" ..
       "A failure's report names the FUZZ_CASE that checks its input again," ..
@@ -235,9 +223,6 @@ end
 local function fake_checkout(root: string, exit: string, body?: {string})
   write(root .. "/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {string}): integer\n  assert(Fs.put(Fs.stdout, assert(argv[1]) .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n")
   write(root .. "/AGENTS.md", "fixture\n")
-  write(root .. "/build/a_fuzz_test.tl", "")
-  write(root .. "/build/fuzz/b_fuzz_test.tl", "")
-  write(root .. "/ci/c_fuzz_test.tl", "")
   write(root .. "/o/sanitized/bin/cosmic", table.concat(body or {
     "#!/bin/sh",
     "echo \"args: $*\"",
@@ -264,8 +249,7 @@ local function test_execute_runs_the_checked_core_on_every_property(tmp: string)
   assert(status == 3, tostring(status))
   local out = read(temp .. "/fuzz.out")
   assert(out == read(tmp .. "/log"), "the log differs from the kept output")
-  assert(out:find("args: test --all ./build/a_fuzz_test.tl" ..
-      " ./build/fuzz/b_fuzz_test.tl\n", 1, true), out)
+  assert(out:find("args: test --fuzz-deep\n", 1, true), out)
   assert(out:find("env: 9 5 0 1200 " .. temp .. "/fuzz 120\n", 1, true), out)
   assert(out:find("cwd: " .. assert(Fs.absolute(root)) .. "\n", 1, true), out)
   local exists = assert(Fs.status(temp .. "/fuzz")).is_dir

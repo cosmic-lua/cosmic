@@ -129,10 +129,9 @@ local COMPRESSED <const> = "\x12\x34\x85\x00\x00\x01\x00\x03\x00\x01\x00\x01" ..
   "\x78\xa3\xf1\x75\x00\x00\x1c\x20\x00\x00\x03\x84\x00\x12\x75\x00\x00\x00\x01\x2c" ..
   "\xc0\x64\x00\x1c\x00\x01\x00\x00\x00\x3c\x00\x10\x20\x01\x0d\xb8\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01"
 
-local function test_decode_is_total_and_what_it_reads_is_written_back(tmp: string)
-  Fuzz.run({
+local function fuzz_decode_is_total_and_what_it_reads_is_written_back(): Fuzz.Target
+  return Fuzz.target({
     name = "dns decode",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       local kind = src:int(0, 3)
       if kind == 0 then return Fuzz.bytes(src, 64) end
@@ -170,10 +169,9 @@ local function test_decode_is_total_and_what_it_reads_is_written_back(tmp: strin
   })
 end
 
-local function test_an_encoded_message_is_read_as_written(tmp: string)
-  Fuzz.run({
+local function fuzz_an_encoded_message_is_read_as_written(): Fuzz.Target
+  return Fuzz.target({
     name = "dns encode round trip",
-    dir = tmp,
     gen = gen_message,
     check = function(input: string): boolean, string
       local message, why = Dns.decode(input)
@@ -187,10 +185,9 @@ local function test_an_encoded_message_is_read_as_written(tmp: string)
   })
 end
 
-local function test_a_name_reads_back_as_its_labels(tmp: string)
-  Fuzz.run({
+local function fuzz_a_name_reads_back_as_its_labels(): Fuzz.Target
+  return Fuzz.target({
     name = "dns name round trip",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       local labels: mut {string} = {}
       while Fuzz.more(src, #labels, 8) do
@@ -227,10 +224,9 @@ local function test_a_name_reads_back_as_its_labels(tmp: string)
   })
 end
 
-local function test_labels_is_total(tmp: string)
-  Fuzz.run({
+local function fuzz_labels_is_total(): Fuzz.Target
+  return Fuzz.target({
     name = "dns labels",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       local parts: mut {string} = {}
       while Fuzz.more(src, #parts, 6) do

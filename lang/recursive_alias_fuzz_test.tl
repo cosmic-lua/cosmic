@@ -72,10 +72,9 @@ local function with_alias(): Programs.World, Type, Type
   return w, v, null
 end
 
-local function test_a_type_is_below_the_alias_when_the_definition_of_a_json_value_says_so(tmp: string)
-  Fuzz.run({
+local function fuzz_a_type_is_below_the_alias_when_the_definition_of_a_json_value_says_so(): Fuzz.Target
+  return Fuzz.target({
     name = "recursive alias against its definition",
-    dir = tmp,
     gen = gen_draws,
     check = function(input: string): boolean, string
       local w, v, null = with_alias()

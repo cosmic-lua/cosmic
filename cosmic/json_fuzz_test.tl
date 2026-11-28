@@ -393,10 +393,9 @@ end
 -- reads without `hash_comments` as neither. About 70% of drawn texts
 -- read strictly, 88% as JSON5, and 22% gain a `#` comment; a share
 -- well under each fails the run.
-local function test_hash_comments_read_as_line_comments(tmp: string)
-  Fuzz.run({
+local function fuzz_hash_comments_read_as_line_comments(): Fuzz.Target
+  return Fuzz.target({
     name = "json hash comments",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string return gen_value(src, 4, src:int(0, 1) == 0) end,
     check = function(input: string): boolean, string
       local text = hashed(input)
@@ -809,10 +808,9 @@ end
 -- TODO: a key twice under `lone_surrogates` is not drawn: it reads two
 -- different lone surrogates in keys as one key, U+FFFD twice; spell
 -- them in keys and expect the repeat.
-local function test_a_refusal_for_a_key_twice_is_exactly_a_key_twice(tmp: string)
-  Fuzz.run({
+local function fuzz_a_refusal_for_a_key_twice_is_exactly_a_key_twice(): Fuzz.Target
+  return Fuzz.target({
     name = "json key twice",
-    dir = tmp,
     gen = gen_repeating,
     check = repeating_holds,
     -- An input draws hundreds of values for its large objects, so each
@@ -898,10 +896,9 @@ local function test_text_to_text_holds_on_mutated_json(tmp: string)
     shares = { formatted = 0.15, ["formatted JSON5"] = 0.15, canonical = 0.1 } })
 end
 
-local function test_decode_is_total_on_arbitrary_bytes(tmp: string)
-  Fuzz.run({
+local function fuzz_decode_is_total_on_arbitrary_bytes(): Fuzz.Target
+  return Fuzz.target({
     name = "json decode total on bytes",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string return Fuzz.bytes(src, 64) end,
     check = decode_holds,
     starved = decode_starved,
@@ -1047,10 +1044,9 @@ local function encode_holds(input: string): boolean, string
   return true, ""
 end
 
-local function test_encode_is_total_and_round_trips(tmp: string)
-  Fuzz.run({
+local function fuzz_encode_is_total_and_round_trips(): Fuzz.Target
+  return Fuzz.target({
     name = "json encode total",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string return Fuzz.bytes(src, 200) end,
     check = encode_holds,
     requires = { "encoded", "refused" },
@@ -1104,10 +1100,9 @@ local function ascii_holds(input: string): boolean, string
   return true, ""
 end
 
-local function test_ascii_text_decodes_to_the_same_string(tmp: string)
-  Fuzz.run({
+local function fuzz_ascii_text_decodes_to_the_same_string(): Fuzz.Target
+  return Fuzz.target({
     name = "json ascii",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string return Fuzz.bytes(src, 90) end,
     check = ascii_holds,
     requires = { "escaped" },
@@ -1115,10 +1110,9 @@ local function test_ascii_text_decodes_to_the_same_string(tmp: string)
 end
 
 --- An input `n` containers deep, and the limit to read it under.
-local function test_the_depth_limits_are_exact(tmp: string)
-  Fuzz.run({
+local function fuzz_the_depth_limits_are_exact(): Fuzz.Target
+  return Fuzz.target({
     name = "json depth",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       local opens: mut {string} = {}
       while Fuzz.more(src, #opens, 1200) do
@@ -1160,10 +1154,9 @@ local function gen_lines(src: Fuzz.Source): string
   return Fuzz.mutate(src, table.concat(lines, Fuzz.pick(src, { "\n", "\r\n", "\n\n" })), 6)
 end
 
-local function test_json_lines_are_total_and_round_trip(tmp: string)
-  Fuzz.run({
+local function fuzz_json_lines_are_total_and_round_trip(): Fuzz.Target
+  return Fuzz.target({
     name = "json lines",
-    dir = tmp,
     gen = gen_lines,
     check = function(input: string): boolean, string
       local ok, values, err = pcall(function(): {Json.Value}?, Failure?
@@ -1393,10 +1386,9 @@ local function layout_holds(input: string): boolean, string
 end
 
 --- The core's table scan classifies as the Teal it replaced did.
-local function test_layout_classifies_as_the_teal_reference(tmp: string)
-  Fuzz.run({
+local function fuzz_layout_classifies_as_the_teal_reference(): Fuzz.Target
+  return Fuzz.target({
     name = "json layout",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string return Fuzz.bytes(src, 40) end,
     check = layout_holds,
     requires = { "array", "object", "hole", "mixed", "many keys", "many string keys" },

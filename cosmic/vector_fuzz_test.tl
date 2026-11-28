@@ -1375,10 +1375,9 @@ local function check_search(input: string): boolean, string
   return true, ""
 end
 
-local function test_search_matches_a_brute_force_reference(tmp: string)
-  Fuzz.run({
+local function fuzz_search_matches_a_brute_force_reference(): Fuzz.Target
+  return Fuzz.target({
     name = "corpus search",
-    dir = tmp,
     gen = gen_search_input,
     check = check_search,
     requires = { "inner_product", "cosine", "l2", "f32", "f16", "int8", "f16 refused", "no hits", "allowed",
@@ -1775,10 +1774,9 @@ local function check_refusals(input: string): boolean, string
   return true, ""
 end
 
-local function test_a_corpus_refuses_what_is_not_a_vector_or_a_request(tmp: string)
-  Fuzz.run({
+local function fuzz_a_corpus_refuses_what_is_not_a_vector_or_a_request(): Fuzz.Target
+  return Fuzz.target({
     name = "corpus refusals",
-    dir = tmp,
     gen = gen_refusals_input,
     check = check_refusals,
     requires = { "refused" },
@@ -1913,10 +1911,9 @@ local function check_nearest(input: string): boolean, string
   return true, ""
 end
 
-local function test_nearest_matches_a_reference_and_refuses_hostile_lists(tmp: string)
-  Fuzz.run({
+local function fuzz_nearest_matches_a_reference_and_refuses_hostile_lists(): Fuzz.Target
+  return Fuzz.target({
     name = "vector nearest",
-    dir = tmp,
     gen = gen_nearest_input,
     check = check_nearest,
     requires = { "ranked", "tie", "refused", "overflowing" },

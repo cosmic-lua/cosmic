@@ -13,7 +13,6 @@ local State = require("cosmic_ci.state")
 local Signal = require("cosmic.signal")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
-local String = require("cosmic.string")
 
 local record Fuzz
   --- One fuzz run: the checkout it runs in, the runner's scratch, the
@@ -46,10 +45,6 @@ end
 --- The checked core, relative to the checkout's root: `bin/zig build
 --- sanitized` builds it.
 local executable <const> = "/sanitized/bin/cosmic"
---- Top-level trees the search leaves out: build output, vendored
---- sources, and the CI driver's own project.
-local pruned <const>: {string:boolean} = { o = true, vendor = true, ci = true }
-local suffix <const> = "_fuzz_test.tl"
 local cut <const> = 300
 local failing_lines <const> = 30
 local report_lines <const> = 60
@@ -68,23 +63,6 @@ local poll_ns <const> = 100 * 1000 * 1000
 local drain_bytes <const> = 4 * chunk
 --- An escaped descendant cannot keep the completed fuzz run draining forever.
 local final_output_ns <const> = 5 * 1000 * 1000 * 1000
-
---- Every `*_fuzz_test.tl` under `root`, outside its top-level o/,
---- vendor/ and ci/, as `./`-relative paths in byte order.
-function Fuzz.discover(root: string): {string}
-  local found = assert(Fs.walk(root, { skip = function(entry: string, _name: string, _kind: sys.Kind): boolean
-    return pruned[entry] == true
-  end }))
-  local tests: mut {string} = {}
-  for _, entry in ipairs(found) do
-    local name = Fs.basename(entry)
-    if String.ends_with(name, suffix) then
-      tests[#tests + 1] = "./" .. entry
-    end
-  end
-  table.sort(tests)
-  return tests
-end
 
 --- Up to `limit` of `from`, a line each.
 local function joined(from: {string}, limit: integer): string
@@ -410,8 +388,9 @@ function Fuzz.execute(r: Fuzz.Run): integer
   env["COSMIC_AUTO_BOOT"] = "0"
   env["COSMIC_TEST_TIMEOUT"] = "1200"
   env["FUZZ_SECONDS"] = r.env["FUZZ_SECONDS"] or property_seconds
-  local argv: mut {string} = { BuildPaths.directory(r.root, env) .. executable, "test", "--all" }
-  for _, test in ipairs(Fuzz.discover(r.root)) do argv[#argv + 1] = test end
+  -- A deep run checks each fuzz property of the tree, and each test of a *_fuzz_test.tl file, at the job's
+  -- FUZZ_ITERS, whatever verdict stands for it.
+  local argv: {string} = { BuildPaths.directory(r.root, env) .. executable, "test", "--fuzz-deep" }
   local out = r.temp .. "/fuzz.out"
   -- Streamed to the log as it runs, and kept for the summary: a run
   -- cancelled at its time limit still shows how far it got. A signal

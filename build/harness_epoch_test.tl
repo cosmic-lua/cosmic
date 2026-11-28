@@ -327,9 +327,12 @@ end
 
 --- A require the harness never follows: cosmic's main hands the
 --- command line to build.dispatch, which a worker never reaches, since
---- main starts a worker ahead of it (cmd/cosmic/main.tl).
+--- main starts a worker ahead of it (cmd/cosmic/main.tl); a worker
+--- requires cosmic.fuzz only for a `fuzz_*` function, whose file made its
+--- target with cosmic.fuzz, so the module is in that test's closure.
 local unfollowed: {string:{string:boolean}} = {
   ["cmd.cosmic.main"] = { ["build.dispatch"] = true },
+  ["build.test_worker"] = { ["cosmic.fuzz"] = true },
 }
 
 --- Every module of the tree a module the harness runs requires by value
