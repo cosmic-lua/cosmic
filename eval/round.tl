@@ -14,11 +14,11 @@
 --- can call those scripts' functions. [`Round.plan`] is the round as data;
 --- [`Round.execute`] carries it out through a [`Round.System`], which a test
 --- replaces with a fake.
+local Fs = require("cosmic.fs")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
-local Fs = require("cosmic.fs")
+local Git = require("cosmic.git")
 local Json = require("cosmic.json")
-local Proc = require("cosmic.proc")
 
 local record Round
   --- What the command line asked for.
@@ -324,16 +324,14 @@ function Round.execute(plan: Round.Plan, system: Round.System): integer
 end
 
 --- The System that runs commands for real.
---- The checkout's short commit: `git rev-parse --short HEAD` in `root`,
---- git found on `path` (PATH by default), "unknown" where there is none.
-function Round.short_commit(root: string, path?: string): string
-  local git, _ = Proc.find("git", path)
-  if git == nil then return "unknown" end
-  local ran, _ = Child.run({ git, "-C", root, "rev-parse", "--short", "HEAD" },
-    { stdout = "capture", stderr = "null", stdin = "null", timeout_ns = Clock.seconds(10) })
-  local sha: string? = nil
-  if ran ~= nil and ran.ok then sha = (ran.stdout or ""):match("^(%x+)\n$") end
-  return sha or "unknown"
+--- The checkout's short commit: the first 7 digits of HEAD of the repository at `root`, read by cosmic.git (no git
+--- program runs); "unknown" where there is none.
+function Round.short_commit(root: string): string
+  local opened, _ = Git.open(root)
+  if opened == nil then return "unknown" end
+  local head, _ = opened:head()
+  if head == nil or head == false then return "unknown" end
+  return head:sub(1, 7)
 end
 
 local function real_system(): Round.System

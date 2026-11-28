@@ -10,11 +10,9 @@
 --- It writes <arena>/result.json. [`result`] runs this on the
 --- bootstrap cosmic, as [`solve`] runs eval/solve.tl: it requires
 --- `cosmic.*` modules only.
-local Child = require("cosmic.child")
-local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
+local Git = require("cosmic.git")
 local Json = require("cosmic.json")
-local Proc = require("cosmic.proc")
 local Time = require("cosmic.time")
 
 local record Result
@@ -267,17 +265,14 @@ end
 local USAGE <const> = "usage: eval/result <arena> [--grade-exit N] [--grade-log PATH] [--model M] " ..
   "[--commit C] [--max-turns N] [--timeout S]"
 
---- The harness commit: `git rev-parse HEAD` in `repo`, with git found
---- on `path` (PATH by default) -- Child.run does not search PATH --
---- nil where git or the repository is not there.
-function Result.git_head(repo: string, path?: string): string?
-  local git, _ = Proc.find("git", path)
-  if git == nil then return nil end
-  local ran, _ = Child.run({ git, "-C", repo, "rev-parse", "HEAD" },
-    { stdout = "capture", stderr = "null", stdin = "null", timeout_ns = Clock.seconds(10) })
-  local sha: string? = nil
-  if ran ~= nil and ran.ok then sha = (ran.stdout or ""):match("^(%x+)\n$") end
-  return sha
+--- The harness commit: HEAD of the repository at `repo`, read by cosmic.git (no git program runs); nil where `repo` is
+--- no repository or has no commit.
+function Result.git_head(repo: string): string?
+  local opened, _ = Git.open(repo)
+  if opened == nil then return nil end
+  local head, _ = opened:head()
+  if head == nil or head == false then return nil end
+  return head
 end
 
 --- @param argv the words after the script's path

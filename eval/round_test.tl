@@ -5,7 +5,7 @@ local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Test = require("cosmic.test")
 local Round = require("round")
-local Fakes = require("cosmic.fake")
+local Git = require("cosmic.git")
 
 Test.policy{ grants = { { path = "task/", letters = "r" } } }
 
@@ -222,12 +222,21 @@ local function test_an_arena_that_cannot_be_laid_is_not_solved()
   assert(assert(f.files["/out/index.txt"]):find("notes status=lay_failed", 1, true))
 end
 
---- The short commit is read through the git found on the PATH given;
---- with none, "unknown" names the round's directory.
-local function test_the_short_commit_comes_from_the_git_on_the_path(dir: string)
-  local probe = assert(Fakes.build(dir .. "/fake", Fakes.REPLY))
-  assert(Fs.mkdirs(dir .. "/bin"))
-  assert(Fakes.reply(probe, dir .. "/bin/git", { ["*"] = { stdout = "abc1234\n" } }))
-  assert(Round.short_commit("/anywhere", dir .. "/bin") == "abc1234")
-  assert(Round.short_commit("/anywhere", dir .. "/nowhere") == "unknown")
+local function make_repo(root: string): string
+  assert(Fs.mkdirs(root .. "/.git/objects"))
+  assert(Fs.mkdirs(root .. "/.git/refs/heads"))
+  assert(Fs.write(root .. "/.git/HEAD", "ref: refs/heads/main\n"))
+  assert(Fs.write(root .. "/.git/config", "[core]\n\trepositoryformatversion = 0\n\tbare = false\n"))
+  assert(Fs.write(root .. "/a.txt", "one\n"))
+  local who: Git.Person = { name = "Test", email = "test@example.com", time = 1767225900, tz = "+0000" }
+  local repo = assert(Git.open(root))
+  assert(repo:add({ "a.txt" }))
+  return assert(repo:commit({ message = "first", author = who, committer = who }))
+end
+
+--- The short commit is the first 7 digits of HEAD, read with no git program; with none, "unknown".
+local function test_the_short_commit_is_head_of_the_repository(dir: string)
+  local oid = make_repo(dir .. "/repo")
+  assert(Round.short_commit(dir .. "/repo") == oid:sub(1, 7))
+  assert(Round.short_commit(dir .. "/nowhere") == "unknown")
 end
