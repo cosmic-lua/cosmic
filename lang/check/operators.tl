@@ -280,7 +280,9 @@ end
 --- `right`, is never false or nil: the two then answer alike. Nil where `x` may be false or nil, which the `if` expression
 --- answers differently.
 function Operators.ternary_rewrite(ctx: Ctx, node: Ast.Binary, parent: Ast.Binary, right: Type): Codes.Rewrite?
-  if Types.may_be_false(right) or not Types.present(right) or Context.holds_comment(ctx, parent) then return nil end
+  if Types.may_be_false(right) or not Types.present(right) or Context.holds_comment(ctx, parent) then
+    return nil
+  end
   return { before = "", after = "", text = "if " .. full_text(ctx, node.left) .. " then " .. full_text(ctx, node.right) ..
       " else " .. full_text(ctx, parent.right) .. " end" }
 end

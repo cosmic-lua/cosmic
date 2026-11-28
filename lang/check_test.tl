@@ -766,8 +766,8 @@ end
 local function test_a_module_table_is_a_condition_that_always_holds()
   local module = { ["m.fs"] = "local record Fs\n  x: integer\nend\nreturn Fs\n" }
   for _, source in ipairs({
-    "local Fs = require(\"m.fs\")\nlocal r = Fs and nil\nlocal s: string = Fs and \"a\"\nif Fs then\n  print(r, s)\nend\n",
-    "local Fs = require(\"m.fs\")\nwhile not Fs do\nend\n",
+      "local Fs = require(\"m.fs\")\nlocal r = Fs and nil\nlocal s: string = Fs and \"a\"\nif Fs then\n  print(r, s)\nend\n",
+      "local Fs = require(\"m.fs\")\nwhile not Fs do\nend\n",
   }) do
     local r = Programs.run(source, module)
     assert(#r.before == 0 and #r.errors == 0, Programs.codes(r) .. " in\n" .. source)

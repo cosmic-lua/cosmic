@@ -1073,7 +1073,7 @@ function Driver.new(options: Driver.Options): Driver.Build
         local fix = e.fix
         local module: string? = nil
         local named: string? = nil
-        -- A module's name used as a value (`Json.encode`) or as a type alone (`local v: Json.Value`) is one a require binds.
+        -- A module's name used as a value ([`Json.encode`]) or as a type alone (`local v: Json.Value`) is one a require binds.
         if (e.code == "unknown_variable" or e.code == "unknown_type") and e.msg:sub(-#" is not declared") == " is not declared" then
           local at = RemovedFix.token_at(result.chunk.tokens, e.offset)
           local text = if at ~= nil then result.chunk.tokens.text[at] else nil end

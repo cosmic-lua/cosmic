@@ -106,7 +106,7 @@ local function test_a_ternary_whose_middle_is_never_false_is_written_as_an_if_ex
   assert(Programs.codes(Programs.run("local function pick(a: boolean, b: boolean | string): string | boolean\n" ..
       "  return a and b or \"z\"\nend\nprint(pick(true, false))\n")):find("and_ternary", 1, true) ~= nil, "no and_ternary")
   local maybe, maybe_errors = edits_of("local a = true\nlocal n: string? = nil\nlocal s = a and n or \"z\"\nprint(s)\n")
-  assert(maybe_errors >= 1 and #maybe == 0, tostring(maybe_errors) .. " errors, " .. tostring(#maybe) .. " rewrites")  -- a comment inside would be dropped by the `if` written again, so none is offered
+  assert(maybe_errors >= 1 and #maybe == 0, tostring(maybe_errors) .. " errors, " .. tostring(#maybe) .. " rewrites") -- a comment inside would be dropped by the `if` written again, so none is offered
   local commented, commented_errors = edits_of("local a = true\nlocal s = a and -- why\n  \"x\" or \"y\"\nprint(s)\n")
   assert(commented_errors == 1 and #commented == 0, tostring(commented_errors) .. " errors, " .. tostring(#commented) .. " rewrites")
 end
@@ -121,7 +121,7 @@ local function test_a_range_shorter_than_its_string_is_made_as_long()
       "`line:sub(1, 20) == \"local function test_\"`", told[1])
   -- the string first, a range from the end, and `~=`
   local from_end = rewritten("local l = \"abc\"\nprint(\"_test.tl\" ~= l:sub(-3))\n")
-  assert(from_end == "local l = \"abc\"\nprint(\"_test.tl\" ~= l:sub(-8))\n", from_end)  -- none where a comment stands inside the test
+  assert(from_end == "local l = \"abc\"\nprint(\"_test.tl\" ~= l:sub(-8))\n", from_end) -- none where a comment stands inside the test
   local edits, errors = edits_of("local l = \"abc\"\nprint(\"_test.tl\" ~= -- the suffix\n  l:sub(-3))\n")
   assert(errors == 1 and #edits == 0, tostring(errors) .. " errors, " .. tostring(#edits) .. " rewrites")
 end
