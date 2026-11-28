@@ -55,8 +55,9 @@ body and what it keeps of the call.
    that only cosmic.fuzz makes and reads, since the checker narrows a
    class with `is` only inside its module and refuses a cast from the
    `any` a worker is returned. A generator is a value
-   ([`Fuzz.Property`]'s `gen`) another body can draw from: a bench can
-   time a seeded draw, and a corpus input is a fixed case. A fuzz failure
+   ([`Fuzz.Property`]'s `gen`) another body can draw from:
+   [`Fuzz.inputs`] returns a property's corpus and the first `n` inputs
+   a run draws, so a bench of the same file times the module on them. A fuzz failure
    is kept in the corpus, so it is a test and a bench input both. A test
    that builds its properties in a loop still calls [`Fuzz.run`];
    `--fuzz-deep` takes every test of a `*_fuzz_test.tl` file for it.
@@ -115,6 +116,7 @@ say); `<module>_example.tl` for what the docs show.
 [`Bench.compare`]: ../../cosmic/bench.tl
 [`build/test_against.tl`]: ../../build/test_against.tl
 [`cosmic.bench`]: ../../cosmic/bench.tl
+[`Fuzz.inputs`]: ../../cosmic/fuzz.tl
 [`Fuzz.Property`]: ../../cosmic/fuzz.tl
 [`Fuzz.run_target`]: ../../cosmic/fuzz.tl
 [`Fuzz.run`]: ../../cosmic/fuzz.tl
