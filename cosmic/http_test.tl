@@ -1560,3 +1560,19 @@ local function test_a_bodiless_response_is_not_refused_for_its_content_length()
     assert(got ~= nil and got.body == "", status .. ": " .. tostring(why))
   end
 end
+
+--- `fail_status` makes a status of 400 or more a failure that names the method, URL, status and the start of the
+--- body, with the status as its code; without it every status is returned.
+local function test_fail_status_fails_a_status_of_400_or_more_and_otherwise_returns_it()
+  local gone = "HTTP/1.1 410 Gone\r\nContent-Length: 13\r\n\r\nserved\n once\n"
+  local plain = assert(Http.get(url, { timeout_ns = Clock.seconds(60), script = { gone } }))
+  assert(plain.status == 410)
+  local got, why = Http.get(url, { timeout_ns = Clock.seconds(60), fail_status = true, script = { gone } })
+  assert(got == nil and why.code == 410, tostring(why))
+  assert(tostring(why) == "GET " .. url .. ": status 410: served once", tostring(why))
+  local _, put = Http.request("PUT", url, { timeout_ns = Clock.seconds(60), body = "x", fail_status = true, script = { gone } })
+  assert(tostring(put):find("PUT " .. url .. ": status 410", 1, true) ~= nil, tostring(put))
+  local ok = assert(Http.get(url, { timeout_ns = Clock.seconds(60), fail_status = true,
+    script = { "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nhi" } }))
+  assert(ok.body == "hi")
+end

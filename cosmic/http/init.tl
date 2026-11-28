@@ -377,6 +377,12 @@ local record Http
     follow?: boolean
     --- The most redirects followed, 10 by default.
     max_redirects?: integer
+    --- Whether a final status of 400 or more fails, as `curl -f` does,
+    --- in place of returning it: the [`Failure`] has the status as its
+    --- `code`, and its message the method, the URL, the status and the
+    --- start of the body (`GET http://a/x: status 410: gone`). False by
+    --- default, which returns every status for the caller to check.
+    fail_status?: boolean
     --- The schemes a redirect may lead to: "https" alone by default
     --- for an https URL, "http" and "https" for an http one.
     redirect_protocols?: {string}
@@ -1116,6 +1122,19 @@ local function stated(opts: Http.Options)
   end
 end
 
+--- The failure of a response whose status is 400 or more, for
+--- `opts.fail_status`: the method, URL, status and the start of the body
+--- with its control bytes left out. Closes `response`.
+local function refused_status(response: Response, method: string, url: string): Failure
+  local head, _ = Stream.read_up_to(response, 512)
+  local start = head or ""
+  local _, _ = response:close()
+  start = start:gsub("[%z\1-\8\14-\31\127]", ""):gsub("%s+", " "):gsub("^ ", ""):sub(1, 200):gsub(" $", "")
+  local message = method .. " " .. url .. ": status " .. tostring(response.status)
+  if start ~= "" then message = message .. ": " .. start end
+  return Failure.coded(message, response.status)
+end
+
 --- [`Http.open`]'s work, which each public entry point that opens
 --- calls itself (`CALLER`), sending `sent`'s method and body.
 local function opened(url: string, opts: Http.Options, sent: Sent?): (Response) | (nil, Failure)
@@ -1177,12 +1196,20 @@ local function opened(url: string, opts: Http.Options, sent: Sent?): (Response) 
       end
     end
     if not again then
+      local response = respond(handle)
       if opts.decompress == true then
-        local response, why = decoded(respond(handle))
-        if response == nil then return nil, failure_of(why) end
-        return response
+        local plain, why = decoded(response)
+        if plain == nil then return nil, failure_of(why) end
+        response = plain
       end
-      return respond(handle)
+      if opts.fail_status == true and response.status >= 400 then
+        local method = "GET"
+        if sent ~= nil then
+          method = sent.method or (if sent.body ~= nil then "POST" else "GET" end)
+        end
+        return nil, refused_status(response, method, url)
+      end
+      return response
     end
     attempt = attempt + 1
     if opts.script ~= nil then

@@ -75,8 +75,11 @@ function AgentFetch.fetch(request: AgentFetch.Request, options?: AgentFetch.Opti
   end
   local script = if options ~= nil then options.script else nil end
   local res, why = Http.open(request.url, { method = request.method, headers = request.headers, body = request.body,
-    follow = false, timeout_ns = Clock.seconds(seconds), script = script })
+    follow = false, fail_status = request.any_status ~= true, timeout_ns = Clock.seconds(seconds), script = script })
   if res == nil then
+    if why.code ~= nil and why.kind == "library" then
+      return nil, Failure.new("host: fetch: " .. why.message .. "; give {any_status = true} to read the response as a value")
+    end
     return nil, Failure.new("host: fetch: " .. request.url .. ": " .. tostring(why))
   end
   -- One byte past the most tells a body that is longer from one that is just so long.
@@ -87,12 +90,6 @@ function AgentFetch.fetch(request: AgentFetch.Request, options?: AgentFetch.Opti
   end
   local cut = #body > AgentFetch.MOST_BYTES
   if cut then body = body:sub(1, AgentFetch.MOST_BYTES) end
-  if res.status >= 400 and request.any_status ~= true then
-    local start = body:gsub("[%z\1-\8\14-\31\127]", ""):gsub("%s+", " "):gsub("^ ", ""):sub(1, 200):gsub(" $", "")
-    return nil, Failure.new("host: fetch: " .. (request.method or (if request.body ~= nil then "POST" else "GET" end)) ..
-        " " .. request.url .. ": status " .. tostring(res.status) .. (if start ~= "" then ": " .. start else "" end) ..
-        "; give {any_status = true} to read the response as a value")
-  end
   return { status = res.status, headers = res.headers, body = body, cut = cut }
 end
 
