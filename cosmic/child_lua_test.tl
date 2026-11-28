@@ -123,8 +123,17 @@ local function test_shell_status_of_a_result_with_neither_code_nor_signal_is_one
   local bare: Child.Result = { ok = false, timed_out = false, captured = {}, truncated = false }
   assert(Child.shell_status(bare) == 1)
   -- The signal wins, though a Result never carries both.
-  bare.signal = sys.SIGKILL
-  assert(Child.shell_status(bare) == 128 + sys.SIGKILL)
+  local both: Child.Result = { code = 3, signal = sys.SIGKILL, ok = false, timed_out = false, captured = {},
+    truncated = false }
+  assert(Child.shell_status(both) == 128 + sys.SIGKILL)
+end
+
+-- A Result's fields are fixed, so a test of one narrows it for the reads after, as a local's would.
+local function test_a_test_of_a_result_field_narrows_it()
+  local r = assert(Child.run(lua("return 4")))
+  local code: integer = 0
+  if r.code ~= nil then code = r.code + 1 end
+  assert(code == 5, tostring(code))
 end
 
 local function test_timeout_kills_the_process_group_and_reaps_child(tmp: string)
