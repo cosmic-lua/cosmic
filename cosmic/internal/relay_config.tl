@@ -18,7 +18,6 @@
 
 local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
-local Json = require("cosmic.json")
 local Address = require("cosmic.relay.address")
 local Grant = require("cosmic.relay.grant")
 local Wire = require("cosmic.internal.relay_wire")
@@ -51,7 +50,8 @@ local record relay_config
     addresses?: {string}
   end
 
-  --- What the relay process is told, as JSON on its standard input.
+  --- What the relay process is told, as one line of query text on its
+  --- standard input ([`relay_config.encode`]).
   record Config
     --- The policy's `connect` targets, `host:port`.
     grants: {string}
@@ -333,47 +333,93 @@ function relay_config.upstream(env: {string:string}): relay_config.Upstream?, st
   return upstream, ""
 end
 
---- `up` as the record [`decode`] reads.
-local function upstream_record(up: relay_config.Upstream): {string: Json.Value}
-  local record: mut {string: Json.Value} = { host = up.host, port = up.port, no_proxy = Json.array(up.no_proxy) }
-  local authorization = up.authorization
-  if authorization ~= nil then record["authorization"] = authorization end
-  local addresses = up.addresses
-  if addresses ~= nil then record["addresses"] = Json.array(addresses) end
-  return record
+--- The names [`relay_config.decode`] reads, each to whether it may be
+--- given more than once (a list).
+local FIELDS <const>: {string: boolean} = {
+  grants = true, own_addresses = true, log = false, listeners = false, token = false,
+  ["upstream.host"] = false, ["upstream.port"] = false, ["upstream.authorization"] = false,
+  ["upstream.no_proxy"] = true, ["upstream.addresses"] = true,
+}
+
+--- The pair `name`, `value` added to `out`.
+local function add_one(out: mut {Url.Pair}, name: string, value: string)
+  out[#out + 1] = { name = name, value = value }
 end
 
---- `config` as one line of JSON, the text the relay reads from its
---- standard input.
+--- `list`'s entries added to `out` under `name`, or one empty value
+--- for an empty list, so that the field is always there. An empty entry
+--- is the starter's error, and raised: it would read back as no entry.
+local function add_list(out: mut {Url.Pair}, name: string, list: {string})
+  if #list == 0 then
+    out[#out + 1] = { name = name, value = "" }
+    return
+  end
+  for i, entry in ipairs(list) do
+    if entry == "" then error("relay_config: " .. name .. "[" .. tostring(i) .. "] is empty", 3) end
+    out[#out + 1] = { name = name, value = entry }
+  end
+end
+
+--- `config` as one line of query text (`grants=a%3A443&grants=...`,
+--- [`Url.encode_query`]), the text the relay reads from its standard
+--- input. A list is its name once an entry, or once with an empty value
+--- when it holds none; an upstream's fields are named `upstream.host`
+--- and so on. The relay has no JSON of its own to read, so the modules
+--- that start it require none.
 --- @param config Config What the relay is told
 --- @return string The line, with no newline
 function relay_config.encode(config: relay_config.Config): string
-  local fields: mut {string: Json.Value} = {
-    grants = Json.array(config.grants),
-    own_addresses = Json.array(config.own_addresses),
-    log = config.log,
-  }
-  local upstream = config.upstream
-  if upstream ~= nil then fields["upstream"] = upstream_record(upstream) end
+  local out: mut {Url.Pair} = {}
+  add_list(out, "grants", config.grants)
+  add_list(out, "own_addresses", config.own_addresses)
+  add_one(out, "log", config.log)
   local listeners = config.listeners
-  if listeners ~= nil then fields["listeners"] = listeners end
+  if listeners ~= nil then add_one(out, "listeners", tostring(listeners)) end
   local token = config.token
-  if token ~= nil then fields["token"] = token end
-  local encoded, why = Json.encode(fields)
-  if encoded == nil then error("relay_config: " .. tostring(why), 2) end
-  return encoded
+  if token ~= nil then add_one(out, "token", token) end
+  local up = config.upstream
+  if up ~= nil then
+    add_one(out, "upstream.host", up.host)
+    add_one(out, "upstream.port", tostring(up.port))
+    local authorization = up.authorization
+    if authorization ~= nil then add_one(out, "upstream.authorization", authorization) end
+    add_list(out, "upstream.no_proxy", up.no_proxy)
+    local addresses = up.addresses
+    if addresses ~= nil then add_list(out, "upstream.addresses", addresses) end
+  end
+  return Url.encode_query(out)
 end
 
---- The strings of `value`, a list, or nil and why.
-local function strings(value: Json.Value?, name: string): mut {string}?, string
-  local list, _ = Json.to_array(value)
-  if list == nil then return nil, name .. " is not a list" end
+--- The entries of the list `name` in `query`, or nil and why: one empty
+--- value is the empty list, and an empty entry of a longer list is
+--- refused. Nil and why where `name` is not given and `required`; nil and
+--- "" where it is not given and may not be.
+local function list_of(query: Url.Query, name: string, required: boolean): mut {string}?, string
+  local values = query.by_name[name]
+  if values == nil then return nil, if required then name .. " is not given" else "" end end
+  if #values == 1 and values[1] == "" then return {}, "" end
   local out: mut {string} = {}
-  for i, entry in ipairs(list) do
-    if not entry is string then return nil, name .. "[" .. tostring(i) .. "] is not a string" end
-    out[i] = entry
+  for i, value in ipairs(values) do
+    if value == "" then return nil, name .. "[" .. tostring(i) .. "] is empty" end
+    out[i] = value
   end
   return out, ""
+end
+
+--- The one value of the field `name` in `query`, or nil (where it is not
+--- given).
+local function one_of(query: Url.Query, name: string): string?
+  local values = query.by_name[name]
+  return values and values[1]
+end
+
+--- `text` as a decimal integer from `low` to `high`, with no sign or
+--- leading zero, or nil.
+local function integer_of(text: string, low: integer, high: integer): integer?
+  if text:find("^[1-9]%d?%d?%d?%d?$") == nil then return nil end
+  local value = math.tointeger(tonumber(text))
+  if value == nil or value < low or value > high then return nil end
+  return value
 end
 
 --- What makes `up` no upstream a relay may connect through, naming the
@@ -402,62 +448,65 @@ function relay_config.upstream_problem(up: relay_config.Upstream): string?
   return nil
 end
 
---- The [`Upstream`] `value` holds, or nil and why ([`relay_config.upstream_problem`]).
-local function upstream_of(raw: Json.Value?): relay_config.Upstream?, string
-  local value, _ = Json.to_object(raw)
-  if value == nil then return nil, "upstream is not an object" end
-  local host, port, authorization = value["host"], value["port"], value["authorization"]
-  if not host is string then return nil, "upstream.host is not a host name or address" end
-  if not port is integer then return nil, "upstream.port is not a port from 1 to 65535" end
-  if authorization ~= nil and not authorization is string then
-    return nil, "upstream.authorization is not a header value with no control bytes"
+--- The [`Upstream`] `query` holds, nil and "" where it holds none, or
+--- nil and why ([`relay_config.upstream_problem`]).
+local function upstream_of(query: Url.Query): relay_config.Upstream?, string
+  local host = one_of(query, "upstream.host")
+  if host == nil then
+    for name in pairs(query.by_name) do
+      if name:find("^upstream%.") ~= nil then return nil, "upstream.host is not given" end
+    end
+    return nil, ""
   end
-  local skipped, skipped_why = strings(value["no_proxy"], "upstream.no_proxy")
+  local port_text = one_of(query, "upstream.port")
+  local port = if port_text == nil then nil else integer_of(port_text, 1, 65535) end
+  if port == nil then return nil, "upstream.port is not a port from 1 to 65535" end
+  local skipped, skipped_why = list_of(query, "upstream.no_proxy", true)
   if skipped == nil then return nil, skipped_why end
-  local addresses: {string}? = nil
-  if value["addresses"] ~= nil then
-    local listed, addresses_why = strings(value["addresses"], "upstream.addresses")
-    if listed == nil then return nil, addresses_why end
-    addresses = listed
-  end
+  local addresses, addresses_why = list_of(query, "upstream.addresses", false)
+  if addresses == nil and addresses_why ~= "" then return nil, addresses_why end
   local up: relay_config.Upstream = { host = host, port = port, no_proxy = skipped, addresses = addresses }
-  if authorization is string then up.authorization = authorization end -- checked: field_fixed
+  local authorization = one_of(query, "upstream.authorization")
+  if authorization ~= nil then up.authorization = authorization end -- checked: field_fixed
   local problem = relay_config.upstream_problem(up)
   if problem ~= nil then return nil, "upstream." .. problem end
   return up, ""
 end
 
---- A [`Config`] from the text [`encode`] wrote, or nil and what is wrong.
+--- A [`Config`] from the text [`encode`] wrote, or nil and what is wrong:
+--- a field it does not know, a field that is not a list given twice, a
+--- field it needs and is not given, or a value it does not take.
 --- @param text string The config
 --- @return Config|nil What it holds
 --- @return string Why it is no config, "" otherwise
 function relay_config.decode(text: string): relay_config.Config?, string
-  local decoded, why = Json.decode_object(text)
-  if decoded == nil then return nil, tostring(why) end
-  local value, invalid = Json.to_object(decoded)
-  if value == nil then return nil, tostring(invalid) end
-  local grants, grants_why = strings(value["grants"], "grants")
+  local query, why = Url.decode_query(text, { max_pairs = #text + 1, utf8 = false })
+  if query == nil then return nil, tostring(why) end
+  for _, pair in ipairs(query.pairs) do
+    local list = FIELDS[pair.name]
+    if list == nil then return nil, "\"" .. pair.name .. "\" is not a field of the config" end
+    if not list and #(query.by_name[pair.name] or {}) > 1 then
+      return nil, pair.name .. " is given more than once"
+    end
+  end
+  local grants, grants_why = list_of(query, "grants", true)
   if grants == nil then return nil, grants_why end
-  local own, own_why = strings(value["own_addresses"], "own_addresses")
+  local own, own_why = list_of(query, "own_addresses", true)
   if own == nil then return nil, own_why end
-  local log = value["log"]
-  if not log is string or (log ~= "stderr" and log ~= "null") then
-    return nil, "log is not \"stderr\" or \"null\""
-  end
+  local log = one_of(query, "log")
+  if log ~= "stderr" and log ~= "null" then return nil, "log is not \"stderr\" or \"null\"" end
   local config: relay_config.Config = { grants = grants, own_addresses = own, log = log }
-  if value["upstream"] ~= nil then
-    local up, up_why = upstream_of(value["upstream"])
-    if up == nil then return nil, up_why end
-    config.upstream = up
+  local up, up_why = upstream_of(query)
+  if up == nil and up_why ~= "" then return nil, up_why end
+  config.upstream = up
+  local token = one_of(query, "token")
+  if token ~= nil then config.token = token end
+  local listeners_text = one_of(query, "listeners")
+  if listeners_text ~= nil then
+    local listeners = integer_of(listeners_text, 1, 2)
+    if listeners == nil then return nil, "listeners is not 1 or 2" end
+    config.listeners = listeners
   end
-  local token = value["token"]
-  if token ~= nil and not token is string then return nil, "token is not a string" end
-  if token is string then config.token = token end
-  local listeners = value["listeners"]
-  if listeners ~= nil and (not listeners is integer or listeners < 1 or listeners > 2) then
-    return nil, "listeners is not 1 or 2"
-  end
-  if listeners is integer then config.listeners = listeners end
   return config, ""
 end
 
