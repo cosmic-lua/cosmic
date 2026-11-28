@@ -9,7 +9,7 @@
 --- only, so each side is the least of several samples, each sample long enough
 --- to read, the samples of the two sides taken in turn so that it falls on
 --- both. The comparison is made after every pair of samples and while it fails
---- more are taken: it fails only if every pair does, and only after the pairs have used a few seconds of CPU time,
+--- more are taken: it fails only if every pair does, and only after the pairs have used a few seconds of CPU time (or 3 s of wall time),
 --- so that a stretch of load that slows one side for longer than a dozen pairs (a neighbour of a shared runner, which
 --- slows the side with the larger working set most) is waited out and not mistaken for a cost. A limit under the cost of
 --- a quadratic form (16 times for four times the input) therefore still catches
@@ -23,7 +23,7 @@ local record Speed
   least: function(work: function()): integer
 
   --- Whether `scaled` costs at most `limit` times what `base` costs, or `false` and the least
-  --- times of the pairs of samples it took. It takes at least `most_pairs` (12 by default) pairs before it fails, and
+  --- times of the pairs of samples it took. It takes at least `most_pairs` (12 by default) pairs before it fails, unless 3 s of wall time have passed after the third pair, and
   --- where `most_pairs` is not given, keeps on until the pairs have used a few seconds of CPU time.
   within: function(base: function(), scaled: function(), limit: integer, most_pairs?: integer): boolean, string
 end
@@ -37,6 +37,11 @@ local PAIRS <const> = 12
 local LONGEST <const> = 20000000
 --- The CPU time, in nanoseconds, that the pairs of `within` use before it fails where it was not given a count of pairs.
 local BUDGET <const> = 5000000000
+--- The wall time, in nanoseconds, after which `within` stops taking pairs and fails with the times it has: a suite's
+--- test has 10 s (`suite_test_timeout_s` in ci/cosmic_ci/orchestration.tl), and a test that calls `within` for a few
+--- forms must keep the sum of its calls under that, or the harness ends it as a timeout, which says nothing of the ratio. On a loaded runner a pair takes more wall time
+--- than its CPU time, so the CPU budget alone does not keep it under.
+local WALL <const> = 3000000000
 --- The fewest pairs of samples `within` takes before it passes.
 local FEWEST_PAIRS <const> = 3
 --- The most runs a sample makes, for work that takes almost no time.
@@ -84,7 +89,11 @@ function Speed.within(base: function(), scaled: function(), limit: integer, most
   -- pass waits for a few pairs, so that one slow sample of the base alone cannot pass a form.
   local spent = 0
   local pair = 0
+  local began = Clock.monotonic_ns()
   while pair < (most_pairs or PAIRS) or (most_pairs == nil and spent < BUDGET) do
+    if pair >= FEWEST_PAIRS and Clock.monotonic_ns() - began > WALL then
+      break
+    end
     pair = pair + 1
     local base_total = elapsed(base, base_runs)
     local scaled_total = elapsed(scaled, scaled_runs)
@@ -95,7 +104,8 @@ function Speed.within(base: function(), scaled: function(), limit: integer, most
       return true, ""
     end
   end
-  return false, "took " .. tostring(large // 1000) .. " us against " .. tostring(small // 1000) .. " us, over " .. tostring(limit) .. " times"
+  return false, "took " .. tostring(large // 1000) .. " us against " .. tostring(small // 1000) .. " us, over " .. tostring(limit) ..
+    " times (" .. tostring(pair) .. " pairs, " .. tostring((Clock.monotonic_ns() - began) // 1000000) .. " ms of wall time)"
 end
 
 return Speed
