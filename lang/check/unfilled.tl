@@ -38,11 +38,6 @@ function Unfilled.candidate(ctx: Ctx, s: Ast.Local, i: integer): Ast.Table?
   return value
 end
 
---- Whether `e` is the literal of an unfilled local, which takes no type of its own.
-function Unfilled.holds_literal(ctx: Ctx, e: Ast.Table): boolean
-  return ctx.unfilled_n > 0 and ctx.unfilled_literals[e.id] == true
-end
-
 --- Makes the local `id` unfilled, from the literal `lit`.
 function Unfilled.declare(ctx: Ctx, id: integer, lit: Ast.Table)
   if ctx.unfilled[id] == nil then
