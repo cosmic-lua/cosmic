@@ -104,7 +104,7 @@ local function test_a_modules_tests_run_in_copies_and_fail_alone(tmp: string)
   local result = fixture.invoke(root, output, { "--timeout", "3", "--jobs", "1", "--show-output" }, env)
   local text = assert(Fs.read(output))
   if text:find("; sandboxed", 1, true) == nil then
-    Test.skip("its run's workers ran unsandboxed, where none forks: this host nests no sandbox in this test's")
+    Test.skip("its run's workers ran unsandboxed, where none forks: this host nests no sandbox in this test's", "nest")
   end
   -- Only a kernel whose Landlock scopes no signal is a host that cannot check this: any other reason a worker gives
   -- for not forking for this module is a failure of what is tested.
@@ -159,7 +159,7 @@ local function test_a_bailing_run_starts_no_copy_after_a_failure(tmp: string)
     env)
   local text = assert(Fs.read(output))
   if text:find("; sandboxed", 1, true) == nil then
-    Test.skip("its run's workers ran unsandboxed, where none forks: this host nests no sandbox in this test's")
+    Test.skip("its run's workers ran unsandboxed, where none forks: this host nests no sandbox in this test's", "nest")
   end
   assert(not result.ok, text)
   assert(text:find("suite.many_test test_d_exits: the test process exited with status 0 before it reported", 1, true),
@@ -211,7 +211,7 @@ end
   local result = fixture.invoke(root, output, { "--timeout", "30", "--jobs", "1", "--show-output" }, env)
   local text = assert(Fs.read(output))
   if text:find("; sandboxed", 1, true) == nil then
-    Test.skip("its run's workers ran unsandboxed, where none forks: this host nests no sandbox in this test's")
+    Test.skip("its run's workers ran unsandboxed, where none forks: this host nests no sandbox in this test's", "nest")
   end
   local refused = text:match("since none could fork %(suite%.host_test: ([^\n]*)")
   if refused ~= nil and refused:find("Landlock", 1, true) ~= nil then
@@ -272,7 +272,7 @@ end
   local result = fixture.invoke(root, output, { "--timeout", "30", "--jobs", "1" }, env)
   local text = assert(Fs.read(output))
   if text:find("; sandboxed", 1, true) == nil then
-    Test.skip("its run's workers ran unsandboxed, where none forks: this host nests no sandbox in this test's")
+    Test.skip("its run's workers ran unsandboxed, where none forks: this host nests no sandbox in this test's", "nest")
   end
   local refused = text:match("since none could fork %(suite%.held_test: ([^\n]*)")
   if refused ~= nil and refused:find("Landlock", 1, true) ~= nil then
@@ -310,7 +310,7 @@ end
   local crowded = fixture.invoke(root, crowded_output, { "--all", "--jobs", "2" }, env)
   local text = assert(Fs.read(crowded_output))
   if text:find("; sandboxed", 1, true) == nil then
-    Test.skip("its run's workers ran unsandboxed, where none forks: this host nests no sandbox in this test's")
+    Test.skip("its run's workers ran unsandboxed, where none forks: this host nests no sandbox in this test's", "nest")
   end
   local refused = text:match("since none could fork %(suite%.[a-z]+_test: ([^\n]*)")
   if refused ~= nil and refused:find("Landlock", 1, true) ~= nil then

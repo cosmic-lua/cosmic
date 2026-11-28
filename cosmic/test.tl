@@ -641,16 +641,24 @@ end
 --- returns and does nothing: no one there takes what it would raise for
 --- a skip, so a raise would be a failure of a test that only cannot be
 --- checked, and the caller that wants to stop returns itself.
-function Test.skip(reason: string)
+---
+--- `need`, where the host's lack is one a leg can promise (`nest`, `all_cores`,
+--- `landlock`: a name `requires` takes), names it: a held run whose leg promises
+--- `need` fails the test instead of skipping it, as it fails a module that
+--- `requires` it, so a leg that loses what it promised does not stay green.
+--- @param reason what the host cannot give
+--- @param need the requirement name, a `requires` name, that the skip stands for
+function Test.skip(reason: string, need?: string)
   if reason == "" then error("test: skip's reason is empty", 2) end
+  if need == "" then error("test: skip's need is empty", 2) end
   local installed = runner_in(Test)
   if installed == nil then return end
   if installed.loaded ~= true then -- checked: map_field
     error("test: skip is called from a test as it runs, not as its module loads", 2)
   end
   local skipped = installed.skipped -- checked: map_field
-  if skipped is function(string): any then
-    local ending = skipped(reason) -- untyped: call
+  if skipped is function(string, string?): any then
+    local ending = skipped(reason, need) -- untyped: call
     if ending ~= nil then error(ending, 0) end
   end
 end

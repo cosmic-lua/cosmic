@@ -85,7 +85,9 @@ end
 --- check.
 local function skip_if_unsandboxed(text: string)
   if text:find("; sandboxed", 1, true) then return end
-  if assert(sys.uname()).sysname == "Linux" then Test.skip(confine.unsandboxed_reason(text)) end
+  if assert(sys.uname()).sysname == "Linux" then
+    Test.skip(confine.unsandboxed_reason(text), "nest")
+  end
   Test.skip("this platform sandboxes no worker")
 end
 

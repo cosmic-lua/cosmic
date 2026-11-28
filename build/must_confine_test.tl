@@ -118,7 +118,7 @@ local function test_the_sandbox_mode_is_part_of_the_key_of_a_verdict(tmp: string
   local held = run(true)
   -- A run held to sandboxing fails where none of its workers can be, as this one's sandbox may leave them.
   if held:find("no worker can be sandboxed here", 1, true) ~= nil then
-    Test.skip(confine.unsandboxed_reason(held))
+    Test.skip(confine.unsandboxed_reason(held), "nest")
   end
   assert(held:find("1 ran", 1, true) ~= nil and held:find("0 ran", 1, true) == nil, held)
 end
