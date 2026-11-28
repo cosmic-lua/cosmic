@@ -116,7 +116,7 @@ say); `<module>_example.tl` for what the docs show.
 [`build/test_against.tl`]: ../../build/test_against.tl
 [`cosmic.bench`]: ../../cosmic/bench.tl
 [`Fuzz.Property`]: ../../cosmic/fuzz.tl
-[`Fuzz.run`]: ../../cosmic/fuzz.tl
 [`Fuzz.run_target`]: ../../cosmic/fuzz.tl
+[`Fuzz.run`]: ../../cosmic/fuzz.tl
 [`Fuzz.target`]: ../../cosmic/fuzz.tl
 [`Test.policy`]: ../../cosmic/test.tl
