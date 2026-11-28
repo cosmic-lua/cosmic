@@ -1288,6 +1288,18 @@ local function test_entropy_and_ftruncate_answer_their_contracts(tmp: string)
   assert(not ok and why ~= "" and errno == sys.EBADF, why)
 end
 
+--- `fchmod` sets the bits of the file a descriptor holds, exactly, and refuses a mode outside 0 to 0xfff.
+local function test_fchmod_sets_the_bits_of_the_descriptors_file(tmp: string)
+  local fd = assert(sys.open(tmp .. "/m", sys.O_WRONLY | sys.O_CREAT, 0x180))
+  assert(sys.fchmod(fd, 0x1ed))
+  assert(assert(sys.stat(tmp .. "/m")).mode & 0xfff == 0x1ed)
+  Test.raises(function() sys.fchmod(fd, -1) end)
+  Test.raises(function() sys.fchmod(fd, 0x1000) end)
+  assert(sys.close(fd))
+  local ok, why, errno = sys.fchmod(fd, 0x1a4)
+  assert(not ok and why ~= "" and errno == sys.EBADF, why)
+end
+
 --- `rand_draw` refuses what the Teal wrapper never passes it, and a
 --- refusal leaves the generator's state words as they were.
 local function test_rand_draw_checks_its_arguments_and_keeps_the_state_on_refusal()

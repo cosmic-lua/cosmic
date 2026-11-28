@@ -18,9 +18,10 @@
 --- Only then are the files written, each through a temporary neighbor and a rename. A write that fails part
 --- way leaves the files already written; the tree has no more than that to undo.
 ---
---- Nothing may change the tree while a patch applies: the check of a name and its use are two steps. The
---- removal of a file and the `chmod` of a written one name their path again, so a directory swapped for a link
---- between the check and the call is followed by those two.
+--- Nothing may change the tree while a patch applies: the check of a name and its use are two steps. Every
+--- call, the removal of a file and the mode of a written one included, acts on one name in a held directory,
+--- so a directory swapped for a link after it was opened is not followed. At most a few directories are held
+--- open at once, so a patch that makes thousands of them does not meet the descriptor limit.
 ---
 --- A name with a `.git` part is refused, since a hook or a config written there runs later. Directories a
 --- delete or an undo empties stay.
@@ -96,10 +97,16 @@ local function parts_of(path: string): ({string}) | (nil, Failure)
   return out
 end
 
---- The directories opened for one run, closed together.
+--- How many directories a run keeps open besides the root: the ones the last files went to. A patch that
+--- makes thousands of directories holds no more than this.
+local KEPT <const> = 16
+
+--- The directories opened for one run, closed together. `opened` holds the directories that hold files, by
+--- path; `recent` lists their keys, the oldest first.
 local record Tree
   root: Fs.Dir
-  opened: mut {string: Fs.Dir}
+  mut opened: mut {string: Fs.Dir}
+  mut recent: mut {string}
 end
 
 --- Where a path's last part sits: the directory holding it, nil when a directory above is missing.
@@ -108,35 +115,84 @@ local record Place
   name: string
 end
 
+--- Marks `key` as the directory used last.
+local function used(tree: Tree, key: string)
+  for i, k in ipairs(tree.recent) do
+    if k == key then table.remove(tree.recent, i) break end
+  end
+  tree.recent[#tree.recent + 1] = key
+end
+
+--- Keeps `held` as the directory at `key`, closing the one used longest ago when more than `KEPT` are open.
+local function keep(tree: Tree, key: string, held: Fs.Dir)
+  tree.opened[key] = held
+  used(tree, key)
+  while #tree.recent > KEPT do
+    local oldest = table.remove(tree.recent, 1)!
+    local gone = tree.opened[oldest]
+    tree.opened[oldest] = nil
+    if gone ~= nil then gone:close() end
+  end
+end
+
 --- The directory that holds `parts`, opened by hand from the root. With `make`, a missing directory is made;
 --- without it, a missing one gives a Place with no holder. A link on the way, or a part that is no directory,
---- is a failure.
+--- is a failure. A directory on the way is closed once the next is open; only the one that holds the file is
+--- kept, with the last few, so a patch that makes thousands of directories stays below the descriptor limit.
+--- The holder stays open until a later call: use it before the next call.
 local function place(tree: Tree, parts: {string}, make: boolean): (Place) | (nil, Failure)
+  local last = assert(parts[#parts])
+  if #parts == 1 then return { holder = tree.root, name = last } end
+  local key = table.concat(parts, "/", 1, #parts - 1)
+  local known = tree.opened[key]
+  if known ~= nil then
+    used(tree, key)
+    return { holder = known, name = last }
+  end
+  -- Start from the deepest directory kept above, if any.
   local current = tree.root
-  local key = ""
-  for i = 1, #parts - 1 do
-    local name = assert(parts[i])
-    key = key .. "/" .. name
-    local known = tree.opened[key]
-    if known ~= nil then
-      current = known
-    else
-      local status, status_why = current:status(name)
-      if status == nil then return nil, status_why end
-      if not status.exists then
-        if not make then return { holder = nil, name = assert(parts[#parts]) } end
-        local made, why = current:mkdir(name)
-        if made == nil then return nil, why end
-      elseif not status.is_dir then
-        return nil, Failure.new("patch: " .. current.path .. "/" .. name .. " is not a directory", current.path .. "/" .. name)
-      end
-      local opened, why = current:dir(name)
-      if opened == nil then return nil, why end
-      tree.opened[key] = opened
-      current = opened
+  local from = 1
+  for depth = #parts - 2, 1, -1 do
+    local above = tree.opened[table.concat(parts, "/", 1, depth)]
+    if above ~= nil then
+      current = above
+      from = depth + 1
+      used(tree, table.concat(parts, "/", 1, depth))
+      break
     end
   end
-  return { holder = current, name = assert(parts[#parts]) }
+  local fresh: Fs.Dir? = nil
+  for i = from, #parts - 1 do
+    local name = assert(parts[i])
+    local status, status_why = current:status(name)
+    if status == nil then
+      if fresh ~= nil then fresh:close() end
+      return nil, status_why
+    end
+    local trouble: Failure? = nil
+    if not status.exists then
+      if not make then
+        if fresh ~= nil then fresh:close() end
+        return { holder = nil, name = last }
+      end
+      local made, why = current:mkdir(name)
+      if made == nil then trouble = why end
+    elseif not status.is_dir then
+      trouble = Failure.new("patch: " .. current.path .. "/" .. name .. " is not a directory", current.path .. "/" .. name)
+    end
+    local opened: Fs.Dir? = nil
+    if trouble == nil then
+      local got, why = current:dir(name)
+      opened = got
+      trouble = why
+    end
+    if fresh ~= nil then fresh:close() end
+    if opened == nil then return nil, assert(trouble) end
+    fresh = opened
+    current = opened
+  end
+  keep(tree, key, assert(fresh))
+  return { holder = current, name = last }
 end
 
 --- The file at `parts` as it is on disk: nil content where it is not there. A link, a directory or any other
@@ -230,11 +286,9 @@ local function write_out(tree: Tree, order: {string}, overlay: {string: Content 
       local at, why = place(tree, parts, true)
       if at == nil then return nil, why end
       local holder = assert(at.holder)
+      -- The mode is set on the temporary file, outright, before the rename.
       local written, write_why = holder:write(at.name, held.text, held.mode)
       if written == nil then return nil, write_why end
-      -- `write` honours the umask: a mode the patch names is set outright.
-      local chmod, chmod_why = Fs.chmod(holder.path .. "/" .. at.name, held.mode)
-      if chmod == nil then return nil, chmod_why end
     end
   end
   for _, path in ipairs(order) do
@@ -247,7 +301,7 @@ local function write_out(tree: Tree, order: {string}, overlay: {string: Content 
         local status, trouble = holder:status(at.name)
         if status == nil then return nil, trouble end
         if status.exists then
-          local removed, remove_why = Fs.remove(holder.path .. "/" .. at.name)
+          local removed, remove_why = holder:remove(at.name)
           if removed == nil then return nil, remove_why end
         end
       end
@@ -361,6 +415,8 @@ end
 --- Closes every directory a run opened.
 local function close_all(tree: Tree)
   for _, opened in pairs(tree.opened) do opened:close() end
+  tree.opened = {}
+  tree.recent = {}
   tree.root:close()
 end
 
@@ -399,7 +455,7 @@ function Patch.apply(root: string, entries: {Diff.Entry}, opts?: Patch.Options):
   if real == nil then return nil, real_why end
   local held, why = Fs.dir(real)
   if held == nil then return nil, why end
-  local run: Run = { tree = { root = held, opened = {} }, overlay = {}, order = {}, options = opts or {} }
+  local run: Run = { tree = { root = held, opened = {}, recent = {} }, overlay = {}, order = {}, options = opts or {} }
   local ok, outcome = pcall(run_entries, run, entries)
   close_all(run.tree)
   if not ok then error(outcome, 0) end
