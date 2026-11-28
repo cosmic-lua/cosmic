@@ -1122,17 +1122,28 @@ local function local_statement(ctx: Ctx, s: Ast.Local)
       end
     end
   end
-  local lit = if next(wants) == nil then Unfilled.candidate(ctx, s) else nil end
-  if lit ~= nil then
-    local b = assert(s.bindings[1], "one binding")
-    Unfilled.declare(ctx, b.id, lit)
-    declare_local(ctx, b.id, false)
-    return
+  local unfilled: mut {integer: boolean} = {}
+  if next(wants) == nil then
+    for i, b in ipairs(s.bindings) do
+      local lit = Unfilled.candidate(ctx, s, i)
+      if lit ~= nil then
+        Unfilled.declare(ctx, b.id, lit)
+        unfilled[i] = true
+      end
+    end
+    if unfilled[1] == true and #s.bindings == 1 and #s.values == 1 then
+      declare_local(ctx, assert(s.bindings[1], "one binding").id, false)
+      return
+    end
   end
   local reported = #ctx.errors
   local vals = values_of(ctx, s.values, wants, nil)
   local counted = check_counts(ctx, s, n, vals, s.values, "name")
   for i, b in ipairs(s.bindings) do
+    if unfilled[i] == true then
+      declare_local(ctx, b.id, false)
+      continue
+    end
     local t = value_at(ctx, vals, i)
     local want = wants[i]
     local written = s.values[i]
@@ -2684,7 +2695,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
     end, function(_node: Ast.Node, _spelled: string, _found: LoadOrder.Found) end),
     literals = {}, spreads = {}, tags = {}, declared = {}, union_fields = {}, spine = {},
     ternaries = {}, right_types = {}, spare = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, string_subs = {}, annotated = {}, assigning = {}, quiet = 0, proving = 0, closers = 0, callee_module = "", member_module = "", moves = {},
-    loops = {}, ranges = {}, map_reads = {}, keys = {}, edges = {}, guards = {}, ties = {}, coroutine_reads = {}, top = tops, module_table = module_table(input, lowered), initialized = {}, given = {}, handed = false, reads = {}, unfixed = {}, narrowed = {}, inert = {}, runs = {}, inferred = {}, boundaries = {}, types = {}, callees = {}, consts = {}, unread_schemas = {}, unfilled = {}, unfilled_n = 0, call_columns = {}, row_lists = {}, row_columns = {}, starts = {}, library = {}, typed = typed ~= false, warnings = {},
+    loops = {}, ranges = {}, map_reads = {}, keys = {}, edges = {}, guards = {}, ties = {}, coroutine_reads = {}, top = tops, module_table = module_table(input, lowered), initialized = {}, given = {}, handed = false, reads = {}, unfixed = {}, narrowed = {}, inert = {}, runs = {}, inferred = {}, boundaries = {}, types = {}, callees = {}, consts = {}, unread_schemas = {}, unfilled = {}, unfilled_literals = {}, unfilled_n = 0, call_columns = {}, row_lists = {}, row_columns = {}, starts = {}, library = {}, typed = typed ~= false, warnings = {},
     unite = function(a: Type, b: Type): Type
       return store:union({ a, b })
     end,
