@@ -7,7 +7,8 @@
 ---
 --- * **facts**: a place that has been narrowed, and the type it has been narrowed to. A place is a local (`17`) or a
 ---   path of fixed fields from one (`17.a.b`). A fact never changes the declared type, which it carries beside the
----   narrowed one so that a join that learns nothing drops it.
+---   narrowed one so that a join that learns nothing drops it. They are a [`Flow.Facts`], read by [`Flow.fact`]: a
+---   narrowing shares the facts before it, so narrowing k places costs about k log k, not k squared.
 --- * **lengths**: for an array place, the least number of elements it is known to have ([`Flow.know_length`]). They are
 ---   kept apart from the facts because code that runs may shorten any array: [`Flow.forget_lengths`] returns a state
 ---   that shares its other tables, at a cost that is neither the facts held nor the times it is asked.
@@ -35,11 +36,27 @@ local record Flow
     declared: Type
   end
 
+  --- The facts of a state, by place: the id of a local, then `.` and the field for each step of a path. They are
+  --- levels of tables that are never changed, the oldest first, each at least twice the size of the next, and a newer
+  --- level's fact of a place stands for an older one's: a narrowing adds a level of one fact and merges the levels no
+  --- larger than it, as a binary counter carries, so it costs about the log of the facts held, and a lookup reads each
+  --- level once. A removal makes one level of what is left.
+  record Facts
+    --- The levels, the oldest first.
+    levels: {{string: Fact}}
+    --- How many facts each level holds, by its index.
+    sizes: {integer}
+    --- How many places have a fact.
+    count: integer
+    --- The facts in one table, once something has walked them: nil until then.
+    mut flat?: {string: Fact}
+  end
+
   --- The state at a point.
   record State
     live: boolean
-    --- The facts, by place: the id of a local, then `.` and the field for each step of a path.
-    facts: {string: Fact}
+    --- The facts, by place.
+    facts: Facts
     --- How many keys of `facts` are paths.
     paths: integer
     --- The facts of the lengths of arrays, by the key of the array, then `.#len.` and the number of elements known (the
@@ -57,6 +74,12 @@ local record Flow
 
   --- The fact of the place `key`, or nil.
   get: function(f: State, key: string): Fact?
+
+  --- The fact of the place `key` that a narrowing gave, or nil: [`Flow.get`] without the facts of lengths.
+  fact: function(f: State, key: string): Fact?
+
+  --- Whether `f` holds a fact of any place, a length left out.
+  has_facts: function(f: State): boolean
 
   --- `f` with the place `key` narrowed to `narrowed`, which was declared `declared`. Returns `f` itself when that is
   --- what it holds, and a state with no fact of the place when `narrowed` is `declared`.
@@ -116,7 +139,8 @@ local record Flow
   forget_lengths: function(f: State): State
 end
 
-local NONE: {string: Flow.Fact} = {}
+local EMPTY: {string: Flow.Fact} = {}
+local NONE: Flow.Facts = { levels = {}, sizes = {}, count = 0 }
 local NO_LENS: {string: Flow.Fact} = {}
 local NO_UNSET: {integer: boolean} = {}
 local NO_GONE: {string: Scopes.Place} = {}
@@ -149,7 +173,7 @@ function Flow.root(key: string): integer
   return math.tointeger(tonumber(dot ~= nil and key:sub(1, dot - 1) or key)) or 0 -- checked: and_ternary
 end
 
-local function made(live: boolean, facts: {string: Flow.Fact}, paths: integer, lens: {string: Flow.Fact},
+local function made(live: boolean, facts: Flow.Facts, paths: integer, lens: {string: Flow.Fact},
                     unset: {integer: boolean}, unsets: integer, gone: {string: Scopes.Place}): Flow.State
   return { live = live, facts = facts, paths = paths, lens = lens, unset = unset, unsets = unsets, gone = gone }
 end
@@ -158,16 +182,109 @@ function Flow.start(): Flow.State
   return made(true, NONE, 0, NO_LENS, NO_UNSET, 0, NO_GONE)
 end
 
-function Flow.get(f: Flow.State, key: string): Flow.Fact?
-  return f.facts[key] or f.lens[key]
+--- The fact of `key` in `facts`, the newest level first.
+local function lookup(facts: Flow.Facts, key: string): Flow.Fact?
+  local levels = facts.levels
+  for i = #levels, 1, -1 do
+    local fact = levels[i]![key]
+    if fact ~= nil then
+      return fact
+    end
+  end
+  return nil
 end
 
-local function copy_facts(facts: {string: Flow.Fact}): {string: Flow.Fact}
+function Flow.fact(f: Flow.State, key: string): Flow.Fact?
+  return lookup(f.facts, key)
+end
+
+function Flow.has_facts(f: Flow.State): boolean
+  return f.facts.count > 0
+end
+
+function Flow.get(f: Flow.State, key: string): Flow.Fact?
+  return lookup(f.facts, key) or f.lens[key]
+end
+
+--- `older` and then `newer` in a new table, and how many places it holds.
+local function merged(older: {string: Flow.Fact}, newer: {string: Flow.Fact}): {string: Flow.Fact}, integer
   local out: mut {string: Flow.Fact} = {}
-  for k, v in pairs(facts) do
+  local n = 0
+  for k, v in pairs(older) do
+    out[k] = v
+    n = n + 1
+  end
+  for k, v in pairs(newer) do
+    if out[k] == nil then
+      n = n + 1
+    end
     out[k] = v
   end
+  return out, n
+end
+
+--- Every fact of `facts` in one table, which is never to be written.
+local function flat(facts: Flow.Facts): {string: Flow.Fact}
+  local levels = facts.levels
+  if #levels == 0 then
+    return EMPTY
+  elseif #levels == 1 then
+    return levels[1]
+  end
+  local held = facts.flat
+  if held ~= nil then
+    return held
+  end
+  local out: mut {string: Flow.Fact} = {}
+  for _, level in ipairs(levels) do
+    for k, v in pairs(level) do
+      out[k] = v
+    end
+  end
+  facts.flat = out
   return out
+end
+
+--- The facts of `t`, a table no one writes, as one level.
+local function one_level(t: {string: Flow.Fact}, count: integer): Flow.Facts
+  if count == 0 then
+    return NONE
+  end
+  return { levels = { t }, sizes = { count }, count = count }
+end
+
+--- `facts` with `key` narrowed to `fact`, where `held` says whether it held a fact of `key`.
+local function put(facts: Flow.Facts, key: string, fact: Flow.Fact, held: boolean): Flow.Facts
+  local levels: mut {{string: Flow.Fact}} = {}
+  local sizes: mut {integer} = {}
+  for _, level in ipairs(facts.levels) do
+    levels[#levels + 1] = level
+  end
+  for _, n in ipairs(facts.sizes) do
+    sizes[#sizes + 1] = n
+  end
+  local top: {string: Flow.Fact} = { [key] = fact }
+  local size = 1
+  while #levels > 0 and sizes[#levels]! <= size do
+    top, size = merged(levels[#levels]!, top)
+    levels[#levels] = nil
+    sizes[#sizes] = nil
+  end
+  levels[#levels + 1] = top
+  sizes[#sizes + 1] = size
+  return { levels = levels, sizes = sizes, count = facts.count + (if held then 0 else 1 end) }
+end
+
+--- `facts` without the places of `doomed`, which it holds, as one level.
+local function drop(facts: Flow.Facts, doomed: {string}): Flow.Facts
+  local out: mut {string: Flow.Fact} = {}
+  for k, v in pairs(flat(facts)) do
+    out[k] = v
+  end
+  for _, k in ipairs(doomed) do
+    out[k] = nil
+  end
+  return one_level(out, facts.count - #doomed)
 end
 
 local function copy_gone(gone: {string: Scopes.Place}): {string: Scopes.Place}
@@ -187,20 +304,18 @@ local function copy_unset(unset: {integer: boolean}): {integer: boolean}
 end
 
 function Flow.narrow(f: Flow.State, key: string, narrowed: Type, declared: Type): Flow.State
-  local held = f.facts[key]
+  local held = lookup(f.facts, key)
   if narrowed == declared then
     if held == nil then
       return f
     end
-    local facts = copy_facts(f.facts)
-    facts[key] = nil -- checked: view_written
-    return made(f.live, facts, f.paths - (if is_path(key) then 1 else 0 end), f.lens, f.unset, f.unsets, f.gone)
+    return made(f.live, drop(f.facts, { key }), f.paths - (if is_path(key) then 1 else 0 end), f.lens, f.unset, f.unsets,
+      f.gone)
   end
   if held ~= nil and held.type == narrowed and held.declared == declared then
     return f
   end
-  local facts = copy_facts(f.facts)
-  facts[key] = { type = narrowed, declared = declared } -- checked: view_written
+  local facts = put(f.facts, key, { type = narrowed, declared = declared }, held ~= nil)
   local gone = f.gone
   if gone[key] ~= nil then
     gone = copy_gone(gone)
@@ -269,11 +384,11 @@ end
 --- `f` without the facts rooted in `id` or of the keys it holds, and without the tombstones of its places. Where `why` is given the places
 --- that held a fact keep a tombstone of it.
 local function without(f: Flow.State, id: integer, why: Scopes.Place?): Flow.State
-  if next(f.facts) == nil and next(f.lens) == nil and next(f.gone) == nil then
+  if f.facts.count == 0 and next(f.lens) == nil and next(f.gone) == nil then
     return f
   end
   local doomed: mut {string} = {}
-  for k in pairs(f.facts) do
+  for k in pairs(flat(f.facts)) do
     if is_rooted(k, id) then
       doomed[#doomed + 1] = k
     end
@@ -296,9 +411,8 @@ local function without(f: Flow.State, id: integer, why: Scopes.Place?): Flow.Sta
   local facts = f.facts
   local paths = f.paths
   if #doomed > 0 then
-    facts = copy_facts(facts)
+    facts = drop(facts, doomed)
     for _, k in ipairs(doomed) do
-      facts[k] = nil -- checked: view_written
       if is_path(k) then
         paths = paths - 1
       end
@@ -369,17 +483,16 @@ end
 function Flow.enter(f: Flow.State, unfixed: {integer: boolean}?): Flow.State
   local facts = f.facts
   local paths = f.paths
-  if unfixed ~= nil and next(facts) ~= nil then
+  if unfixed ~= nil and facts.count > 0 then
     local doomed: mut {string} = {}
-    for k in pairs(facts) do
+    for k in pairs(flat(facts)) do
       if unfixed[Flow.root(k)] == true then
         doomed[#doomed + 1] = k
       end
     end
     if #doomed > 0 then
-      facts = copy_facts(facts)
+      facts = drop(facts, doomed)
       for _, k in ipairs(doomed) do
-        facts[k] = nil -- checked: view_written
         if is_path(k) then
           paths = paths - 1
         end
@@ -398,7 +511,7 @@ function Flow.forget_lengths(f: Flow.State): Flow.State
 end
 
 function Flow.forget(f: Flow.State): Flow.State
-  if next(f.facts) == nil and next(f.lens) == nil then
+  if f.facts.count == 0 and next(f.lens) == nil then
     return f
   end
   return made(f.live, NONE, 0, NO_LENS, f.unset, f.unsets, f.gone)
@@ -410,6 +523,46 @@ local function earlier(a: Scopes.Place, b: Scopes.Place): Scopes.Place
 end
 
 --- The facts of `a` that `b` holds too, as [`Flow.join`] keeps them, and how many of them are paths.
+--- The fact of `key` that [`Flow.join`] keeps of `fa` and `fb`, or nil.
+local function met(fa: Flow.Fact, fb: Flow.Fact, unite: function(Type, Type): Type,
+                   covers: function(Type, Type): boolean): Flow.Fact?
+  local t = fa.type
+  if fb.type ~= t then
+    t = unite(t, fb.type)
+  end
+  if t == fa.type and fa.declared == fb.declared then
+    return fa
+  elseif not covers(fa.declared, t) then
+    return { type = t, declared = fa.declared }
+  end
+  return nil
+end
+
+--- The facts of `a` that `b` holds too, as [`Flow.join`] keeps them, how many there are, and how many of them are
+--- paths. It walks the one that holds fewer, so a join of a state of many facts and one of few costs the few.
+local function meet_facts(a: Flow.Facts, b: Flow.Facts, unite: function(Type, Type): Type,
+                          covers: function(Type, Type): boolean): {string: Flow.Fact}, integer, integer
+  local out: mut {string: Flow.Fact} = {}
+  local count = 0
+  local paths = 0
+  local fewer = if a.count <= b.count then a else b end
+  for key in pairs(flat(fewer)) do
+    local fa = lookup(a, key)
+    local fb = lookup(b, key)
+    if fa ~= nil and fb ~= nil then
+      local fact = met(fa, fb, unite, covers)
+      if fact ~= nil then
+        out[key] = fact
+        count = count + 1
+        if is_path(key) then
+          paths = paths + 1
+        end
+      end
+    end
+  end
+  return out, count, paths
+end
+
 local function meet(a: {string: Flow.Fact}, b: {string: Flow.Fact}, unite: function(Type, Type): Type,
                     covers: function(Type, Type): boolean): {string: Flow.Fact}, integer
   local out: mut {string: Flow.Fact} = {}
@@ -443,7 +596,13 @@ function Flow.join(a: Flow.State, b: Flow.State, unite: function(Type, Type): Ty
   elseif a.live and not b.live then
     return a
   end
-  local facts, paths = meet(a.facts, b.facts, unite, covers)
+  local facts = a.facts
+  local paths = a.paths
+  if a.facts ~= b.facts then
+    local kept, count, kept_paths = meet_facts(a.facts, b.facts, unite, covers)
+    facts = one_level(kept, count)
+    paths = kept_paths
+  end
   local lens = meet(a.lens, b.lens, unite, covers)
   local unset = a.unset
   local unsets = a.unsets
@@ -460,7 +619,7 @@ function Flow.join(a: Flow.State, b: Flow.State, unite: function(Type, Type): Ty
   end
   local gone: {string: Scopes.Place} = {}
   local function note(key: string, place: Scopes.Place)
-    if facts[key] == nil and lens[key] == nil then
+    if lookup(facts, key) == nil and lens[key] == nil then
       local held = gone[key]
       gone[key] = held ~= nil and earlier(held, place) or place -- checked: and_ternary, view_written
     end
@@ -474,7 +633,7 @@ function Flow.join(a: Flow.State, b: Flow.State, unite: function(Type, Type): Ty
   if next(gone) == nil then
     gone = NO_GONE
   end
-  return made(a.live, if next(facts) == nil then NONE else facts end, paths, if next(lens) == nil then NO_LENS else lens end,
+  return made(a.live, facts, paths, if next(lens) == nil then NO_LENS else lens end,
     unset, unsets, gone)
 end
 
@@ -500,7 +659,7 @@ function Flow.same(a: Flow.State, b: Flow.State): boolean
   elseif a.live ~= b.live or a.unsets ~= b.unsets then
     return false
   end
-  if not same_facts(a.facts, b.facts) or not same_facts(a.lens, b.lens) then
+  if a.facts.count ~= b.facts.count or not same_facts(flat(a.facts), flat(b.facts)) or not same_facts(a.lens, b.lens) then
     return false
   end
   for id in pairs(a.unset) do

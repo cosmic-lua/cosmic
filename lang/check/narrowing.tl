@@ -305,7 +305,7 @@ function Narrowing.tag_edges(ctx: Ctx, f: Flow.State, field: Ast.Field, lit: str
       local has = false
       for _, v in ipairs(values) do
         local key = tag_key(m, v)
-        if key == "" or f.facts[key] == nil then
+        if key == "" or Flow.fact(f, key) == nil then
           left = left + 1
           has = has or v == lit
         end
@@ -452,12 +452,12 @@ function Narrowing.tie_edges(ctx: Ctx, f: Flow.State, e: Ast.Node, yes_base?: Fl
   end
   local id = at.binding
   local tie = if id ~= nil then ctx.ties[id] else nil end
-  if tie == nil or place_of(ctx, f, at) == nil or f.facts[tie_key(ctx, tie.first)] == nil or
+  if tie == nil or place_of(ctx, f, at) == nil or Flow.fact(f, tie_key(ctx, tie.first)) == nil or
       (by_nil == nil and not tie.truth) or (by_nil ~= nil and tie.by_nil ~= by_nil) then
     return nil, nil
   end
   for _, slot in ipairs(tie.rest) do
-    if f.facts[tie_key(ctx, slot.id)] == nil or ctx.unfixed_now[slot.id] == true then
+    if Flow.fact(f, tie_key(ctx, slot.id)) == nil or ctx.unfixed_now[slot.id] == true then
       return nil, nil
     end
   end
@@ -467,7 +467,7 @@ function Narrowing.tie_edges(ctx: Ctx, f: Flow.State, e: Ast.Node, yes_base?: Fl
     if declared ~= nil then
       local key = id_key(ctx, slot.id)
       local cur = declared
-      local fact = f.facts[key]
+      local fact = Flow.fact(f, key)
       if fact ~= nil then
         cur = fact.type
       end
