@@ -60,6 +60,7 @@ local Clock = require("cosmic.clock")
 local clock = require("build.clock")
 local CiProject = require("build.fix.ci_project")
 local docs = require("build.docs")
+local Diff = require("cosmic.diff")
 local Doc = require("cosmic.doc")
 local flow = require("build.flow")
 local laid = require("build.fix.laid")
@@ -157,6 +158,8 @@ local record fix
     chunk: Ast.Chunk
     --- For the states that wrote nothing and are no layout (all but `laid`, `unlaid` and `written`), why.
     why: string
+    --- For `unlaid`, the layout the file would have.
+    would?: string
   end
 
   --- Where links' names are read, and how to close what that opened.
@@ -1311,6 +1314,8 @@ local record Fix
   mut failures?: {string}
   --- The Teal files that are not laid out, which a check fails on ([`lay_out_teal`]).
   mut unlaid?: {string}
+  --- For each of those files, what its layout changes, as a unified diff ([`fix.layout_diff`]).
+  mut unlaid_diff?: {string:string}
 
   -- The C ([`lay_out_c`]).
   mut c_files?: {string}
@@ -1577,6 +1582,25 @@ local function lay_out_c(ctx: Fix)
   fix.lay_out(picked.flow_files, ctx.checking == true, changed, failures)
 end
 
+--- How many lines of a layout's diff [`fix.layout_diff`] shows.
+local LAYOUT_DIFF_LINES <const> = 40
+
+--- The unified diff from `source` to the layout `would` that `file` would have, cut after [`LAYOUT_DIFF_LINES`] lines
+--- with a line that says how many more there are.
+function fix.layout_diff(file: string, source: string, would: string): string
+  local text = Diff.unified(Diff.lines(source, would), { old_name = file, new_name = file })
+  local lines: mut {string} = {}
+  for line in text:gmatch("([^\n]*)\n") do lines[#lines + 1] = line end
+  if #lines <= LAYOUT_DIFF_LINES then return (text:gsub("\n$", "")) end
+  local shown: mut {string} = {}
+  for i, line in ipairs(lines) do
+    if i > LAYOUT_DIFF_LINES then break end
+    shown[#shown + 1] = line
+  end
+  shown[#shown + 1] = "... " .. plural.count(#lines - LAYOUT_DIFF_LINES, "more line")
+  return table.concat(shown, "\n")
+end
+
 --- Lays out the Teal file `file`, whose text is `source` and whose parse is `chunk`, with [`build.fix.format`] (`layout`
 --- makes the layout it checks, as `format`'s does): a layout that passes is written unless `checking`, and a file
 --- the formatter refuses, or whose layout the parser refuses, is never written. `kept` is the memo of what was found
@@ -1591,7 +1615,7 @@ function fix.lay_out_source(file: string, source: string, chunk: Ast.Chunk, chec
     return { state = "laid", text = source, chunk = chunk, why = "" }
   end
   if checking then
-    return { state = "unlaid", text = source, chunk = chunk, why = "" }
+    return { state = "unlaid", text = source, chunk = chunk, why = "", would = text }
   end
   -- What the later phases read is the file as it will stand, so a layout they cannot read is refused unwritten.
   local again, again_refusal = SyntaxNode.parse(text, file)
@@ -1686,6 +1710,7 @@ local function lay_out_teal(ctx: Fix)
     read_salt = ReadMemo.salt(assert(ctx.root))
   end
   local unlaid: mut {string} = {}
+  local unlaid_diff: mut {string:string} = {}
   for _, file in ipairs(files) do
     local source = read[file]
     local read_trouble = unread[file]
@@ -1707,6 +1732,9 @@ local function lay_out_teal(ctx: Fix)
         local done = fix.lay_out_source(file, source, chunk, checking, kept)
         if done.state == "unlaid" then
           unlaid[#unlaid + 1] = file
+          if done.would ~= nil then
+            unlaid_diff[file] = fix.layout_diff(file, source, done.would)
+          end
         elseif done.state == "written" then
           changed[#changed + 1] = file
         elseif done.state ~= "laid" then
@@ -1731,6 +1759,7 @@ local function lay_out_teal(ctx: Fix)
     local _, _ = memo:close()
   end
   ctx.unlaid = unlaid
+  ctx.unlaid_diff = unlaid_diff
   ctx.failures = failures
   ctx.changed = changed
   ctx.facts = facts
@@ -2194,8 +2223,11 @@ local function report(ctx: Fix): integer
     failed[plain(line)] = true
     log:say("fix: FAIL  " .. ErrorRender.annotated(line, read))
   end
+  local unlaid_diff = ctx.unlaid_diff or {}
   for _, file in ipairs(unlaid) do
     log:say("fix: FAIL  not laid out  " .. file)
+    local diff = unlaid_diff[file]
+    if diff ~= nil then log:say(diff) end
   end
   for _, line in ipairs(findings) do
     log:say("fix: FAIL  " .. ErrorRender.annotated(line, read))

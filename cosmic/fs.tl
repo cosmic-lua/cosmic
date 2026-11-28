@@ -119,8 +119,9 @@ local class Dir
   end
 
   --- Writes `data` to `name` through a temporary neighbor in this
-  --- directory and a rename, as [`Fs.write`] does; `mode` defaults
-  --- to 0644, less the umask.
+  --- directory and a rename, as [`Fs.write`] does. Without `mode` the
+  --- file is 0644 less the umask; with it, the file has exactly those
+  --- bits (0 to 0xfff), set on the temporary file before the rename.
   function write(self, name: string, data: string, mode?: integer): (true) | (nil, Failure)
     local named = self.path .. "/" .. name
     if self.fd < 0 then return nil, Failure.new("the directory is closed", named) end
@@ -136,6 +137,15 @@ local class Dir
     end
     if fd == nil then return nil, dir_failure(errno, why, named) end
     local wrote, write_why, write_errno = true, "", 0
+    if mode ~= nil then
+      if mode < 0 or mode > 0xfff then
+        local _, _ = sys.close(fd)
+        local _, _ = sys.unlinkat(self.fd, temporary)
+        error("fs: mode " .. tostring(mode) .. " is outside 0 to 0xfff", 2)
+      end
+      local set, set_why, set_errno = sys.fchmod(fd, mode)
+      if not set then wrote, write_why, write_errno = false, set_why, set_errno end
+    end
     local at = 1
     while wrote and at <= #data do
       local put, put_why, put_errno = sys.write(fd, if at == 1 then data else data:sub(at) end)
@@ -160,6 +170,45 @@ local class Dir
     end
     local _, _ = sys.unlinkat(self.fd, temporary)
     return nil, dir_failure(failed_errno, failed_why, named)
+  end
+
+  --- Removes the file or link `name` from this directory, a link as
+  --- itself, never what it leads to; a directory is a failure. The
+  --- name is looked up in the held directory, so a directory swapped
+  --- for a link on the path since it was opened does not lead the
+  --- removal elsewhere. A name that is not there is a failure, unlike
+  --- [`Fs.remove`], which counts it as removed.
+  function remove(self, name: string): (true) | (nil, Failure)
+    local named = self.path .. "/" .. name
+    if self.fd < 0 then return nil, Failure.new("the directory is closed", named) end
+    local gone, why, errno = sys.unlinkat(self.fd, name)
+    if not gone then return nil, dir_failure(errno, why, named) end
+    return true
+  end
+
+  --- Sets the permission bits of the regular file `name` (0 to 0xfff,
+  --- setuid and sticky included), as [`Fs.chmod`] does, on the file
+  --- opened from this directory: a link at the name, or any file that is
+  --- not a regular file, fails. The file is opened to read it, so a file
+  --- its owner cannot read is not changed.
+  function chmod(self, name: string, mode: integer): (true) | (nil, Failure)
+    local named = self.path .. "/" .. name
+    if self.fd < 0 then return nil, Failure.new("the directory is closed", named) end
+    if mode < 0 or mode > 0xfff then
+      error("fs: mode " .. tostring(mode) .. " is outside 0 to 0xfff", 2)
+    end
+    local fd, why, errno = sys.openat(self.fd, name, sys.O_RDONLY | sys.O_NONBLOCK)
+    if fd == nil then return nil, dir_failure(errno, why, named) end
+    local st, st_why, st_errno = sys.fstat(fd)
+    if st == nil or st.kind ~= "file" then
+      local _, _ = sys.close(fd)
+      if st == nil then return nil, dir_failure(st_errno, st_why, named) end
+      return nil, Failure.new("no file (" .. st.kind .. "): a Dir changes the mode of files", named)
+    end
+    local set, set_why, set_errno = sys.fchmod(fd, mode)
+    local _, _ = sys.close(fd)
+    if not set then return nil, dir_failure(set_errno, set_why, named) end
+    return true
   end
 
   --- What is at `name`, a link as itself, as [`Fs.status`] returns it.

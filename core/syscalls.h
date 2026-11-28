@@ -928,6 +928,16 @@ COSMIC_SYSCALL(full_fsync, 1);
 COSMIC_SYSCALL(ftruncate, 2);
 
 /*
+ * --- Sets the permission bits of the file a descriptor is open on, as `fchmod(2)` does: the file the descriptor holds, whatever its name has become. A descriptor from [`cosmic.sys.openat`] opened on a name, read only, is enough.
+ * ---@param fd integer the descriptor of the file
+ * ---@param mode integer the permission bits to set, 0 to 0xfff
+ * ---@return boolean ok false on failure
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(fchmod, 2);
+
+/*
  * --- Locks the file a descriptor is open on, as `flock(2)` does: the
  * --- lock belongs to the open file, so another open of the same file,
  * --- in this process or another, is refused a lock that conflicts with

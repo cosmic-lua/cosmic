@@ -1243,6 +1243,16 @@ COSMIC_SYSCALL(ftruncate, 2) {
   return cosmic_ok(L);
 }
 
+COSMIC_SYSCALL(fchmod, 2) {
+  int fd = cosmic_checkfd(L, 1);
+  int mode = cosmic_checkint(L, 2);
+  luaL_argcheck(L, mode >= 0 && mode <= 07777, 2, "the mode is outside 0 to 0xfff");
+  if (fchmod(fd, (mode_t)mode) != 0) {
+    return cosmic_fail_effect(L, errno);
+  }
+  return cosmic_ok(L);
+}
+
 COSMIC_SYSCALL(flock, 3) {
   int fd = cosmic_checkfd(L, 1);
   static const char *const names[] = {"exclusive", "shared", "unlock", NULL};
