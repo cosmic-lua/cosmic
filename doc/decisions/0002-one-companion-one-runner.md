@@ -45,13 +45,22 @@ body and what it keeps of the call.
    It prints the fastest and the median ns per operation of each, or one
    JSON object per bench with `--json`. Selectors, the sandbox, policies,
    deadlines and reruns are `cosmic test`'s.
-4. **Fuzz properties are functions by prefix too** (next): a top-level
-   `local function fuzz_<name>(): Fuzz.Property` returns the property.
-   `cosmic test` checks it at a few inputs (`FUZZ_ITERS`, 64), and
-   `cosmic test --fuzz-deep` draws many. A generator is a value
-   ([`Fuzz.Property`]'s `gen`) another body can draw from: a bench can
-   time a seeded draw, and a corpus input is a fixed case. A fuzz failure
-   is kept in the corpus, so it is a test and a bench input both.
+4. **Fuzz properties are functions by prefix too.** A top-level
+   `local function fuzz_<name>(): Fuzz.Target` returns
+   [`Fuzz.target`] of the property; the runner checks it with
+   [`Fuzz.run_target`] in the test's directory. `cosmic test` checks it
+   at a few inputs (`FUZZ_ITERS`, 64), and `cosmic test --fuzz-deep`
+   draws many (10000, for at most `FUZZ_SECONDS` 120 each), whatever
+   verdict stands; the weekly `fuzz.yml` runs it. The target is a class
+   that only cosmic.fuzz makes and reads, since the checker narrows a
+   class with `is` only inside its module and refuses a cast from the
+   `any` a worker is returned. A generator is a value
+   ([`Fuzz.Property`]'s `gen`) another body can draw from:
+   [`Fuzz.inputs`] returns a property's corpus and the first `n` inputs
+   a run draws, so a bench of the same file times the module on them. A fuzz failure
+   is kept in the corpus, so it is a test and a bench input both. A test
+   that builds its properties in a loop still calls [`Fuzz.run`];
+   `--fuzz-deep` takes every test of a `*_fuzz_test.tl` file for it.
 5. **Examples keep their own file.** An example is documentation that
    `cosmic docs` shows and a built program carries; it stays the record
    `Example` that `<module>_example.tl` returns, run as a test as it is
@@ -107,6 +116,9 @@ say); `<module>_example.tl` for what the docs show.
 [`Bench.compare`]: ../../cosmic/bench.tl
 [`build/test_against.tl`]: ../../build/test_against.tl
 [`cosmic.bench`]: ../../cosmic/bench.tl
+[`Fuzz.inputs`]: ../../cosmic/fuzz.tl
 [`Fuzz.Property`]: ../../cosmic/fuzz.tl
+[`Fuzz.run_target`]: ../../cosmic/fuzz.tl
 [`Fuzz.run`]: ../../cosmic/fuzz.tl
+[`Fuzz.target`]: ../../cosmic/fuzz.tl
 [`Test.policy`]: ../../cosmic/test.tl

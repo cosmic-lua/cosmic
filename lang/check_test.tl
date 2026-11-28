@@ -305,7 +305,7 @@ local CASES <const>: {Case} = {
   {
     code = "compare_disjoint", source = "local n = 1\nif n == \"a\" then\nend\n",
     msg = "`n` is `integer` and `\"a\"` is `string`, which share no value: the test is never true",
-    fix = "compare values of one type, or remove the test",
+    fix = "convert one side so both have one type: `tostring(n) == s`, or `tonumber(s) == n`",
   },
   -- A cursor made of a value that runs out to nil is declared optional where it is made.
   {
@@ -3016,17 +3016,38 @@ local function test_a_range_as_long_as_its_string_or_not_literal_is_not_a_dead_t
   assert(codes_of(head .. "assert(l:sub(1, n) == \"abcd\" or l:sub(2, -1) == \"abcd\" or l:sub(2) == \"abcd\")\n") == "")
 end
 
+local function test_a_json_value_refusal_names_what_to_take_instead()
+  local source = "local function decode(t: string): (integer) | (nil, string) return 1 end\n" ..
+    "local Json = { decode = decode }\nlocal text = \"{}\"\nlocal v = Json.decode(text) + 1\nprint(v)\n"
+  local fix = error_of(source, "alternatives_as_value").fix
+  assert(has(fix, "`Json.decode_object(text)!`") and has(fix, "`Json.read_object(path)!`") and
+      has(fix, "`Json.string_of(v)`") and has(fix, "`Shape.decode_into(text, spec)`"), fix)
+  -- another call is told none of it
+  assert(not has(error_of("local f: function(): (integer) | (nil, string) = function() return 1 end\nlocal x = f() + 1\n",
+    "alternatives_as_value").fix, "Json"))
+end
+
+local function test_a_record_read_by_a_number_names_its_fields()
+  local source = "local record Ran\n  output: string\n  code: integer\n  ok: boolean\nend\n" ..
+    "local function run(): Ran return { output = \"\", code = 0, ok = true } end\nlocal r = run()\nprint(r[1])\n"
+  local told = error_of(source, "record_index").msg
+  assert(has(told, "(it has `output`, `code`, `ok`)"), told)
+end
+
 local function test_only_a_local_with_a_plain_type_is_told_to_be_declared_optional()
-  local generic = "compare values of one type, or remove the test"
+  local never = "is never nil: remove the test, or give it a type that admits nil"
   local fix = fix_of
-  -- a parameter, a loop variable, a narrowed optional and a union are not told to declare `local x: T?`
-  assert(fix("local function f(x: integer): integer\n  if x ~= nil then return 1 end\n  return 0\nend\nprint(f(1))\n") ==
-      generic)
-  assert(fix("for i = 1, 3 do\n  if i ~= nil then print(i) end\nend\n") == generic)
-  assert(fix("local function g(): integer? return nil end\nlocal p = g()\nif p == nil then return end\n" ..
-      "if p ~= nil then print(p) end\n") == generic)
-  assert(fix("local u: integer | string = 1\nif u ~= nil then print(u) end\n") == generic)
-  -- a method named `sub` of a record is not the string library's
+  -- a parameter, a loop variable, a narrowed optional and a union are not told to declare `local x: T?`, only that the
+  -- value is never nil
+  local param = fix("local function f(x: integer): integer\n  if x ~= nil then return 1 end\n  return 0\nend\nprint(f(1))\n")
+  assert(has(param, never) and not has(param, "local x"), param)
+  assert(has(fix("for i = 1, 3 do\n  if i ~= nil then print(i) end\nend\n"), never))
+  assert(has(fix("local function g(): integer? return nil end\nlocal p = g()\nif p == nil then return end\n" ..
+      "if p ~= nil then print(p) end\n"), never))
+  assert(has(fix("local u: integer | string = 1\nif u ~= nil then print(u) end\n"), never))
+  -- text against a number is told to convert one side; two strings of different types, to compare one type
+  assert(has(fix("local n = 1\nlocal s = \"a\"\nif n == s then print(n) end\n"), "tostring(n) == s"))
+-- a method named `sub` of a record is not the string library's
   assert(codes_of("local record U\n  sub: function(self: U, i: integer, j: integer): string\nend\n" ..
       "local function h(o: U): boolean return o:sub(1, 1) == \"ab\" end\nprint(h)\n") == "")
 end

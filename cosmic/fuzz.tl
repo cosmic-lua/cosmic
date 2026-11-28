@@ -56,17 +56,18 @@
 --- names a label fails when too few did, so one whose inputs mostly
 --- stop there is found out too.
 ---
---- A project fuzzes its own parser from a test, in a file named
+--- A project fuzzes its own parser from a `fuzz_*` function, which a plain
+--- `cosmic test` checks at a few inputs and `cosmic test --fuzz-deep` at
+--- many, in a file named
 --- `*_fuzz_test.tl`:
 ---
 --- ```teal
 --- local Fuzz = require("cosmic.fuzz")
 --- local Parse = require("app.parse")
 ---
---- local function test_parse_never_raises(tmp: string)
----   Fuzz.run({
+--- local function fuzz_parse_never_raises(): Fuzz.Target
+---   return Fuzz.target({
 ---     name = "parse total",
----     dir = tmp,
 ---     gen = function(src: Fuzz.Source): string return Fuzz.bytes(src, 200) end,
 ---     check = function(input: string): boolean, string
 ---       local ok, why = pcall(Parse.read, input)
@@ -146,7 +147,16 @@ local SHOWN_BYTES <const> = 512
 --- property, named for it, under this one at the tree's root.
 local CORPUS_ROOT <const> = "testdata/fuzz"
 
+--- A property that a test file's `fuzz_*` function returns, made by [`Fuzz.target`]: the test runner checks it
+--- ([`Fuzz.run_target`]).
+local class Target
+  --- The property the runner checks.
+  property: Fuzz.Property
+end
+
 local record Fuzz
+  type Target = Target
+
   --- Where a generator's choices come from. Every choice is an integer
   --- draw, so a failing input can be replayed from its draws, and shrunk
   --- by replaying smaller ones.
@@ -521,11 +531,14 @@ end
 --- Checks every `.input` file in the property's corpus, in name order,
 --- raising a report on the first that fails; each is written to `kept`
 --- first, as a drawn input is. Returns how many were checked.
-local function check_corpus(p: Fuzz.Property, budget: integer, kept: string?): integer
+--- The paths of the `.input` files in the property's corpus, in name
+--- order: none when it has no corpus. Raises when the corpus cannot be
+--- listed.
+local function corpus_paths(p: Fuzz.Property): {string}
   local dir = corpus_of(p)
   local there, look_trouble = Fs.status(dir)
   local trouble = if there == nil then tostring(look_trouble) else "" end
-  if there ~= nil and not there.exists then return 0 end
+  if there ~= nil and not there.exists then return {} end
   local names: {string}?
   if there ~= nil then
     local listed, why = Fs.list(dir)
@@ -535,33 +548,45 @@ local function check_corpus(p: Fuzz.Property, budget: integer, kept: string?): i
   if names == nil then
     error(("fuzz %s: corpus %s: %s"):format(p.name, dir, trouble), 0)
   end
-  local checked = 0
+  local paths: mut {string} = {}
   for _, name in ipairs(names) do
-    if name:sub(-6) == ".input" then
-      local path = dir .. "/" .. name
-      local input, rtrouble = Fs.read(path)
-      if input == nil then
-        error(("fuzz %s: corpus %s: %s"):format(p.name, path, rtrouble), 0)
+    if name:sub(-6) == ".input" then paths[#paths + 1] = dir .. "/" .. name end
+  end
+  return paths
+end
+
+--- The input kept at `path` in the property's corpus. Raises when it
+--- cannot be read.
+local function corpus_input(p: Fuzz.Property, path: string): string
+  local input, trouble = Fs.read(path)
+  if input == nil then
+    error(("fuzz %s: corpus %s: %s"):format(p.name, path, trouble), 0)
+  end
+  return input
+end
+
+local function check_corpus(p: Fuzz.Property, budget: integer, kept: string?): integer
+  local checked = 0
+  for _, path in ipairs(corpus_paths(p)) do
+    local input = corpus_input(p, path)
+    if kept ~= nil then local _, _ = Fs.write(kept, input) end
+    -- A kept input is starved at a spread of points, in both ways: the
+    -- one that failed when it was found among them, or near it.
+    local starves: {Starve} = { { share = 0, once = false } }
+    if p.starved ~= nil and CHECKED then
+      local spread: mut {Starve} = {}
+      for k = 0, CORPUS_STARVES - 1 do
+        local share = (k << 30) // CORPUS_STARVES
+        spread[#spread + 1] = { share = share, once = false }
+        spread[#spread + 1] = { share = share, once = true }
       end
-      if kept ~= nil then local _, _ = Fs.write(kept, input) end
-      -- A kept input is starved at a spread of points, in both ways: the
-      -- one that failed when it was found among them, or near it.
-      local starves: {Starve} = { { share = 0, once = false } }
-      if p.starved ~= nil and CHECKED then
-        local spread: mut {Starve} = {}
-        for k = 0, CORPUS_STARVES - 1 do
-          local share = (k << 30) // CORPUS_STARVES
-          spread[#spread + 1] = { share = share, once = false }
-          spread[#spread + 1] = { share = share, once = true }
-        end
-        starves = spread
-      end
-      for _, starve in ipairs(starves) do
-        local verdict = attempt_all(p, input, budget, starve)
-        assert(verdict.held or corpus_failed(p, path, verdict.why, input))
-      end
-      checked = checked + 1
+      starves = spread
     end
+    for _, starve in ipairs(starves) do
+      local verdict = attempt_all(p, input, budget, starve)
+      assert(verdict.held or corpus_failed(p, path, verdict.why, input))
+    end
+    checked = checked + 1
   end
   return checked
 end
@@ -648,7 +673,7 @@ local record SharedLabel
 end
 
 --- `run`'s work, with no labels being counted when it starts.
-local function run(p: Fuzz.Property): integer
+local function run(p: Fuzz.Property, given_dir?: string): integer
   local case_name, case_seed = named_case(p)
   -- TODO: a well-formed case naming no property in the file passes
   -- silently, every property skipping it; the runner could fail a run in
@@ -673,7 +698,7 @@ local function run(p: Fuzz.Property): integer
   local seconds = p.seconds or nonnegative_env("FUZZ_SECONDS", 0)
   local asked = iters
   local kept: string?
-  local dir = p.dir
+  local dir = p.dir or given_dir
   if dir ~= nil then
     kept = dir .. "/" .. slug(p.name) .. ".input"
     print(("fuzz %s: seed=%d iters=%d; the input under test is kept at %s"):
@@ -826,16 +851,64 @@ end
 --- than a label's share in `p.shares` did. Raises at once on a share
 --- outside (0, 1]. Returns how many drawn inputs were checked.
 --- @param p Property The property to fuzz
+--- @param dir string The directory the input under test is kept in where `p.dir` names none
 --- @return integer How many inputs held
-function Fuzz.run(p: Fuzz.Property): integer
+function Fuzz.run(p: Fuzz.Property, dir?: string): integer
   -- A check may run a property of its own: its labels are its own, and
   -- the enclosing input's count again once it is done.
   local enclosing = counting.reached
   counting.reached = nil
-  local ok, n = pcall(run, p)
+  local ok, n = pcall(run, p, dir)
   counting.reached = enclosing
   if not ok then error(n, 0) end
   return n
+end
+
+--- What a test file's `fuzz_*` function returns: `p`, for the test runner to check at `FUZZ_ITERS` inputs, a plain
+--- `cosmic test`'s few or `cosmic test --fuzz-deep`'s many.
+---
+---     local function fuzz_parse_is_total(): Fuzz.Target
+---       return Fuzz.target({ name = "parse total", gen = gen, check = check })
+---     end
+function Fuzz.target(p: Fuzz.Property): Fuzz.Target
+  return { property = p }
+end
+
+--- Checks the property `value` holds, a [`Fuzz.Target`] that a `fuzz_*` function returned, as [`Fuzz.run`] does,
+--- keeping the input under test in `dir` where the property names no directory of its own. Raises when `value`
+--- is no target. The test runner's call of a `fuzz_*` function.
+function Fuzz.run_target(value: any, dir: string): integer
+  if not (value is Target) then
+    error("a fuzz_* function returns a Fuzz.Target, made by Fuzz.target(property), and this returned a " ..
+        type(value), 0)
+  end
+  return Fuzz.run(value.property, dir)
+end
+
+--- The inputs a run of `target` checks, for another body of its file to
+--- use: a bench that times the module on them, say. They are the
+--- property's corpus, in name order, then `n` drawn as `run` draws them
+--- from `seed` (`FUZZ_SEED`, else 1), so the drawn ones are the inputs a
+--- run checks at iterations 1 through `n`. Raises when the corpus cannot
+--- be read, or the generator raises.
+---
+---     local function bench_decode_drawn(b: Bench.B)
+---       local inputs = Fuzz.inputs(fuzz_decode_is_total(), 256)
+---       b.reset()
+---       for _ = 1, b.n do
+---         for _, input in ipairs(inputs) do Codec.decode(input) end
+---       end
+---     end
+function Fuzz.inputs(target: Fuzz.Target, n: integer, seed?: integer): {string}
+  local p = target.property
+  local inputs: mut {string} = {}
+  for _, path in ipairs(corpus_paths(p)) do inputs[#inputs + 1] = corpus_input(p, path) end
+  local seeds = Rand.new(seed or nonnegative_env("FUZZ_SEED", DEFAULT_SEED))
+  for _ = 1, n do
+    local case = seeds:int(math.mininteger, math.maxinteger)
+    inputs[#inputs + 1] = p.gen(recording(Rand.new(case), {}))
+  end
+  return inputs
 end
 
 --- Checks one input directly, under the same budget as `run`: what

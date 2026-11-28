@@ -1238,6 +1238,17 @@ end
 
 -- Read once, since this process never changes its own environment.
 local worker_view_memo: mut {{string:string}} = {}
+
+--- Sets variables in what every worker of this run is given ([`test_key.worker_view`]) over this process's own
+--- environment: `cosmic test --fuzz-deep`'s FUZZ_ITERS and FUZZ_SECONDS, which its keys hold as they would hold
+--- the same variables set by hand. Called before any key is made.
+function test_key.set_worker_variables(variables: {string:string})
+  local view: mut {string:string} = {}
+  for name, value in pairs(test_key.worker_environment(Env.all())) do view[name] = value end
+  for name, value in pairs(variables) do view[name] = value end
+  worker_view_memo[1] = view
+end
+
 function test_key.worker_view(): {string:string}
   if worker_view_memo[1] == nil then
     worker_view_memo[1] = test_key.worker_environment(Env.all())
@@ -2655,6 +2666,19 @@ function test_key.judge(rec: Recording, job: Job, result: Child.Result?,
       " (a held run fails that)\n  to fix: assert what it exists to show, a helper that" ..
       " checks through error or pcall calling assert; where this host cannot check it," ..
       " declare `requires` or call Test.skip(reason)"
+  end
+  -- A skip that names a requirement the leg promises is a failure of a held run, as a module that requires it
+  -- is: the leg promised the host has what the test found missing.
+  if passed and skipped ~= "" and rec.held then
+    for need in (judgement.skip_needs or ""):gmatch("[^,]+") do
+      if host_names.promised(rec.promises, need) then
+        passed = false
+        message = "skipped for " .. need .. ", which " .. (if rec.leg == "" then "this run" else "the leg " .. rec.leg end) ..
+          " promises, and a held run fails what its leg promised (" .. skipped .. ")"
+        skipped = ""
+        break
+      end
+    end
   end
   -- A checked run keeps no verdict of a test that met a violation: it runs again every time, so every run
   -- reports it: the count of violations a standing run prints is then the whole run's.

@@ -55,10 +55,9 @@ end
 
 --- However a document is split into chunks, the parser's `feed` and
 --- `finish` return the same events, or refuse it with the same message.
-local function test_chunks_never_change_what_a_document_reads(tmp: string)
-  Fuzz.run({
+local function fuzz_chunks_never_change_what_a_document_reads(): Fuzz.Target
+  return Fuzz.target({
     name = "xml chunking",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       return gen_document(src)
     end,
@@ -80,10 +79,9 @@ local function test_chunks_never_change_what_a_document_reads(tmp: string)
 end
 
 --- Every document a parser reads, written back, reads to the same events.
-local function test_what_reads_writes_back_to_the_same_events(tmp: string)
-  Fuzz.run({
+local function fuzz_what_reads_writes_back_to_the_same_events(): Fuzz.Target
+  return Fuzz.target({
     name = "xml write round trip",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       return gen_document(src)
     end,

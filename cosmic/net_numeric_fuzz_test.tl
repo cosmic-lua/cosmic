@@ -30,10 +30,9 @@ local function dotted_quad(host: string): boolean
   return true
 end
 
-local function test_numeric_hosts_match_the_strict_syntax_before_binding(tmp: string)
-  Fuzz.run({
+local function fuzz_numeric_hosts_match_the_strict_syntax_before_binding(): Fuzz.Target
+  return Fuzz.target({
     name = "net numeric host syntax",
-    dir = tmp,
     gen = gen_host,
     requires = { "bound", "refused" },
     shares = { bound = 0.1, refused = 0.2 },

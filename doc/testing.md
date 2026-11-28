@@ -77,6 +77,9 @@ to the bytes one operation reads for a rate in GB/s.
   so a bench that writes files starts each batch from nothing.
 - A helper whose name starts with `bench_` is taken as a bench; name it
   otherwise (`sample_repo`, not `bench_repo`).
+- A bench beside a `fuzz_*` property can time the module on the inputs
+  the property is checked on: [`Fuzz.inputs`] returns its corpus and
+  the first `n` inputs a run draws, from the same seed.
 
 doc/decisions/0002-one-companion-one-runner.md says why a bench is a
 function of a test file.
@@ -719,6 +722,14 @@ passes having checked nothing.
   socket by path, a mode with a setuid bit) carries a `TODO:` beside
   it naming what it waits on.
 
+`Test.skip(reason, need)` names the requirement the skip stands for:
+one of the `requires` names, such as `"nest"`. In a held run
+(`COSMIC_SANDBOX=must`, `COSMIC_CI_REQUIRE_SANDBOX=1` or
+`COSMIC_TEST_SANDBOX=1`), the test fails when the leg promises that
+name in ci/cosmic_ci/capabilities.json. A skip for a promised host
+fact cannot hide lost coverage. A skip with no `need`, or for a name
+the leg does not promise, stays a skip.
+
 Where a fact of the host alone decides, use `requires`, not a skip.
 Where no name stands for it (a native start with nothing to relaunch,
 a test of what only another platform does), skip.
@@ -986,10 +997,20 @@ holds one piece of work to a multiple of another ([`lang.speed`]) reads
 
 ## fuzz tests
 
-A parser that reads untrusted bytes gets a `*_fuzz_test.tl` beside it,
-driving [`cosmic.fuzz`]'s `run`. A generator draws each input from a
-seeded source. A check must hold for all of them. The module doc of
-[`cosmic.fuzz`] has the full contract.
+A parser that reads untrusted bytes gets a `*_fuzz_test.tl` beside it.
+Each property is a top-level `local function fuzz_<name>(): Fuzz.Target`
+that returns [`Fuzz.target`] of the property; it may take the test's
+`tmp` as a test does. A generator draws each input from a seeded source.
+A check must hold for all of them. The module doc of [`cosmic.fuzz`] has
+the full contract.
+
+- `cosmic test` checks each property as a test, at `FUZZ_ITERS` inputs.
+- `cosmic test --fuzz-deep [selector...]` checks only the properties
+  (and the other tests of a `*_fuzz_test.tl` file), whatever verdict
+  stands, at `FUZZ_ITERS=10000` and `FUZZ_SECONDS=120` unless the
+  environment says other numbers. The weekly `fuzz.yml` runs it.
+- A test that calls [`Fuzz.run`] itself, for a property it builds in a
+  loop, still runs; `--fuzz-deep` reaches it by its file's name.
 
 - `FUZZ_SEED` and `FUZZ_ITERS` (64 by default) choose the inputs.
 - `FUZZ_SECONDS` bounds the seconds a property spends drawing (none by
@@ -1022,11 +1043,14 @@ seeded source. A check must hold for all of them. The module doc of
   may say memory ran out, and `check` must hold again after it. Other
   cores skip it.
 - CI runs that gate a merge set `FUZZ_ITERS=0` and draw nothing. The
-  weekly `fuzz.yml` fuzzes every property on the checked core with a
-  seed of its own. A failure is a red run whose summary lists it.
+  weekly `fuzz.yml` runs `cosmic test --fuzz-deep` on the checked core
+  with a seed of its own. A failure is a red run whose summary lists it.
 - Once a failure is fixed, keep its input in
   `testdata/fuzz/<property>/` as the report says. `run` checks that
   corpus before it draws.
+- [`Fuzz.inputs`] gives another body of the file a property's inputs:
+  its corpus, in name order, then the first `n` inputs a run draws. A
+  bench uses them, so a kept failure is a bench input as well as a test.
 
 ## a change to the checker's verdicts
 
@@ -1477,8 +1501,11 @@ Other rules:
 [`Fake.place`]: ../cosmic/fake/init.tl
 [`Fake.reply`]: ../cosmic/fake/init.tl
 [`Fs.mkdtemp`]: ../cosmic/fs.tl
+[`Fuzz.inputs`]: ../cosmic/fuzz.tl
 [`Fuzz.label`]: ../cosmic/fuzz.tl
 [`Fuzz.more`]: ../cosmic/fuzz.tl
+[`Fuzz.run`]: ../cosmic/fuzz.tl
+[`Fuzz.target`]: ../cosmic/fuzz.tl
 [`importer.checked_tool`]: ../build/importer.tl
 [`Json.diff`]: ../cosmic/json.tl
 [`lang.boundary_checks`]: ../lang/boundary_checks.tl

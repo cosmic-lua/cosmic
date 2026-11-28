@@ -361,6 +361,68 @@ local function test_commit_waits_for_no_index_lock(tmp: string)
   assert(lock == nil)
 end
 
+--- A repository whose `index.version` is 4 keeps it: `add` writes version 4 with prefix-compressed paths, and the
+--- index reads back, so status is clean and a commit holds every path.
+local function test_index_version_4_round_trips(tmp: string)
+  local root = tmp .. "/v4"
+  empty(root, "main")
+  local config = assert(Fs.read(root .. "/.git/config"))
+  put(root, ".git/config", config .. "[index]\n\tversion = 4\n")
+  put(root, "dir/sub/one.txt", "1\n")
+  put(root, "dir/sub/two.txt", "2\n")
+  put(root, "dir/subx.txt", "3\n")
+  put(root, "a.txt", "a\n")
+  local repo = assert(Git.open(root))
+  assert(repo:add({ "dir/sub/one.txt", "dir/sub/two.txt", "dir/subx.txt", "a.txt" }))
+  local raw = assert(Fs.read(root .. "/.git/index"))
+  assert(raw:sub(1, 8) == "DIRC\0\0\0\4", "not index version 4")
+  local again = assert(Git.open(root))
+  local before = assert(again:status())
+  assert(#before.staged == 4 and #before.unstaged == 0, "staged " .. tostring(#before.staged))
+  local oid = assert(again:commit({ message = "v4", author = WHO, committer = WHO }))
+  local made = assert(again:commit_info(oid))
+  assert(at(again, made.tree, "dir/sub/two.txt") ~= nil)
+  assert(at(again, made.tree, "dir/subx.txt") ~= nil)
+  -- A later add keeps the version it read.
+  put(root, "dir/sub/one.txt", "changed\n")
+  assert(again:add({ "dir/sub/one.txt" }))
+  assert(assert(Fs.read(root .. "/.git/index")):sub(1, 8) == "DIRC\0\0\0\4")
+  assert(clean(assert(assert(Git.open(root)):status())) == false)
+  assert(#assert(assert(Git.open(root)):status()).staged == 1)
+end
+
+--- A file that git would convert or filter on `add` is one cosmic.git refuses: it cannot run the filter, and
+--- recording the raw bytes would store what git would not.
+local function test_add_refuses_what_a_filter_would_change(tmp: string)
+  local root = scratch(tmp)
+  put(root, ".gitattributes", "*.bin filter=lfs diff=lfs merge=lfs -text\n*.id ident\n")
+  put(root, "big.bin", "payload\n")
+  put(root, "tag.id", "$Id$\n")
+  put(root, "plain.txt", "fine\n")
+  local repo = assert(Git.open(root))
+  local made, why = repo:add({ "big.bin" })
+  assert(made == nil and tostring(why):find("big.bin", 1, true) ~= nil, tostring(why))
+  made, why = repo:add({ "tag.id" })
+  assert(made == nil and tostring(why):find("tag.id", 1, true) ~= nil, tostring(why))
+  assert(repo:add({ "plain.txt" }))
+  -- A nested file overrides the root's line, as git ranks them.
+  put(root, "sub/.gitattributes", "*.bin -filter\n")
+  put(root, "sub/ok.bin", "raw\n")
+  assert(repo:add({ "sub/ok.bin" }))
+  -- core.autocrlf converts a file holding CR, so a CRLF file is refused and an LF file is not.
+  local config = assert(Fs.read(root .. "/.git/config"))
+  put(root, ".git/config", config .. "[core]\n\tautocrlf = true\n")
+  put(root, "win.txt", "a\r\nb\r\n")
+  put(root, "unix.txt", "a\nb\n")
+  local crlf = assert(Git.open(root))
+  made, why = crlf:add({ "win.txt" })
+  assert(made == nil and tostring(why):find("win.txt", 1, true) ~= nil, tostring(why))
+  assert(crlf:add({ "unix.txt" }))
+  -- Auto mode leaves a file it takes for binary (a lone CR).
+  put(root, "lone.txt", "a\rb\n")
+  assert(crlf:add({ "lone.txt" }))
+end
+
 --- Benches. A copy of the scratch repository with 100 files more and 30 commits more on `main`, each of one changed
 --- file: opening it, `status`, `log`, a revision, the packed first commit's tree and a blob of it, and an add and a
 --- commit.

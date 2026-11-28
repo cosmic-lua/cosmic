@@ -144,20 +144,18 @@ local function check_damage(input: string): boolean, string
   return true, ""
 end
 
-local function test_a_damaged_code_reads_back_or_is_refused(tmp: string)
-  Fuzz.run({
+local function fuzz_a_damaged_code_reads_back_or_is_refused(): Fuzz.Target
+  return Fuzz.target({
     name = "qr decode",
-    dir = tmp,
     gen = gen_damage,
     check = check_damage,
     requires = { "many flips", "mended" },
   })
 end
 
-local function test_encode_is_total_and_keeps_to_its_options(tmp: string)
-  Fuzz.run({
+local function fuzz_encode_is_total_and_keeps_to_its_options(): Fuzz.Target
+  return Fuzz.target({
     name = "qr encode",
-    dir = tmp,
     gen = gen,
     check = check,
     -- A check encodes a text up to three times, the first trying all 8

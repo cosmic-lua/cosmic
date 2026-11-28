@@ -1,6 +1,7 @@
 --- The types of binary and unary expressions, `if` expressions, and what an `is` test reads.
 
 local Ast = require("lang.ast")
+local Codes = require("lang.check_codes")
 local Flow = require("lang.flow")
 local Types = require("lang.types")
 local Context = require("lang.check.context")
@@ -29,6 +30,7 @@ local report = Naming.report
 local show = Context.show
 local subject = Context.subject
 local text_of = Context.text_of
+local full_text = Context.full_text
 local tq = Context.tq
 local ARITHMETIC = Operands.ARITHMETIC
 local BITWISE = Operands.BITWISE
@@ -58,6 +60,26 @@ function Operators.optional_fix(ctx: Ctx, node: Ast.Binary): string?
   return if fix ~= nil then fix .. ", or remove the test" else nil end
 end
 
+--- How to put right a test of two types that share no value: of a value that is never nil against `nil`, drop the test; of
+--- a number against text, convert one side; else compare values of one type.
+function Operators.disjoint_fix(ctx: Ctx, node: Ast.Binary, left: Type, right: Type): string
+  local shown, other = left, right
+  local subject_node = node.left
+  if left.tag == "nil" then
+    shown, other, subject_node = right, left, node.right
+  end
+  if other.tag == "nil" and shown.tag ~= "nil" then
+    return quoted(text_of(ctx, subject_node)) .. " is never nil: remove the test, or give it a type that admits nil (`" ..
+      show(ctx, shown) .. "?`) where it is made"
+  end
+  local texty, numbery = is_text(left) or is_text(right), below(ctx, left, ctx.store.number) or
+    below(ctx, right, ctx.store.number)
+  if texty and numbery then
+    return "convert one side so both have one type: `tostring(n) == s`, or `tonumber(s) == n`"
+  end
+  return "compare values of one type, or remove the test"
+end
+
 --- The integer an integer literal or its negation (`-1`) writes, else nil.
 function Operators.literal_integer(e: Ast.Node): integer?
   local at = peel(e)
@@ -82,6 +104,24 @@ function Operators.literal_range(e: Ast.Node): integer, integer
   return i, j
 end
 
+--- The rewrite of the test `node`, `s:sub(i, j) == "..."` of a range `range` shorter than the string it is tested against,
+--- of `n` bytes, to the range as long as the string: the whole test written again. Nil where the range counts from both ends.
+local function short_range_rewrite(ctx: Ctx, node: Ast.Binary, range: Ast.MethodCall, i: integer, j: integer,
+                                   n: integer): Codes.Rewrite?
+  local object = full_text(ctx, range.object)
+  local made: string
+  if i > 0 then
+    made = object .. ":sub(" .. tostring(i) .. ", " .. tostring(i + n - 1) .. ")"
+  elseif j == -1 then
+    made = object .. ":sub(" .. tostring(-n) .. ")"
+  else
+    return nil
+  end
+  local left = if peel(node.left) == range then made else full_text(ctx, node.left) end
+  local right = if peel(node.right) == range then made else full_text(ctx, node.right) end
+  return { before = "", after = "", text = left .. " " .. node.op .. " " .. right }
+end
+
 --- `s:sub(1, 19) == "local function test_"`: a literal longer than the range is never what the range answers, which
 --- finds a miscounted prefix.
 function Operators.short_range(ctx: Ctx, node: Ast.Binary)
@@ -102,7 +142,7 @@ function Operators.short_range(ctx: Ctx, node: Ast.Binary)
       (if most == 1 then " byte" else " bytes" end) .. " and " ..
       subject(ctx, literal) .. " has " .. tostring(n) .. ": the test is never " ..
       (if node.op == "==" then "true" else "false" end),
-    fix .. ", which is as long as the string")
+    fix .. ", which is as long as the string", nil, nil, short_range_rewrite(ctx, node, range, i, j, n))
 end
 
 --- `a == b` and `a ~= b`: both sides overlap, else the test is dead.
@@ -111,7 +151,7 @@ function Operators.equality(ctx: Ctx, node: Ast.Binary, left: Type, right: Type)
     report(ctx, "compare_disjoint", node, subject(ctx, node.left) .. " is " .. tq(ctx, left) .. " and " ..
         subject(ctx, node.right) .. " is " .. tq(ctx, right) .. ", which share no value: the test is never " ..
         (if node.op == "==" then "true" else "false" end),
-      Operators.optional_fix(ctx, node) or "compare values of one type, or remove the test",
+      Operators.optional_fix(ctx, node) or Operators.disjoint_fix(ctx, node, left, right),
       { show(ctx, left), show(ctx, right) })
   else
     Operators.short_range(ctx, node)
@@ -230,6 +270,15 @@ function Operators.disjunction(ctx: Ctx, node: Ast.Binary, left: Type, expected:
   return both
 end
 
+--- The rewrite of `c and x or y` (`parent`, whose left is `node`, `c and x`) to `if c then x else y end`, where `x`, of type
+--- `right`, is never false or nil: the two then answer alike. Nil where `x` may be false or nil, which the `if` expression
+--- answers differently.
+function Operators.ternary_rewrite(ctx: Ctx, node: Ast.Binary, parent: Ast.Binary, right: Type): Codes.Rewrite?
+  if Types.may_be_false(right) or not Types.present(right) then return nil end
+  return { before = "", after = "", text = "if " .. full_text(ctx, node.left) .. " then " .. full_text(ctx, node.right) ..
+      " else " .. full_text(ctx, parent.right) .. " end" }
+end
+
 --- `a and b`: both booleans, or a `T?` guarding a value, which is optional.
 function Operators.conjunction(ctx: Ctx, node: Ast.Binary, left: Type, expected: Type?): Type
   local store = ctx.store
@@ -254,7 +303,8 @@ function Operators.conjunction(ctx: Ctx, node: Ast.Binary, left: Type, expected:
       report(ctx, "and_ternary", parent, subject(ctx, parent) .. " is a ternary: it answers " .. subject(ctx, parent.right) ..
           " when " .. subject(ctx, node.right) .. " is false or nil",
         "use the `if` expression: `if " .. text_of(ctx, node.left) .. " then " .. text_of(ctx, node.right) .. " else " ..
-          text_of(ctx, parent.right) .. " end`")
+          text_of(ctx, parent.right) .. " end`, which ends with `end`",
+        nil, nil, Operators.ternary_rewrite(ctx, node, parent, right))
       return ctx.invalid
     end
     report(ctx, "or_mix", node, subject(ctx, node.left) .. " is a boolean and " .. subject(ctx, node.right) .. " is " ..

@@ -129,3 +129,12 @@ local function test_diff_keeps_one_line_of_context()
   assert(table.concat(Show.diff("", "new"), "|") == "+new")
   assert(table.concat(Show.diff("old\n", ""), "|") == "-old")
 end
+
+local function test_diff_ignores_one_final_newline()
+  assert(#Show.diff("a", "a\n") == 0 and #Show.diff("x\ny", "x\ny\n") == 0)
+end
+
+local function test_diff_tells_far_changes_apart()
+  local far = table.concat(Show.diff("1\n2\n3\n4\n5\n6\n7\n8\n", "1\nb\n3\n4\n5\n6\n7\nh\n"), "|")
+  assert(far == " 1|-2|+b| 3|@@| 7|-8|+h", far)
+end

@@ -285,3 +285,20 @@ local function test_odd_entries_fail_cleanly(tmp: string)
   assert(refused(tmp, { { kind = "create", new_name = "sub/.GIT/config", hunks = Diff.lines("", "x\n") } }))
   assert(is_missing(tmp .. "/.git"))
 end
+
+--- A patch that makes 2000 directories, then removes them again, keeps no more than a few open: the
+--- descriptor limit is not met half way through the write.
+local function test_thousands_of_directories_do_not_run_out_of_descriptors(tmp: string)
+  local entries: mut {Diff.Entry} = {}
+  for i = 1, 2000 do
+    local name = string.format("d%04d/sub/f.txt", i)
+    entries[#entries + 1] = { kind = "create", new_name = name, hunks = Diff.lines("", "n" .. tostring(i) .. "\n") }
+  end
+  local result = assert(Patch.apply(tmp, entries))
+  assert(result.applied and result.written)
+  assert(read(tmp .. "/d0001/sub/f.txt") == "n1\n")
+  assert(read(tmp .. "/d2000/sub/f.txt") == "n2000\n")
+  local back = assert(Patch.apply(tmp, entries, { reverse = true }))
+  assert(back.applied and back.written)
+  assert(is_missing(tmp .. "/d0001/sub/f.txt") and is_missing(tmp .. "/d2000/sub/f.txt"))
+end

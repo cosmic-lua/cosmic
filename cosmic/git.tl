@@ -117,6 +117,12 @@ local record Git
     --- excludes, sorted, each file named as `git status -uall` names
     --- it. A nested repository is named once, as `dir/`.
     untracked: {string}
+    --- Tracked files whose changes it cannot tell: their attributes ask
+    --- for a conversion git would run on the way in (a clean filter such
+    --- as LFS, ident, a working-tree encoding, a line-ending conversion
+    --- of a file with a carriage return), which this module does not.
+    --- They are left out of `unstaged`, and `add` refuses them.
+    filtered: {string}
   end
 
   record CommitOptions
@@ -124,7 +130,7 @@ local record Git
     message: string
     --- Defaults to `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL` and
     --- `GIT_AUTHOR_DATE`, then to `user.name` and `user.email` in the
-    --- config, at the current time in UTC.
+    --- config, at the current time in the local zone (`TZ`, else the host's).
     author?: Person
     --- As `author`, from the `GIT_COMMITTER_*` variables.
     committer?: Person
@@ -629,6 +635,42 @@ local function holds_repository(dir: string): boolean
     refs.kind == "dir"
 end
 
+--- The commit HEAD names in the repository checked out at `dir`, or nil where it cannot be told (no HEAD, an unborn
+--- branch, an unreadable ref). It reads the files and opens nothing, so it works for a submodule git absorbed
+--- (its gitdir under the superproject's, with `core.worktree` set) and ignores GIT_DIR and the like, which git clears
+--- for a submodule.
+local function submodule_head(dir: string): string?
+  local gitdir = dir .. "/.git"
+  local st, _ = sys.lstat(gitdir)
+  if st ~= nil and st.kind == "file" then
+    local text, _ = Fs.read(gitdir)
+    local named = if text ~= nil then text:match("^gitdir: *([^\n]-)%s*$") else nil end
+    if named == nil or named == "" then return nil end
+    gitdir = if named:sub(1, 1) == "/" then named else dir .. "/" .. named end
+  end
+  local head, _ = Fs.read(gitdir .. "/HEAD")
+  if head == nil then return nil end
+  head = (head:gsub("%s+$", ""))
+  local ref = head:match("^ref: *(.+)$")
+  if ref == nil then return head:match("^%x+$") end
+  if not valid_ref(ref) then return nil end
+  local loose, _ = Fs.read(gitdir .. "/" .. ref)
+  if loose ~= nil then return (loose:gsub("%s+$", ""):match("^%x+$")) end
+  local common = gitdir
+  local pointer, _ = Fs.read(gitdir .. "/commondir")
+  if pointer ~= nil then
+    local named = (pointer:gsub("%s+$", ""))
+    common = if named:sub(1, 1) == "/" then named else gitdir .. "/" .. named end
+  end
+  local packed, _ = Fs.read(common .. "/packed-refs")
+  if packed == nil then return nil end
+  for line in packed:gmatch("[^\n]+") do
+    local oid, name = line:match("^(%x+) (.+)$")
+    if name == ref then return oid end
+  end
+  return nil
+end
+
 --- One line of an ignore file.
 local record IgnoreRule
   pattern: string
@@ -683,6 +725,110 @@ local function is_ignored(rules: {IgnoreRule}, path: string, is_dir: boolean, fo
     end
   end
   return false
+end
+
+------------------------------------------------------------------
+-- attributes
+------------------------------------------------------------------
+
+--- One attribute a line of a .gitattributes file gives a path.
+local record AttrSetting
+  name: string
+  --- "set" (`text`), "unset" (`-text`), "unspecified" (`!text`) or
+  --- "value" (`eol=lf`).
+  how: string
+  value: string
+end
+
+--- One line of an attributes file: what it gives the paths its pattern
+--- matches.
+local record AttrRule
+  pattern: string
+  anchored: boolean
+  --- The directory of the file that holds it, from the top of the worktree.
+  base: string
+  settings: {AttrSetting}
+end
+
+--- The settings of `words` (the line after its pattern), with a macro
+--- replaced by the settings it stands for. `binary` is git's own.
+local function attr_settings(words: {string}, macros: {string:{AttrSetting}}): {AttrSetting}
+  local out: mut {AttrSetting} = {}
+  for _, word in ipairs(words) do
+    local how, name, value = "set", word, ""
+    if word:sub(1, 1) == "-" then
+      how, name = "unset", word:sub(2)
+    elseif word:sub(1, 1) == "!" then
+      how, name = "unspecified", word:sub(2)
+    else
+      local n, v = word:match("^([^=]+)=(.*)$")
+      if n ~= nil and v ~= nil then how, name, value = "value", n, v end
+    end
+    local macro = if how == "set" then macros[name] else nil end
+    if macro ~= nil then
+      out[#out + 1] = { name = name, how = "set", value = "" }
+      for _, inner in ipairs(macro) do out[#out + 1] = inner end
+    elseif how == "set" and name == "binary" then
+      out[#out + 1] = { name = "diff", how = "unset", value = "" }
+      out[#out + 1] = { name = "merge", how = "unset", value = "" }
+      out[#out + 1] = { name = "text", how = "unset", value = "" }
+    else
+      out[#out + 1] = { name = name, how = how, value = value }
+    end
+  end
+  return out
+end
+
+--- The rules of an attributes file's text, for paths under `base`; the
+--- macros it defines (`[attr]name settings`) go in `macros`. A pattern
+--- git refuses (one ending in `/`, or with a negation) is left out, as
+--- git leaves it out.
+local function parse_attributes(text: string, base: string, into: mut {AttrRule}, macros: mut {string:{AttrSetting}})
+  if text:sub(1, 3) == "\xEF\xBB\xBF" then text = text:sub(4) end
+  for raw in (text .. "\n"):gmatch("([^\n]*)\n") do
+    local line = raw:gsub("\r$", ""):gsub("^%s+", "")
+    if line ~= "" and line:sub(1, 1) ~= "#" then
+      local pattern, rest = line:match("^(%S+)%s*(.*)$")
+      if pattern == nil then
+        pattern = line
+        rest = ""
+      end
+      if pattern:sub(1, 1) == '"' then
+        local quoted, tail = line:match('^"([^"\\]*)"%s*(.*)$')
+        pattern, rest = quoted, tail
+      end
+      local words: mut {string} = {}
+      for word in (rest or ""):gmatch("%S+") do words[#words + 1] = word end
+      if pattern ~= nil and pattern:sub(1, 6) == "[attr]" then
+        macros[pattern:sub(7)] = attr_settings(words, macros)
+      elseif pattern ~= nil and pattern:sub(-1) ~= "/" and pattern:sub(1, 1) ~= "!" and #words > 0 then
+        local anchored = pattern:find("/", 1, true) ~= nil
+        if pattern:sub(1, 1) == "/" then pattern = pattern:sub(2) end
+        local settings = attr_settings(words, macros)
+        into[#into + 1] = { pattern = pattern, anchored = anchored, base = base, settings = settings }
+      end
+    end
+  end
+end
+
+--- The setting `rules` give the attribute `name` to `path`: the last
+--- line that names it and whose pattern matches decides. Nil when none
+--- does.
+local function attr_setting(rules: {AttrRule}, name: string, path: string, fold: boolean): AttrSetting?
+  for i = #rules, 1, -1 do
+    local r = rules[i]!
+    if path:sub(1, #r.base) == r.base then
+      local rel = path:sub(#r.base + 1)
+      local target = if r.anchored then rel else (rel:match("[^/]*$") or rel) end
+      if wildmatch(r.pattern, target, fold) then
+        for j = #r.settings, 1, -1 do
+          local setting = r.settings[j]!
+          if setting.name == name then return setting end
+        end
+      end
+    end
+  end
+  return nil
 end
 
 ------------------------------------------------------------------
@@ -934,6 +1080,8 @@ end
 
 local record Index
   entries: {Entry}
+  --- The version it was read as (2 where there was no file): `add` writes it back as it was.
+  mut version: integer
   --- The index file's mtime, for telling racily clean entries.
   mtime: integer
   mtime_ns: integer
@@ -942,7 +1090,9 @@ end
 local function read_index(path: string): (Index) | (nil, Failure)
   local data, trouble = Fs.read(path)
   if data == nil then
-    if trouble.errno == sys.ENOENT then return { entries = {}, mtime = 0, mtime_ns = 0 } end
+    if trouble.errno == sys.ENOENT then
+      return { entries = {}, version = 2, mtime = 0, mtime_ns = 0 }
+    end
     return nil, trouble
   end
   local st, strouble = Fs.stat(path)
@@ -1004,19 +1154,39 @@ local function read_index(path: string): (Index) | (nil, Failure)
     if sig == "sdir" then return refuse("a sparse index is not supported", path) end
     at = at + 8 + len
   end
-  return { entries = entries, mtime = st.mtime, mtime_ns = st.mtime_ns }
+  return { entries = entries, version = version, mtime = st.mtime, mtime_ns = st.mtime_ns }
 end
 
---- The index's bytes: version 2, or 3 when an entry has extended
---- flags; no extensions (git rebuilds the cache tree it drops). An
---- entry whose mtime is not before `now` (seconds) is written with
---- size 0, so its content is checked next time ("racily clean").
-local function index_bytes(entries: {Entry}, now: integer): string
-  local version = 2
+--- The offset varint of `n`: what [`offset_varint`] reads.
+local function offset_varint_bytes(n: integer): string
+  local out: mut {string} = { string.char(n & 0x7F) }
+  n = n >> 7
+  while n > 0 do
+    n = n - 1
+    table.insert(out, 1, string.char(0x80 | (n & 0x7F)))
+    n = n >> 7
+  end
+  return table.concat(out)
+end
+
+--- The index's bytes in `version` (4 for path-compressed entries, as a
+--- repository with index.version 4 keeps them); version 2, or 3 when an
+--- entry has extended flags, otherwise. No extensions: the cache tree
+--- (TREE), the untracked cache (UNTR), the resolve-undo list (REUC), the
+--- file system monitor token (FSMN) and the entry offset tables (EOIE,
+--- IEOT) are optional, and each is a cache git rebuilds or a note that
+--- no longer holds once the entries change. An entry whose mtime is not
+--- before `now` (seconds) is written with size 0, so its content is
+--- checked next time ("racily clean").
+local function index_bytes(entries: {Entry}, now: integer, version: integer): string
+  local compressed = version == 4
+  version = 2
+  if compressed then version = 4 end
   for _, e in ipairs(entries) do
-    if e.xflags ~= 0 then version = 3 end
+    if e.xflags ~= 0 and version == 2 then version = 3 end
   end
   local parts: mut {string} = { string.pack(">c4I4I4", "DIRC", version, #entries) }
+  local previous = ""
   for _, e in ipairs(entries) do
     local size = if e.mtime >= now then 0 else e.size end
     local flags = (e.flags & 0x3000) | (if #e.path < 0xFFF then #e.path else 0xFFF end)
@@ -1029,11 +1199,37 @@ local function index_bytes(entries: {Entry}, now: integer): string
       parts[#parts + 1] = string.pack(">I2", e.xflags)
       fixed = 64
     end
-    local len = fixed + #e.path
-    parts[#parts + 1] = e.path .. string.rep("\0", (len + 8) // 8 * 8 - len)
+    if compressed then
+      local common = 0
+      local limit = math.min(#previous, #e.path)
+      while common < limit and previous:byte(common + 1) == e.path:byte(common + 1) do
+        common = common + 1
+      end
+      parts[#parts + 1] = offset_varint_bytes(#previous - common) .. e.path:sub(common + 1) .. "\0"
+      previous = e.path
+    else
+      local len = fixed + #e.path
+      parts[#parts + 1] = e.path .. string.rep("\0", (len + 8) // 8 * 8 - len)
+    end
   end
   local body = table.concat(parts)
   return body .. Hash.digest("sha1", body)
+end
+
+--- The offset from UTC of the local zone at `time` (Unix seconds), as
+--- git writes it: `+0000`, `-0800`. The zone is `TZ`'s, or the host's
+--- (/etc/localtime) where `TZ` is unset, as git reads them; UTC where
+--- that names no zone.
+local function local_offset(time: integer): string
+  local Time = require("cosmic.time")
+  local tz = Env.get("TZ")
+  local zone, _ = Time.local_zone({ tz = tz, unset = tz == nil })
+  -- git reads a zone it cannot use as UTC.
+  if zone == nil then return "+0000" end
+  local seconds = Time.civil(time * NS, zone).offset
+  local sign = if seconds < 0 then "-" else "+" end
+  seconds = math.abs(seconds)
+  return string.format("%s%02d%02d", sign, seconds // 3600, seconds % 3600 // 60)
 end
 
 --- Whether `a` sorts before `b` in the index: by path, then stage.
@@ -1181,10 +1377,23 @@ local record Seen
   recorded?: Recorded
 end
 
+--- The attributes files read so far for one `add` or `status`.
+local record AttrCache
+  --- Rules of the files under the worktree, by directory (`""`, `src/`).
+  mut dirs: mut {string:{AttrRule}}
+  mut macros: mut {string:{AttrSetting}}
+  --- The global file's rules and the repository's own (info/attributes),
+  --- the lowest and the highest in rank; nil until read.
+  mut global?: {AttrRule}
+  mut info?: {AttrRule}
+end
+
 local class Repository is Git.Repo
   gitdir: string
   commondir: string
   worktree: string
+  --- The index file: `gitdir`/index, or GIT_INDEX_FILE.
+  index_file: string
   config: Config
   --- Every object directory: the repository's, then its alternates.
   object_dirs: {string}
@@ -1677,7 +1886,7 @@ local class Repository is Git.Repo
   end
 
   function index_path(self): string
-    return self.gitdir .. "/index"
+    return self.index_file
   end
 
   --- What is at the worktree's `path`, and what `add` would record
@@ -1711,11 +1920,152 @@ local class Repository is Git.Repo
     return { st = st, blob = data, recorded = { mode = mode, oid = raw_of(oid) } }
   end
 
+  --- How a submodule's directory differs from the commit its gitlink
+  --- entry names: "modified" where the submodule's HEAD is another
+  --- commit, "deleted" where the directory is gone, false where it is
+  --- the same, or an empty directory or not yet cloned (git, too, says
+  --- nothing of a submodule it has not set up). What is changed inside
+  --- the submodule is not looked at.
+  function submodule_change(self, e: Entry): (Git.ChangeKind | false) | (nil, Failure)
+    local full = self.worktree .. "/" .. e.path
+    local st, _, errno = sys.lstat(full)
+    if st == nil then
+      if errno == sys.ENOENT or errno == sys.ENOTDIR then return "deleted" end
+      return nil, Failure.system(errno, full)
+    end
+    if st.kind ~= "dir" or not holds_repository(full) then return false end
+    local head = submodule_head(full)
+    if head == nil then return false end
+    if head ~= Codec.hex(e.oid) then return "modified" end
+    return false
+  end
+
+  --- The attributes of `path` that make `add` record other bytes than
+  --- the file holds, as a reason in words; nil where git would record
+  --- `content` as it is. This module runs no filter, so a path git would
+  --- change by one is refused rather than hashed as it lies.
+  function filter_trouble(self, cache: AttrCache, path: string, content: string): string?
+    local fold = config_bool(self.config, "core.ignorecase", false)
+    local autocrlf = (config_get(self.config, "core.autocrlf") or "false"):lower()
+    if cache.global == nil then
+      local into: mut {AttrRule} = {}
+      local file = config_get(self.config, "core.attributesfile")
+      if file == nil then
+        local xdg = Env.get("XDG_CONFIG_HOME")
+        local home = Env.get("HOME")
+        file = if xdg ~= nil and xdg ~= "" then xdg .. "/git/attributes" elseif home ~= nil then home .. "/.config/git/attributes" else nil end
+      end
+      local text: string? = nil
+      if file ~= nil then
+        local got, _ = Fs.read(expand_home(file))
+        text = got
+      end
+      if text ~= nil then parse_attributes(text, "", into, cache.macros) end
+      cache.global = into
+      local own: mut {AttrRule} = {}
+      local info_text, _ = Fs.read(self.commondir .. "/info/attributes")
+      if info_text ~= nil then parse_attributes(info_text, "", own, cache.macros) end
+      cache.info = own
+    end
+    local rules: mut {AttrRule} = {}
+    local global_rules: {AttrRule} = cache.global or {}
+    for _, r in ipairs(global_rules) do rules[#rules + 1] = r end
+    local dirs: mut {string} = { "" }
+    local at = 0
+    while true do
+      local slash = path:find("/", at + 1, true)
+      if slash == nil then break end
+      dirs[#dirs + 1] = path:sub(1, slash)
+      at = slash
+    end
+    for _, dir in ipairs(dirs) do
+      local found = cache.dirs[dir]
+      if found == nil then
+        local own: mut {AttrRule} = {}
+        local full = if dir == "" then self.worktree else self.worktree .. "/" .. dir:sub(1, -2) end
+        -- git reads no .gitattributes that is a symbolic link: its text would come from outside the tree.
+        local st, _ = sys.lstat(full .. "/.gitattributes")
+        if st ~= nil and st.kind == "file" then
+          local text, _ = Fs.read(full .. "/.gitattributes")
+          if text ~= nil then parse_attributes(text, dir, own, cache.macros) end
+        end
+        cache.dirs[dir] = own
+        found = own
+      end
+      for _, r in ipairs(found) do rules[#rules + 1] = r end
+    end
+    local info_rules: {AttrRule} = cache.info or {}
+    for _, r in ipairs(info_rules) do rules[#rules + 1] = r end
+    local function setting(name: string): AttrSetting?
+      local found = attr_setting(rules, name, path, fold)
+      if found ~= nil and found.how == "unspecified" then return nil end
+      return found
+    end
+    local filter = setting("filter")
+    if filter ~= nil and filter.how == "value" then
+      local name = filter.value
+      if name == "lfs" or config_get(self.config, "filter." .. name .. ".clean") ~= nil or
+          config_get(self.config, "filter." .. name .. ".process") ~= nil then
+        return "the " .. name .. " filter, which this module does not run"
+      end
+    end
+    local ident = setting("ident")
+    if ident ~= nil and ident.how == "set" then
+      return "the ident attribute, which this module does not run"
+    end
+    local encoding = setting("working-tree-encoding")
+    if encoding ~= nil and encoding.how == "value" then
+      local named = encoding.value:lower():gsub("[^%w]", "")
+      if named ~= "utf8" then
+        return "working-tree-encoding " .. encoding.value .. ", which this module does not run"
+      end
+    end
+    if content:find("\r", 1, true) == nil then return nil end
+    -- A file with a carriage return is the only one a line-ending conversion changes on its way in. Git's auto mode
+    -- (text=auto, core.autocrlf) leaves a file it takes for binary, one with a NUL or a lone CR.
+    local binaryish = content:find("\0", 1, true) ~= nil or content:find("\r[^\n]") ~= nil or
+      content:sub(-1) == "\r"
+    local text, eol, crlf = setting("text"), setting("eol"), setting("crlf")
+    local converts = false
+    -- git reads `text`, then the older `crlf`, then `eol` (lf or crlf alone), then core.autocrlf.
+    local action = "unspecified"
+    if text ~= nil and text.how == "set" then
+      action = "text"
+    elseif text ~= nil and text.how == "unset" then
+      action = "binary"
+    elseif text ~= nil and text.how == "value" and text.value == "auto" then
+      action = "auto"
+    elseif crlf ~= nil and crlf.how == "set" then
+      action = "text"
+    elseif crlf ~= nil and crlf.how == "unset" then
+      action = "binary"
+    elseif crlf ~= nil and crlf.how == "value" and crlf.value == "input" then
+      action = "text"
+    elseif eol ~= nil and eol.how == "value" and (eol.value == "lf" or eol.value == "crlf") then
+      action = "text"
+    end
+    if action == "unspecified" then
+      if autocrlf == "input" or config_bool(self.config, "core.autocrlf", false) then
+        action = "auto"
+      end
+    end
+    if action == "text" then
+      converts = true
+    elseif action == "auto" then
+      converts = not binaryish
+    end
+    if converts then
+      return "a line-ending conversion (text, eol or core.autocrlf), which this module does not run"
+    end
+    return nil
+  end
+
   --- How the worktree's `path` differs from its index entry, or nil
   --- when it does not.
-  function worktree_change(self, e: Entry, index: Index): (Git.ChangeKind | false) | (nil, Failure)
+  function worktree_change(self, e: Entry, index: Index, attrs: AttrCache,
+                           filtered: mut {string}): (Git.ChangeKind | false) | (nil, Failure)
     if e.xflags & (XFLAG_SKIP_WORKTREE | XFLAG_INTENT_TO_ADD) ~= 0 then return false end
-    if e.mode == 0xE000 then return false end
+    if e.mode == 0xE000 then return self:submodule_change(e) end
     local full = self.worktree .. "/" .. e.path
     local st, _, errno = sys.lstat(full)
     if st == nil then
@@ -1733,11 +2083,17 @@ local class Repository is Git.Repo
     local same_stat = e.mtime == st.mtime & U32 and e.mtime_ns == st.mtime_ns & U32 and
       e.size == st.size & U32 and e.ino == st.ino & U32 and e.ctime == st.ctime & U32
     if same_stat and not racy then return false end
-    if e.size ~= 0 and e.size ~= st.size & U32 then return "modified" end
     local seen, trouble = self:hash_worktree(e.path, e.mode)
     if seen == nil then return nil, trouble end
     local now = seen.recorded
     if now == nil then return "deleted" end
+    -- Where the index holds what the file holds, git converts nothing on the way in: it is clean.
+    if now.oid == e.oid then return false end
+    if seen.blob ~= nil and not is_link and self:filter_trouble(attrs, e.path, seen.blob) ~= nil then
+      filtered[#filtered + 1] = e.path
+      return false
+    end
+    if e.size ~= 0 and e.size ~= st.size & U32 then return "modified" end
     if now.oid ~= e.oid then return "modified" end
     return false
   end
@@ -1759,6 +2115,8 @@ local class Repository is Git.Repo
     local staged: mut {Git.Change} = {}
     local unstaged: mut {Git.Change} = {}
     local unmerged: mut {string} = {}
+    local filtered: mut {string} = {}
+    local attrs: AttrCache = { dirs = {}, macros = {} }
     local in_index: mut {string:boolean} = {}
     for _, e in ipairs(index.entries) do
       if stage_of(e) ~= 0 then
@@ -1776,7 +2134,7 @@ local class Repository is Git.Repo
         elseif was.oid ~= e.oid or was.mode ~= e.mode then
           staged[#staged + 1] = { path = e.path, kind = "modified" }
         end
-        local change, wtrouble = self:worktree_change(e, index)
+        local change, wtrouble = self:worktree_change(e, index, attrs, filtered)
         if change == nil then return nil, wtrouble end
         if change ~= false then unstaged[#unstaged + 1] = { path = e.path, kind = change } end
       end
@@ -1791,7 +2149,7 @@ local class Repository is Git.Repo
       untracked = untracked,
       branch = if ref ~= false then ref:gsub("^refs/heads/", "") else nil end,
       head = if head ~= false then head else nil end,
-      staged = staged, unstaged = unstaged, unmerged = unmerged,
+      staged = staged, unstaged = unstaged, unmerged = unmerged, filtered = filtered,
     }
   end
 
@@ -1926,6 +2284,13 @@ local class Repository is Git.Repo
     for _, e in ipairs(index.entries) do
       if stage_of(e) == 0 then by_path[e.path] = e end
     end
+    if index.mtime == 0 and #index.entries == 0 then
+      local wanted = config_get(self.config, "index.version")
+      if wanted == "4" or (wanted == nil and config_bool(self.config, "feature.manyfiles", false)) then
+        index.version = 4
+      end
+    end
+    local attrs: AttrCache = { dirs = {}, macros = {} }
     local drop: mut {string:boolean} = {}
     local put: mut {string:Entry} = {}
     for _, given in ipairs(paths) do
@@ -1940,6 +2305,11 @@ local class Repository is Git.Repo
         return fail(Failure.new("git: .gitmodules may not be a symbolic link", path))
       end
       if now ~= nil and st ~= nil and blob ~= nil then
+        local why: string? = nil
+        if now.mode ~= 0xA000 then why = self:filter_trouble(attrs, path, blob) end
+        if why ~= nil then
+          return fail(Failure.new("git: not added: " .. path .. " needs " .. why, path))
+        end
         local oid, wtrouble = self:write_object("blob", blob)
         if oid == nil then return fail(wtrouble) end
         put[path] = {
@@ -1978,7 +2348,7 @@ local class Repository is Git.Repo
     local now = Clock.now_ns() // NS
     local fd, _, errno = sys.open(lock, sys.O_WRONLY | sys.O_TRUNC)
     if fd == nil then return fail(Failure.system(errno, lock)) end
-    local ok, wtrouble = Fs.put(fd, index_bytes(entries, now - 1))
+    local ok, wtrouble = Fs.put(fd, index_bytes(entries, now - 1, index.version))
     local closed, ctrouble = Fs.close(fd)
     if not ok then return fail(wtrouble) end
     if not closed then return fail(ctrouble) end
@@ -2060,7 +2430,7 @@ local class Repository is Git.Repo
       return refuse("no " .. role .. " identity: set user.name and user.email in the config")
     end
     local time = Clock.now_ns() // NS
-    local tz = "+0000"
+    local tz = local_offset(time)
     local date = Env.get("GIT_" .. upper .. "_DATE")
     if date ~= nil then
       local secs, zone = date:match("^@?(%d+) ([%+%-]%d%d%d%d)$")
@@ -2205,22 +2575,52 @@ end
 --- Opens the repository whose worktree holds `path` (default the
 --- current directory), looking up from it for `.git` as git does. A
 --- bare repository is refused: this module works on a worktree.
+---
+--- The environment says what it does to git. GIT_DIR names the
+--- repository's own directory, and the worktree is then `path` (git:
+--- the current directory) unless GIT_WORK_TREE names it; GIT_WORK_TREE
+--- alone moves the worktree of the repository found by looking up from
+--- `path`; GIT_INDEX_FILE names the index file.
 function Git.open(path?: string): (Git.Repo) | (nil, Failure)
   local start, atrouble = Fs.absolute(path or ".")
   if start == nil then return nil, atrouble end
   local top = start:gsub("/+$", "")
   local gitdir: string
-  while true do
-    local found, trouble = gitdir_of((if top == "" then "" else top end) .. "/.git")
+  local given_dir = Env.get("GIT_DIR")
+  if given_dir ~= nil and given_dir ~= "" then
+    local named, ntrouble = Fs.absolute(given_dir)
+    if named == nil then return nil, ntrouble end
+    local found, trouble = gitdir_of(named)
     if found == nil then return nil, trouble end
-    if found ~= false then
-      gitdir = found
-      break
+    if found == false then return refuse("GIT_DIR names no repository", given_dir) end
+    gitdir = found
+  else
+    while true do
+      local found, trouble = gitdir_of((if top == "" then "" else top end) .. "/.git")
+      if found == nil then return nil, trouble end
+      if found ~= false then
+        gitdir = found
+        break
+      end
+      if top == "" then return refuse("not inside a git worktree", start) end
+      top = top:match("^(.*)/[^/]*$") or ""
     end
-    if top == "" then return refuse("not inside a git worktree", start) end
-    top = top:match("^(.*)/[^/]*$") or ""
+  end
+  local given_tree = Env.get("GIT_WORK_TREE") or ""
+  local env_tree = given_tree ~= ""
+  if env_tree then
+    local named, ntrouble = Fs.absolute(given_tree)
+    if named == nil then return nil, ntrouble end
+    top = named:gsub("/+$", "")
   end
   if top == "" then top = "/" end
+  local index_file = gitdir .. "/index"
+  local given_index = Env.get("GIT_INDEX_FILE")
+  if given_index ~= nil and given_index ~= "" then
+    local named, ntrouble = Fs.absolute(given_index)
+    if named == nil then return nil, ntrouble end
+    index_file = named
+  end
   local commondir = gitdir
   local common_text, _ = Fs.read(gitdir .. "/commondir")
   if common_text ~= nil then
@@ -2282,10 +2682,10 @@ function Git.open(path?: string): (Git.Repo) | (nil, Failure)
       end
     end
   end
-  if config_bool(repo_config, "core.bare", false) and common_text == nil then
+  if config_bool(repo_config, "core.bare", false) and common_text == nil and not env_tree then
     return refuse("a bare repository has no worktree", commondir)
   end
-  if config_get(repo_config, "core.worktree") ~= nil then
+  if config_get(repo_config, "core.worktree") ~= nil and not env_tree then
     return refuse("core.worktree is not supported", commondir)
   end
   for name, values in pairs(repo_config) do
@@ -2306,7 +2706,7 @@ function Git.open(path?: string): (Git.Repo) | (nil, Failure)
     end
   end
   local repo: Repository = {
-    gitdir = gitdir, commondir = commondir, worktree = top, config = config,
+    gitdir = gitdir, commondir = commondir, worktree = top, index_file = index_file, config = config,
     object_dirs = object_dirs, packs = nil, shallow = nil, cache = {}, cached = 0, pack_trouble = nil,
   }
   return repo

@@ -3,6 +3,7 @@
 --- it reads is written back as bytes that read the same.
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (cosmic/fuzz.tl).
 
+local type Bench = require("cosmic.bench")
 local Cbor = require("cosmic.cbor")
 local Fuzz = require("cosmic.fuzz")
 
@@ -11,12 +12,11 @@ local seed <const> = "\xa6\x01\x02\x20\x58\x20" .. ("\x11"):rep(32) ..
   "\x63key\x9f\x01\xf9\x3e\x00\xf5\xff\x64text\xc1\x1a\x00\x01\x00\x00\x02\x5f\x41\x01\x42\x02\x03\xff" ..
   "\x1b\xff\xff\xff\xff\xff\xff\xff\xff\xbf\x61\x61\xf6\xff"
 
-local function test_decode_is_total_and_reads_back(tmp: string)
+local function fuzz_decode_is_total_and_reads_back(): Fuzz.Target
   local seeded, seed_why = Cbor.decode(seed)
   assert(seeded ~= nil, tostring(seed_why))
-  Fuzz.run({
+  return Fuzz.target({
     name = "decode a changed item",
-    dir = tmp,
     requires = { "decoded" },
     gen = function(src: Fuzz.Source): string
       if src:int(0, 7) == 0 then return Fuzz.bytes(src, 200) end
@@ -47,4 +47,17 @@ local function test_decode_is_total_and_reads_back(tmp: string)
       return true, ""
     end,
   })
+end
+
+--- Times decoding the inputs the property is checked on, most of them
+--- changed items: the corpus and a run's first 256 draws.
+local function bench_decode_changed_items(b: Bench.B)
+  local inputs = Fuzz.inputs(fuzz_decode_is_total_and_reads_back(), 256)
+  local bytes = 0
+  for _, input in ipairs(inputs) do bytes = bytes + #input end
+  b.bytes = bytes
+  b.reset()
+  for _ = 1, b.n do
+    for _, input in ipairs(inputs) do local _, _ = Cbor.decode(input) end
+  end
 end

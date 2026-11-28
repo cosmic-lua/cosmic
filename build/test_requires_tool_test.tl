@@ -240,6 +240,30 @@ error("a module with an absent requirement must not load")
   end
 end
 
+--- A test that skips and names the requirement it lacks (`Test.skip(reason, need)`) fails a held run whose
+--- leg promises that requirement, naming the leg; one that names a requirement the leg does not promise, or
+--- none, stays a skip, and a run that is not held ignores the promises.
+local function test_a_held_run_fails_a_skip_for_what_its_leg_promised(tmp: string)
+  local root = project(tmp)
+  assert(Fs.write(root .. "/skips_test.tl", [[
+local Test = require("cosmic.test")
+local function test_names_nest() Test.skip("no nest here", "nest") end
+local function test_names_proc() Test.skip("no proc here", "proc") end
+local function test_names_nothing() Test.skip("no reason to run") end
+]]))
+  local out, code = run(root, { COSMIC_SANDBOX = "must", COSMIC_TEST_LEG = "linux-test", COSMIC_TEST_PROMISES = "nest" })
+  assert(code ~= 0, out)
+  assert(out:find("FAIL  skips_test test_names_nest: skipped for nest, which the leg linux-test promises", 1, true) ~= nil, out)
+  assert(not out:find("FAIL  skips_test test_names_proc", 1, true) and not out:find("FAIL  skips_test test_names_nothing", 1, true), out)
+  assert(out:find("SKIP  skips_test test_names_proc: no proc here", 1, true) ~= nil, out)
+  -- Not promised: all three stay skips.
+  out, code = run(root, { COSMIC_SANDBOX = "must", COSMIC_TEST_PROMISES = "userns" })
+  assert(code == 0 and out:find("3 skipped", 1, true) ~= nil, out)
+  -- A run that is not held ignores the promises.
+  out, code = run(root, { COSMIC_TEST_PROMISES = "nest" })
+  assert(code == 0 and out:find("3 skipped", 1, true) ~= nil, out)
+end
+
 --- A promise of a known name that breaks its rule fails a held run before
 --- any test, naming it; one of a base the table does not have is left out
 --- with a note, since a leg may promise a name newer than this cosmic

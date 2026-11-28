@@ -89,6 +89,8 @@ local function test_a_check_fails_on_a_file_that_is_not_laid_out_and_a_fix_write
   assert(said:find("fix: FAIL  not laid out  laid.tl", 1, true) ~= nil, said)
   assert(said:find("fix: FAIL  not laid out  new.tl", 1, true) ~= nil, said)
   assert(said:find("not laid out  other.tl", 1, true) == nil, said)
+  assert(said:find("--- laid.tl\n+++ laid.tl\n@@", 1, true) ~= nil, said)
+  assert(said:find("\n-    return #(word or \"\")\n+  return #(word or \"\")\n", 1, true) ~= nil, said)
   assert(said:find("would fix", 1, true) == nil, said)
   assert(assert(Fs.read(root .. "/laid.tl")) == BADLY_LAID_OUT and assert(Fs.read(root .. "/new.tl")) == linked, "a check wrote a file")
   local written, wrote = fix_new(root, false)

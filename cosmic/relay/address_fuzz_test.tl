@@ -100,10 +100,9 @@ local function gen_text(src: Fuzz.Source): string
   return Fuzz.mutate(src, sample, 3)
 end
 
-local function test_no_text_raises_the_parser_or_the_check(tmp: string)
-  Fuzz.run({
+local function fuzz_no_text_raises_the_parser_or_the_check(): Fuzz.Target
+  return Fuzz.target({
     name = "relay address never raises",
-    dir = tmp,
     gen = gen_text,
     requires = { "ipv4", "ipv6", "rejected" },
     shares = { ipv4 = 0.02, ipv6 = 0.02, rejected = 0.1 },
@@ -169,10 +168,9 @@ local function gen_style(src: Fuzz.Source): string
   return string.char(src:int(1, 8), src:int(0, 8), src:int(0, 1), src:int(0, 1))
 end
 
-local function test_an_ipv6_address_reads_as_the_bytes_it_was_written_from(tmp: string)
-  Fuzz.run({
+local function fuzz_an_ipv6_address_reads_as_the_bytes_it_was_written_from(): Fuzz.Target
+  return Fuzz.target({
     name = "relay address ipv6 round trip",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       local bytes, style = gen_bytes16(src), gen_style(src)
       if src:int(0, 2) > 0 then
@@ -224,10 +222,9 @@ local function carrying(form: integer, v4: {integer}, filler: string): string
     octets:sub(3, 4) .. filler:sub(2, 6)
 end
 
-local function test_an_address_carrying_ipv4_is_refused_whatever_it_carries(tmp: string)
-  Fuzz.run({
+local function fuzz_an_address_carrying_ipv4_is_refused_whatever_it_carries(): Fuzz.Target
+  return Fuzz.target({
     name = "relay address embedded forms",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       local v4 = four(src)
       return Fuzz.pack({ string.char(src:int(0, 3), src:int(0, 1), table.unpack(v4)),
@@ -266,10 +263,9 @@ local function target(address: string, port: integer): string
   return (if address:find(":", 1, true) then "[" .. address .. "]" else address end) .. ":" .. tostring(port)
 end
 
-local function test_a_grant_opens_its_address_and_selection_keeps_every_allowed_in_order(tmp: string)
-  Fuzz.run({
+local function fuzz_a_grant_opens_its_address_and_selection_keeps_every_allowed_in_order(): Fuzz.Target
+  return Fuzz.target({
     name = "relay address grants and selection",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       local list: mut {string} = {}
       -- A fourth of the lists hold only addresses a whole class refuses.

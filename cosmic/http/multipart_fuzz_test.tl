@@ -168,10 +168,9 @@ local function same(a: Outcome, b: Outcome): boolean, string
   return true, ""
 end
 
-local function test_a_well_formed_body_round_trips_under_any_chunking(tmp: string)
-  Fuzz.run({
+local function fuzz_a_well_formed_body_round_trips_under_any_chunking(): Fuzz.Target
+  return Fuzz.target({
     name = "multipart round trip",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       local boundary = Fuzz.pick(src, BOUNDARIES)
       local text = draw_body(src, boundary)
@@ -209,10 +208,9 @@ local function test_a_well_formed_body_round_trips_under_any_chunking(tmp: strin
   })
 end
 
-local function test_parts_come_back_as_they_were_drawn(tmp: string)
-  Fuzz.run({
+local function fuzz_parts_come_back_as_they_were_drawn(): Fuzz.Target
+  return Fuzz.target({
     name = "multipart parts as drawn",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       local boundary = Fuzz.pick(src, BOUNDARIES)
       local text, drawn = draw_body(src, boundary)
@@ -255,10 +253,9 @@ local function test_parts_come_back_as_they_were_drawn(tmp: string)
   })
 end
 
-local function test_any_bytes_are_refused_or_read_within_bounds_and_the_same_in_any_chunking(tmp: string)
-  Fuzz.run({
+local function fuzz_any_bytes_are_refused_or_read_within_bounds_and_the_same_in_any_chunking(): Fuzz.Target
+  return Fuzz.target({
     name = "multipart hostile bytes",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       local boundary = Fuzz.pick(src, BOUNDARIES)
       local text: string

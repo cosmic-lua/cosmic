@@ -297,6 +297,31 @@ local function test_a_corpus_input_is_checked_before_any_draw(tmp: string)
   assert(err:find("input (hex, 5 bytes): 62616e6721", 1, true), err)
 end
 
+-- The inputs a property is checked on are a value another body can use:
+-- its corpus, in name order, then the very inputs a run draws.
+local function test_inputs_are_the_corpus_then_what_a_run_draws(tmp: string)
+  local corpus = tmp .. "/corpus"
+  assert(Fs.mkdirs(corpus))
+  assert(Fs.write(corpus .. "/b.input", "second"))
+  assert(Fs.write(corpus .. "/a.input", "first"))
+  assert(Fs.write(corpus .. "/README", "not an input"))
+  local checked: mut {string} = {}
+  local p: Fuzz.Property = { name = "inputs", corpus = corpus, iters = 5, gen = any_bytes,
+    check = function(input: string): boolean, string
+      checked[#checked + 1] = input
+      return true, ""
+    end }
+  assert(Fuzz.run(p) == 5)
+  local inputs = Fuzz.inputs(Fuzz.target(p), 5)
+  assert(#inputs == 7 and inputs[1] == "first" and inputs[2] == "second", ("%d inputs"):format(#inputs))
+  for i, input in ipairs(checked) do assert(inputs[i] == input, ("input %d differs"):format(i)) end
+  local other = Fuzz.inputs(Fuzz.target(p), 5, 99)
+  assert(#other == 7 and other[3] ~= inputs[3], "another seed draws other inputs")
+  local none = Fuzz.inputs(Fuzz.target({ name = "no corpus", corpus = tmp .. "/absent", gen = any_bytes,
+    check = function(_input: string): boolean, string return true, "" end }), 0)
+  assert(#none == 0, "no corpus and no draws are no inputs")
+end
+
 -- A report says where to keep the shrunk input so it stays fixed: the
 -- property's corpus, under a name its bytes decide.
 local function test_a_report_says_how_to_keep_the_input(tmp: string)

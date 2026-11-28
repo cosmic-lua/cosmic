@@ -8,10 +8,9 @@ local Fuzz = require("cosmic.fuzz")
 local Lexer = require("lang.lexer")
 local Sources = require("build.lexer_sources")
 
-local function test_the_tokens_tile_the_source_and_every_error_says_how_to_fix_it(tmp: string)
-  Fuzz.run({
+local function fuzz_the_tokens_tile_the_source_and_every_error_says_how_to_fix_it(): Fuzz.Target
+  return Fuzz.target({
     name = "lexer tiles any source",
-    dir = tmp,
     gen = Sources.source,
     check = function(input: string): boolean, string
       local lexed = Lexer.lex(input, "f.tl")
