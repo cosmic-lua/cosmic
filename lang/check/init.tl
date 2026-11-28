@@ -1083,7 +1083,11 @@ local function local_statement(ctx: Ctx, s: Ast.Local)
   for i, t in ipairs(s.types) do
     wants[i] = ctx.lowered.types[t.id] or ctx.invalid
     local b = s.bindings[i]
-    if b ~= nil then ctx.annotated[b.id] = t end
+    -- only a local made empty or from a table literal can take `mut ` as its fix: one made from a view needs a copy
+    local value = s.values[i]
+    if b ~= nil and (#s.values == 0 or (value ~= nil and peel(value).kind == "Table")) then
+      ctx.annotated[b.id] = t
+    end
   end
   if #s.values == 0 then
     for i, b in ipairs(s.bindings) do

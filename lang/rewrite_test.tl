@@ -103,6 +103,8 @@ local function test_a_ternary_whose_middle_is_never_false_is_written_as_an_if_ex
   -- a middle that may be false or nil keeps the refusal: the `if` expression answers it differently
   local edits, errors = edits_of("local function pick(a: boolean, b: boolean | string): string | boolean\n  return a and b or \"z\"\nend\nprint(pick(true, false))\n")
   assert(errors >= 1 and #edits == 0, tostring(errors) .. " errors, " .. tostring(#edits) .. " rewrites")
+  assert(Programs.codes(Programs.run("local function pick(a: boolean, b: boolean | string): string | boolean\n" ..
+      "  return a and b or \"z\"\nend\nprint(pick(true, false))\n")):find("and_ternary", 1, true) ~= nil, "no and_ternary")
   local maybe, maybe_errors = edits_of("local a = true\nlocal n: string? = nil\nlocal s = a and n or \"z\"\nprint(s)\n")
   assert(maybe_errors >= 1 and #maybe == 0, tostring(maybe_errors) .. " errors, " .. tostring(#maybe) .. " rewrites")
 end
@@ -130,6 +132,10 @@ local function test_a_written_view_is_declared_mut_where_it_is_made()
   -- a parameter is declared by its caller: a choice, no rewrite
   local edits, errors = edits_of("local function f(t: {string})\n  t[#t + 1] = \"x\"\nend\nf({})\n")
   assert(errors >= 1 and #edits == 0, tostring(errors) .. " errors, " .. tostring(#edits) .. " rewrites")
+  -- a local made from a view needs a copy, not `mut`: that would swap this error for view_as_mut
+  local copied, copy_errors = edits_of("local function f(p: {string}): {string}\n  local copy: {string} = p\n" ..
+      "  copy[#copy + 1] = \"x\"\n  return copy\nend\nprint(f({}))\n")
+  assert(copy_errors >= 1 and #copied == 0, tostring(copy_errors) .. " errors, " .. tostring(#copied) .. " rewrites")
 end
 
 local function test_overlapping_and_repeated_edits_are_made_once()
