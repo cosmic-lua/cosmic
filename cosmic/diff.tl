@@ -16,6 +16,8 @@
 --- differs from the same line with one, and is shown as `\ No newline at
 --- end of file`. A `\r` is part of a line.
 
+local Failure = require("cosmic.failure")
+
 local record Diff
   --- What a line of a hunk does.
   enum Op
@@ -69,6 +71,80 @@ local record Diff
     --- The name after `+++`, `b` unless given.
     new_name?: string
   end
+  --- How a file changes, as the patch names it.
+  enum Kind
+    --- The file is in place before and after.
+    "modify"
+    --- The file is new: the old side is `/dev/null`.
+    "create"
+    --- The file goes: the new side is `/dev/null`.
+    "delete"
+    --- The file moves, with or without edits (git's `rename from` and `rename to`).
+    "rename"
+    --- The file is copied, with or without edits (git's `copy from` and `copy to`).
+    "copy"
+  end
+
+  --- The changes a patch makes to one path, as [`Diff.parse`] gives them.
+  record Entry
+    --- How the file changes.
+    kind: Kind
+    --- The name before, nil for a new file.
+    old_name?: string
+    --- The name after, nil for a deleted file.
+    new_name?: string
+    --- The mode before, as written (`100644`), when the patch gives one.
+    old_mode?: string
+    --- The mode after, as written, when the patch gives one.
+    new_mode?: string
+    --- The hunks, none for a pure rename or mode change.
+    hunks: {Hunk}
+  end
+
+  --- What [`Diff.parse`] takes.
+  record ParseOptions
+    --- Leading path components to drop from each name, as `patch -p` does: 1 turns `a/f.txt` into `f.txt`. 0
+    --- unless given.
+    strip?: integer
+  end
+
+  --- What [`Diff.apply`] takes.
+  record ApplyOptions
+    --- Context lines at each end of a hunk that may differ, 0 unless given. Most is 2, as in GNU patch.
+    fuzz?: integer
+    --- Undo the hunks instead of doing them.
+    reverse?: boolean
+  end
+
+  --- A hunk [`Diff.apply`] placed.
+  record Placed
+    --- Which hunk, from 1.
+    index: integer
+    --- How many lines from where its header says it sits: positive is later in the text.
+    offset: integer
+    --- How many context lines at each end it took to match, 0 for an exact match.
+    fuzz: integer
+  end
+
+  --- A hunk [`Diff.apply`] could not place.
+  record Reject
+    --- Which hunk, from 1.
+    index: integer
+    --- The hunk, as given (before any reversal).
+    hunk: Hunk
+    --- Why, in words.
+    message: string
+  end
+
+  --- What [`Diff.apply`] returns.
+  record Applied
+    --- The new text, nil when any hunk was rejected: a file changes whole or not at all.
+    text?: string
+    --- The hunks it placed, in order.
+    placed: {Placed}
+    --- The hunks it could not place, in order.
+    rejects: {Reject}
+  end
 end
 
 --- A hunk being built.
@@ -78,6 +154,16 @@ local record Open
   mut new_start: integer
   mut new_count: integer
   lines: mut {Diff.Line}
+end
+
+--- A file being read by [`Diff.parse`].
+local record Draft
+  mut kind: Diff.Kind
+  mut old_name: string?
+  mut new_name: string?
+  mut old_mode: string?
+  mut new_mode: string?
+  hunks: mut {Diff.Hunk}
 end
 
 local DEFAULT_CONTEXT <const> = 3
@@ -376,6 +462,327 @@ function Diff.unified(hunks: {Diff.Hunk}, names?: Diff.Names): string
     end
   end
   return table.concat(out)
+end
+
+--- `hunks` as the patch that undoes them: added lines become deleted ones and the two ranges swap.
+---
+---     local back = Diff.reverse(Diff.lines("a\n", "b\n"))
+---     -- one hunk: -1 +1, lines "-b", "+a"
+--- @param hunks {Diff.Hunk} What [`Diff.lines`] or [`Diff.parse`] returned
+--- @return {Diff.Hunk} The reversed hunks, in the same order
+function Diff.reverse(hunks: {Diff.Hunk}): {Diff.Hunk}
+  local out: mut {Diff.Hunk} = {}
+  for _, h in ipairs(hunks) do
+    local lines: mut {Diff.Line} = {}
+    for _, l in ipairs(h.lines) do
+      local op: Diff.Op = l.op
+      if l.op == "add" then op = "del" elseif l.op == "del" then op = "add" end
+      lines[#lines + 1] = { op = op, text = l.text, no_newline = l.no_newline }
+    end
+    out[#out + 1] = { old_start = h.new_start, old_count = h.new_count, new_start = h.old_start,
+      new_count = h.old_count, lines = lines }
+  end
+  return out
+end
+
+--- The name in a `---` or `+++` line: the text up to a tab, `/dev/null` as nil, with `strip` leading components
+--- dropped.
+local function patch_name(rest: string, strip: integer): string?
+  local name = rest:match("^([^\t]*)") or rest
+  if name == "/dev/null" then return nil end
+  for _ = 1, strip do
+    local cut = name:find("/", 1, true)
+    if cut == nil then break end
+    name = name:sub(cut + 1)
+  end
+  return name
+end
+
+--- Whether a name is quoted, as git quotes a name with unusual bytes: not supported.
+local function quoted(rest: string): boolean
+  return rest:sub(1, 1) == "\"" or rest:find(" \"", 1, true) ~= nil
+end
+
+--- The patch in `text`: one [`Diff.Entry`] for each `---`/`+++` pair or `diff --git` header, in order. Reads
+--- unified diff and git's extended headers (new and deleted files, renames, copies, modes). Text between files,
+--- such as a commit message, is skipped. A hunk that does not match its counts, a binary patch, and a quoted file
+--- name fail. `opts` is [`Diff.ParseOptions`].
+---
+---     local files = assert(Diff.parse("--- a/f\n+++ b/f\n@@ -1 +1 @@\n-x\n+y\n", { strip = 1 }))
+---     -- files[1].new_name == "f", files[1].hunks[1].lines: "-x", "+y"
+--- @param text string The patch
+--- @param opts? Diff.ParseOptions Path components to drop
+--- @return {Diff.Entry} The files in order
+--- @return Failure Where the patch is wrong, with its line
+function Diff.parse(text: string, opts?: Diff.ParseOptions): ({Diff.Entry}) | (nil, Failure)
+  local strip = (opts and opts.strip) or 0
+  if strip < 0 then error("diff: strip is " .. tostring(strip) .. ", below 0", 2) end
+  local lines = split(text)
+  local drafts: mut {Draft} = {}
+  local current: Draft? = nil
+  local at = 1
+  local function start(): Draft
+    local d: Draft = { kind = "modify", old_name = nil, new_name = nil, old_mode = nil, new_mode = nil, hunks = {} }
+    drafts[#drafts + 1] = d
+    current = d
+    return d
+  end
+  local function bare(i: integer): string
+    local l = assert(lines[i])
+    if l:sub(-1) == "\n" then return l:sub(1, -2) end
+    return l
+  end
+  -- A header line without its `\r`, for a patch written with CRLF line ends; a hunk line keeps its `\r`.
+  local function head(i: integer): string
+    local l = bare(i)
+    if l:sub(-1) == "\r" then return l:sub(1, -2) end
+    return l
+  end
+  local function count(n: string?): integer
+    if n == nil or n == "" then return 1 end
+    return math.tointeger(n) or 0
+  end
+  while at <= #lines do
+    local line = head(at)
+    if line:sub(1, 11) == "diff --git " then
+      local d = start()
+      -- `diff --git a/x b/x`: with equal halves the middle space splits them, else the ---/+++ lines name the files.
+      local rest = line:sub(12)
+      if quoted(rest) then return nil, Failure.at("a quoted file name is not supported", at) end
+      local half = (#rest - 1) // 2
+      if #rest % 2 == 1 and rest:sub(half + 1, half + 1) == " " and rest:sub(1, half) ~= "" then
+        d.old_name, d.new_name = patch_name(rest:sub(1, half), strip), patch_name(rest:sub(half + 2), strip)
+      end
+      at = at + 1
+    elseif line:sub(1, 4) == "--- " and at < #lines and head(at + 1):sub(1, 4) == "+++ " then
+      local d = current
+      if d == nil or #d.hunks > 0 then d = start() end
+      if quoted(line:sub(5)) then
+        return nil, Failure.at("a quoted file name is not supported", at)
+      end
+      if quoted(head(at + 1):sub(5)) then
+        return nil, Failure.at("a quoted file name is not supported", at + 1)
+      end
+      local old, new = patch_name(line:sub(5), strip), patch_name(head(at + 1):sub(5), strip)
+      d.old_name, d.new_name = old, new
+      if old == nil and new ~= nil then
+        d.kind = "create"
+      elseif new == nil and old ~= nil then
+        d.kind = "delete"
+      end
+      at = at + 2
+    elseif line:sub(1, 3) == "@@ " then
+      local d = current
+      if d == nil then return nil, Failure.at("a hunk comes before any file", at) end
+      local a, b, c, e = line:match("^@@ %-(%d+),?(%d*) %+(%d+),?(%d*) @@")
+      if a == nil then return nil, Failure.at("a hunk header is not `@@ -a,b +c,d @@`", at) end
+      local old_start, old_count = math.tointeger(a) or 0, count(b)
+      local new_start, new_count = math.tointeger(c) or 0, count(e)
+      local want_old, want_new = old_count, new_count
+      local header_at = at
+      local hlines: mut {Diff.Line} = {}
+      at = at + 1
+      while want_old > 0 or want_new > 0 do
+        if at > #lines then
+          return nil, Failure.at("the hunk ends before its counts do", header_at)
+        end
+        local l = bare(at)
+        local sigil = l:sub(1, 1)
+        local op: Diff.Op
+        if sigil == " " or l == "" then
+          op = "context"
+          want_old, want_new = want_old - 1, want_new - 1
+        elseif sigil == "-" then
+          op = "del"
+          want_old = want_old - 1
+        elseif sigil == "+" then
+          op = "add"
+          want_new = want_new - 1
+        else
+          return nil, Failure.at("a hunk line starts with neither a space, `-` nor `+`", at)
+        end
+        if want_old < 0 or want_new < 0 then
+          return nil, Failure.at("the hunk holds more lines than its counts", at)
+        end
+        at = at + 1
+        local open = false
+        while at <= #lines and bare(at):sub(1, 1) == "\\" do
+          open = true
+          at = at + 1
+        end
+        local made: Diff.Line = { op = op, text = l:sub(2), no_newline = if open then true else nil end }
+        hlines[#hlines + 1] = made
+      end
+      d.hunks[#d.hunks + 1] = { old_start = old_start, old_count = old_count, new_start = new_start,
+        new_count = new_count, lines = hlines }
+      -- A line that reads as part of the hunk, after the lines its header counts, is a header that lies.
+      if at <= #lines then
+        local next_line = head(at)
+        local sigil = next_line:sub(1, 1)
+        local starts_file = next_line:sub(1, 4) == "--- " and at < #lines and head(at + 1):sub(1, 4) == "+++ "
+        if (sigil == " " or sigil == "+" or sigil == "-") and not starts_file and next_line ~= "-- " then
+          return nil, Failure.at("the hunk holds more lines than its counts", at)
+        end
+      end
+    elseif line:sub(1, 13) == "Binary files " or line == "GIT binary patch" then
+      return nil, Failure.at("a binary patch is not supported", at)
+    else
+      local d = current
+      if d ~= nil and #d.hunks == 0 then
+        local v = line:match("^new file mode (%d+)$")
+        if v ~= nil then
+          d.kind, d.new_mode, d.old_name = "create", v, nil
+        end
+        v = line:match("^deleted file mode (%d+)$")
+        if v ~= nil then
+          d.kind, d.old_mode, d.new_name = "delete", v, nil
+        end
+        v = line:match("^old mode (%d+)$")
+        if v ~= nil then d.old_mode = v end
+        v = line:match("^new mode (%d+)$")
+        if v ~= nil then d.new_mode = v end
+        -- Git writes these names with no `a/` or `b/`, so one component less is dropped.
+        local keep = math.max(strip - 1, 0)
+        for _, key in ipairs({ "rename from", "rename to", "copy from", "copy to" }) do
+          local name = line:match("^" .. key .. " (.+)$")
+          if name ~= nil then
+            if quoted(name) then
+              return nil, Failure.at("a quoted file name is not supported", at)
+            end
+            d.kind = if key:sub(1, 1) == "r" then "rename" else "copy" end
+            if key:sub(-4) == "from" then
+              d.old_name = patch_name(name, keep)
+            else
+              d.new_name = patch_name(name, keep)
+            end
+          end
+        end
+      end
+      at = at + 1
+    end
+  end
+  local files: mut {Diff.Entry} = {}
+  for _, d in ipairs(drafts) do
+    local file: Diff.Entry = { kind = d.kind, old_name = d.old_name, new_name = d.new_name, old_mode = d.old_mode,
+      new_mode = d.new_mode, hunks = d.hunks }
+    files[#files + 1] = file
+  end
+  return files
+end
+
+--- A hunk's old-side lines and new-side lines as text with their `\n`, and how many context lines open and close it.
+local function sides(h: Diff.Hunk): ({string}, {string}, integer, integer)
+  local olds: mut {string} = {}
+  local news: mut {string} = {}
+  local lead, trail = 0, 0
+  local changed = false
+  for _, l in ipairs(h.lines) do
+    local text = if l.no_newline == true then l.text else l.text .. "\n" end
+    if l.op ~= "add" then olds[#olds + 1] = text end
+    if l.op ~= "del" then news[#news + 1] = text end
+    if l.op == "context" then
+      if changed then trail = trail + 1 else lead = lead + 1 end
+    else
+      changed = true
+      trail = 0
+    end
+  end
+  if not changed then return olds, news, lead, 0 end
+  return olds, news, lead, trail
+end
+
+--- Whether the lines after the first `at` of `lines` are `want`.
+local function matches(lines: {string}, at: integer, want: {string}, from: integer, upto: integer): boolean
+  for k = from, upto do
+    if lines[at + k - from + 1] ~= want[k] then return false end
+  end
+  return true
+end
+
+--- A placement [`Diff.apply`] found: the lines `at + 1` to `at + count` become `news`.
+local record Spot
+  at: integer
+  count: integer
+  news: {string}
+end
+
+--- `old` with `hunks` applied, or the hunks it could not place. Each hunk is looked for where its header says,
+--- then at growing distances from there (after the last hunk it placed), and if `opts.fuzz` allows, again with that
+--- many context lines at each end ignored. A file changes whole or not at all: with one reject, `text` is nil.
+--- Matching is exact, so a line with no final newline differs from one with it. `opts` is [`Diff.ApplyOptions`].
+---
+---     local result = Diff.apply("a\nb\nc\n", Diff.lines("a\nb\nc\n", "a\nB\nc\n"))
+---     -- result.text == "a\nB\nc\n"; result.placed[1].offset == 0
+--- @param old string The text before
+--- @param hunks {Diff.Hunk} What [`Diff.lines`] or [`Diff.parse`] gave, in order of position
+--- @param opts? Diff.ApplyOptions Fuzz and reverse
+--- @return Diff.Applied The new text, or what was placed and what was not
+function Diff.apply(old: string, hunks: {Diff.Hunk}, opts?: Diff.ApplyOptions): Diff.Applied
+  local max_fuzz = (opts and opts.fuzz) or 0
+  if max_fuzz < 0 then error("diff: fuzz is " .. tostring(max_fuzz) .. ", below 0", 2) end
+  local use = if opts ~= nil and opts.reverse == true then Diff.reverse(hunks) else hunks end
+  local lines = split(old)
+  local placed: mut {Diff.Placed} = {}
+  local rejects: mut {Diff.Reject} = {}
+  local spots: mut {Spot} = {}
+  -- Lines before `floor` are taken by a hunk already placed; `shift` is how far the last hunk sat from its header.
+  local floor, shift = 0, 0
+  for index, h in ipairs(use) do
+    local olds, news, lead, trail = sides(h)
+    local found: Spot? = nil
+    local found_offset, found_fuzz = 0, 0
+    local fuzz = 0
+    while found == nil and fuzz <= max_fuzz do
+      local cut_lead, cut_trail = math.min(fuzz, lead), math.min(fuzz, trail)
+      local from, upto = 1 + cut_lead, #olds - cut_trail
+      local header = (if h.old_count > 0 then h.old_start - 1 else h.old_start end) + cut_lead
+      local want = header + shift
+      -- As GNU patch does: a hunk with less context before its change than after it sits at the start of the text,
+      -- and one with less after than before sits at the end.
+      local at_start = lead - cut_lead < trail - cut_trail
+      local at_end = trail - cut_trail < lead - cut_lead
+      local width = upto - from + 1
+      local reach = #lines + #olds + 1
+      local k = 0
+      while found == nil and k <= reach do
+        for _, sign in ipairs({ 1, -1 }) do
+          local at = want + sign * k
+          if found == nil and (k > 0 or sign == 1) and at >= floor and at + width <= #lines and
+              (width > 0 or k == 0) and (not at_start or at == cut_lead) and
+              (not at_end or at + width + cut_trail == #lines) and matches(lines, at, olds, from, upto) then
+            local replacement: mut {string} = {}
+            for n = 1 + cut_lead, #news - cut_trail do
+              replacement[#replacement + 1] = assert(news[n])
+            end
+            found = { at = at, count = width, news = replacement }
+            found_offset = at - header
+            found_fuzz = fuzz
+          end
+        end
+        k = k + 1
+      end
+      fuzz = fuzz + 1
+    end
+    if found == nil then
+      rejects[#rejects + 1] = { index = index, hunk = assert(hunks[index]),
+        message = "hunk " .. tostring(index) .. " does not match the text near line " .. tostring(h.old_start) }
+    else
+      spots[#spots + 1] = found
+      placed[#placed + 1] = { index = index, offset = found_offset, fuzz = found_fuzz }
+      floor = found.at + found.count
+      shift = found_offset
+    end
+  end
+  if #rejects > 0 then return { placed = placed, rejects = rejects } end
+  local out: mut {string} = {}
+  local done = 0
+  for _, spot in ipairs(spots) do
+    for n = done + 1, spot.at do out[#out + 1] = assert(lines[n]) end
+    for _, piece in ipairs(spot.news) do out[#out + 1] = piece end
+    done = spot.at + spot.count
+  end
+  for n = done + 1, #lines do out[#out + 1] = assert(lines[n]) end
+  return { text = table.concat(out), placed = placed, rejects = rejects }
 end
 
 return Diff
