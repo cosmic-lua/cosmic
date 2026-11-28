@@ -862,7 +862,7 @@ local function item_at(items: {flow.Item}, position: integer): flow.Item
 end
 
 --- Passes of the diff search `paired` allows at most, which bounds its time on two long arrays that share little.
-local MAX_PASSES <const> = 4000
+local MAX_PASSES <const> = 1000
 
 --- Pairs the members of `old` with the values of `new` as a diff does.
 --- Members equal in both anchor the pairing: the common start and end
