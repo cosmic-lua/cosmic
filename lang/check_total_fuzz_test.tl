@@ -101,10 +101,9 @@ local function iterations(): integer
   return math.tointeger(tonumber(Env.get("FUZZ_ITERS") or "")) or 24
 end
 
-local function test_the_checker_never_raises_and_places_its_errors(tmp: string)
-  Fuzz.run({
+local function fuzz_the_checker_never_raises_and_places_its_errors(): Fuzz.Target
+  return Fuzz.target({
     name = "new checker total",
-    dir = tmp,
     iters = iterations(),
     corpus = "testdata/fuzz/checker-total",
     gen = drawn.any,

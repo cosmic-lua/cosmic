@@ -89,10 +89,9 @@ local function parse_holds(input: string): boolean, string
   return true, ""
 end
 
-local function test_parse_finds_links_inside_the_text(tmp: string)
-  Fuzz.run({
+local function fuzz_parse_finds_links_inside_the_text(): Fuzz.Target
+  return Fuzz.target({
     name = "links parse",
-    dir = tmp,
     gen = gen_text,
     check = parse_holds,
     requires = { "shortcut", "inline", "reference", "definition", "none", "hidden" },

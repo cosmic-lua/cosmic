@@ -14,10 +14,9 @@ local published <const> = Jose.jwk(signer.public, "k")
 local keys <const> = { assert(Jose.key(published)) }
 local OPTS: Jose.JwtOptions = { issuer = "i", audience = "a", now = 1700000000 }
 
-local function test_verify_is_total_and_takes_only_what_was_signed(tmp: string)
-  Fuzz.run({
+local function fuzz_verify_is_total_and_takes_only_what_was_signed(): Fuzz.Target
+  return Fuzz.target({
     name = "verify a changed token",
-    dir = tmp,
     requires = { "changed" },
     gen = function(src: Fuzz.Source): string
       if src:int(0, 7) == 0 then return Fuzz.bytes(src, 300) end
@@ -34,11 +33,10 @@ local function test_verify_is_total_and_takes_only_what_was_signed(tmp: string)
   })
 end
 
-local function test_key_is_total(tmp: string)
+local function fuzz_key_is_total(): Fuzz.Target
   local jwk <const> = assert(Json.encode(published))
-  Fuzz.run({
+  return Fuzz.target({
     name = "read a changed JWK",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       return Fuzz.mutate(src, jwk, 4)
     end,

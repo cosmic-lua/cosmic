@@ -39,7 +39,7 @@ local function draw_text(src: Fuzz.Source): string
   return table.concat(out)
 end
 
-local function test_any_multipart_body_is_bounded_and_leaves_no_file(tmp: string)
+local function fuzz_any_multipart_body_is_bounded_and_leaves_no_file(tmp: string): Fuzz.Target
   -- The fuzzer keeps the input under test in `tmp`: uploads go below it.
   local uploads = tmp .. "/uploads"
   assert(Fs.mkdirs(uploads))
@@ -63,9 +63,8 @@ local function test_any_multipart_body_is_bounded_and_leaves_no_file(tmp: string
     return Web.empty()
   end) }, sink = { line = function(_self: Web.Sink, _text: string) end } }
   local ALLOWED <const>: {integer:boolean} = { [400] = true, [413] = true, [415] = true, [408] = false }
-  Fuzz.run({
+  return Fuzz.target({
     name = "web multipart read",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       local text = draw_text(src)
       if src:int(0, 2) == 0 then text = Fuzz.mutate(src, text, 4) end

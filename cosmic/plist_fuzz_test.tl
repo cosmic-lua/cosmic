@@ -175,10 +175,9 @@ local function written_both_ways(value: Plist.Value): boolean, string, string
   return true, "", text
 end
 
-local function test_binary_decode_is_total_and_what_it_reads_is_written_back(tmp: string)
-  Fuzz.run({
+local function fuzz_binary_decode_is_total_and_what_it_reads_is_written_back(): Fuzz.Target
+  return Fuzz.target({
     name = "plist binary decode",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       local kind = src:int(0, 6)
       if kind == 0 then return "bplist00" .. Fuzz.bytes(src, 64) end
@@ -220,10 +219,9 @@ local function test_binary_decode_is_total_and_what_it_reads_is_written_back(tmp
   })
 end
 
-local function test_xml_decode_is_total_and_what_it_reads_is_written_back(tmp: string)
-  Fuzz.run({
+local function fuzz_xml_decode_is_total_and_what_it_reads_is_written_back(): Fuzz.Target
+  return Fuzz.target({
     name = "plist xml decode",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       local kind = src:int(0, 3)
       if kind == 0 then return Fuzz.mutate(src, gen_document(src), 2) end
@@ -262,10 +260,9 @@ local function test_xml_decode_is_total_and_what_it_reads_is_written_back(tmp: s
   })
 end
 
-local function test_a_written_value_is_read_as_written(tmp: string)
-  Fuzz.run({
+local function fuzz_a_written_value_is_read_as_written(): Fuzz.Target
+  return Fuzz.target({
     name = "plist encode round trip",
-    dir = tmp,
     gen = gen_binary,
     check = function(input: string): boolean, string
       local value, why = Plist.decode(input)

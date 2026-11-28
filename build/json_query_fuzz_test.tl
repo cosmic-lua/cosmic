@@ -40,10 +40,9 @@ end
 
 -- Every leaf `flatten` lists reads back from its line's path to itself,
 -- and is a place a `$..*` query selects (or is the document itself).
-local function test_every_flattened_path_reads_back_and_is_selectable(tmp: string)
-  Fuzz.run({
+local function fuzz_every_flattened_path_reads_back_and_is_selectable(): Fuzz.Target
+  return Fuzz.target({
     name = "json flatten read back",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       return Fuzz.pack({ gen_doc(src, 0), if src:int(0, 1) == 0 then "nulls" else "holes" end })
     end,

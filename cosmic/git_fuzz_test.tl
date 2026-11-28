@@ -203,11 +203,10 @@ local function gen_delta(src: Fuzz.Source): string
   return Fuzz.pack({ base, delta, if src:int(0, 1) == 0 then "ofs" else "ref" end })
 end
 
-local function test_a_delta_reads_back_as_git_applies_it(tmp: string)
+local function fuzz_a_delta_reads_back_as_git_applies_it(tmp: string): Fuzz.Target
   local case = 0
-  Fuzz.run({
+  return Fuzz.target({
     name = "git delta",
-    dir = tmp,
     gen = gen_delta,
     requires = { "applied", "refused", "by name" },
     shares = { applied = 0.3 },
@@ -320,15 +319,14 @@ local CONFIG_LINES <const> = {
   "[user]\n\tname = \"quoted \\\" name\"\n",
 }
 
-local function test_every_call_is_total_over_a_damaged_repository(tmp: string)
+local function fuzz_every_call_is_total_over_a_damaged_repository(tmp: string): Fuzz.Target
   local sample = samples(tmp .. "/template")
   local paths: mut {string} = {}
   for path in pairs(sample) do paths[#paths + 1] = path end
   table.sort(paths)
   local case = 0
-  Fuzz.run({
+  return Fuzz.target({
     name = "git damaged",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       -- A quarter of the inputs add a config line that open must refuse
       -- or read past, so the refusals are reached and not left to the
@@ -419,11 +417,10 @@ local function walk(repo: Git.Repo, oid: string, prefix: string, into: mut {stri
   return true, ""
 end
 
-local function test_what_is_committed_reads_back(tmp: string)
+local function fuzz_what_is_committed_reads_back(tmp: string): Fuzz.Target
   local case = 0
-  Fuzz.run({
+  return Fuzz.target({
     name = "git commit",
-    dir = tmp,
     gen = gen_files,
     requires = { "nested", "several" },
     max_iters = 1000,

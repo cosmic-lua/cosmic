@@ -56,10 +56,9 @@ local function said(why?: Failure): boolean
   return why ~= nil and why.message ~= ""
 end
 
-local function test_message_is_total(tmp: string)
-  Fuzz.run({
+local function fuzz_message_is_total(): Fuzz.Target
+  return Fuzz.target({
     name = "read a changed message",
-    dir = tmp,
     requires = { "accepted", "refused" },
     gen = function(src: Fuzz.Source): string
       if src:int(0, 9) == 0 then return Fuzz.bytes(src, 200) end
@@ -88,7 +87,7 @@ local function test_message_is_total(tmp: string)
   })
 end
 
-local function test_decoders_are_total(tmp: string)
+local function fuzz_decoders_are_total(): Fuzz.Target
   local decoders: {function(any): boolean} = {
     function(v: any): boolean
       local r, w = wire.tools(v)
@@ -137,9 +136,8 @@ local function test_decoders_are_total(tmp: string)
       return r ~= nil or w ~= ""
     end,
   }
-  Fuzz.run({
+  return Fuzz.target({
     name = "decode a changed result",
-    dir = tmp,
     requires = { "json" },
     gen = function(src: Fuzz.Source): string
       return Fuzz.mutate(src, Fuzz.pick(src, RESULTS), 6)
@@ -254,10 +252,9 @@ local function test_the_splitter_holds_no_more_than_a_message()
   assert(#edge.finish() == 0)
 end
 
-local function test_a_stream_splits_alike_however_it_is_cut(tmp: string)
-  Fuzz.run({
+local function fuzz_a_stream_splits_alike_however_it_is_cut(): Fuzz.Target
+  return Fuzz.target({
     name = "split a changed event stream",
-    dir = tmp,
     requires = { "events", "CR ends a chunk", "the end completes an event" },
     gen = function(src: Fuzz.Source): string
       local cuts: mut {string} = {}
@@ -412,7 +409,7 @@ local function test_a_challenge_is_read_and_reading_is_total(tmp: string)
   })
 end
 
-local function test_a_server_answers_any_text(tmp: string)
+local function fuzz_a_server_answers_any_text(): Fuzz.Target
   local server = Server.new{ info = { name = "fuzzed", version = "1" }, tools = {
     {
       tool = { name = "echo", inputSchema = Mcp.object_schema({ text = { type = "string" } }) },
@@ -421,9 +418,8 @@ local function test_a_server_answers_any_text(tmp: string)
       end,
     },
   } }
-  Fuzz.run({
+  return Fuzz.target({
     name = "answer a changed request",
-    dir = tmp,
     requires = { "answered", "notified" },
     gen = function(src: Fuzz.Source): string
       return Fuzz.mutate(src, Fuzz.pick(src, MESSAGES), 6)

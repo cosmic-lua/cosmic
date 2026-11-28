@@ -91,10 +91,9 @@ local function duration_is_total(input: string): boolean, string
   return true, ""
 end
 
-local function test_a_duration_writes_and_reads_back(tmp: string)
-  Fuzz.run({
+local function fuzz_a_duration_writes_and_reads_back(): Fuzz.Target
+  return Fuzz.target({
     name = "duration round trip",
-    dir = tmp,
     gen = gen_fields,
     check = fields_round_trip,
     requires = { "negative", "positive" },
@@ -102,10 +101,9 @@ local function test_a_duration_writes_and_reads_back(tmp: string)
   })
 end
 
-local function test_reading_a_duration_is_total(tmp: string)
-  Fuzz.run({
+local function fuzz_reading_a_duration_is_total(): Fuzz.Target
+  return Fuzz.target({
     name = "duration total",
-    dir = tmp,
     gen = gen_duration_input,
     check = duration_is_total,
     requires = { "read", "refused" },

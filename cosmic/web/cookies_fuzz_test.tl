@@ -25,10 +25,9 @@ end
 local TOKEN <const>: {string} = { "a", "sid", "__Host-id", "__Secure-x", "A-b_c", "n1" }
 local VALUE <const>: {string} = { "", "v", "abc123", "a=b", "%41%42", "Zm9v.YmFy", "~!#$&'()*+-./:<=>?@[]^_`{|}" }
 
-local function test_parse_never_raises_and_keeps_to_its_limits(tmp: string)
-  Fuzz.run({
+local function fuzz_parse_never_raises_and_keeps_to_its_limits(): Fuzz.Target
+  return Fuzz.target({
     name = "cookies parse",
-    dir = tmp,
     gen = gen_header,
     requires = { "some", "none" },
     shares = { some = 0.2, none = 0.05 },
@@ -52,10 +51,9 @@ local function test_parse_never_raises_and_keeps_to_its_limits(tmp: string)
   })
 end
 
-local function test_what_format_writes_is_read_back_by_both_parsers(tmp: string)
-  Fuzz.run({
+local function fuzz_what_format_writes_is_read_back_by_both_parsers(): Fuzz.Target
+  return Fuzz.target({
     name = "cookies round trip",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       return Fuzz.pack({ Fuzz.pick(src, TOKEN), Fuzz.pick(src, VALUE), tostring(src:int(0, 7)) })
     end,
@@ -88,10 +86,9 @@ local function test_what_format_writes_is_read_back_by_both_parsers(tmp: string)
   })
 end
 
-local function test_parse_set_cookie_never_raises(tmp: string)
-  Fuzz.run({
+local function fuzz_parse_set_cookie_never_raises(): Fuzz.Target
+  return Fuzz.target({
     name = "cookies parse_set_cookie",
-    dir = tmp,
     gen = gen_header,
     requires = { "parsed", "refused" },
     shares = { parsed = 0.1, refused = 0.1 },

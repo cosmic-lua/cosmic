@@ -38,10 +38,9 @@ local function gen_listed_target(src: Fuzz.Source): string
   return Fuzz.pick(src, HOSTS) .. ":" .. Fuzz.pick(src, { "1", "80", "443", "65535", "*" })
 end
 
-local function test_no_target_raises_and_an_accepted_one_reads_as_itself(tmp: string)
-  Fuzz.run({
+local function fuzz_no_target_raises_and_an_accepted_one_reads_as_itself(): Fuzz.Target
+  return Fuzz.target({
     name = "relay grant parse never raises and is idempotent",
-    dir = tmp,
     gen = gen_listed_target,
     requires = { "accepted", "refused", "name", "address", "any" },
     shares = { accepted = 0.05, refused = 0.1, name = 0.02, address = 0.01, any = 0.001 },
@@ -70,10 +69,9 @@ local function test_no_target_raises_and_an_accepted_one_reads_as_itself(tmp: st
   })
 end
 
-local function test_every_accepted_host_is_carried_by_both_request_readers(tmp: string)
-  Fuzz.run({
+local function fuzz_every_accepted_host_is_carried_by_both_request_readers(): Fuzz.Target
+  return Fuzz.target({
     name = "relay grant hosts round-trip through the request readers",
-    dir = tmp,
     gen = gen_listed_target,
     requires = { "name", "ipv4", "ipv6" },
     shares = { name = 0.01, ipv4 = 0.005, ipv6 = 0.005 },

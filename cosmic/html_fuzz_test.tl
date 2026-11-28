@@ -46,10 +46,9 @@ local function has_stray_ampersand(text: string): boolean
   return rest:find("&", 1, true) ~= nil
 end
 
-local function test_escape_leaves_no_markup_and_reads_back(tmp: string)
-  Fuzz.run({
+local function fuzz_escape_leaves_no_markup_and_reads_back(): Fuzz.Target
+  return Fuzz.target({
     name = "html escape",
-    dir = tmp,
     gen = gen_text,
     requires = { "escaped", "plain", "empty", "high" },
     shares = { escaped = 0.5 },
@@ -135,10 +134,9 @@ end
 --- value that ends at the closing quote and holds the input (a NUL as
 --- U+FFFD), and holds no `<`, `>` or backtick a looser reader could take
 --- for markup or a quote.
-local function test_escape_attr_ends_at_its_quote_and_reads_back(tmp: string)
-  Fuzz.run({
+local function fuzz_escape_attr_ends_at_its_quote_and_reads_back(): Fuzz.Target
+  return Fuzz.target({
     name = "html escape attr",
-    dir = tmp,
     gen = gen_text,
     requires = { "encoded", "plain", "empty", "high" },
     shares = { encoded = 0.5 },
@@ -173,10 +171,9 @@ local function test_escape_attr_ends_at_its_quote_and_reads_back(tmp: string)
   })
 end
 
-local function test_concat_is_the_join_of_its_parts(tmp: string)
-  Fuzz.run({
+local function fuzz_concat_is_the_join_of_its_parts(): Fuzz.Target
+  return Fuzz.target({
     name = "html concat",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       local parts: mut {string} = {}
       while Fuzz.more(src, #parts, 8) do
@@ -264,10 +261,9 @@ local function url_expected(text: string): string
   return text
 end
 
-local function test_href_answers_a_safe_url_or_about_invalid(tmp: string)
-  Fuzz.run({
+local function fuzz_href_answers_a_safe_url_or_about_invalid(): Fuzz.Target
+  return Fuzz.target({
     name = "html href",
-    dir = tmp,
     gen = gen_url,
     requires = { "allowed", "refused", "scheme", "relative", "empty" },
     shares = { allowed = 0.05, scheme = 0.2 },
@@ -301,10 +297,9 @@ local function gen_part(src: Fuzz.Source): string
   return table.concat(parts)
 end
 
-local function test_url_part_writes_only_unreserved_bytes_and_escapes(tmp: string)
-  Fuzz.run({
+local function fuzz_url_part_writes_only_unreserved_bytes_and_escapes(): Fuzz.Target
+  return Fuzz.target({
     name = "html url part",
-    dir = tmp,
     gen = gen_part,
     requires = { "escaped", "plain", "empty", "dot segment" },
     shares = { escaped = 0.5 },
@@ -335,10 +330,9 @@ local function test_url_part_writes_only_unreserved_bytes_and_escapes(tmp: strin
   })
 end
 
-local function test_escape_css_attr_leaves_no_delimiter(tmp: string)
-  Fuzz.run({
+local function fuzz_escape_css_attr_leaves_no_delimiter(): Fuzz.Target
+  return Fuzz.target({
     name = "html escape css attr",
-    dir = tmp,
     gen = gen_text,
     requires = { "escaped", "plain", "empty", "high" },
     shares = { escaped = 0.5 },

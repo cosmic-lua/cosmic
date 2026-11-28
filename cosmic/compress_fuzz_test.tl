@@ -54,8 +54,8 @@ local function gen_frame(src: Fuzz.Source): string
   return Fuzz.pack({ frame, tostring(src:int(1, 16)), tostring(src:int(1, 64)) })
 end
 
-local function test_decoding_any_bytes_is_total_bounded_and_split_alike()
-  Fuzz.run({
+local function fuzz_decoding_any_bytes_is_total_bounded_and_split_alike(): Fuzz.Target
+  return Fuzz.target({
     name = "zstd decode total",
     gen = gen_frame,
     starved = function(input: string): string
@@ -91,8 +91,8 @@ local function test_decoding_any_bytes_is_total_bounded_and_split_alike()
   })
 end
 
-local function test_what_the_encoder_writes_decodes_to_what_went_in()
-  Fuzz.run({
+local function fuzz_what_the_encoder_writes_decodes_to_what_went_in(): Fuzz.Target
+  return Fuzz.target({
     name = "zstd round trip",
     gen = function(src: Fuzz.Source): string
       local fields: mut {string} = { tostring(src:int(1, 19)) }

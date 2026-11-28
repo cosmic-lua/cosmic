@@ -226,11 +226,10 @@ local function refused(input: string, cross: function(text: string, value: any),
   return held.why
 end
 
-local function test_a_value_made_for_a_type_is_accepted_by_its_kinds(tmp: string)
+local function fuzz_a_value_made_for_a_type_is_accepted_by_its_kinds(): Fuzz.Target
   local cross = hook_of()
-  Fuzz.run({
+  return Fuzz.target({
     name = "boundaries accept",
-    dir = tmp,
     gen = gen_draws,
     check = function(input: string): boolean, string
       local why = refused(input, cross, "", true)

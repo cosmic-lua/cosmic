@@ -68,10 +68,9 @@ local function elf_fields(bytes: string): {{integer}}
   return fields
 end
 
-local function test_image_is_total(tmp: string)
-  Fuzz.run({
+local function fuzz_image_is_total(): Fuzz.Target
+  return Fuzz.target({
     name = "core image",
-    dir = tmp,
     gen = gen({ fixture.elf("code", "dwarf"), fixture.elf("code"),
       fixture.elf(("c"):rep(300), ("d"):rep(100)) }, elf_fields, "<"),
     check = function(input: string): boolean, string
@@ -91,10 +90,9 @@ end
 --- Two cores that differ only in their DWARF -- its bytes and its
 --- length, which moves the section headers behind it -- key the same;
 --- two that differ in their code do not.
-local function test_an_image_holds_the_code_and_not_the_dwarf(tmp: string)
-  Fuzz.run({
+local function fuzz_an_image_holds_the_code_and_not_the_dwarf(): Fuzz.Target
+  return Fuzz.target({
     name = "core image dwarf",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       local code = "c" .. Fuzz.bytes(src, 64)
       local other_code = if src:int(0, 1) == 0 then code else Fuzz.mutate(src, code, 3) end
@@ -139,7 +137,7 @@ local function manifest_fields(bytes: string): {{integer}}
   return fields
 end
 
-local function test_keyed_head_is_total(tmp: string)
+local function fuzz_keyed_head_is_total(): Fuzz.Target
   local records = "1\t1\trelease\tx86\tLinux\tx86_64\n2\t1\trelease\tarm\tLinux\taarch64\n"
   local function head(prefix: string): string
     return assert(artifact.split((assert(artifact.program(prefix, "SQLite format 3\0db"))))).head
@@ -153,9 +151,8 @@ local function test_keyed_head_is_total(tmp: string)
     assert(artifact.split((assert(artifact.host_program({ bytes = core, target_id = 1,
       configuration_id = 2, digest = Hash.sha256(core) }, "SQLite format 3\0db"))))).head,
   }
-  Fuzz.run({
+  return Fuzz.target({
     name = "keyed head",
-    dir = tmp,
     gen = gen(bases, manifest_fields, ">"),
     check = function(input: string): boolean, string
       local keyed = artifact.keyed_head(input)

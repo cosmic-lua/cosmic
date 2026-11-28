@@ -102,7 +102,7 @@ local function gen(tail: Tail): function(Fuzz.Source): string
   end
 end
 
-local function test_a_corrupt_host_program_is_refused_by_name(tmp: string)
+local function fuzz_a_corrupt_host_program_is_refused_by_name(tmp: string): Fuzz.Target
   local tree = tmp .. "/tree"
   assert(Fs.mkdirs(tree .. "/cmd/ok"))
   assert(Fs.write(tree .. "/cmd/ok/main.tl", 'return function(): integer print("ok") return 0 end\n'))
@@ -122,9 +122,8 @@ local function test_a_corrupt_host_program_is_refused_by_name(tmp: string)
     assert(Fs.close(fd))
     if not called then error(failure) end
   end
-  Fuzz.run({
+  return Fuzz.target({
     name = "host program locator",
-    dir = tmp,
     gen = gen(tail),
     check = function(input: string): boolean, string
       local f = Fuzz.unpack(input)

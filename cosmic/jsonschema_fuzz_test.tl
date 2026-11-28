@@ -145,10 +145,9 @@ local record Form
   want: boolean
 end
 
-local function test_compile_and_check_answer_and_the_combinators_mean_what_they_say(tmp: string)
-  Fuzz.run({
+local function fuzz_compile_and_check_answer_and_the_combinators_mean_what_they_say(): Fuzz.Target
+  return Fuzz.target({
     name = "check a drawn value against a drawn schema",
-    dir = tmp,
     requires = { "compiled", "allowed", "refused", "compared" },
     shares = { compiled = 0.3, compared = 0.2 },
     gen = function(src: Fuzz.Source): string
@@ -191,14 +190,13 @@ local function test_compile_and_check_answer_and_the_combinators_mean_what_they_
   })
 end
 
-local function test_compile_and_check_answer_for_changed_text(tmp: string)
+local function fuzz_compile_and_check_answer_for_changed_text(): Fuzz.Target
   local sample <const> = '{"type":"object","properties":{"n":{"type":"integer","minimum":0},' ..
     '"tags":{"type":"array","items":{"enum":["a","b"]},"uniqueItems":true}},"required":["n"],' ..
     '"additionalProperties":false,"$defs":{"d":{"anyOf":[{"$ref":"#/$defs/d"},{"const":1}]}}}'
   local argument <const> = '{"n":3,"tags":["a","b"]}'
-  Fuzz.run({
+  return Fuzz.target({
     name = "check changed text against a changed schema",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       return Fuzz.pack({ Fuzz.mutate(src, sample, 6), Fuzz.mutate(src, argument, 4) })
     end,

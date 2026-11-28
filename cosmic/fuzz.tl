@@ -56,17 +56,18 @@
 --- names a label fails when too few did, so one whose inputs mostly
 --- stop there is found out too.
 ---
---- A project fuzzes its own parser from a test, in a file named
+--- A project fuzzes its own parser from a `fuzz_*` function, which a plain
+--- `cosmic test` checks at a few inputs and `cosmic test --fuzz-deep` at
+--- many, in a file named
 --- `*_fuzz_test.tl`:
 ---
 --- ```teal
 --- local Fuzz = require("cosmic.fuzz")
 --- local Parse = require("app.parse")
 ---
---- local function test_parse_never_raises(tmp: string)
----   Fuzz.run({
+--- local function fuzz_parse_never_raises(): Fuzz.Target
+---   return Fuzz.target({
 ---     name = "parse total",
----     dir = tmp,
 ---     gen = function(src: Fuzz.Source): string return Fuzz.bytes(src, 200) end,
 ---     check = function(input: string): boolean, string
 ---       local ok, why = pcall(Parse.read, input)
@@ -146,7 +147,16 @@ local SHOWN_BYTES <const> = 512
 --- property, named for it, under this one at the tree's root.
 local CORPUS_ROOT <const> = "testdata/fuzz"
 
+--- A property that a test file's `fuzz_*` function returns, made by [`Fuzz.target`]: the test runner checks it
+--- ([`Fuzz.run_target`]).
+local class Target
+  --- The property the runner checks.
+  property: Fuzz.Property
+end
+
 local record Fuzz
+  type Target = Target
+
   --- Where a generator's choices come from. Every choice is an integer
   --- draw, so a failing input can be replayed from its draws, and shrunk
   --- by replaying smaller ones.
@@ -648,7 +658,7 @@ local record SharedLabel
 end
 
 --- `run`'s work, with no labels being counted when it starts.
-local function run(p: Fuzz.Property): integer
+local function run(p: Fuzz.Property, given_dir?: string): integer
   local case_name, case_seed = named_case(p)
   -- TODO: a well-formed case naming no property in the file passes
   -- silently, every property skipping it; the runner could fail a run in
@@ -673,7 +683,7 @@ local function run(p: Fuzz.Property): integer
   local seconds = p.seconds or nonnegative_env("FUZZ_SECONDS", 0)
   local asked = iters
   local kept: string?
-  local dir = p.dir
+  local dir = p.dir or given_dir
   if dir ~= nil then
     kept = dir .. "/" .. slug(p.name) .. ".input"
     print(("fuzz %s: seed=%d iters=%d; the input under test is kept at %s"):
@@ -826,16 +836,38 @@ end
 --- than a label's share in `p.shares` did. Raises at once on a share
 --- outside (0, 1]. Returns how many drawn inputs were checked.
 --- @param p Property The property to fuzz
+--- @param dir string The directory the input under test is kept in where `p.dir` names none
 --- @return integer How many inputs held
-function Fuzz.run(p: Fuzz.Property): integer
+function Fuzz.run(p: Fuzz.Property, dir?: string): integer
   -- A check may run a property of its own: its labels are its own, and
   -- the enclosing input's count again once it is done.
   local enclosing = counting.reached
   counting.reached = nil
-  local ok, n = pcall(run, p)
+  local ok, n = pcall(run, p, dir)
   counting.reached = enclosing
   if not ok then error(n, 0) end
   return n
+end
+
+--- What a test file's `fuzz_*` function returns: `p`, for the test runner to check at `FUZZ_ITERS` inputs, a plain
+--- `cosmic test`'s few or `cosmic test --fuzz-deep`'s many.
+---
+---     local function fuzz_parse_is_total(): Fuzz.Target
+---       return Fuzz.target({ name = "parse total", gen = gen, check = check })
+---     end
+function Fuzz.target(p: Fuzz.Property): Fuzz.Target
+  return { property = p }
+end
+
+--- Checks the property `value` holds, a [`Fuzz.Target`] that a `fuzz_*` function returned, as [`Fuzz.run`] does,
+--- keeping the input under test in `dir` where the property names no directory of its own. Raises when `value`
+--- is no target. The test runner's call of a `fuzz_*` function.
+function Fuzz.run_target(value: any, dir: string): integer
+  if not (value is Target) then
+    error("a fuzz_* function returns a Fuzz.Target, made by Fuzz.target(property), and this returned a " ..
+        type(value), 0)
+  end
+  return Fuzz.run(value.property, dir)
 end
 
 --- Checks one input directly, under the same budget as `run`: what

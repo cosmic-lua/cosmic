@@ -103,6 +103,7 @@ local command: Flags.Command = {
     { line = "tally_test.tl", about = "run one file's tests" },
     { line = "tally_test.tl:test_words", about = "run one test" },
     { line = "--bench tally_test.tl", about = "time one file's benches" },
+    { line = "--fuzz-deep tally_test.tl", about = "check one file's fuzz properties at many inputs" },
     { line = "--bench --against ~/old/cosmic tally_test.tl", about = "compare one file's benches with an old cosmic" },
   },
   spec = {
@@ -114,6 +115,10 @@ local command: Flags.Command = {
     ["--bench"] = { about = "time each bench it selects (a top-level `local function bench_*(b: Bench.B)` of a " ..
         "*_test.tl file, which a plain run calls once), whatever verdict stands, one at a time, and print its " ..
         "fastest and median ns per operation on stdout (cosmic docs cosmic.bench)" },
+    ["--fuzz-deep"] = { about = "check each fuzz property it selects (a top-level `local function fuzz_*(): " ..
+        "Fuzz.Target` of a *_test.tl file, which a plain run checks at FUZZ_ITERS 64), and each test of a " ..
+        "*_fuzz_test.tl file, whatever verdict stands, at FUZZ_ITERS 10000 and FUZZ_SECONDS 120 unless the " ..
+        "environment says (cosmic docs cosmic.fuzz)" },
     ["--rounds"] = { value = "n", integer = { min = 1, max = 1000 }, about = "with --bench: the batches timed of " ..
         "each bench (default 5)" },
     ["--target-ms"] = { value = "ms", integer = { min = 1, max = 60000 }, about = "with --bench: the least " ..

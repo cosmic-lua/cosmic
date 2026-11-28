@@ -1238,6 +1238,17 @@ end
 
 -- Read once, since this process never changes its own environment.
 local worker_view_memo: mut {{string:string}} = {}
+
+--- Sets variables in what every worker of this run is given ([`test_key.worker_view`]) over this process's own
+--- environment: `cosmic test --fuzz-deep`'s FUZZ_ITERS and FUZZ_SECONDS, which its keys hold as they would hold
+--- the same variables set by hand. Called before any key is made.
+function test_key.set_worker_variables(variables: {string:string})
+  local view: mut {string:string} = {}
+  for name, value in pairs(test_key.worker_environment(Env.all())) do view[name] = value end
+  for name, value in pairs(variables) do view[name] = value end
+  worker_view_memo[1] = view
+end
+
 function test_key.worker_view(): {string:string}
   if worker_view_memo[1] == nil then
     worker_view_memo[1] = test_key.worker_environment(Env.all())

@@ -400,10 +400,9 @@ local function writes_lua(input: string): boolean, string
   return true, ""
 end
 
-local function test_a_drawn_program_is_written_as_lua_on_its_own_lines(tmp: string)
-  Fuzz.run({
+local function fuzz_a_drawn_program_is_written_as_lua_on_its_own_lines(): Fuzz.Target
+  return Fuzz.target({
     name = "generate a drawn program",
-    dir = tmp,
     gen = gen_module,
     check = writes_lua,
     requires = { "written" },
@@ -411,10 +410,9 @@ local function test_a_drawn_program_is_written_as_lua_on_its_own_lines(tmp: stri
   })
 end
 
-local function test_a_program_that_binds_names_in_every_way_is_written_as_lua_on_its_own_lines(tmp: string)
-  Fuzz.run({
+local function fuzz_a_program_that_binds_names_in_every_way_is_written_as_lua_on_its_own_lines(): Fuzz.Target
+  return Fuzz.target({
     name = "generate a program of names",
-    dir = tmp,
     gen = gen_program,
     check = writes_lua,
     requires = { "written" },
@@ -513,10 +511,9 @@ local function runs_like_an_if_statement(input: string): boolean, string
   return same_run(new, reference)
 end
 
-local function test_an_if_expression_runs_as_the_if_statement_it_stands_for(tmp: string)
-  Fuzz.run({
+local function fuzz_an_if_expression_runs_as_the_if_statement_it_stands_for(): Fuzz.Target
+  return Fuzz.target({
     name = "run an if expression",
-    dir = tmp,
     gen = gen_ifs,
     check = runs_like_an_if_statement,
     requires = { "ran" },
@@ -559,10 +556,9 @@ local function runs_like_a_goto(input: string): boolean, string
   return same_run(body("continue", "", last, inner), (plain:gsub("%(%): integer", "()")))
 end
 
-local function test_a_loop_with_a_continue_runs_as_the_loop_with_a_goto(tmp: string)
-  Fuzz.run({
+local function fuzz_a_loop_with_a_continue_runs_as_the_loop_with_a_goto(): Fuzz.Target
+  return Fuzz.target({
     name = "run a loop with a continue",
-    dir = tmp,
     gen = gen_loop,
     check = runs_like_a_goto,
     requires = { "ran" },
@@ -624,10 +620,9 @@ local function runs_like_an_if_on_the_flag(input: string): boolean, string
   return true, ""
 end
 
-local function test_a_match_runs_the_arm_that_matches(tmp: string)
-  Fuzz.run({
+local function fuzz_a_match_runs_the_arm_that_matches(): Fuzz.Target
+  return Fuzz.target({
     name = "run a match",
-    dir = tmp,
     gen = gen_match,
     check = runs_like_an_if_on_the_flag,
     requires = { "ran" },

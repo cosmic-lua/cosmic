@@ -267,10 +267,9 @@ end
 
 -- Reading any bytes ends in messages, a refusal or the stream's end,
 -- with every byte accounted for and no body past its limit.
-local function test_reading_is_total_and_bounded(tmp: string)
-  Fuzz.run({
+local function fuzz_reading_is_total_and_bounded(): Fuzz.Target
+  return Fuzz.target({
     name = "http message total",
-    dir = tmp,
     gen = gen_bytes,
     check = function(input: string): boolean, string
       local kind, protocol, data, sizes = unpacked(input)
@@ -286,10 +285,9 @@ end
 -- message's kind does, fed the same bytes from the same place: where
 -- one of those reads it, the reader of either kind reads it the same,
 -- and where both refuse, it refuses.
-local function test_either_kind_reads_as_its_kind_does(tmp: string)
-  Fuzz.run({
+local function fuzz_either_kind_reads_as_its_kind_does(): Fuzz.Target
+  return Fuzz.target({
     name = "http message either kind",
-    dir = tmp,
     gen = gen_bytes,
     check = function(input: string): boolean, string
       local _, protocol, data = unpacked(input)
@@ -345,10 +343,9 @@ local function test_either_kind_reads_as_its_kind_does(tmp: string)
 end
 
 -- The same bytes read the same wherever the feeds split.
-local function test_any_split_reads_the_same(tmp: string)
-  Fuzz.run({
+local function fuzz_any_split_reads_the_same(): Fuzz.Target
+  return Fuzz.target({
     name = "http message split",
-    dir = tmp,
     gen = gen_bytes,
     check = function(input: string): boolean, string
       local kind, protocol, data, sizes = unpacked(input)
@@ -372,10 +369,9 @@ local PAIRS <const> = { { "Accept", "*/*" }, { "X-A", "1" }, { "x-b", "two words
   { "Set-Cookie", "a=1; Path=/" } }
 
 -- A message written from its parts is read back as them.
-local function test_a_written_message_reads_back(tmp: string)
-  Fuzz.run({
+local function fuzz_a_written_message_reads_back(): Fuzz.Target
+  return Fuzz.target({
     name = "http message round trip",
-    dir = tmp,
     gen = function(src: Fuzz.Source): string
       local fields: mut {string} = {
         Fuzz.pick(src, { "request", "response" }), Fuzz.pick(src, { "HTTP/1.1", "HTTP/1.0", "RTSP/1.0" }),
