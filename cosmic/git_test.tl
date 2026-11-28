@@ -121,6 +121,27 @@ local function test_status_agrees_with_git(tmp: string)
   assert(table.concat(unstaged, ",") == "deleted dir-x/c.txt,modified dir/b.txt", table.concat(unstaged, ","))
 end
 
+--- `ignored` lists what the tree's own `.gitignore` files ignore: files by path, a whole directory once as `dir/`, a
+--- tracked file never, and a rule a deeper file negates not at all. No `info/exclude` is read.
+local function test_ignored_lists_what_the_trees_gitignore_files_ignore(tmp: string)
+  local root = scratch(tmp)
+  put(root, ".gitignore", "*.log\nout/\n")
+  put(root, "dir/.gitignore", "!keep.log\n")
+  put(root, "x.log", "x\n")
+  put(root, "dir/y.log", "y\n")
+  put(root, "dir/keep.log", "k\n")
+  put(root, "out/gen.txt", "g\n")
+  put(root, "src/other.txt", "o\n")
+  assert(Fs.write(root .. "/.git/info/exclude", "src/\n"))
+  put(root, "vendor/lib/a.log", "nested\n")
+  assert(Fs.mkdirs(root .. "/vendor/lib/.git/objects"))
+  assert(Fs.mkdirs(root .. "/vendor/lib/.git/refs"))
+  put(root, "vendor/lib/.git/HEAD", "ref: refs/heads/main\n")
+  local repo = assert(Git.open(root, true))
+  local found = assert(repo:ignored())
+  assert(table.concat(found, ",") == "dir/y.log,out/,x.log", table.concat(found, ","))
+end
+
 --- Add and commit make the commit git makes of the same change with the
 --- same names and dates: the same id, so the same bytes in each object.
 --- Status is clean after it, HEAD's reflog names it, and a second

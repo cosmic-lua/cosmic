@@ -176,6 +176,14 @@ local record Git
     log: function(Repo, opts?: LogOptions): ({Commit}) | (nil, Failure)
     --- What `git status -uall` reports.
     status: function(Repo): (Status) | (nil, Failure)
+    --- The untracked paths the worktree's own `.gitignore` files ignore, as
+    --- `git ls-files --others --ignored --exclude-per-directory=.gitignore
+    --- --directory` lists them: files by their path from the top, and
+    --- directories, which are listed whole and not entered, as `dir/`.
+    --- No `info/exclude`, `core.excludesFile` or global rule is read, and a
+    --- nested repository is not entered; the configuration's `core.ignorecase`
+    --- is read as everywhere in this module. Sorted.
+    ignored: function(Repo): ({string}) | (nil, Failure)
     --- Stages files as `git add` does: each path, from the top of the
     --- worktree, is a file or a symbolic link to record, or a path no
     --- longer there to record as deleted. A directory is refused.
@@ -2238,6 +2246,76 @@ local class Repository is Git.Repo
     return found
   end
 
+  function ignored(self): ({string}) | (nil, Failure)
+    local index, itrouble = read_index(self:index_path())
+    if index == nil then return nil, itrouble end
+    local tracked: mut {string:boolean} = {}
+    local tracked_dirs: mut {string:boolean} = {}
+    local gitlinks: mut {string:boolean} = {}
+    for _, e in ipairs(index.entries) do
+      tracked[e.path] = true
+      if e.mode == 0xE000 then gitlinks[e.path] = true end
+      local at = 0
+      while true do
+        local slash = e.path:find("/", at + 1, true)
+        if slash == nil then break end
+        tracked_dirs[e.path:sub(1, slash - 1)] = true
+        at = slash
+      end
+    end
+    local fold = config_bool(self.config, "core.ignorecase", false)
+    local found: mut {string} = {}
+    local function walk(dir: string, inherited: {IgnoreRule}): (true) | (nil, Failure)
+      local full = if dir == "" then self.worktree else self.worktree .. "/" .. dir:sub(1, -2) end
+      local rules = inherited
+      local ignore_st, _ = sys.lstat(full .. "/.gitignore")
+      local own: string? = nil
+      if ignore_st ~= nil and ignore_st.kind == "file" then
+        local text, _ = Fs.read(full .. "/.gitignore")
+        own = text
+      end
+      if own ~= nil then
+        local more: mut {IgnoreRule} = {}
+        for _, r in ipairs(inherited) do more[#more + 1] = r end
+        parse_ignore(own, dir, more)
+        rules = more
+      end
+      local kinds, _, lerrno = sys.readdir(full)
+      if kinds == nil then
+        if dir == "" then return nil, Failure.system(lerrno, full) end
+        return true
+      end
+      local names: mut {string} = {}
+      for name in pairs(kinds) do names[#names + 1] = name end
+      table.sort(names)
+      for _, name in ipairs(names) do
+        local path = dir .. name
+        local kind = kinds[name]!
+        if name ~= ".git" then
+          if kind == "dir" then
+            if gitlinks[path] == nil then
+              if tracked_dirs[path] == nil and is_ignored(rules, path, true, fold) then
+                found[#found + 1] = path .. "/"
+              elseif tracked_dirs[path] == nil and holds_repository(full .. "/" .. name) then
+                -- A nested repository is not this one's to read.
+              else
+                local ok, wtrouble = walk(path .. "/", rules)
+                if not ok then return nil, wtrouble end
+              end
+            end
+          elseif tracked[path] == nil and is_ignored(rules, path, false, fold) then
+            found[#found + 1] = path
+          end
+        end
+      end
+      return true
+    end
+    local ok, trouble = walk("", {})
+    if not ok then return nil, trouble end
+    table.sort(found)
+    return found
+  end
+
   --- `path` as an index path: relative to the top of the worktree,
   --- with no `.`, `..` or `.git` part.
   function index_name(self, path: string): (string) | (nil, Failure)
@@ -2580,13 +2658,14 @@ end
 --- repository's own directory, and the worktree is then `path` (git:
 --- the current directory) unless GIT_WORK_TREE names it; GIT_WORK_TREE
 --- alone moves the worktree of the repository found by looking up from
---- `path`; GIT_INDEX_FILE names the index file.
-function Git.open(path?: string): (Git.Repo) | (nil, Failure)
+--- `path`; GIT_INDEX_FILE names the index file. With `plain` true none of
+--- the three is read: the repository is the one found by looking up from `path`.
+function Git.open(path?: string, plain?: boolean): (Git.Repo) | (nil, Failure)
   local start, atrouble = Fs.absolute(path or ".")
   if start == nil then return nil, atrouble end
   local top = start:gsub("/+$", "")
   local gitdir: string
-  local given_dir = Env.get("GIT_DIR")
+  local given_dir = if plain == true then nil else Env.get("GIT_DIR") end
   if given_dir ~= nil and given_dir ~= "" then
     local named, ntrouble = Fs.absolute(given_dir)
     if named == nil then return nil, ntrouble end
@@ -2606,7 +2685,7 @@ function Git.open(path?: string): (Git.Repo) | (nil, Failure)
       top = top:match("^(.*)/[^/]*$") or ""
     end
   end
-  local given_tree = Env.get("GIT_WORK_TREE") or ""
+  local given_tree = if plain == true then "" else Env.get("GIT_WORK_TREE") or "" end
   local env_tree = given_tree ~= ""
   if env_tree then
     local named, ntrouble = Fs.absolute(given_tree)
@@ -2615,7 +2694,7 @@ function Git.open(path?: string): (Git.Repo) | (nil, Failure)
   end
   if top == "" then top = "/" end
   local index_file = gitdir .. "/index"
-  local given_index = Env.get("GIT_INDEX_FILE")
+  local given_index = if plain == true then nil else Env.get("GIT_INDEX_FILE") end
   if given_index ~= nil and given_index ~= "" then
     local named, ntrouble = Fs.absolute(given_index)
     if named == nil then return nil, ntrouble end
