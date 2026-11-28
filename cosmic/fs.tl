@@ -176,7 +176,8 @@ local class Dir
   --- itself, never what it leads to; a directory is a failure. The
   --- name is looked up in the held directory, so a directory swapped
   --- for a link on the path since it was opened does not lead the
-  --- removal elsewhere.
+  --- removal elsewhere. A name that is not there is a failure, unlike
+  --- [`Fs.remove`], which counts it as removed.
   function remove(self, name: string): (true) | (nil, Failure)
     local named = self.path .. "/" .. name
     if self.fd < 0 then return nil, Failure.new("the directory is closed", named) end

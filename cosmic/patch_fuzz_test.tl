@@ -109,6 +109,15 @@ local function check_patch(tmp: string, text: string, opts: Patch.Options): bool
   if assert(Fs.read(base .. "/beside")) ~= before_beside then
     return false, "a file beside the root changed"
   end
+  for _, path in ipairs(assert(Fs.walk(root))) do
+    local stat = assert(Fs.stat(root .. "/" .. path))
+    if ("/" .. path .. "/"):find("/.git/", 1, true) ~= nil then
+      return false, "a .git was made: " .. path
+    end
+    if stat.mode & 0xe00 ~= 0 then
+      return false, "a file got a setuid, setgid or sticky bit: " .. path
+    end
+  end
   if assert(Fs.status(root .. "/.git")).exists then return false, "a .git was made" end
   local unchanged = true
   local seen = result
